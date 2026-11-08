@@ -150,7 +150,7 @@ export function SessionHistoryMenu({
   return (
     <>
       <aside
-        className={`bg-background border-border hidden h-full w-60 shrink-0 border-r ${collapsed ? "" : "md:block"}`}
+        className={`bg-background border-r-border/20 hidden h-full w-60 shrink-0 border-r ${collapsed ? "" : "md:block"}`}
       >
         {content}
       </aside>
