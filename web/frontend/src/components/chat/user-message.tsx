@@ -34,31 +34,35 @@ export function UserMessage({
   return (
     <div className="group flex w-full flex-col items-end gap-1.5">
       {imageAttachments.length > 0 && (
-        <div className="flex max-w-[70%] flex-wrap justify-end gap-2">
+        <div className="flex max-w-[85%] flex-wrap justify-end gap-2 sm:max-w-[70%]">
           {imageAttachments.map((attachment, index) => (
-            <img
+            <div
               key={`${attachment.url}-${index}`}
-              src={attachment.url}
-              alt={attachment.filename || t("chat.uploadedImage")}
-              className="max-h-72 max-w-full object-cover"
-            />
+              className="border-border/80 overflow-hidden rounded-lg border shadow-xs"
+            >
+              <img
+                src={attachment.url}
+                alt={attachment.filename || t("chat.uploadedImage")}
+                className="max-h-72 max-w-full object-cover"
+              />
+            </div>
           ))}
         </div>
       )}
 
       {hasText && (
-        <div className="relative max-w-[70%]">
+        <div className="relative max-w-[85%] sm:max-w-[75%]">
           <div
             className={cn(
-              "wrap-break-word whitespace-pre-wrap",
+              "rounded-lg px-4 py-2.5 text-sm leading-relaxed wrap-break-word whitespace-pre-wrap",
               isCommand
-                ? "rounded-xl border border-zinc-200 bg-transparent px-4 py-3 font-mono text-[14px] text-zinc-800 dark:border-zinc-800/60 dark:bg-[#121212] dark:text-zinc-200 dark:shadow-sm"
-                : "rounded-2xl rounded-tr-sm bg-violet-500 px-5 py-3 text-[15px] leading-relaxed text-white shadow-sm",
+                ? "border-border/80 bg-muted/40 text-foreground border font-mono"
+                : "bg-primary text-primary-foreground selection:bg-accent selection:text-accent-foreground font-normal shadow-xs",
             )}
           >
             {isCommand ? (
-              <div className="flex items-start gap-2.5">
-                <span className="font-bold text-emerald-600 select-none dark:text-emerald-400">
+              <div className="flex items-start gap-2">
+                <span className="font-bold text-emerald-500 select-none">
                   ❯
                 </span>
                 <span className="mt-[1px]">{content}</span>
@@ -72,26 +76,26 @@ export function UserMessage({
             variant="ghost"
             size="icon"
             className={cn(
-              "bg-background/75 hover:bg-background absolute top-2 right-2 h-7 w-7 opacity-0 shadow-xs transition-opacity group-hover:opacity-100",
+              "absolute top-1.5 right-1.5 h-6 w-6 rounded-md opacity-0 transition-opacity group-hover:opacity-100",
               isCommand
-                ? "text-zinc-700 dark:text-zinc-200"
-                : "text-violet-700 dark:text-violet-100",
+                ? "text-muted-foreground hover:bg-muted"
+                : "text-primary-foreground/70 hover:bg-white/10 hover:text-white",
             )}
             onClick={() => void copy(content)}
             aria-label={copyMessageLabel}
             title={copyMessageLabel}
           >
             {isCopied ? (
-              <IconCheck className="h-4 w-4 text-green-500" />
+              <IconCheck className="h-3.5 w-3.5 text-emerald-400" />
             ) : (
-              <IconCopy className="h-4 w-4" />
+              <IconCopy className="h-3.5 w-3.5" />
             )}
           </Button>
         </div>
       )}
 
       {formattedTimestamp && (
-        <span className="px-1 text-[12px] text-zinc-400">
+        <span className="text-muted-foreground/60 px-1 font-mono text-[10px]">
           {formattedTimestamp}
         </span>
       )}

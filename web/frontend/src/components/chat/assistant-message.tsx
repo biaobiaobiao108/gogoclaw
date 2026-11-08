@@ -5,7 +5,7 @@ import {
   IconCopy,
   IconDownload,
   IconFileText,
-  IconTool,
+  IconTerminal2,
 } from "@tabler/icons-react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -59,7 +59,7 @@ export function AssistantMessage({
   const fileAttachments = attachments.filter(
     (attachment) => attachment.type !== "image",
   )
-  const [isExpanded, setIsExpanded] = useState(true)
+  const [isExpanded, setIsExpanded] = useState(false)
   const formattedTimestamp =
     timestamp !== "" ? formatMessageTime(timestamp) : ""
   const collapsedLabel = isThought
@@ -71,155 +71,135 @@ export function AssistantMessage({
   const trimmedModelName = modelName?.trim() ?? ""
 
   return (
-    <div className="group flex w-full flex-col gap-1.5">
+    <div className="group relative flex w-full flex-col gap-1.5 py-1">
+      {/* Meta header */}
       {!isCollapsedBlock && (
-        <div className="text-muted-foreground/60 flex items-center justify-between gap-2 px-1 text-xs opacity-70">
-          <div className="flex items-center gap-2">
-            <span>PicoClaw</span>
+        <div className="flex items-center justify-between gap-2 px-0.5 text-xs">
+          <div className="text-muted-foreground/80 flex items-center gap-1.5 font-mono text-[11px]">
+            <span className="text-foreground/90 font-semibold">PicoClaw</span>
             {trimmedModelName && (
               <>
-                <span className="opacity-50">•</span>
+                <span className="text-muted-foreground/40">/</span>
                 <span>{trimmedModelName}</span>
               </>
             )}
             {formattedTimestamp && (
               <>
-                <span className="opacity-50">•</span>
-                <span>{formattedTimestamp}</span>
+                <span className="text-muted-foreground/40">•</span>
+                <span className="text-muted-foreground/50">
+                  {formattedTimestamp}
+                </span>
               </>
             )}
           </div>
+
+          {hasText && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
+              onClick={() => void copy(content)}
+              aria-label={copyMessageLabel}
+              title={copyMessageLabel}
+            >
+              {isCopied ? (
+                <IconCheck className="h-3.5 w-3.5 text-emerald-500" />
+              ) : (
+                <IconCopy className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          )}
         </div>
       )}
 
+      {/* Main Content Area */}
       {(hasText || isCollapsedBlock || hasToolCalls) && (
         <div
           className={cn(
-            "relative overflow-hidden rounded-xl border",
+            "relative w-full rounded-lg text-sm",
             isCollapsedBlock
-              ? "border-border/30 bg-muted/20 text-muted-foreground dark:border-border/20 dark:bg-muted/10"
-              : "bg-card text-card-foreground border-border/60",
+              ? "border-border/50 bg-muted/25 text-muted-foreground border"
+              : "text-foreground leading-relaxed",
           )}
         >
+          {/* Thought or Tool calls collapsible trigger */}
           {isCollapsedBlock && (
-            <div
-              className="text-muted-foreground/60 hover:text-muted-foreground/80 flex cursor-pointer items-center justify-between px-3 py-2 text-[12px] font-medium transition-colors select-none"
+            <button
+              type="button"
+              className="hover:bg-muted/40 flex w-full items-center justify-between px-3 py-2 font-mono text-xs transition-colors"
               onClick={() => setIsExpanded(!isExpanded)}
             >
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
                 {isThought ? (
-                  <IconBrain className="size-3.5" />
+                  <IconBrain className="text-muted-foreground/80 size-3.5" />
                 ) : (
-                  <IconTool className="size-3.5" />
+                  <IconTerminal2 className="text-muted-foreground/80 size-3.5" />
                 )}
-                <span>{collapsedLabel}</span>
-                {trimmedModelName && (
-                  <span className="text-muted-foreground/45">
-                    {trimmedModelName}
+                <span className="font-medium">{collapsedLabel}</span>
+                {hasToolCalls && (
+                  <span className="bg-muted py-0.2 text-muted-foreground rounded px-1.5 font-mono text-[10px]">
+                    {toolCalls.length} calls
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                {formattedTimestamp && (
-                  <span className="opacity-50">{formattedTimestamp}</span>
+              <IconChevronDown
+                className={cn(
+                  "text-muted-foreground size-3.5 transition-transform duration-200",
+                  isExpanded ? "rotate-180" : "",
                 )}
-                <IconChevronDown
-                  className={cn(
-                    "size-3.5 opacity-0 transition-all duration-200 group-hover:opacity-100",
-                    isExpanded ? "rotate-180" : "",
-                  )}
-                />
-              </div>
-            </div>
+              />
+            </button>
           )}
-          {(!isCollapsedBlock || isExpanded) && isToolCalls && hasToolCalls && (
-            <div className="space-y-3 px-3 pt-0 pb-3">
+
+          {/* Tool Calls Content */}
+          {isCollapsedBlock && isExpanded && isToolCalls && hasToolCalls && (
+            <div className="border-border/40 space-y-2.5 border-t p-3">
               {toolCalls.map((toolCall, index) => {
                 const explanation =
                   toolCall.extraContent?.toolFeedbackExplanation?.trim() ?? ""
                 const toolName = toolCall.function?.name?.trim() ?? ""
                 const toolArguments = toolCall.function?.arguments?.trim() ?? ""
-                const hasFunctionSummary = toolName || toolArguments
-
-                if (!explanation && !hasFunctionSummary) {
-                  return null
-                }
 
                 return (
                   <div
                     key={toolCall.id ?? `${toolName}-${index}`}
-                    className={cn(
-                      "space-y-3",
-                      index > 0 && "border-border/20 border-t pt-3",
-                    )}
+                    className="space-y-1.5"
                   >
-                    {explanation && (
-                      <div className="space-y-1.5">
-                        <div className="text-muted-foreground/55 text-[11px] font-medium tracking-wide uppercase">
-                          {t("chat.toolCallExplanationLabel")}
-                        </div>
-                        <div className="prose dark:prose-invert prose-p:my-1.5 prose-p:whitespace-pre-wrap max-w-none text-[13px] leading-relaxed [overflow-wrap:anywhere] break-words opacity-75">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            rehypePlugins={[
-                              rehypeRaw,
-                              rehypeSanitize,
-                              rehypeHighlight,
-                            ]}
-                            components={{
-                              pre: MarkdownCodeBlock,
-                            }}
-                          >
-                            {explanation}
-                          </ReactMarkdown>
-                        </div>
+                    {toolName && (
+                      <div className="text-foreground/80 flex items-center gap-1.5 font-mono text-xs">
+                        <span className="font-bold text-emerald-500">❯</span>
+                        <span className="font-semibold">{toolName}</span>
                       </div>
                     )}
-
-                    {hasFunctionSummary && (
-                      <div
-                        className={cn(
-                          "space-y-1.5",
-                          explanation && "border-border/20 border-t pt-3",
-                        )}
-                      >
-                        <div className="text-muted-foreground/55 text-[11px] font-medium tracking-wide uppercase">
-                          {t("chat.toolCallFunctionLabel")}
-                        </div>
-                        <div className="bg-background/55 border-border/25 space-y-2 rounded-lg border px-3 py-2.5">
-                          {toolName && !toolArguments && (
-                            <div className="text-foreground/75 font-mono text-[12px] font-semibold">
-                              {toolName}
-                            </div>
-                          )}
-                          {toolArguments && (
-                            <MessageCodeBlock
-                              code={toolArguments}
-                              language="json"
-                              label={
-                                toolName || t("chat.toolCallArgumentsLabel")
-                              }
-                              className="my-0 shadow-none"
-                              bodyClassName="px-3 py-2 text-[12px] leading-relaxed"
-                            />
-                          )}
-                        </div>
-                      </div>
+                    {explanation && (
+                      <p className="text-muted-foreground text-xs leading-relaxed">
+                        {explanation}
+                      </p>
+                    )}
+                    {toolArguments && (
+                      <MessageCodeBlock
+                        code={toolArguments}
+                        language="json"
+                        className="border-border/50 my-1 text-xs"
+                        bodyClassName="p-2.5 leading-snug"
+                      />
                     )}
                   </div>
                 )
               })}
             </div>
           )}
-          {(!isCollapsedBlock || isExpanded) && !isToolCalls && hasText && (
-            <div
-              className={cn(
-                "prose dark:prose-invert prose-pre:my-2 prose-pre:overflow-x-auto prose-pre:rounded-lg prose-pre:border prose-pre:bg-zinc-100 prose-pre:p-0 prose-pre:text-zinc-900 dark:prose-pre:bg-zinc-950 dark:prose-pre:text-zinc-100 max-w-none [overflow-wrap:anywhere] break-words",
-                isThought
-                  ? "prose-p:my-1.5 prose-p:whitespace-pre-wrap px-3 pt-0 pb-3 text-[13px] leading-relaxed opacity-70"
-                  : "prose-p:my-2 prose-p:whitespace-pre-wrap p-4 text-[15px] leading-relaxed",
-              )}
-            >
+
+          {/* Thought Content */}
+          {isCollapsedBlock && isExpanded && isThought && hasText && (
+            <div className="border-border/40 text-muted-foreground border-t p-3 font-mono text-xs leading-relaxed">
+              <div className="whitespace-pre-wrap">{content}</div>
+            </div>
+          )}
+
+          {/* Normal Assistant Markdown Text */}
+          {!isCollapsedBlock && hasText && (
+            <div className="prose dark:prose-invert max-w-none text-[14.5px] leading-relaxed [overflow-wrap:anywhere] break-words">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeHighlight]}
@@ -231,73 +211,51 @@ export function AssistantMessage({
               </ReactMarkdown>
             </div>
           )}
-
-          {!isCollapsedBlock && hasText && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "bg-background/50 hover:bg-background/80 absolute top-2 right-2 h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100",
-              )}
-              onClick={() => void copy(content)}
-              aria-label={copyMessageLabel}
-              title={copyMessageLabel}
-            >
-              {isCopied ? (
-                <IconCheck className="h-4 w-4 text-green-500" />
-              ) : (
-                <IconCopy className="text-muted-foreground h-4 w-4" />
-              )}
-            </Button>
-          )}
         </div>
       )}
 
+      {/* Image Attachments */}
       {imageAttachments.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-2">
+        <div className="mt-2 flex flex-wrap gap-2">
           {imageAttachments.map((attachment, index) => (
             <a
               key={`${attachment.url}-${index}`}
               href={attachment.url}
               target="_blank"
               rel="noreferrer"
-              className="group/img border-border/50 bg-muted/30 hover:border-border/80 relative overflow-hidden rounded-xl border shadow-sm transition-colors"
+              className="border-border/60 hover:border-border relative overflow-hidden rounded-lg border shadow-xs transition-opacity hover:opacity-95"
             >
               <img
                 src={attachment.url}
                 alt={attachment.filename || "Attached image"}
-                className="max-h-80 max-w-[280px] object-contain transition-transform duration-300 group-hover/img:scale-[1.02]"
+                className="max-h-80 max-w-[280px] object-contain"
               />
-              <div className="absolute inset-0 bg-black/0 transition-colors group-hover/img:bg-black/10 dark:group-hover/img:bg-black/20" />
             </a>
           ))}
         </div>
       )}
 
+      {/* File Attachments */}
       {fileAttachments.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-3">
+        <div className="mt-2 flex flex-wrap gap-2">
           {fileAttachments.map((attachment, index) => (
             <a
               key={`${attachment.url}-${index}`}
               href={attachment.url}
               download={attachment.filename}
-              className="group/file border-border/60 bg-card flex w-fit max-w-sm min-w-[220px] items-center gap-3.5 rounded-xl border px-4 py-3 transition-all duration-300 hover:-translate-y-0.5 hover:border-violet-500/30 hover:shadow-sm dark:hover:border-violet-500/40"
+              className="border-border/60 bg-card hover:bg-muted/40 flex w-fit max-w-sm min-w-[200px] items-center gap-3 rounded-lg border px-3 py-2 text-xs transition-colors"
             >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-violet-400 ring-1 ring-violet-500/10 dark:bg-violet-500/10 dark:text-violet-400 dark:ring-violet-500/30">
-                <IconFileText className="h-5 w-5" />
-              </div>
-              <div className="flex min-w-0 flex-1 flex-col pr-1">
-                <span className="text-foreground/90 truncate text-[14px] leading-tight font-medium transition-colors group-hover/file:text-violet-600 dark:group-hover/file:text-violet-400">
+              <IconFileText className="text-muted-foreground h-4 w-4" />
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="text-foreground truncate font-medium">
                   {attachment.filename || "Download file"}
                 </span>
-                <span className="text-muted-foreground/70 mt-1 text-[12px] font-medium">
+                <span className="text-muted-foreground font-mono text-[10px]">
                   {attachment.filename?.split(".").pop()?.toUpperCase() ||
                     "FILE"}
                 </span>
               </div>
-              <div className="bg-muted/60 text-muted-foreground/50 dark:bg-muted/20 flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-300 group-hover/file:bg-violet-400 group-hover/file:text-white group-hover/file:shadow-sm dark:group-hover/file:bg-violet-400">
-                <IconDownload className="h-4 w-4 transition-transform duration-300 group-hover/file:-translate-y-[1px]" />
-              </div>
+              <IconDownload className="text-muted-foreground h-3.5 w-3.5" />
             </a>
           ))}
         </div>

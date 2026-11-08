@@ -15,29 +15,22 @@ export function TypingIndicator() {
     const stepsCount = thinkingSteps.length
     const interval = setInterval(() => {
       setStepIndex((prev) => (prev + 1) % stepsCount)
-    }, 3000)
+    }, 2500)
     return () => clearInterval(interval)
   }, [thinkingSteps.length])
 
   return (
-    <div className="flex w-full flex-col gap-1.5">
-      <div className="bg-card border-border/50 inline-flex w-fit max-w-xs flex-col gap-3 rounded-xl border px-5 py-4">
-        <div className="flex items-center gap-1.5">
-          <span className="size-2 animate-bounce rounded-full bg-violet-400/70 [animation-delay:-0.3s]" />
-          <span className="size-2 animate-bounce rounded-full bg-violet-400/70 [animation-delay:-0.15s]" />
-          <span className="size-2 animate-bounce rounded-full bg-violet-400/70" />
-        </div>
-
-        <div className="bg-muted relative h-1 w-36 overflow-hidden rounded-full">
-          <div className="absolute inset-0 animate-[shimmer_2s_infinite] rounded-full bg-gradient-to-r from-violet-500/60 via-violet-400/80 to-violet-500/60 bg-[length:200%_100%]" />
-        </div>
-
-        <p
+    <div className="flex w-full items-center gap-2 py-2">
+      <div className="border-border/60 bg-muted/30 flex items-center gap-1.5 rounded-md border px-3 py-1.5 shadow-xs">
+        <span className="bg-accent size-1.5 animate-pulse rounded-full" />
+        <span className="bg-accent size-1.5 animate-pulse rounded-full [animation-delay:0.2s]" />
+        <span className="bg-accent size-1.5 animate-pulse rounded-full [animation-delay:0.4s]" />
+        <span
           key={stepIndex}
-          className="text-muted-foreground animate-[fadeSlideIn_0.4s_ease-out] text-xs"
+          className="text-muted-foreground ml-2 animate-[fadeSlideIn_0.3s_ease-out] font-mono text-xs"
         >
           {thinkingSteps[stepIndex]}
-        </p>
+        </span>
       </div>
     </div>
   )

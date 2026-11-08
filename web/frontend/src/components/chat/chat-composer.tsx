@@ -1,4 +1,4 @@
-import { IconArrowUp, IconPhotoPlus, IconX } from "@tabler/icons-react"
+import { IconArrowUp, IconPaperclip, IconX } from "@tabler/icons-react"
 import {
   type ClipboardEvent as ReactClipboardEvent,
   type DragEvent as ReactDragEvent,
@@ -91,12 +91,13 @@ export function ChatComposer({
   }
 
   return (
-    <div className="before:bg-background pointer-events-none relative z-10 -mt-[24px] shrink-0 [scrollbar-gutter:stable] overflow-y-auto px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] before:pointer-events-none before:absolute before:inset-x-0 before:top-[24px] before:bottom-0 before:content-[''] md:px-8 md:pb-8 lg:px-24 xl:px-48">
-      <div className="pointer-events-auto mx-auto flex max-w-[1000px] flex-col items-end">
+    <div className="relative z-20 shrink-0 px-4 pb-4 md:px-8 lg:px-24 xl:px-48">
+      <div className="mx-auto flex w-full max-w-4xl flex-col">
         <div
           className={cn(
-            "bg-card border-border/60 relative flex w-full flex-col rounded-2xl border p-3 shadow-sm transition-colors",
-            isDragActive && "border-violet-400/70 bg-violet-500/5",
+            "bg-card/90 supports-backdrop-filter:bg-card/75 border-border/80 focus-within:border-primary/50 relative flex w-full flex-col rounded-xl border shadow-xs backdrop-blur-sm transition-all",
+            isDragActive &&
+              "border-accent/80 bg-accent/5 ring-accent/20 ring-2",
           )}
           onDragEnter={onDragEnter}
           onDragLeave={onDragLeave}
@@ -104,39 +105,40 @@ export function ChatComposer({
           onDrop={onDrop}
         >
           {isDragActive && (
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-violet-400/70 bg-violet-500/10">
-              <div className="bg-background/95 text-foreground rounded-full px-4 py-2 text-sm font-medium shadow-sm">
+            <div className="border-accent/60 bg-card/95 pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl border-2 border-dashed">
+              <div className="text-foreground font-mono text-xs font-medium">
                 {t("chat.dropImagesActive")}
               </div>
             </div>
           )}
 
+          {/* Attachments preview row */}
           {attachments.length > 0 && (
-            <div className="mb-3 flex flex-wrap gap-2 px-2">
+            <div className="border-border/40 flex flex-wrap gap-2 border-b p-2.5">
               {attachments.map((attachment, index) => (
                 <div
                   key={`${attachment.url}-${index}`}
-                  className="bg-background relative h-20 w-20 overflow-hidden rounded-xl border"
+                  className="bg-muted border-border relative size-14 overflow-hidden rounded-md border"
                 >
                   <img
                     src={attachment.url}
                     alt={attachment.filename || t("chat.uploadedImage")}
-                    className="h-full w-full object-cover"
+                    className="size-full object-cover"
                   />
                   <button
                     type="button"
                     onClick={() => onRemoveAttachment(index)}
-                    className="bg-background/85 text-foreground absolute top-1 right-1 inline-flex h-6 w-6 items-center justify-center rounded-full border shadow-sm transition hover:bg-white"
+                    className="bg-background/90 text-foreground hover:bg-background absolute top-1 right-1 inline-flex size-4 items-center justify-center rounded-full border shadow-xs"
                     aria-label={t("chat.removeImage")}
-                    title={t("chat.removeImage")}
                   >
-                    <IconX className="h-3.5 w-3.5" />
+                    <IconX className="size-2.5" />
                   </button>
                 </div>
               ))}
             </div>
           )}
 
+          {/* Input text area */}
           <TextareaAutosize
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
@@ -152,65 +154,63 @@ export function ChatComposer({
             disabled={!canInput}
             title={disabledMessage || undefined}
             className={cn(
-              "placeholder:text-muted-foreground/50 max-h-[200px] min-h-[64px] resize-none border-0 bg-transparent px-2 py-1 text-[15px] shadow-none transition-colors focus-visible:ring-0 focus-visible:outline-none dark:bg-transparent",
-              !canInput && "cursor-not-allowed",
+              "placeholder:text-muted-foreground/45 max-h-[220px] min-h-[48px] resize-none border-0 bg-transparent px-3 py-2.5 text-sm leading-relaxed shadow-none focus-visible:outline-none dark:bg-transparent",
+              !canInput && "cursor-not-allowed opacity-60",
             )}
             minRows={1}
             maxRows={8}
           />
 
-          <div className="mt-2 flex items-center justify-between px-1">
+          {/* Action bar bottom */}
+          <div className="border-border/40 flex items-center justify-between border-t px-2.5 py-1.5">
             <div className="flex items-center gap-1">
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="text-muted-foreground hover:text-foreground h-8 w-8 rounded-full"
+                className="text-muted-foreground hover:text-foreground size-7 rounded-md"
                 onClick={onAddImages}
                 disabled={!canInput}
                 aria-label={t("chat.attachImage")}
                 title={t("chat.attachImage")}
               >
-                <IconPhotoPlus className="size-4" />
+                <IconPaperclip className="size-3.5" />
               </Button>
             </div>
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               {contextUsage && (
                 <ContextUsageRing
                   usage={contextUsage}
                   onDetailClick={onContextDetail}
                 />
               )}
-              {canInput ? (
-                <span tabIndex={!canSend ? 0 : undefined}>
-                  <Button
-                    type="button"
-                    size="icon"
-                    className="size-8 rounded-full bg-violet-500 text-white transition-transform hover:bg-violet-600 active:scale-95"
-                    onClick={onSend}
-                    disabled={!canSend}
-                    aria-label={t("chat.sendMessage")}
-                  >
-                    <IconArrowUp className="size-4" />
-                  </Button>
-                </span>
-              ) : null}
+              {canInput && (
+                <Button
+                  type="button"
+                  size="icon"
+                  className={cn(
+                    "size-7 rounded-md transition-all",
+                    canSend
+                      ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                      : "bg-muted text-muted-foreground/40",
+                  )}
+                  onClick={onSend}
+                  disabled={!canSend}
+                  aria-label={t("chat.sendMessage")}
+                >
+                  <IconArrowUp className="size-3.5" />
+                </Button>
+              )}
             </div>
           </div>
         </div>
 
-        <div
-          aria-hidden={!hasInput}
-          className={cn(
-            "border-border/50 bg-muted/55 text-muted-foreground dark:bg-muted/45 mt-2 inline-flex items-center rounded-md border px-3 py-1 text-[11px] shadow-sm transition-all duration-200",
-            hasInput
-              ? "translate-y-0 opacity-100"
-              : "pointer-events-none -translate-y-1 opacity-0",
-          )}
-        >
-          {t("chat.composeHint")}
-        </div>
+        {hasInput && (
+          <div className="text-muted-foreground/60 mt-1.5 self-end px-1 font-mono text-[10px]">
+            {t("chat.composeHint")}
+          </div>
+        )}
       </div>
     </div>
   )

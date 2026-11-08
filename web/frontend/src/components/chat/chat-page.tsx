@@ -62,43 +62,33 @@ function resolveChatInputDisabledReason({
   if (gatewayState === "unknown") {
     return "gatewayUnknown"
   }
-
   if (gatewayState === "starting") {
     return "gatewayStarting"
   }
-
   if (gatewayState === "restarting") {
     return "gatewayRestarting"
   }
-
   if (gatewayState === "stopping") {
     return "gatewayStopping"
   }
-
   if (gatewayState === "stopped") {
     return "gatewayStopped"
   }
-
   if (gatewayState === "error") {
     return "gatewayError"
   }
-
   if (connectionState === "connecting") {
     return "websocketConnecting"
   }
-
   if (connectionState === "error") {
     return "websocketError"
   }
-
   if (connectionState === "disconnected") {
     return "websocketDisconnected"
   }
-
   if (!hasDefaultModel) {
     return "noDefaultModel"
   }
-
   return null
 }
 
@@ -312,7 +302,7 @@ export function ChatPage() {
     canInput && (Boolean(input.trim()) || attachments.length > 0)
 
   return (
-    <div className="bg-background/95 flex h-full flex-col">
+    <div className="bg-background flex h-full flex-col">
       <PageHeader
         title={t("navigation.chat")}
         className={`transition-shadow ${
@@ -331,8 +321,8 @@ export function ChatPage() {
           )
         }
       >
-        <div className="border-border/60 hidden items-center gap-2 rounded-lg border px-3 py-1.5 sm:flex">
-          <span className="text-muted-foreground text-sm">
+        <div className="border-border/60 bg-card hidden items-center gap-2 rounded-md border px-2.5 py-1 sm:flex">
+          <span className="text-muted-foreground font-mono text-xs">
             {t("chat.showAssistantDetails")}
           </span>
           <Select
@@ -344,13 +334,17 @@ export function ChatPage() {
             <SelectTrigger
               size="sm"
               aria-label={t("chat.showAssistantDetails")}
-              className="text-muted-foreground hover:text-foreground focus-visible:border-input h-8 min-w-[104px] bg-transparent shadow-none focus-visible:ring-0"
+              className="text-foreground hover:text-foreground h-7 min-w-[90px] border-0 bg-transparent text-xs shadow-none focus-visible:ring-0"
             >
               <SelectValue />
             </SelectTrigger>
             <SelectContent align="end">
               {assistantDetailVisibilityOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
+                <SelectItem
+                  key={option.value}
+                  value={option.value}
+                  className="text-xs"
+                >
                   {option.label}
                 </SelectItem>
               ))}
@@ -359,12 +353,12 @@ export function ChatPage() {
         </div>
 
         <Button
-          variant="secondary"
+          variant="outline"
           size="sm"
           onClick={newChat}
-          className="h-9 gap-2"
+          className="h-8 gap-1.5 px-2.5 text-xs font-medium"
         >
-          <IconPlus className="size-4" />
+          <IconPlus className="size-3.5" />
           <span className="hidden sm:inline">{t("chat.newChat")}</span>
         </Button>
 
@@ -385,12 +379,13 @@ export function ChatPage() {
         />
       </PageHeader>
 
+      {/* Main chat stream container */}
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="min-h-0 flex-1 [scrollbar-gutter:stable] overflow-y-auto px-4 py-6 md:px-8 lg:px-24 xl:px-48"
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-8 lg:px-24 xl:px-48"
       >
-        <div className="mx-auto flex w-full max-w-250 flex-col gap-8 pb-8">
+        <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 pb-6">
           {messages.length === 0 && !isTyping && (
             <ChatEmptyState
               hasAvailableModels={hasAvailableModels}

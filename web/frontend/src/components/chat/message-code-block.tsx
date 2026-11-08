@@ -1,4 +1,9 @@
-import { IconCheck, IconChevronDown, IconCopy } from "@tabler/icons-react"
+import {
+  IconCheck,
+  IconChevronDown,
+  IconCopy,
+  IconTextWrap,
+} from "@tabler/icons-react"
 import hljs from "highlight.js/lib/core"
 import json from "highlight.js/lib/languages/json"
 import { useAtom } from "jotai"
@@ -25,9 +30,6 @@ import {
   trimTrailingEmptyRenderedCodeLine,
   trimTrailingEmptyStringLine,
 } from "./message-code-block.utils"
-
-const CODE_LABEL_FONT_FAMILY =
-  'ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", monospace'
 
 hljs.registerLanguage("json", json)
 
@@ -107,47 +109,57 @@ export function MessageCodeBlock({
     <div
       data-picoclaw-code-block=""
       className={cn(
-        "not-prose my-4 overflow-hidden rounded-lg border border-[#d0d7de] bg-[#f6f8fa] text-[#24292f] shadow-xs dark:border-[#30363d] dark:bg-[#0d1117] dark:text-[#c9d1d9]",
+        "not-prose border-border/80 bg-muted/20 text-foreground my-3 overflow-hidden rounded-lg border shadow-xs",
         className,
       )}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-[#d0d7de] bg-black/[0.03] px-3 py-2 dark:border-[#30363d] dark:bg-white/[0.03]">
-        <span
-          className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400"
-          style={{ fontFamily: CODE_LABEL_FONT_FAMILY }}
-        >
-          {blockLabel}
-        </span>
+      {/* Precision terminal header bar */}
+      <div className="border-border/60 bg-muted/40 flex items-center justify-between gap-2 border-b px-3 py-1.5">
+        <div className="flex items-center gap-2">
+          <span className="bg-border size-2 rounded-full" />
+          <span className="text-muted-foreground font-mono text-xs font-medium">
+            {blockLabel}
+          </span>
+        </div>
         <div className="flex items-center gap-1">
           <Button
             type="button"
             variant="ghost"
             size="xs"
-            className="h-7 text-zinc-600 hover:bg-zinc-300/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            className="text-muted-foreground hover:text-foreground h-6 gap-1 px-1.5 text-xs"
             onClick={() => void copy(code)}
             aria-label={copyLabel}
             title={copyLabel}
           >
-            {isCopied ? <IconCheck className="text-green-500" /> : <IconCopy />}
-            <span className="hidden sm:inline">{copyLabel}</span>
+            {isCopied ? (
+              <IconCheck className="size-3.5 text-emerald-500" />
+            ) : (
+              <IconCopy className="size-3.5" />
+            )}
+            <span className="hidden font-mono text-[11px] sm:inline">
+              {copyLabel}
+            </span>
           </Button>
           <Button
             type="button"
             variant="ghost"
             size="xs"
-            className="h-7 px-2 text-[11px] text-zinc-600 hover:bg-zinc-300/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            className={cn(
+              "text-muted-foreground hover:text-foreground h-6 px-1.5 text-xs",
+              wrapLongLines && "text-foreground bg-muted",
+            )}
             onClick={() => setWrapLongLines((current) => !current)}
             aria-pressed={wrapLongLines}
             aria-label={wrapLabel}
             title={wrapLabel}
           >
-            {wrapLabel}
+            <IconTextWrap className="size-3.5" />
           </Button>
           <Button
             type="button"
             variant="ghost"
             size="xs"
-            className="h-7 text-zinc-600 hover:bg-zinc-300/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            className="text-muted-foreground hover:text-foreground h-6 px-1.5 text-xs"
             onClick={() => setIsExpanded((expanded) => !expanded)}
             aria-expanded={isExpanded}
             aria-label={expandLabel}
@@ -155,11 +167,10 @@ export function MessageCodeBlock({
           >
             <IconChevronDown
               className={cn(
-                "transition-transform duration-200",
+                "size-3.5 transition-transform duration-200",
                 isExpanded && "rotate-180",
               )}
             />
-            <span className="hidden sm:inline">{expandLabel}</span>
           </Button>
         </div>
       </div>
@@ -167,7 +178,7 @@ export function MessageCodeBlock({
       {isExpanded && (
         <pre
           className={cn(
-            "m-0 overflow-x-auto bg-transparent px-4 py-3 font-mono text-[13px] leading-6",
+            "bg-card/60 m-0 overflow-x-auto p-3 font-mono text-xs leading-relaxed",
             bodyClassName,
           )}
         >
@@ -192,13 +203,13 @@ export function MessageCodeBlock({
                   } as CSSProperties
                 }
               >
-                <span className="sticky left-0 z-1 bg-[#f6f8fa] text-right text-zinc-500/80 select-none dark:bg-[#0d1117] dark:text-zinc-500">
+                <span className="bg-card/60 text-muted-foreground/40 sticky left-0 z-1 text-right font-mono text-[11px] select-none">
                   {index + 1}
                 </span>
                 {!children && highlightedLines ? (
                   <span
                     className={cn(
-                      "min-w-0",
+                      "min-w-0 font-mono text-xs",
                       wrapLongLines
                         ? "break-words whitespace-pre-wrap"
                         : "whitespace-pre",
@@ -208,7 +219,7 @@ export function MessageCodeBlock({
                 ) : (
                   <span
                     className={cn(
-                      "min-w-0",
+                      "min-w-0 font-mono text-xs",
                       wrapLongLines
                         ? "break-words whitespace-pre-wrap"
                         : "whitespace-pre",
