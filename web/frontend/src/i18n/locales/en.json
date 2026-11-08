@@ -432,6 +432,10 @@
       "noProvider": "No provider found.",
       "noCatalog": "Provider catalog unavailable.",
       "local": "local"
+    },
+    "empty": {
+      "title": "No models configured yet",
+      "description": "Click 'Add Model' or choose from catalog to configure your LLM providers."
     }
   },
   "channels": {

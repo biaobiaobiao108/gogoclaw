@@ -432,6 +432,10 @@
       "noProvider": "未找到服务商。",
       "noCatalog": "Provider catalog 暂不可用。",
       "local": "本地"
+    },
+    "empty": {
+      "title": "暂未配置任何模型",
+      "description": "点击上方“添加模型”或“从目录选择”即可快速接入常用大语言模型服务商。"
     }
   },
   "channels": {

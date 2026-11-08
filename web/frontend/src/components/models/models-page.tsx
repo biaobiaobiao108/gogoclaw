@@ -1064,28 +1064,69 @@ export function ModelsPage() {
           </div>
         )}
 
-        {!loading && !savingChain && !modelUpdatePending && !fetchError && (
-          <div className="pb-8">
-            {providerGroups.map((providerGroup) => (
-              <ProviderSection
-                key={providerGroup.key}
-                provider={providerGroup.provider}
-                models={providerGroup.models}
-                onEdit={setEditingModel}
-                onSetDefault={handleSetDefault}
-                onToggleFallback={handleToggleFallback}
-                onDelete={setDeletingModel}
-                fallbackChain={fallbackChainDraft}
-                defaultModelName={defaultModelDraft}
-                defaultModelEntryCount={defaultModelEntryCount}
-                defaultChainAllowedModelNames={defaultChainAllowedModelNames}
-                fallbackDefaultConflictModelNames={
-                  fallbackDefaultConflictModelNames
-                }
-              />
-            ))}
-          </div>
-        )}
+        {!loading &&
+          !savingChain &&
+          !modelUpdatePending &&
+          !fetchError &&
+          providerGroups.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="border-border/70 bg-muted/40 text-muted-foreground mb-4 flex size-12 items-center justify-center rounded-lg border">
+                <IconDatabase className="size-6 opacity-70" />
+              </div>
+              <h2 className="text-foreground text-sm font-semibold tracking-tight">
+                {t("models.empty.title")}
+              </h2>
+              <p className="text-muted-foreground mt-1 max-w-sm text-xs leading-relaxed">
+                {t("models.empty.description")}
+              </p>
+              <div className="mt-4 flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCatalogOpen(true)}
+                  className="h-8 gap-1.5 px-3 text-xs"
+                >
+                  <IconDatabase className="size-3.5" />
+                  {t("models.catalog.button")}
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => setAddOpen(true)}
+                  className="h-8 gap-1.5 px-3 text-xs"
+                >
+                  <IconPlus className="size-3.5" />
+                  {t("models.add.button")}
+                </Button>
+              </div>
+            </div>
+          )}
+
+        {!loading &&
+          !savingChain &&
+          !modelUpdatePending &&
+          !fetchError &&
+          providerGroups.length > 0 && (
+            <div className="space-y-6 pb-8">
+              {providerGroups.map((providerGroup) => (
+                <ProviderSection
+                  key={providerGroup.key}
+                  provider={providerGroup.provider}
+                  models={providerGroup.models}
+                  onEdit={setEditingModel}
+                  onSetDefault={handleSetDefault}
+                  onToggleFallback={handleToggleFallback}
+                  onDelete={setDeletingModel}
+                  fallbackChain={fallbackChainDraft}
+                  defaultModelName={defaultModelDraft}
+                  defaultModelEntryCount={defaultModelEntryCount}
+                  defaultChainAllowedModelNames={defaultChainAllowedModelNames}
+                  fallbackDefaultConflictModelNames={
+                    fallbackDefaultConflictModelNames
+                  }
+                />
+              ))}
+            </div>
+          )}
       </div>
 
       <EditModelSheet
