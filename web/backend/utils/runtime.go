@@ -52,7 +52,46 @@ func FindGogoclawBinary() string {
 		}
 	}
 
+	// `go run` executes the launcher from a temporary build directory. During
+	// development, still find the CLI built in the repository's build folder.
+	if workDir, err := os.Getwd(); err == nil {
+		if candidate := findGogoclawBinaryInAncestors(workDir, binaryName); candidate != "" {
+			return candidate
+		}
+	}
+
+	if candidate, err := exec.LookPath(binaryName); err == nil {
+		return candidate
+	}
+
 	return "gogoclaw"
+}
+
+func findGogoclawBinaryInAncestors(startDir, binaryName string) string {
+	dir, err := filepath.Abs(startDir)
+	if err != nil {
+		return ""
+	}
+
+	for {
+		if info, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil && !info.IsDir() {
+			for _, candidate := range []string{
+				filepath.Join(dir, "build", binaryName),
+				filepath.Join(dir, binaryName),
+			} {
+				if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+					return candidate
+				}
+			}
+			return ""
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
 
 func appendUniqueIP(addrs []string, seen map[string]struct{}, value string) []string {
