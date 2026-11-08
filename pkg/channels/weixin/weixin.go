@@ -351,8 +351,9 @@ func (c *WeixinChannel) handleInboundMessage(ctx context.Context, msg WeixinMess
 	}
 
 	if !c.IsAllowedSender(sender) {
-		logger.DebugCF("weixin", "Message rejected by allowlist", map[string]any{
+		logger.WarnCF("weixin", "Message rejected by allowlist", map[string]any{
 			"from_user_id": fromUserID,
+			"hint":         "Use this exact from_user_id in channels.weixin.allow_from, or rebind in the Web console to allowlist the scanner automatically.",
 		})
 		return
 	}

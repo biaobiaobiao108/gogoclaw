@@ -322,7 +322,7 @@ export function WeixinForm({
         <CardContent className="divide-border/60 divide-y px-6 py-0 [&>div]:py-5">
           <ChannelArrayListField
             label={t("channels.field.allowFrom")}
-            hint={t("channels.form.desc.allowFrom")}
+            hint={t("channels.form.desc.weixinAllowFrom")}
             value={asStringArray(config.allow_from)}
             onChange={(value) => onChange("allow_from", value)}
             placeholder={t("channels.field.allowFromPlaceholder")}

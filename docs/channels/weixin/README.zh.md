@@ -1,31 +1,24 @@
-# 💬 微信个人号渠道 (Weixin)
+# 微信个人号频道
 
-GoGoClaw 支持使用腾讯官方 iLink API 连接您的个人微信账号。
+> 返回 [README](../../project/README.zh.md)
 
-## 🚀 快速激活
+GoGoClaw 通过腾讯 iLink API 连接个人微信账号。该协议是 1:1 绑定：扫码登录的微信用户就是 Agent 的服务对象。
 
-最简单的方法是使用交互式 onboarding 命令进行一键激活：
+## 扫码绑定
+
+Web 控制台：进入“频道 → 微信”，点击绑定并扫描二维码。确认后 GoGoClaw 会：
+
+1. 保存 iLink bot token 和 account ID。
+2. 把登录响应中的 `ilink_user_id` 写入 `allow_from`。
+3. 启用微信频道并重启运行中的 gateway。
+
+CLI：
 
 ```bash
 gogoclaw auth weixin
 ```
 
-该命令将：
-1. 从 iLink API 获取二维码并在终端中打印。
-2. 等待您使用手机微信 App 扫码。
-3. 扫码确认后，自动将生成的 Access Token 保存至您的 `~/.gogoclaw/config.json` 中。
-
-配置完成后，即可启动网关：
-
-```bash
-gogoclaw gateway
-```
-
----
-
-## ⚙️ 配置说明
-
-您也可以在 `config.json` 的 `channels.weixin` 段目下进行手动维护。
+## 配置结构
 
 ```json
 {
@@ -33,27 +26,41 @@ gogoclaw gateway
     "weixin": {
       "enabled": true,
       "type": "weixin",
-      "token": "YOUR_WEIXIN_TOKEN",
-      "allow_from": [
-        "user_id_1",
-        "user_id_2"
-      ],
-      "proxy": ""
+      "allow_from": ["o9cq...@im.wechat"],
+      "settings": {
+        "account_id": "...@im.bot",
+        "base_url": "https://ilinkai.weixin.qq.com/",
+        "cdn_base_url": "https://novac2c.cdn.weixin.qq.com/c2c",
+        "proxy": ""
+      }
     }
   }
 }
 ```
 
-### 字段解析
-
 | 字段 | 说明 |
 |---|---|
-| `enabled` | 设置为 `true` 以在启动时激活该频道。 |
-| `token` | 通过扫码获取的认证令牌。 |
-| `allow_from` | (可选) 允许与机器人交互的微信 User ID 列表。如果为空，任何能给此微信号发消息的人都可以触发机器人。 |
-| `proxy` | (可选) HTTP 代理地址（例如 `http://localhost:7890`），适合网络访问受限环境。 |
+| `allow_from` | 必须使用 iLink 的 `from_user_id`，不能使用微信昵称 |
+| `settings.account_id` | 登录返回的 iLink bot account ID |
+| `settings.base_url` | iLink API 地址；区域重定向时使用服务端返回的地址 |
+| `settings.cdn_base_url` | 媒体 CDN 地址 |
+| `settings.proxy` | 可选 HTTP 代理 |
 
-## ⚠️ 注意事项
+## 绑定成功但没有回复
 
-- **单端绑定**: iLink 令牌通常与单个会话绑定。在其他地方重新扫码激活可能会导致旧令牌失效。
-- **频率控制**: 为避免触发微信的风控反垃圾机制，请避免设置死循环触发、高频广播等恶意行为。
+查看 `/data/.gogoclaw/logs/gateway.log`。先确认频道已启动，再发送一条**新消息**。如果看到：
+
+```text
+Message rejected by allowlist
+from_user_id=o9cq...@im.wechat
+```
+
+把日志中的精确 `from_user_id` 写入 `allow_from`，然后重启 gateway。新版 Web 绑定会自动完成这一步；升级前绑定的账号建议重新扫码。
+
+如果日志没有入站消息，检查 iLink 是否返回 `Session expired`、`getUpdates API error` 或 token 失效。`allow_from` 为空时 GoGoClaw 会开放所有来源，并输出安全警告；个人号绑定应始终使用明确用户 ID。
+
+## 注意事项
+
+- 重新扫码可能让旧 iLink token 失效。
+- 不要把 bot token 写入仓库或截图。
+- 避免高频广播、循环触发和违反微信平台规则的行为。

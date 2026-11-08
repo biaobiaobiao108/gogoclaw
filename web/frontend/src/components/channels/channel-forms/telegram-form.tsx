@@ -80,7 +80,7 @@ export function TelegramForm({
 
           <Field
             label={t("channels.field.baseUrl")}
-            hint={t("channels.form.desc.baseUrl")}
+            hint={t("channels.form.desc.telegramBaseUrl")}
           >
             <Input
               value={asString(config.base_url)}
@@ -95,7 +95,7 @@ export function TelegramForm({
         <CardContent className="divide-border/60 divide-y px-6 py-0 [&>div]:py-5">
           <Field
             label={t("channels.field.proxy")}
-            hint={t("channels.form.desc.proxy")}
+            hint={t("channels.form.desc.telegramProxy")}
           >
             <Input
               value={asString(config.proxy)}

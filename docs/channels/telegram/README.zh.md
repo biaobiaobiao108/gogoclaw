@@ -14,6 +14,7 @@ Telegram Channel 通过 Telegram 机器人 API 使用长轮询实现基于机器
       "type": "telegram",
       "token": "123456789:ABCdefGHIjklMNOpqrsTUVwxyz",
       "allow_from": ["123456789"],
+      "base_url": "https://api.telegram.org",
       "proxy": "",
       "use_markdown_v2": false
     }
@@ -27,7 +28,11 @@ Telegram Channel 通过 Telegram 机器人 API 使用长轮询实现基于机器
 | token            | string | 是   | Telegram 机器人 API Token                                 |
 | allow_from       | array  | 否   | 用户ID白名单，空表示允许所有用户                          |
 | proxy            | string | 否   | 连接 Telegram API 的代理 URL (例如 http://127.0.0.1:7890) |
+| base_url         | string | 否   | Telegram Bot API 地址，默认 `https://api.telegram.org`；不是代理字段 |
 | use_markdown_v2 | bool   | 否   | 启用 Telegram MarkdownV2 格式化                           |
+
+> [!WARNING]
+> 如果网络需要代理，必须把代理写入 `proxy`。不要把 `http://user:password@host:port` 填进 `base_url`；否则 bot 请求地址会变成非法的 Telegram API URL，日志通常出现 `decode json: unexpected end of JSON input`，频道看起来已启动但永远收不到消息。
 
 ## 设置流程
 

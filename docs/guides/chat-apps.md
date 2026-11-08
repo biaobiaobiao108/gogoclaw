@@ -41,6 +41,8 @@ Create a bot with `@BotFather`, then configure:
 
 Use `allow_from` with your Telegram user ID to restrict access. Optional settings include `proxy`, `base_url`, `streaming`, and `media_group_delay_ms`. See [Telegram channel](../channels/telegram/README.md).
 
+Put proxies in `proxy`, not `base_url`. Using `http://user:password@host:port` as the Bot API endpoint makes `getUpdates` return an empty response and usually appears as `decode json: unexpected end of JSON input` in logs.
+
 ## Discord
 
 Create a bot in the Discord Developer Portal and enable the required Message Content intent:
@@ -92,7 +94,9 @@ Authenticate with the official Tencent iLink flow:
 gogoclaw auth weixin
 ```
 
-Scan the QR code. GoGoClaw stores the returned token in the security config. The Web console also exposes the same login flow. Optional settings include `account_id`, `base_url`, `cdn_base_url`, and `proxy`. See [Weixin channel](../channels/weixin/README.md).
+Scan the QR code. GoGoClaw stores the returned token and automatically writes the scanner's iLink `ilink_user_id` into `allow_from`. The Web console exposes the same login flow. Optional settings include `account_id`, `base_url`, `cdn_base_url`, and `proxy`. See [Weixin channel](../channels/weixin/README.md).
+
+If a binding succeeds but messages get no reply, confirm that `allow_from` contains the real `from_user_id` (normally ending in `@im.wechat`), not a WeChat nickname. Rebind once in the Web console for accounts created before automatic allowlisting was added.
 
 ## QQ
 

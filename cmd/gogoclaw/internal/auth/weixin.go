@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -70,7 +71,7 @@ func runWeixinOnboard(baseURL, proxy string, timeout time.Duration) error {
 		effectiveBaseURL = baseURL
 	}
 
-	if err := saveWeixinConfig(botToken, effectiveBaseURL, proxy); err != nil {
+	if err := saveWeixinConfig(botToken, userID, effectiveBaseURL, proxy); err != nil {
 		fmt.Printf("⚠️  Could not auto-save to config: %v\n", err)
 		printManualWeixinConfig(botToken, effectiveBaseURL)
 		return nil
@@ -80,14 +81,17 @@ func runWeixinOnboard(baseURL, proxy string, timeout time.Duration) error {
 	fmt.Println()
 	fmt.Println("  gogoclaw gateway")
 	fmt.Println()
-	fmt.Println("To restrict which WeChat users can send messages, add their user IDs")
-	fmt.Println("to channels.weixin.allow_from in your config.")
+	if userID != "" {
+		fmt.Println("The WeChat user that completed login was added to channels.weixin.allow_from.")
+	} else {
+		fmt.Println("No iLink user ID was returned; set channels.weixin.allow_from manually.")
+	}
 
 	return nil
 }
 
 // saveWeixinConfig patches channels.weixin in the config and saves it.
-func saveWeixinConfig(token, baseURL, proxy string) error {
+func saveWeixinConfig(token, userID, baseURL, proxy string) error {
 	cfgPath := internal.GetConfigPath()
 
 	cfg, err := config.LoadConfig(cfgPath)
@@ -101,6 +105,9 @@ func saveWeixinConfig(token, baseURL, proxy string) error {
 		cfg.Channels[config.ChannelWeixin] = bc
 	}
 	bc.Enabled = true
+	if userID = strings.TrimSpace(userID); userID != "" {
+		bc.AllowFrom = config.FlexibleStringSlice{userID}
+	}
 
 	if decoded, err := bc.GetDecoded(); err == nil && decoded != nil {
 		if weixinCfg, ok := decoded.(*config.WeixinSettings); ok {

@@ -171,15 +171,29 @@ func (h *Handler) handlePollWeixinFlow(w http.ResponseWriter, r *http.Request) {
 			h.setWeixinFlowError(flowID, "login confirmed but missing bot_token")
 			break
 		}
-		if saveErr := h.saveWeixinBinding(statusResp.BotToken, statusResp.IlinkBotID); saveErr != nil {
+		if statusResp.IlinkBotID == "" {
+			h.setWeixinFlowError(flowID, "login confirmed but missing ilink_bot_id")
+			break
+		}
+		if statusResp.IlinkUserID == "" {
+			h.setWeixinFlowError(flowID, "login confirmed but missing ilink_user_id")
+			break
+		}
+		if saveErr := h.saveWeixinBinding(
+			statusResp.BotToken,
+			statusResp.IlinkBotID,
+			statusResp.IlinkUserID,
+			statusResp.Baseurl,
+		); saveErr != nil {
 			h.setWeixinFlowError(flowID, fmt.Sprintf("failed to save token: %v", saveErr))
 			logger.ErrorCF("weixin", "failed to save token", map[string]any{"error": saveErr.Error()})
 			break
 		}
 		h.setWeixinFlowConfirmed(flowID, statusResp.IlinkBotID)
 		logger.InfoCF("weixin", "QR login confirmed, token saved", map[string]any{
-			"flow_id":    flowID,
-			"account_id": statusResp.IlinkBotID,
+			"flow_id":         flowID,
+			"account_id":      statusResp.IlinkBotID,
+			"allowed_user_id": statusResp.IlinkUserID,
 		})
 
 	case weixinStatusExpired:
@@ -203,9 +217,15 @@ func (h *Handler) handlePollWeixinFlow(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// saveWeixinBinding writes the token/account ID, enables the Weixin channel,
-// and best-effort restarts the gateway when it is currently running.
-func (h *Handler) saveWeixinBinding(token, accountID string) error {
+// saveWeixinBinding writes the token/account ID, allowlists the user who
+// completed the QR login, enables the Weixin channel, and best-effort restarts
+// the gateway when it is currently running.
+func (h *Handler) saveWeixinBinding(token, accountID, userID, baseURL string) error {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return fmt.Errorf("missing ilink_user_id")
+	}
+
 	h.configMu.Lock()
 
 	cfg, err := config.LoadConfig(h.configPath)
@@ -233,6 +253,13 @@ func (h *Handler) saveWeixinBinding(token, accountID string) error {
 	if accountID != "" {
 		weixinCfg.AccountID = accountID
 	}
+	if baseURL = strings.TrimSpace(baseURL); baseURL != "" {
+		weixinCfg.BaseURL = baseURL
+	}
+	// iLink is a 1:1 personal-account API. The user who completes QR login is
+	// the only sender this binding serves, so replace stale manual IDs with the
+	// canonical id returned by the login response.
+	bc.AllowFrom = config.FlexibleStringSlice{userID}
 
 	if err := config.SaveConfig(h.configPath, cfg); err != nil {
 		h.configMu.Unlock()

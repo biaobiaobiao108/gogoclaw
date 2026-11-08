@@ -1,31 +1,22 @@
-# 💬 Weixin (WeChat Personal) Channel
+# WeChat Personal Channel
 
-GoGoClaw supports connecting to your personal WeChat account using the official Tencent iLink API.
+GoGoClaw connects to a personal WeChat account through Tencent's iLink API. The binding is 1:1: the WeChat user who completes QR login is the user served by the agent.
 
-## 🚀 Quick Onboarding
+## QR Binding
 
-The easiest way to set up the Weixin channel is using the interactive onboarding command:
+In the web console, open **Channels > WeChat**, click bind, and scan the QR code. After confirmation, GoGoClaw:
+
+1. Saves the iLink bot token and account ID.
+2. Writes the returned `ilink_user_id` into `allow_from`.
+3. Enables the channel and restarts a running gateway.
+
+CLI equivalent:
 
 ```bash
 gogoclaw auth weixin
 ```
 
-This command will:
-1. Request a QR code from the iLink API and display it in your terminal.
-2. Wait for you to scan the QR code with your WeChat mobile app.
-3. Upon approval, automatically save the generated access token to your `~/.gogoclaw/config.json`.
-
-After onboarding, you can start the gateway:
-
-```bash
-gogoclaw gateway
-```
-
----
-
-## ⚙️ Configuration
-
-You can also manually configure the filter rules in `config.json` under the `channels.weixin` section.
+## Configuration
 
 ```json
 {
@@ -33,27 +24,41 @@ You can also manually configure the filter rules in `config.json` under the `cha
     "weixin": {
       "enabled": true,
       "type": "weixin",
-      "token": "YOUR_WEIXIN_TOKEN",
-      "allow_from": [
-        "user_id_1",
-        "user_id_2"
-      ],
-      "proxy": ""
+      "allow_from": ["o9cq...@im.wechat"],
+      "settings": {
+        "account_id": "...@im.bot",
+        "base_url": "https://ilinkai.weixin.qq.com/",
+        "cdn_base_url": "https://novac2c.cdn.weixin.qq.com/c2c",
+        "proxy": ""
+      }
     }
   }
 }
 ```
 
-### Configuration Fields
-
 | Field | Description |
 |---|---|
-| `enabled` | Set to `true` to enable the channel at startup. |
-| `token` | The authentication token obtained via QR login. |
-| `allow_from` | (Optional) List of WeChat User IDs permitted to interact with the bot. If empty, anyone who can send messages to the connected account can trigger the bot. |
-| `proxy` | (Optional) HTTP proxy address (e.g. `http://localhost:7890`) for environments where connection to `ilinkai.weixin.qq.com` is restricted. |
+| `allow_from` | Must use the iLink `from_user_id`, not a WeChat nickname |
+| `settings.account_id` | iLink bot account ID returned by login |
+| `settings.base_url` | iLink API endpoint, including a server-returned regional redirect when present |
+| `settings.cdn_base_url` | Media CDN endpoint |
+| `settings.proxy` | Optional HTTP proxy |
 
-## ⚠️ Important Notes
+## Binding Succeeds But Messages Get No Reply
 
-- **One Account Only**: The iLink token binds to a single session. Starting a new interaction generally invalidates older tokens if another device authorizes.
-- **Message Rate Limits**: To avoid getting your account restricted by WeChat anti-spam systems, avoid loop triggers or high-frequency broadcasts.
+Check `/data/.gogoclaw/logs/gateway.log`, confirm the channel started, and send a **new** message. If the log contains:
+
+```text
+Message rejected by allowlist
+from_user_id=o9cq...@im.wechat
+```
+
+put that exact `from_user_id` into `allow_from` and restart the gateway. New web bindings do this automatically; accounts bound before this behavior was added should be rebound once.
+
+If no inbound message appears, check for `Session expired`, `getUpdates API error`, or an invalid token. An empty `allow_from` opens the channel to everyone and emits a security warning; personal bindings should use an explicit user ID.
+
+## Notes
+
+- Rebinding may invalidate the old iLink token.
+- Never commit or screenshot the bot token.
+- Avoid loops, high-frequency broadcasts, and behavior that violates WeChat platform rules.

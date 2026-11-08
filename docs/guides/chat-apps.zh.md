@@ -41,6 +41,8 @@
 
 使用 `allow_from` 填入 Telegram 用户 ID 可限制访问。可选设置包括 `proxy`、`base_url`、`streaming` 和 `media_group_delay_ms`。详见 [Telegram 频道](../channels/telegram/README.zh.md)。
 
+代理必须写入 `proxy`，不要写入 `base_url`。把 `http://user:password@host:port` 当作 Bot API 地址会导致 `getUpdates` 返回空响应，日志通常出现 `decode json: unexpected end of JSON input`。
+
 ## Discord
 
 在 Discord Developer Portal 创建机器人并启用 Message Content intent：
@@ -92,7 +94,9 @@
 gogoclaw auth weixin
 ```
 
-扫码成功后，GoGoClaw 会把返回的 token 保存到安全配置。Web 控制台提供同样的登录流程。可选设置包括 `account_id`、`base_url`、`cdn_base_url` 和 `proxy`。详见 [微信频道](../channels/weixin/README.zh.md)。
+扫码成功后，GoGoClaw 会把返回的 token 保存到安全配置，并把扫码用户的 iLink `ilink_user_id` 自动写入 `allow_from`。Web 控制台提供同样的登录流程。可选设置包括 `account_id`、`base_url`、`cdn_base_url` 和 `proxy`。详见 [微信频道](../channels/weixin/README.zh.md)。
+
+如果扫码绑定过但没有回复，检查 `allow_from` 是否为真实的 `from_user_id`（通常以 `@im.wechat` 结尾），而不是微信昵称。升级前绑定的账号建议在 Web 控制台重新扫码一次。
 
 ## QQ
 

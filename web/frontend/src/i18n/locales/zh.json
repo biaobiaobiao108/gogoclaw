@@ -576,10 +576,13 @@
         "streamingEnabled": "逐步更新回复，而不是等待完整结果后一次发送。",
         "streamingMinGrowthChars": "流式文本至少增加这么多字符后才更新一次。",
         "streamingThrottleSeconds": "两次流式更新之间的最短间隔。",
+        "telegramBaseUrl": "Telegram Bot API 地址，默认 https://api.telegram.org；这里不是代理地址。",
+        "telegramProxy": "HTTP 或 SOCKS5 代理地址。需要代理时填在这里，不要填进 API 地址。",
         "token": "平台机器人令牌，用于认证频道连接。",
         "typingEnabled": "处理消息期间向平台发送正在输入状态。",
         "verificationToken": "平台回调签名校验使用的令牌。",
-        "writeTimeout": "写入响应的超时时间，单位为秒。"
+        "writeTimeout": "写入响应的超时时间，单位为秒。",
+        "weixinAllowFrom": "扫码绑定会自动填入 iLink 用户 ID，通常以 @im.wechat 结尾；不要填写微信昵称。"
       }
     },
     "loadError": "加载频道配置失败，请重试。",

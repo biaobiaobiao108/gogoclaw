@@ -36,7 +36,12 @@ func TestSaveWeixinBindingReturnsSuccessWhenRestartFails(t *testing.T) {
 	})
 
 	h := NewHandler(configPath)
-	if err := h.saveWeixinBinding("bot-token", "bot-account"); err != nil {
+	if err := h.saveWeixinBinding(
+		"bot-token",
+		"bot-account",
+		"user@im.wechat",
+		"https://region.example/",
+	); err != nil {
 		t.Fatalf("saveWeixinBinding() error = %v, want nil after config save succeeds", err)
 	}
 
@@ -56,7 +61,20 @@ func TestSaveWeixinBindingReturnsSuccessWhenRestartFails(t *testing.T) {
 	if got := wxCfg.AccountID; got != "bot-account" {
 		t.Fatalf("Weixin.AccountID = %q, want %q", got, "bot-account")
 	}
+	if got := wxCfg.BaseURL; got != "https://region.example/" {
+		t.Fatalf("Weixin.BaseURL = %q, want %q", got, "https://region.example/")
+	}
+	if got := []string(bc.AllowFrom); len(got) != 1 || got[0] != "user@im.wechat" {
+		t.Fatalf("Weixin.AllowFrom = %#v, want the QR-login user", got)
+	}
 	if !bc.Enabled {
 		t.Fatalf("Weixin.Enabled = false, want true")
+	}
+}
+
+func TestSaveWeixinBindingRequiresUserID(t *testing.T) {
+	h := NewHandler(filepath.Join(t.TempDir(), "config.json"))
+	if err := h.saveWeixinBinding("bot-token", "bot-account", "", ""); err == nil {
+		t.Fatal("saveWeixinBinding() error = nil, want missing ilink_user_id")
 	}
 }
