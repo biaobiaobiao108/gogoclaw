@@ -44,7 +44,7 @@ type ReactionCapable interface {
 }
 
 // PlaceholderCapable — channels that can send a placeholder message
-// (e.g. "Thinking... 💭") that will later be edited to the actual response.
+// (e.g. "Thinking...") that will later be edited to the actual response.
 // The channel MUST also implement MessageEditor for the placeholder to be useful.
 // SendPlaceholder returns the platform message ID of the placeholder so that
 // Manager.preSend can later edit it via MessageEditor.EditMessage.

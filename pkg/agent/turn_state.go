@@ -83,10 +83,11 @@ const (
 // =============================================================================
 
 type turnResult struct {
-	finalContent string
-	modelName    string
-	status       TurnEndStatus
-	followUps    []bus.InboundMessage
+	finalContent      string
+	modelName         string
+	status            TurnEndStatus
+	followUps         []bus.InboundMessage
+	responsePublished bool
 }
 
 // =============================================================================

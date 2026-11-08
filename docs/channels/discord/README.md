@@ -24,7 +24,7 @@ Discord is a free voice, video, and text chat application designed for communiti
       "allow_from": ["YOUR_USER_ID"],
       "placeholder": {
         "enabled": true,
-        "text": ["Thinking... 💭"]
+        "text": ["Thinking..."]
       },
       "group_trigger": {
         "mention_only": false

@@ -231,9 +231,9 @@ func finalizeConfiguredStreamingLLM(
 	exec *turnExecution,
 	content string,
 	contextUsage *bus.ContextUsage,
-) error {
+) (bool, error) {
 	if exec == nil || exec.streamingPublisher == nil {
-		return nil
+		return false, nil
 	}
 	publisher := exec.streamingPublisher
 	exec.streamingPublisher = nil
@@ -257,7 +257,7 @@ func finalizeConfiguredStreamingLLM(
 				"model":    exec.llmModel,
 				"error":    err.Error(),
 			})
-			return configuredStreamingVisibleError{err: err}
+			return false, configuredStreamingVisibleError{err: err}
 		}
 		publisher.Cancel(ctx)
 		if delivery != nil {
@@ -269,14 +269,14 @@ func finalizeConfiguredStreamingLLM(
 			"model":    exec.llmModel,
 			"error":    err.Error(),
 		})
-		return err
+		return false, err
 	}
 	if delivery != nil {
 		if err := al.completeStreamingDelivery(ts.sessionKey, *delivery, content, contextUsage, publisher.Published()); err != nil {
-			return configuredStreamingVisibleError{err: fmt.Errorf("persist streamed final delivery: %w", err)}
+			return false, configuredStreamingVisibleError{err: fmt.Errorf("persist streamed final delivery: %w", err)}
 		}
 	}
-	return nil
+	return publisher.Published(), nil
 }
 
 func cancelConfiguredStreamingLLM(ctx context.Context, exec *turnExecution) {

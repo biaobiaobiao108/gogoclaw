@@ -21,6 +21,17 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/web/backend/utils"
 )
 
+func gatewayTestConfig() *config.Config {
+	cfg := config.DefaultConfig()
+	cfg.ModelList = []*config.ModelConfig{{
+		ModelName: "test-model",
+		Provider:  "openai",
+		Model:     "gpt-4o",
+	}}
+	cfg.Agents.Defaults.ModelName = "test-model"
+	return cfg
+}
+
 func startLongRunningProcess(t *testing.T) *exec.Cmd {
 	t.Helper()
 
@@ -189,7 +200,7 @@ func newGatewayStartTestHandler(t *testing.T) *Handler {
 	resetGatewayTestState(t)
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	if err := config.SaveConfig(configPath, cfg); err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
 	}
@@ -294,7 +305,7 @@ func TestStartGatewayLocked_UsesReloadedConfigForBootSignature(t *testing.T) {
 	resetGatewayTestState(t)
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	delete(cfg.Channels, "pico")
 	if err := config.SaveConfig(configPath, cfg); err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
@@ -496,7 +507,7 @@ func TestValidateGatewayPidDataRejectsHealthPidMismatchWhenMatcherInconclusive(t
 
 func TestGatewayStartReady_InvalidDefaultModel(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.Agents.Defaults.ModelName = "missing-model"
 	err := config.SaveConfig(configPath, cfg)
 	if err != nil {
@@ -518,7 +529,7 @@ func TestGatewayStartReady_InvalidDefaultModel(t *testing.T) {
 
 func TestGatewayStartReady_ValidDefaultModel(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.Agents.Defaults.ModelName = cfg.ModelList[0].ModelName
 	cfg.ModelList[0].SetAPIKey("test-key")
 	err := config.SaveConfig(configPath, cfg)
@@ -538,7 +549,7 @@ func TestGatewayStartReady_ValidDefaultModel(t *testing.T) {
 
 func TestGatewayStartReady_RejectsInvalidDuplicateAliasEntry(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.Agents.Defaults.ModelName = "shared"
 	cfg.ModelList = []*config.ModelConfig{
 		{
@@ -573,7 +584,7 @@ func TestGatewayStartReady_RejectsInvalidDuplicateAliasEntry(t *testing.T) {
 
 func TestGatewayStartReady_RawDefaultModelUsesProviderTemplate(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.Agents.Defaults.ModelName = "openrouter/deepseek/deepseek-v3.2"
 	cfg.ModelList = []*config.ModelConfig{{
 		ModelName: "openrouter-template",
@@ -597,7 +608,7 @@ func TestGatewayStartReady_RawDefaultModelUsesProviderTemplate(t *testing.T) {
 
 func TestGatewayStartReady_DefaultModelWithoutCredential(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.Agents.Defaults.ModelName = cfg.ModelList[0].ModelName
 	cfg.ModelList[0].SetAPIKey("")
 	cfg.ModelList[0].AuthMethod = ""
@@ -1119,7 +1130,7 @@ func TestGatewayStatusRequiresRestartAfterDefaultModelChange(t *testing.T) {
 	gatewayProcessMatcher = func(int) (bool, bool) { return true, true }
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.Agents.Defaults.ModelName = cfg.ModelList[0].ModelName
 	cfg.ModelList[0].SetAPIKey("test-key")
 	cfg.ModelList = append(cfg.ModelList, &config.ModelConfig{
@@ -1201,7 +1212,7 @@ func TestGatewayStatusRequiresRestartAfterFallbackOrderChange(t *testing.T) {
 	resetGatewayTestState(t)
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList = []*config.ModelConfig{
 		{
 			ModelName: "primary",
@@ -1280,7 +1291,7 @@ func TestGatewayStatusRequiresRestartAfterFallbackOrderChange(t *testing.T) {
 }
 
 func TestModelStreamingSignaturesIncludeRawFallbackOrder(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList = []*config.ModelConfig{openAIModelConfig("primary")}
 	cfg.Agents.Defaults.ModelName = "primary"
 	cfg.Agents.Defaults.ModelFallbacks = []string{
@@ -1304,7 +1315,7 @@ func TestGatewayStatusRequiresRestartAfterToolChange(t *testing.T) {
 	resetGatewayTestState(t)
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.Agents.Defaults.ModelName = cfg.ModelList[0].ModelName
 	cfg.ModelList[0].SetAPIKey("test-key")
 	cfg.Tools.WriteFile.Enabled = true
@@ -1367,7 +1378,7 @@ func TestGatewayStatusRequiresRestartAfterChannelChange(t *testing.T) {
 	resetGatewayTestState(t)
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.Agents.Defaults.ModelName = cfg.ModelList[0].ModelName
 	cfg.ModelList[0].SetAPIKey("test-key")
 	if err := config.SaveConfig(configPath, cfg); err != nil {
@@ -1433,7 +1444,7 @@ func TestGatewayStatusRequiresRestartAfterDefaultModelStreamingChange(t *testing
 	resetGatewayTestState(t)
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.Agents.Defaults.ModelName = cfg.ModelList[0].ModelName
 	cfg.ModelList[0].SetAPIKey("test-key")
 	cfg.ModelList[0].Streaming = config.ModelStreamingConfig{Enabled: false}
@@ -1493,7 +1504,7 @@ func TestGatewayStatusRequiresRestartAfterDefaultModelStreamingChange(t *testing
 }
 
 func TestConfigSignatureIncludesModelStreamingForDefaultModelRef(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList[0].ModelName = "friendly-alias"
 	cfg.ModelList[0].Provider = ""
 	cfg.ModelList[0].Model = "openai/gpt-4o-ref"
@@ -1511,7 +1522,7 @@ func TestConfigSignatureIncludesModelStreamingForDefaultModelRef(t *testing.T) {
 }
 
 func TestConfigSignatureIncludesModelStreamingForLoadBalancedAliasEntries(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList = []*config.ModelConfig{
 		{
 			ModelName: "lb-alias",
@@ -1537,7 +1548,7 @@ func TestConfigSignatureIncludesModelStreamingForLoadBalancedAliasEntries(t *tes
 }
 
 func TestConfigSignatureIncludesSlashModelIDForDefaultProvider(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList = []*config.ModelConfig{
 		{
 			ModelName: "nvidia-model",
@@ -1562,7 +1573,7 @@ func TestConfigSignatureIncludesSlashModelIDForDefaultProvider(t *testing.T) {
 }
 
 func TestConfigSignatureIncludesSupportedPrefixSlashModelIDForDefaultProvider(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList = []*config.ModelConfig{
 		{
 			ModelName: "openrouter-openai",
@@ -1587,7 +1598,7 @@ func TestConfigSignatureIncludesSupportedPrefixSlashModelIDForDefaultProvider(t 
 }
 
 func TestConfigSignatureIncludesLegacyDefaultProviderPrefixedSlashModelID(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList = []*config.ModelConfig{
 		{
 			ModelName: "legacy-openrouter-openai",
@@ -1611,7 +1622,7 @@ func TestConfigSignatureIncludesLegacyDefaultProviderPrefixedSlashModelID(t *tes
 }
 
 func TestConfigSignatureIncludesSlashModelIDWithoutProviderFieldForDefaultProvider(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList = []*config.ModelConfig{
 		{
 			ModelName: "nvidia-model",
@@ -1635,7 +1646,7 @@ func TestConfigSignatureIncludesSlashModelIDWithoutProviderFieldForDefaultProvid
 }
 
 func TestConfigSignatureIncludesUnknownSlashPrefixModelIDWithoutProviderFieldForDefaultProvider(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList = []*config.ModelConfig{
 		{
 			ModelName: "nvidia-meta",
@@ -1659,7 +1670,7 @@ func TestConfigSignatureIncludesUnknownSlashPrefixModelIDWithoutProviderFieldFor
 }
 
 func TestConfigSignatureDashAliasSlashModelIDMatchesProviderAlias(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList = []*config.ModelConfig{
 		{
 			ModelName: "zai-model",
@@ -1682,7 +1693,7 @@ func TestConfigSignatureDashAliasSlashModelIDMatchesProviderAlias(t *testing.T) 
 }
 
 func TestConfigSignatureDashAliasSlashModelIDMatchesProviderAliasWithOpenAIDefault(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList = []*config.ModelConfig{
 		{
 			ModelName: "zai-model",
@@ -1707,7 +1718,7 @@ func TestConfigSignatureDashAliasSlashModelIDMatchesProviderAliasWithOpenAIDefau
 }
 
 func TestConfigSignatureProviderAliasRefIgnoresDefaultProvider(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList = []*config.ModelConfig{
 		{
 			ModelName: "openai-gpt",
@@ -1730,7 +1741,7 @@ func TestConfigSignatureProviderAliasRefIgnoresDefaultProvider(t *testing.T) {
 }
 
 func TestConfigSignatureExplicitProviderRefIgnoresDefaultProvider(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList = []*config.ModelConfig{
 		{
 			ModelName: "openai-gpt",
@@ -1813,7 +1824,7 @@ func TestConfigSignatureExactModelNameTakesPrecedenceOverResolvedRefs(t *testing
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := config.DefaultConfig()
+			cfg := gatewayTestConfig()
 			cfg.ModelList = tt.models
 			cfg.Agents.Defaults.Provider = tt.defaultProvider
 			cfg.Agents.Defaults.ModelName = tt.defaultModelName
@@ -1838,7 +1849,7 @@ func TestConfigSignatureExactModelNameTakesPrecedenceOverResolvedRefs(t *testing
 }
 
 func TestConfigSignatureIncludesLoadBalancedDuplicateEntryIndex(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList = []*config.ModelConfig{
 		{
 			ModelName: "lb-alias",
@@ -1867,7 +1878,7 @@ func TestConfigSignatureIncludesLoadBalancedDuplicateEntryIndex(t *testing.T) {
 }
 
 func TestConfigSignatureProviderDotAliasRefIgnoresDefaultProvider(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList = []*config.ModelConfig{
 		{
 			ModelName: "zai-model",
@@ -1892,7 +1903,7 @@ func TestConfigSignatureProviderDotAliasRefIgnoresDefaultProvider(t *testing.T) 
 }
 
 func TestConfigSignatureIncludesDefaultProviderPrefixedRefWithSplitConfig(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList = []*config.ModelConfig{
 		{
 			ModelName: "openai-split",
@@ -1917,7 +1928,7 @@ func TestConfigSignatureIncludesDefaultProviderPrefixedRefWithSplitConfig(t *tes
 }
 
 func TestConfigSignatureBareModelRefUsesDefaultProviderModelID(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.ModelList = []*config.ModelConfig{
 		{
 			ModelName: "azure-alias",
@@ -1952,7 +1963,7 @@ func TestConfigSignatureBareModelRefUsesDefaultProviderModelID(t *testing.T) {
 }
 
 func TestConfigSignatureChangesWithDefaultProvider(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.Agents.Defaults.Provider = "openai"
 	cfg.Agents.Defaults.ModelName = "gpt-4o"
 	cfg.ModelList = []*config.ModelConfig{{ModelName: "legacy", Model: "gpt-4o"}}
@@ -1969,7 +1980,7 @@ func TestGatewayStatusRequiresRestartAfterWebSearchConfigChange(t *testing.T) {
 	resetGatewayTestState(t)
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.Agents.Defaults.ModelName = cfg.ModelList[0].ModelName
 	cfg.ModelList[0].SetAPIKey("test-key")
 	cfg.Tools.Web.Enabled = true
@@ -2033,7 +2044,7 @@ func TestGatewayStatusNoRestartRequiredForNonSensitiveChanges(t *testing.T) {
 	resetGatewayTestState(t)
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.Agents.Defaults.ModelName = cfg.ModelList[0].ModelName
 	cfg.ModelList[0].SetAPIKey("test-key")
 	cfg.Agents.Defaults.MaxTokens = 1000
@@ -2096,7 +2107,7 @@ func TestGatewayStatusNoRestartRequiredWhenNotRunning(t *testing.T) {
 	resetGatewayTestState(t)
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.Agents.Defaults.ModelName = cfg.ModelList[0].ModelName
 	cfg.ModelList[0].SetAPIKey("test-key")
 	if err := config.SaveConfig(configPath, cfg); err != nil {
@@ -2230,7 +2241,7 @@ func TestGatewayStatusReturnsRestartingDuringRestartGap(t *testing.T) {
 
 func TestGatewayRestartKeepsRunningProcessWhenPreconditionsFail(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.Agents.Defaults.ModelName = cfg.ModelList[0].ModelName
 	cfg.ModelList[0].SetAPIKey("")
 	cfg.ModelList[0].AuthMethod = ""
@@ -2283,7 +2294,7 @@ func TestGatewayRestartKeepsOldProcessWhenItDoesNotExitInTime(t *testing.T) {
 	resetGatewayTestState(t)
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.Agents.Defaults.ModelName = cfg.ModelList[0].ModelName
 	cfg.ModelList[0].SetAPIKey("test-key")
 	if err := config.SaveConfig(configPath, cfg); err != nil {
@@ -2349,7 +2360,7 @@ func TestGatewayRestartReturnsErrorStatusWhenReplacementFailsToStart(t *testing.
 	}
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	cfg := config.DefaultConfig()
+	cfg := gatewayTestConfig()
 	cfg.Agents.Defaults.ModelName = cfg.ModelList[0].ModelName
 	cfg.ModelList[0].SetAPIKey("test-key")
 	if err := config.SaveConfig(configPath, cfg); err != nil {

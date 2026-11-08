@@ -56,8 +56,10 @@
   --radius: 0.5rem;
   --motion-press: 90ms;
   --motion-state: 140ms;
+  --motion-large: 280ms;
   --motion-release: 420ms;
   --motion-spring: cubic-bezier(0.18, 0.89, 0.32, 1.28);
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   color-scheme: light;
   --background: oklch(0.925 0.003 75);
   --foreground: oklch(0.18 0.005 75);
@@ -301,5 +303,27 @@ textarea {
   100% {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes route-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.channel-route-enter {
+  animation: route-enter var(--motion-large) var(--ease-standard) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .channel-route-enter {
+    animation: none;
   }
 }

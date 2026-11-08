@@ -598,7 +598,7 @@ func (c *TelegramChannel) finalizeToolFeedbackMessageForChat(
 }
 
 // SendPlaceholder implements channels.PlaceholderCapable.
-// It sends a placeholder message (e.g. "Thinking... 💭") that will later be
+// It sends a placeholder message (e.g. "Thinking...") that will later be
 // edited to the actual response via EditMessage (channels.MessageEditor).
 func (c *TelegramChannel) SendPlaceholder(ctx context.Context, chatID string) (string, error) {
 	phCfg := c.bc.Placeholder

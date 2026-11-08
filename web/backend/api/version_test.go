@@ -40,7 +40,7 @@ func TestGetSystemVersionUsesGogoclawBinaryInfo(t *testing.T) {
 
 	findGogoclawBinaryForInfo = func() string { return "gogoclaw" }
 	runGogoclawVersionOutput = func(_ context.Context, _ string) (string, error) {
-		return "🦞 gogoclaw v1.2.3 (git: deadbeef)\n  Build: 2026-03-27T12:34:56Z\n  Go: go1.25.8\n", nil
+		return "> gogoclaw v1.2.3 (git: deadbeef)\n  Build: 2026-03-27T12:34:56Z\n  Go: go1.25.8\n", nil
 	}
 
 	h := NewHandler("")
@@ -124,7 +124,7 @@ func TestGetSystemVersionFallsBackToLauncherInfoWhenCommandFails(t *testing.T) {
 func TestParseGogoclawVersionOutput(t *testing.T) {
 	setupVersionTestIsolation(t)
 
-	raw := "\u001b[1;31m████\u001b[0m\n🦞 gogoclaw 18ec263 (git: 18ec2631)\n  Build: 2026-03-27T10:43:34+0000\n  Go: go1.25.8\n"
+	raw := "\u001b[1;31m████\u001b[0m\n> gogoclaw 18ec263 (git: 18ec2631)\n  Build: 2026-03-27T10:43:34+0000\n  Go: go1.25.8\n"
 	got, ok := parseGogoclawVersionOutput(raw)
 	if !ok {
 		t.Fatal("parseGogoclawVersionOutput() should parse valid output")

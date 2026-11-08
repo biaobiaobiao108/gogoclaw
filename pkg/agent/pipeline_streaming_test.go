@@ -462,6 +462,39 @@ func TestConfiguredStreamingVisibleSendResponseFalseRetainsFinalizedStreamMarker
 	}
 }
 
+func TestRunTurnWithSteeringDoesNotRepublishStreamedFinal(t *testing.T) {
+	cfg := newConfiguredStreamingTestConfig(t, true, true, nil)
+	streamer := &recordingStreamer{}
+	msgBus := bus.NewMessageBus()
+	msgBus.SetStreamDelegate(configuredStreamingDelegate{streamer: streamer})
+	provider := &configuredStreamingProvider{
+		streamPlan: []configuredStreamingCall{{
+			chunks:   []string{"hello"},
+			response: &providers.LLMResponse{Content: "hello"},
+		}},
+	}
+	al := NewAgentLoop(cfg, msgBus, provider)
+
+	al.runTurnWithSteering(context.Background(), bus.InboundMessage{
+		Context: bus.InboundContext{
+			Channel:  "pico",
+			ChatID:   "session-1",
+			ChatType: "direct",
+			SenderID: "user-1",
+		},
+		Content: "hello",
+	})
+
+	if len(streamer.finalized) != 1 {
+		t.Fatalf("stream finalized = %v, want one final response", streamer.finalized)
+	}
+	select {
+	case outbound := <-msgBus.OutboundChan():
+		t.Fatalf("unexpected duplicate outbound response %q", outbound.Content)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
 func TestConfiguredStreamingStreamsPicoReasoningBeforeAnswerContent(t *testing.T) {
 	cfg := newConfiguredStreamingTestConfig(t, true, true, nil)
 	streamer := &recordingStreamer{}

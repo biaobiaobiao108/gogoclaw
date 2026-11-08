@@ -65,6 +65,9 @@ type AgentLoop struct {
 
 	// workerSem limits concurrent turn processing workers.
 	workerSem chan struct{}
+	// backgroundWG tracks workers and the delivery outbox so shutdown does not
+	// return while sessions or delivery checkpoints are still being written.
+	backgroundWG sync.WaitGroup
 
 	// activeTurnStates tracks active turns per session to prevent duplicates.
 	activeTurnStates  sync.Map
@@ -120,6 +123,11 @@ type continuationTarget struct {
 	ChatID     string
 }
 
+type agentLoopResult struct {
+	content           string
+	responsePublished bool
+}
+
 const (
 	defaultResponse            = "The model returned an empty response. This may indicate a provider error or token limit."
 	toolLimitResponse          = "I've reached `max_tool_iterations` without a final response. Increase `max_tool_iterations` in config.json if this task needs more tool steps."
@@ -146,6 +154,9 @@ const (
 
 func (al *AgentLoop) Run(ctx context.Context) error {
 	al.running.Store(true)
+	defer al.waitForBackgroundWorkers(10 * time.Second)
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
 
 	if err := al.ensureHooksInitialized(ctx); err != nil {
 		return err
@@ -153,14 +164,18 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 	if err := al.ensureMCPInitialized(ctx); err != nil {
 		return err
 	}
-	go al.runDeliveryOutbox(ctx)
+	al.backgroundWG.Add(1)
+	go func() {
+		defer al.backgroundWG.Done()
+		al.runDeliveryOutbox(runCtx)
+	}()
 
 	idleTicker := time.NewTicker(100 * time.Millisecond)
 	defer idleTicker.Stop()
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-runCtx.Done():
 			return nil
 		case <-idleTicker.C:
 			if !al.running.Load() {
@@ -229,13 +244,15 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 			// Session claimed — spawn a worker goroutine that acquires a semaphore
 			// slot. The goroutine is spawned immediately so the main loop keeps
 			// draining the inbound channel. The goroutine blocks on the semaphore.
+			al.backgroundWG.Add(1)
 			go func(m bus.InboundMessage, ph *turnState) {
+				defer al.backgroundWG.Done()
 				var releaseSession bool
 				// Acquire semaphore slot (blocks if at capacity)
 				select {
 				case al.workerSem <- struct{}{}:
 					// Got slot, start worker
-				case <-ctx.Done():
+				case <-runCtx.Done():
 					// Context canceled while waiting for a slot — clean up the
 					// placeholder to prevent session-level deadlock.
 					al.releaseSessionTurnState(sessionKey, nil)
@@ -292,18 +309,18 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 						Channel:    m.Channel,
 						ChatID:     m.ChatID,
 					}
-					continued, continueErr := al.drainQueuedSteeringContinuations(ctx, target)
+					continued, continueErr := al.drainQueuedSteeringContinuations(runCtx, target)
 					if continueErr != nil {
-						al.maybePublishError(ctx, m.Channel, m.ChatID, sessionKey, continueErr)
+						al.maybePublishError(runCtx, m.Channel, m.ChatID, sessionKey, continueErr)
 						return
 					}
 					if continued != "" {
-						al.PublishResponseIfNeeded(ctx, target.Channel, target.ChatID, target.SessionKey, continued)
+						al.PublishResponseIfNeeded(runCtx, target.Channel, target.ChatID, target.SessionKey, continued)
 					}
 					return
 				}
 
-				al.runTurnWithSteering(ctx, m)
+				al.runTurnWithSteering(runCtx, m)
 			}(msg, placeholder)
 
 			// TODO: Re-enable media cleanup after inbound media is properly consumed by the agent.
@@ -319,6 +336,21 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 			// 	}
 			// }()
 		}
+	}
+}
+
+func (al *AgentLoop) waitForBackgroundWorkers(timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		al.backgroundWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		logger.WarnCF("agent", "Background worker shutdown timed out", map[string]any{
+			"timeout": timeout.String(),
+		})
 	}
 }
 
@@ -545,18 +577,30 @@ var audioAnnotationRe = regexp.MustCompile(`\[(voice|audio)(?::[^\]]*)?\]`)
 // ProcessHeartbeat processes a heartbeat request without session history.
 // Each heartbeat is independent and doesn't accumulate context.
 
-// runAgentLoop remains the top-level shell that starts a turn and publishes
-// any post-turn work. runTurn owns the full turn lifecycle.
+// runAgentLoop keeps the string-only API for callers that return the response
+// directly. Inbound channel turns use runAgentLoopResult so the outer delivery
+// layer knows whether the turn already published its final response.
 func (al *AgentLoop) runAgentLoop(
 	ctx context.Context,
 	agent *AgentInstance,
 	opts processOptions,
 ) (string, error) {
+	result, err := al.runAgentLoopResult(ctx, agent, opts)
+	return result.content, err
+}
+
+// runAgentLoopResult is the top-level shell that starts a turn and publishes
+// any post-turn work. runTurn owns the full turn lifecycle.
+func (al *AgentLoop) runAgentLoopResult(
+	ctx context.Context,
+	agent *AgentInstance,
+	opts processOptions,
+) (agentLoopResult, error) {
 	opts = normalizeProcessOptions(opts)
 	var err error
 	opts, err = resolveTurnProfileOptions(al.GetConfig(), opts)
 	if err != nil {
-		return "", err
+		return agentLoopResult{}, err
 	}
 
 	// Record last channel for heartbeat notifications (skip internal channels and cli)
@@ -589,10 +633,10 @@ func (al *AgentLoop) runAgentLoop(
 	pipeline := NewPipeline(al)
 	result, err := al.runTurn(ctx, ts, pipeline)
 	if err != nil {
-		return "", err
+		return agentLoopResult{}, err
 	}
 	if result.status == TurnEndStatusAborted {
-		return "", nil
+		return agentLoopResult{}, nil
 	}
 
 	for _, followUp := range result.followUps {
@@ -632,8 +676,9 @@ func (al *AgentLoop) runAgentLoop(
 		}
 		markFinalOutbound(&msg)
 		if pubErr := al.publishTrackedOutbound(ctx, opts.Dispatch.SessionKey, msg); pubErr != nil {
-			return "", pubErr
+			return agentLoopResult{}, pubErr
 		}
+		result.responsePublished = true
 	}
 
 	if result.finalContent != "" {
@@ -647,7 +692,10 @@ func (al *AgentLoop) runAgentLoop(
 			})
 	}
 
-	return result.finalContent, nil
+	return agentLoopResult{
+		content:           result.finalContent,
+		responsePublished: result.responsePublished,
+	}, nil
 }
 
 // selectCandidates returns the model candidates and resolved model name to use

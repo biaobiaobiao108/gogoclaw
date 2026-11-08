@@ -174,7 +174,7 @@ func (cb *ContextBuilder) getIdentity(includeToolUseRule bool) string {
 	}
 
 	return fmt.Sprintf(
-		`# gogoclaw 🦞 (%s)
+		`# GoGoClaw (%s)
 
 You are gogoclaw, a helpful AI assistant.
 

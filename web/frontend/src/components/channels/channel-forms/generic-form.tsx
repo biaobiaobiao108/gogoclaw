@@ -56,6 +56,20 @@ function formatLabel(key: string): string {
     .join(" ")
 }
 
+function fieldTranslationKey(key: string): string {
+  const camelKey = key
+    .split("_")
+    .map((part, index) =>
+      index === 0
+        ? part
+        : part === "mib"
+          ? "MiB"
+          : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase(),
+    )
+    .join("")
+  return `channels.field.${camelKey}`
+}
+
 function formatSentenceFieldName(key: string): string {
   const label = formatLabel(key)
   return label.charAt(0).toLowerCase() + label.slice(1)
@@ -106,15 +120,25 @@ export function GenericForm({
       !hiddenFieldSet.has(k),
   )
 
+  const fieldLabel = (key: string): string => {
+    const translationKey = fieldTranslationKey(key)
+    const translated = t(translationKey)
+    return translated === translationKey ? formatLabel(key) : translated
+  }
+
   const buildHint = (key: string): string => {
     const descriptions: Record<string, string> = {
       app_id: t("channels.form.desc.appId"),
+      app_secret: t("channels.form.desc.appSecret"),
       allow_token_query: t("channels.form.desc.allowTokenQuery"),
+      max_message_length: t("channels.form.desc.maxMessageLength"),
+      send_markdown: t("channels.form.desc.sendMarkdown"),
       ping_interval: t("channels.form.desc.pingInterval"),
       read_timeout: t("channels.form.desc.readTimeout"),
       write_timeout: t("channels.form.desc.writeTimeout"),
       max_connections: t("channels.form.desc.maxConnections"),
       max_base64_file_size_mib: t("channels.form.desc.maxBase64FileSizeMiB"),
+      token: t("channels.form.desc.token"),
     }
     return (
       descriptions[key] ??
@@ -131,7 +155,7 @@ export function GenericForm({
       return (
         <Field
           key={key}
-          label={formatLabel(key)}
+          label={fieldLabel(key)}
           required={isRequired}
           hint={buildHint(key)}
           error={fieldErrors[key]}
@@ -155,12 +179,12 @@ export function GenericForm({
       return (
         <SwitchCardField
           key={key}
-          label={formatLabel(key)}
+          label={fieldLabel(key)}
           hint={buildHint(key)}
           error={fieldErrors[key]}
           checked={value}
           onCheckedChange={(checked) => onChange(key, checked)}
-          ariaLabel={formatLabel(key)}
+          ariaLabel={fieldLabel(key)}
         />
       )
     }
@@ -169,7 +193,7 @@ export function GenericForm({
       return (
         <ChannelArrayListField
           key={key}
-          label={formatLabel(key)}
+          label={fieldLabel(key)}
           required={isRequired}
           hint={buildHint(key)}
           error={fieldErrors[key]}
@@ -185,7 +209,7 @@ export function GenericForm({
     return (
       <Field
         key={key}
-        label={formatLabel(key)}
+        label={fieldLabel(key)}
         required={isRequired}
         hint={buildHint(key)}
         error={fieldErrors[key]}
@@ -285,13 +309,13 @@ export function GenericForm({
               !hiddenFieldSet.has("allow_token_query") && (
                 <div>
                   <SwitchCardField
-                    label={formatLabel("allow_token_query")}
+                    label={fieldLabel("allow_token_query")}
                     hint={buildHint("allow_token_query")}
                     checked={asBool(config.allow_token_query)}
                     onCheckedChange={(checked) =>
                       onChange("allow_token_query", checked)
                     }
-                    ariaLabel={formatLabel("allow_token_query")}
+                    ariaLabel={fieldLabel("allow_token_query")}
                   />
                 </div>
               )}

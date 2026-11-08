@@ -1,7 +1,7 @@
 ---
 name: gogoclaw-agent
 description: "Configure, extend, debug, or contribute to GoGoClaw itself. Use when the task is about GoGoClaw CLI commands, config.json, gateway, auth, models, skills, MCP servers, cron, routing, sessions, self-evolution, built-in slash commands, or repository internals. Use GoGoClaw-native workflows, terminology, paths, and configuration."
-metadata: {"nanobot":{"emoji":"🦞"}}
+metadata: {}
 ---
 
 # GoGoClaw Agent

@@ -529,7 +529,7 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="channel-route-enter flex h-full flex-col">
       <PageHeader
         title={channelDisplayName}
         titleExtra={

@@ -9,5 +9,5 @@ export const Route = createFileRoute("/channels/$name")({
 function ChannelsByNameRoute() {
   const { name } = Route.useParams()
 
-  return <ChannelConfigPage channelName={name} />
+  return <ChannelConfigPage key={name} channelName={name} />
 }
