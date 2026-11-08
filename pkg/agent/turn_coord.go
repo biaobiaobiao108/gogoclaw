@@ -17,6 +17,7 @@ import (
 func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipeline) (turnResult, error) {
 	if ts != nil && ts.agent != nil && ts.agent.Tools != nil {
 		ts.tools = ts.agent.Tools.Clone()
+		ts.tools.Register(&turnPlanTool{turn: ts})
 	}
 	if ts != nil && ts.agent != nil {
 		modelMu := ts.agent.modelStateMutex()

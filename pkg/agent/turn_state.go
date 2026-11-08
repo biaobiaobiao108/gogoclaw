@@ -106,6 +106,7 @@ type ActiveTurnInfo struct {
 	Depth        int
 	ParentTurnID string
 	ChildTurnIDs []string
+	Plan         []planStep
 }
 
 // =============================================================================
@@ -206,6 +207,7 @@ type turnState struct {
 	skillContextTrace []SkillContextSnapshot
 	toolKinds         []string
 	toolExecutions    []ToolExecutionRecord
+	plan              []planStep
 	lastFailedCall    string
 	repeatedFailures  int
 	turnCtx           *TurnContext
@@ -448,6 +450,7 @@ func (ts *turnState) snapshot() ActiveTurnInfo {
 		Depth:        ts.depth,
 		ParentTurnID: ts.parentTurnID,
 		ChildTurnIDs: append([]string(nil), ts.childTurnIDs...),
+		Plan:         append([]planStep(nil), ts.plan...),
 	}
 }
 

@@ -38,6 +38,13 @@ func (p *Pipeline) CallLLM(
 	exec.gracefulTerminal, _ = ts.gracefulInterruptRequested()
 	exec.providerToolDefs = ts.toolRegistry().ToProviderDefs()
 	exec.providerToolDefs = filterToolsByTurnProfile(exec.providerToolDefs, ts.profile)
+	if iteration > 1 {
+		var fit bool
+		exec.messages, exec.currentTurnStart, fit = fitActiveTurn(exec.messages, exec.currentTurnStart, ts.agent.ContextWindow, exec.providerToolDefs, ts.agent.MaxTokens)
+		if !fit {
+			return ControlBreak, fmt.Errorf("active turn exceeds the context window; refusing to discard its tool results")
+		}
+	}
 
 	// Native web search support
 	webSearchEnabled := al.cfg.Tools.IsToolEnabled("web") && turnProfileToolAllowed(ts.profile, "web_search")

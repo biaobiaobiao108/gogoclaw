@@ -375,6 +375,27 @@ export function ChatPage() {
           {t("chat.taskRunning", { iteration: activeTurn.iteration })}
         </div>
       )}
+      {activeTurn?.plan && activeTurn.plan.length > 0 && (
+        <details open className="mx-auto w-full max-w-4xl px-4 pb-2 text-xs">
+          <summary className="text-muted-foreground cursor-pointer">
+            {t("chat.taskPlan")}
+          </summary>
+          <ol className="mt-2 space-y-1 pl-4">
+            {activeTurn.plan.map((step, index) => (
+              <li key={index} className="text-muted-foreground">
+                <span aria-label={t(`chat.planStatus.${step.status}`)}>
+                  {step.status === "completed"
+                    ? "✓"
+                    : step.status === "in_progress"
+                      ? "●"
+                      : "○"}
+                </span>{" "}
+                {step.text}
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
       {interrupted && !activeTurn && !isTyping && canInput && (
         <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 px-4 pb-2 text-xs">
           <span className="text-muted-foreground">

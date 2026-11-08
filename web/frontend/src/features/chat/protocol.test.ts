@@ -32,6 +32,7 @@ describe("turn status", () => {
       turnId: "turn",
       phase: "tools",
       iteration: 2,
+      plan: undefined,
     })
     handlePicoMessage(
       {

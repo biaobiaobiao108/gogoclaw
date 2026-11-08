@@ -117,6 +117,15 @@ export function handlePicoMessage(
                 typeof payload.turn_id === "string" ? payload.turn_id : "",
               phase: typeof payload.phase === "string" ? payload.phase : "",
               iteration: Number(payload.iteration) || 0,
+              plan: Array.isArray(payload.plan)
+                ? payload.plan.filter(
+                    (step): step is { text: string; status: string } =>
+                      !!step &&
+                      typeof step === "object" &&
+                      typeof step.text === "string" &&
+                      typeof step.status === "string",
+                  )
+                : undefined,
             }
           : undefined,
         ...(typeof payload.interrupted === "boolean"

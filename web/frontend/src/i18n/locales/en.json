@@ -95,6 +95,12 @@
     "sendMessage": "Send message",
     "stopTask": "Stop task",
     "taskRunning": "Task running · step {{iteration}}",
+    "taskPlan": "Task plan",
+    "planStatus": {
+      "pending": "Pending",
+      "in_progress": "In progress",
+      "completed": "Completed"
+    },
     "taskInterrupted": "The previous task was interrupted.",
     "continueTask": "Continue",
     "continuePrompt": "Continue the interrupted task. Check the current state before repeating any action whose result is unknown.",

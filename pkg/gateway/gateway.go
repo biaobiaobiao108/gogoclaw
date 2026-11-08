@@ -464,7 +464,7 @@ func setupAndStartServices(
 					}
 					return result
 				}
-				return map[string]any{"active": true, "turn_id": turn.TurnID, "phase": turn.Phase, "iteration": turn.Iteration}
+				return map[string]any{"active": true, "turn_id": turn.TurnID, "phase": turn.Phase, "iteration": turn.Iteration, "plan": turn.Plan}
 			})
 		}
 	}

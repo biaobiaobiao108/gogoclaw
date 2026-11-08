@@ -167,3 +167,27 @@ func nextHistoryTrimStart(history []providers.Message) int {
 
 	return len(history)
 }
+
+// fitActiveTurn removes only complete older turns, retaining the system prompt
+// and every message belonging to the active turn.
+func fitActiveTurn(messages []providers.Message, currentStart, contextWindow int, defs []providers.ToolDefinition, maxTokens int) ([]providers.Message, int, bool) {
+	if contextWindow <= 0 || !isOverContextBudget(contextWindow, messages, defs, maxTokens) {
+		return messages, currentStart, true
+	}
+	if currentStart < 0 || currentStart > len(messages) {
+		return messages, currentStart, false
+	}
+	base := 0
+	for base < currentStart && messages[base].Role == "system" {
+		base++
+	}
+	prefix := append([]providers.Message(nil), messages[:base]...)
+	tail := append([]providers.Message(nil), messages[currentStart:]...)
+	old := messages[base:currentStart]
+	trimmed, rebuilt, fit := trimHistoryToFitContextWindow(old, func(history []providers.Message) []providers.Message {
+		out := append([]providers.Message(nil), prefix...)
+		out = append(out, history...)
+		return append(out, tail...)
+	}, contextWindow, defs, maxTokens)
+	return rebuilt, len(prefix) + len(trimmed), fit
+}

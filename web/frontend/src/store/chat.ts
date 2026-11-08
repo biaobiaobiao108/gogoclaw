@@ -65,7 +65,12 @@ export interface ChatStoreState {
   messages: ChatMessage[]
   connectionState: ConnectionState
   isTyping: boolean
-  activeTurn?: { turnId: string; phase: string; iteration: number }
+  activeTurn?: {
+    turnId: string
+    phase: string
+    iteration: number
+    plan?: { text: string; status: string }[]
+  }
   interrupted?: boolean
   activeSessionId: string
   hasHydratedActiveSession: boolean

@@ -95,6 +95,12 @@
     "sendMessage": "发送消息",
     "stopTask": "停止任务",
     "taskRunning": "任务执行中 · 第 {{iteration}} 步",
+    "taskPlan": "任务计划",
+    "planStatus": {
+      "pending": "待处理",
+      "in_progress": "进行中",
+      "completed": "已完成"
+    },
     "taskInterrupted": "上次任务已中断。",
     "continueTask": "继续任务",
     "continuePrompt": "继续之前中断的任务。对于结果未知的操作，先检查当前状态，再决定是否重试。",

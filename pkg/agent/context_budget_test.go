@@ -8,6 +8,25 @@ import (
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
 
+func TestFitActiveTurnPreservesToolSequence(t *testing.T) {
+	messages := []providers.Message{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: strings.Repeat("old ", 1000)},
+		{Role: "assistant", Content: "old answer"},
+		{Role: "user", Content: "current task"},
+		{Role: "assistant", ToolCalls: []providers.ToolCall{{ID: "call"}}},
+		{Role: "tool", ToolCallID: "call", Content: "result"},
+	}
+	got, start, fit := fitActiveTurn(messages, 3, 150, nil, 0)
+	if !fit || start != 1 || len(got) != 4 || got[0].Role != "system" || got[3].ToolCallID != "call" {
+		t.Fatalf("unexpected active context: fit=%v start=%d messages=%+v", fit, start, got)
+	}
+	_, _, fit = fitActiveTurn(messages, 3, 1, nil, 0)
+	if fit {
+		t.Fatal("oversized active turn should not be discarded")
+	}
+}
+
 // msgUser creates a user message.
 func msgUser(content string) providers.Message {
 	return providers.Message{Role: "user", Content: content}
