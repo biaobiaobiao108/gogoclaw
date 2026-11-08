@@ -21,7 +21,7 @@ RUN go mod download
 COPY . .
 COPY --from=frontend /src/web/backend/dist web/backend/dist
 
-RUN GOOS=$TARGETOS GOARCH=$TARGETARCH GO_BUILD_TAGS=goolm,stdjson,whatsapp_native make build && \
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH GO_BUILD_TAGS=goolm,stdjson make build && \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -tags goolm,stdjson \
       -ldflags "-s -w" \
       -o build/gogoclaw-launcher ./web/backend/

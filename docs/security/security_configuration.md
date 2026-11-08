@@ -46,55 +46,27 @@ model_list:
       - "sk-ant-your-actual-anthropic-key"  # Single key in array format
 
 # Channel Tokens
-channels:
-  telegram:
-    token: "your-telegram-bot-token"
-  feishu:
-    app_secret: "your-feishu-app-secret"
-    encrypt_key: "your-feishu-encrypt-key"
-    verification_token: "your-feishu-verification-token"
-  discord:
-    token: "your-discord-bot-token"
-  weixin:
-    token: "your-weixin-token"
-  qq:
-    app_secret: "your-qq-app-secret"
-  dingtalk:
-    client_secret: "your-dingtalk-client-secret"
-  slack:
-    bot_token: "your-slack-bot-token"
-    app_token: "your-slack-app-token"
-  matrix:
-    access_token: "your-matrix-access-token"
-  line:
-    channel_secret: "your-line-channel-secret"
-    channel_access_token: "your-line-channel-access-token"
-  onebot:
-    access_token: "your-onebot-access-token"
-  wecom:
-    token: "your-wecom-token"
-    encoding_aes_key: "your-wecom-encoding-aes-key"
-  wecom_app:
-    corp_secret: "your-wecom-app-corp-secret"
-    token: "your-wecom-app-token"
-    encoding_aes_key: "your-wecom-app-encoding-aes-key"
-  wecom_aibot:
-    secret: "your-wecom-aibot-secret"
-    token: "your-wecom-aibot-token"
-    encoding_aes_key: "your-wecom-aibot-encoding-aes-key"
-  pico:
-    token: "your-pico-token"
-  irc:
-    password: "your-irc-password"
-    nickserv_password: "your-irc-nickserv-password"
-    sasl_password: "your-irc-sasl-password"
-
-# Channel Settings (nested format for channels that use settings block)
 channel_list:
-  mqtt:
+  telegram:
     settings:
-      username: "your-mqtt-username"
-      password: "your-mqtt-password"
+      token: "your-telegram-bot-token"
+  feishu:
+    settings:
+      app_secret: "your-feishu-app-secret"
+      encrypt_key: "your-feishu-encrypt-key"
+      verification_token: "your-feishu-verification-token"
+  discord:
+    settings:
+      token: "your-discord-bot-token"
+  weixin:
+    settings:
+      token: "your-weixin-token"
+  qq:
+    settings:
+      app_secret: "your-qq-app-secret"
+  pico:
+    settings:
+      token: "your-pico-token"
 
 # Web Tool API Keys
 web:
@@ -213,38 +185,28 @@ model_list:
 
 ### Channels
 
-Each channel maps its fields directly:
+Channel secrets use the same names in `.security.yml` and `config.json`:
 
 **In .security.yml:**
 ```yaml
-channels:
+channel_list:
   telegram:
-    token: "value"
+    settings:
+      token: "value"
   feishu:
-    app_secret: "value"
-    encrypt_key: "value"
-    verification_token: "value"
+    settings:
+      app_secret: "value"
+      encrypt_key: "value"
+      verification_token: "value"
   discord:
-    token: "value"
+    settings:
+      token: "value"
 ```
 
 **Mapping:**
-- `channels.telegram.token` → `config.channels.telegram.token`
-- `channels.feishu.app_secret` → `config.channels.feishu.app_secret`
+- `channel_list.telegram.settings.token` → `config.channel_list.telegram.settings.token`
+- `channel_list.feishu.settings.app_secret` → `config.channel_list.feishu.settings.app_secret`
 - etc.
-
-Channels that use a `settings` block (e.g. MQTT) use the `channel_list` key instead:
-
-```yaml
-channel_list:
-  mqtt:
-    settings:
-      username: "value"
-      password: "value"
-```
-
-- `channel_list.mqtt.settings.username` → `config.channel_list.mqtt.settings.username`
-- `channel_list.mqtt.settings.password` → `config.channel_list.mqtt.settings.password`
 
 ### Web Tools
 

@@ -6,7 +6,7 @@ import (
 )
 
 // Build-time variables injected via ldflags during build process.
-// These are set by the Makefile or .goreleaser.yaml using the -X flag:
+// These are set by the Makefile using the -X flag:
 //
 //	-X github.com/biaobiaobiao108/gogoclaw/pkg/config.Version=<version>
 //	-X github.com/biaobiaobiao108/gogoclaw/pkg/config.GitCommit=<commit>

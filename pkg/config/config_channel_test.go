@@ -251,16 +251,6 @@ func TestInitChannelList_RejectsNegativeStreamingDeliveryValues(t *testing.T) {
 			channelType: ChannelTelegram,
 			settings:    `{"token":"telegram-token","streaming":{"enabled":true,"min_growth_chars":-1}}`,
 		},
-		{
-			name:        "wecom throttle",
-			channelType: ChannelTelegram,
-			settings:    `{"bot_id":"bot-1","streaming":{"enabled":true,"throttle_seconds":-1}}`,
-		},
-		{
-			name:        "wecom growth",
-			channelType: ChannelTelegram,
-			settings:    `{"bot_id":"bot-1","streaming":{"enabled":true,"min_growth_chars":-1}}`,
-		},
 	}
 
 	for _, tt := range tests {

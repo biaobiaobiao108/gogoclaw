@@ -11,7 +11,7 @@ GoGoClaw 可以从工具调用结果中过滤敏感值（API 密钥、令牌、�
 敏感值从 `.security.yml` 中收集 —— 这是所有敏感配置的集中存储，包括：
 
 - 模型 API 密钥
-- 频道令牌（Telegram、Discord、Slack、Matrix 等）
+- 频道令牌（Telegram、Discord、飞书、微信、QQ、Pico 等）
 - Web 工具 API 密钥（Brave、Tavily、Perplexity 等）
 - 技能令牌（GitHub、ClawHub）
 

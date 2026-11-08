@@ -11,7 +11,7 @@ When the LLM uses a tool that returns its own credentials (e.g., a tool that ech
 Sensitive values are collected from [`.security.yml`](./credential_encryption.md) — the centralized storage for all sensitive configuration (API keys, tokens, secrets stored alongside `config.json`). This includes:
 
 - Model API keys
-- Channel tokens (Telegram, Discord, Slack, Matrix, etc.)
+- Channel tokens (Telegram, Discord, Feishu, WeChat, QQ, Pico, etc.)
 - Web tool API keys (Brave, Tavily, Perplexity, etc.)
 - Skills tokens (GitHub, ClawHub)
 

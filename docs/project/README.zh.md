@@ -242,29 +242,18 @@ GoGoClaw 通过 `model_list` 配置支持 30+ LLM Provider，使用 `协议/模�
 
 ## 💬 Channels（聊天应用）
 
-通过 18+ 消息平台与你的 GoGoClaw 对话：
+通过内置 Web 控制台或受支持的消息平台与 GoGoClaw 对话：
 
 | Channel | 配置难度 | 协议 | 文档 |
 |---------|----------|------|------|
 | **Telegram** | 简单（bot token） | 长轮询 | [指南](../channels/telegram/README.zh.md) |
 | **Discord** | 简单（bot token + intents） | WebSocket | [指南](../channels/discord/README.zh.md) |
-| **WhatsApp** | 简单（扫码或 bridge URL） | 原生 / Bridge | [指南](../guides/chat-apps.zh.md#whatsapp) |
 | **微信 (Weixin)** | 简单（扫码登录） | iLink API | [指南](../guides/chat-apps.zh.md#weixin) |
 | **QQ** | 简单（AppID + AppSecret） | WebSocket | [指南](../channels/qq/README.zh.md) |
-| **Slack** | 简单（bot + app token） | Socket Mode | [指南](../channels/slack/README.zh.md) |
-| **Matrix** | 中等（homeserver + token） | Sync API | [指南](../channels/matrix/README.zh.md) |
-| **钉钉** | 中等（client credentials） | Stream | [指南](../channels/dingtalk/README.zh.md) |
 | **飞书 / Lark** | 中等（App ID + Secret） | WebSocket/SDK | [指南](../channels/feishu/README.zh.md) |
-| **LINE** | 中等（credentials + webhook） | Webhook | [指南](../channels/line/README.zh.md) |
-| **企业微信** | 简单（扫码登录或手动配置） | WebSocket | [指南](../channels/wecom/README.zh.md) |
-| **VK** | 简单（群组 token） | Long Poll | [指南](../channels/vk/README.md) |
-| **IRC** | 中等（server + nick） | IRC 协议 | [指南](../guides/chat-apps.zh.md#irc) |
-| **OneBot** | 中等（WebSocket URL） | OneBot v11 | [指南](../channels/onebot/README.zh.md) |
-| **MaixCam** | 简单（启用即可） | TCP socket | [指南](../channels/maixcam/README.zh.md) |
 | **Pico** | 简单（启用即可） | 原生协议 | 内置 |
-| **Pico Client** | 简单（WebSocket URL） | WebSocket | 内置 |
 
-> 所有基于 Webhook 的 Channel 共用同一个 Gateway HTTP 服务器（`gateway.host`:`gateway.port`，默认 `127.0.0.1:18790`）。飞书使用 WebSocket/SDK 模式，不使用共享 HTTP 服务器。
+> 网关监听 `gateway.host`:`gateway.port`（默认 `localhost:18790`）。飞书使用 WebSocket/SDK 模式，不需要公网回调地址。
 
 > 日志详细程度通过 `gateway.log_level` 控制（默认：`warn`）。支持的值：`debug`、`info`、`warn`、`error`、`fatal`。也可通过 `GOGOCLAW_LOG_LEVEL` 环境变量设置。详见[配置指南](../guides/configuration.zh.md#gateway-日志等级)。
 

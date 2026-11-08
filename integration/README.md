@@ -28,13 +28,13 @@ Some integration-tagged tests are intentionally opt-in and not part of the Docke
 
 ## What CI Runs
 
-The integration jobs in [`.github/workflows/pr.yml`](../.github/workflows/pr.yml) and [`.github/workflows/build.yml`](../.github/workflows/build.yml) both execute:
+The integration suites use the same runner as local verification:
 
 ```bash
 bash ./scripts/run-integration-tests.sh
 ```
 
-The runner auto-discovers every suite under `integration/suites/`, so adding a suite does not require editing the GitHub Actions workflow.
+The runner auto-discovers every suite under `integration/suites/`, so adding a suite does not require editing workflow files.
 
 ## How the Runner Works
 

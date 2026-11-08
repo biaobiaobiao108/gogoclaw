@@ -3,21 +3,8 @@ import type { ChannelConfig } from "@/api/channels"
 export const SECRET_FIELD_MAP = {
   token: "_token",
   app_secret: "_app_secret",
-  client_secret: "_client_secret",
-  corp_secret: "_corp_secret",
-  channel_secret: "_channel_secret",
-  channel_access_token: "_channel_access_token",
-  access_token: "_access_token",
-  bot_token: "_bot_token",
-  app_token: "_app_token",
-  encoding_aes_key: "_encoding_aes_key",
   encrypt_key: "_encrypt_key",
   verification_token: "_verification_token",
-  secret: "_secret",
-  username: "_username",
-  password: "_password",
-  nickserv_password: "_nickserv_password",
-  sasl_password: "_sasl_password",
 } as const
 
 const CHANNEL_SECRET_FIELDS: Record<string, string[]> = {
