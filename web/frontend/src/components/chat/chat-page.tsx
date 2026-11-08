@@ -90,6 +90,7 @@ function resolveChatInputDisabledReason({
 type ChatStreamRow =
   | { kind: "loadOlder" }
   | { kind: "historyLoading" }
+  | { kind: "historyError" }
   | { kind: "empty" }
   | { kind: "message"; message: ChatMessage }
   | { kind: "typing" }
@@ -109,6 +110,7 @@ function estimateChatStreamRow(row: ChatStreamRow): number {
     case "loadOlder":
       return 56
     case "historyLoading":
+    case "historyError":
       return 104
     case "empty":
       return 420
@@ -149,9 +151,11 @@ export function ChatPage() {
     switchSession,
     newChat,
     isHistoryLoading,
+    historyError,
     isLoadingOlderHistory,
     hasOlderHistory,
     loadOlderHistory,
+    retryHistory,
   } = usePicoChat()
 
   const { state: gwState } = useGateway()
@@ -350,14 +354,20 @@ export function ChatPage() {
     const rows: ChatStreamRow[] = []
     if (hasOlderHistory && !isHistoryLoading) rows.push({ kind: "loadOlder" })
     if (isHistoryLoading) rows.push({ kind: "historyLoading" })
-    if (!isHistoryLoading && messages.length === 0 && !isTyping) {
+    if (!isHistoryLoading && historyError) rows.push({ kind: "historyError" })
+    if (
+      !isHistoryLoading &&
+      !historyError &&
+      messages.length === 0 &&
+      !isTyping
+    ) {
       rows.push({ kind: "empty" })
     }
     for (const message of messages) {
       rows.push({ kind: "message", message })
     }
     if (isTyping) rows.push({ kind: "typing" })
-    if (!isHistoryLoading && !activeTurn) {
+    if (!isHistoryLoading && !historyError && !activeTurn) {
       rows.push({
         kind: "activity",
         plan: recentPlan,
@@ -369,6 +379,7 @@ export function ChatPage() {
   }, [
     activeTurn,
     hasOlderHistory,
+    historyError,
     isHistoryLoading,
     isTyping,
     messages,
@@ -501,6 +512,29 @@ export function ChatPage() {
                         aria-hidden="true"
                       />
                     ))}
+                  </div>
+                )}
+                {row.kind === "historyError" && (
+                  <div
+                    className="border-border bg-card flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
+                    role="alert"
+                  >
+                    <div>
+                      <p className="text-sm font-medium">
+                        {t("chat.historyLoadTitle")}
+                      </p>
+                      <p className="text-muted-foreground mt-0.5 text-xs">
+                        {t("chat.historyLoadFailed")}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void retryHistory()}
+                    >
+                      {t("chat.historyRetry")}
+                    </Button>
                   </div>
                 )}
                 {row.kind === "empty" && (

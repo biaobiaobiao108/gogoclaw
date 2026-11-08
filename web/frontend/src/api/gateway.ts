@@ -31,7 +31,22 @@ const BASE_URL = ""
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await launcherFetch(`${BASE_URL}${path}`, options)
   if (!res.ok) {
-    throw new Error(`API error: ${res.status} ${res.statusText}`)
+    const fallback = `API error: ${res.status} ${res.statusText}`
+    const body = await res.text().catch(() => "")
+    if (!body) throw new Error(fallback)
+    try {
+      const payload = JSON.parse(body) as { message?: unknown; error?: unknown }
+      if (typeof payload.message === "string" && payload.message.trim()) {
+        throw new Error(payload.message.trim())
+      }
+      if (typeof payload.error === "string" && payload.error.trim()) {
+        throw new Error(payload.error.trim())
+      }
+    } catch (error) {
+      if (error instanceof SyntaxError) throw new Error(body.trim() || fallback)
+      throw error
+    }
+    throw new Error(body.trim() || fallback)
   }
   return res.json() as Promise<T>
 }

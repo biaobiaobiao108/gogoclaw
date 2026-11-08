@@ -81,7 +81,7 @@ export function AppHeader() {
   }
 
   const handleGatewayToggle = () => {
-    if (gwLoading || isRestarting || isStopping || (!isRunning && !canStart)) {
+    if (gwLoading || isRestarting || isStopping) {
       return
     }
     if (isRunning) {
@@ -229,33 +229,30 @@ export function AppHeader() {
             delayDuration={gwError || (!canStart && startReason) ? 0 : 300}
           >
             <TooltipTrigger asChild>
-              <span
-                className={
-                  !canStart && startReason ? "cursor-not-allowed" : undefined
-                }
-                tabIndex={!canStart && startReason ? 0 : undefined}
-              >
+              <span tabIndex={!canStart && startReason ? 0 : undefined}>
                 <Button
                   variant={
                     isStarting || isRestarting || isStopping
                       ? "secondary"
-                      : "default"
+                      : !canStart
+                        ? "outline"
+                        : "default"
                   }
                   size="sm"
-                  aria-label={t("header.gateway.action.start")}
+                  aria-label={
+                    !canStart && startReason
+                      ? `${t("header.gateway.action.start")}: ${startReason}`
+                      : t("header.gateway.action.start")
+                  }
                   data-tour="gateway-button"
                   className={`h-8 gap-1.5 px-2.5 text-xs font-medium ${
                     isStopped
                       ? "bg-primary text-primary-foreground hover:bg-primary/90"
                       : ""
-                  } ${!canStart ? "pointer-events-none opacity-50" : ""}`}
+                  } ${!canStart ? "border-warning/50 bg-warning/5 text-warning hover:bg-warning/10" : ""}`}
                   onClick={handleGatewayToggle}
                   disabled={
-                    gwLoading ||
-                    isStarting ||
-                    isRestarting ||
-                    isStopping ||
-                    !canStart
+                    gwLoading || isStarting || isRestarting || isStopping
                   }
                 >
                   {gwLoading || isStarting || isRestarting || isStopping ? (

@@ -12,14 +12,14 @@ Light is the default theme. It uses a low-chroma paper ground, not cream or yell
 
 | Role | Light token | Dark token | Use |
 | --- | --- | --- | --- |
-| Canvas | `--background: oklch(0.946 0.0018 75)` | `oklch(0.145 0.005 260)` | Page ground |
-| Surface | `--card: oklch(0.982 0.0012 75)` | `oklch(0.185 0.008 260)` | Panels and controls |
-| Popover | `--popover: oklch(0.988 0.001 75)` | `oklch(0.185 0.008 260)` | Menus and dialogs |
-| Sidebar | `--sidebar: oklch(0.918 0.0025 75)` | `oklch(0.16 0.006 260)` | Navigation |
+| Canvas | `--background: oklch(0.925 0.003 75)` | `oklch(0.145 0.005 260)` | Page ground |
+| Surface | `--card: oklch(0.965 0.0015 75)` | `oklch(0.185 0.008 260)` | Panels and controls |
+| Popover | `--popover: oklch(0.975 0.001 75)` | `oklch(0.185 0.008 260)` | Menus and dialogs |
+| Sidebar | `--sidebar: oklch(0.895 0.003 75)` | `oklch(0.16 0.006 260)` | Navigation |
 | Text | `--foreground: oklch(0.18 0.005 75)` | `oklch(0.96 0.004 260)` | Primary copy |
 | Muted text | `--muted-foreground: oklch(0.43 0.006 75)` | `oklch(0.66 0.01 260)` | Secondary copy |
-| Border | `--border: oklch(0.855 0.003 75)` | `oklch(0.26 0.008 260)` | Hairlines |
-| Accent | `--accent: oklch(0.60 0.09 215)` | `oklch(0.68 0.10 215)` | Focus, links, selected information |
+| Border | `--border: oklch(0.60 0.004 75)` | `oklch(0.26 0.008 260)` | Hairlines and control boundaries |
+| Accent | `--accent: oklch(0.58 0.09 215)` | `oklch(0.68 0.10 215)` | Focus, links, selected information |
 | Success | `--success: oklch(0.47 0.12 145)` | `oklch(0.72 0.16 145)` | Healthy/online status |
 | Warning | `--warning: oklch(0.50 0.12 70)` | `oklch(0.78 0.15 75)` | Recoverable attention |
 | Destructive | `--destructive: oklch(0.56 0.19 25)` | `oklch(0.65 0.20 25)` | Failure or destructive action |

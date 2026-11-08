@@ -1182,6 +1182,7 @@ export function ModelsPage() {
         onMutationStarted={beginModelMutation}
         onMutationSettled={finishModelMutation}
         existingModelNames={models.map((model) => model.model_name)}
+        hasDefaultModel={defaultModelDraft !== ""}
         providerOptions={providerOptions}
       />
 

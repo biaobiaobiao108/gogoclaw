@@ -5,6 +5,7 @@ import {
   loadOlderChatHistory,
   newChatSession,
   respondToApproval,
+  retryActiveSessionHistory,
   sendChatMessage,
   switchChatSession,
 } from "@/features/chat/controller"
@@ -71,6 +72,7 @@ export function usePicoChat() {
     contextUsage,
     hasHydratedActiveSession,
     isHistoryLoading,
+    historyError,
     isLoadingOlderHistory,
     hasOlderHistory,
   } = useAtomValue(chatAtom)
@@ -89,6 +91,7 @@ export function usePicoChat() {
     contextUsage,
     hasHydratedActiveSession,
     isHistoryLoading,
+    historyError,
     isLoadingOlderHistory,
     hasOlderHistory,
     loadOlderHistory: loadOlderChatHistory,
@@ -96,5 +99,6 @@ export function usePicoChat() {
     respondToApproval,
     switchSession: switchChatSession,
     newChat: newChatSession,
+    retryHistory: retryActiveSessionHistory,
   }
 }

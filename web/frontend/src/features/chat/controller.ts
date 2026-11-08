@@ -312,7 +312,9 @@ export function disconnectChat() {
   disconnectChatInternal({ clearDesiredConnection: true })
 }
 
-export async function hydrateActiveSession() {
+export async function hydrateActiveSession({
+  force = false,
+}: { force?: boolean } = {}) {
   if (hydratePromise) {
     return hydratePromise
   }
@@ -322,7 +324,7 @@ export async function hydrateActiveSession() {
 
   if (
     !storedSessionId ||
-    state.hasHydratedActiveSession ||
+    (!force && state.hasHydratedActiveSession) ||
     storedSessionId !== state.activeSessionId
   ) {
     if (!state.hasHydratedActiveSession) {
@@ -331,7 +333,7 @@ export async function hydrateActiveSession() {
     return
   }
 
-  updateChatStore({ isHistoryLoading: true })
+  updateChatStore({ isHistoryLoading: true, historyError: false })
   hydratePromise = loadSessionHistory(storedSessionId)
     .then((history) => {
       const currentState = getChatState()
@@ -350,6 +352,7 @@ export async function hydrateActiveSession() {
           turnHistory: history.turnHistory,
           hasHydratedActiveSession: true,
           isHistoryLoading: false,
+          historyError: false,
           historyCursor: history.nextCursor,
           hasOlderHistory: history.hasOlder,
         })
@@ -364,6 +367,7 @@ export async function hydrateActiveSession() {
         isTyping: false,
         hasHydratedActiveSession: true,
         isHistoryLoading: false,
+        historyError: false,
         historyCursor: history.nextCursor,
         hasOlderHistory: history.hasOlder,
       })
@@ -377,7 +381,11 @@ export async function hydrateActiveSession() {
       }
 
       if (currentState.messages.length > 0) {
-        updateChatStore({ hasHydratedActiveSession: true })
+        updateChatStore({
+          hasHydratedActiveSession: true,
+          isHistoryLoading: false,
+          historyError: true,
+        })
         return
       }
 
@@ -387,6 +395,7 @@ export async function hydrateActiveSession() {
         isTyping: false,
         hasHydratedActiveSession: true,
         isHistoryLoading: false,
+        historyError: true,
       })
     })
     .finally(() => {
@@ -394,6 +403,10 @@ export async function hydrateActiveSession() {
     })
 
   return hydratePromise
+}
+
+export function retryActiveSessionHistory() {
+  return hydrateActiveSession({ force: true })
 }
 
 interface SendChatMessageInput {
@@ -484,6 +497,7 @@ export async function loadOlderChatHistory(): Promise<boolean> {
       messages: mergeHistoryMessages(history.messages, prev.messages),
       historyCursor: history.nextCursor,
       hasOlderHistory: history.hasOlder,
+      historyError: false,
       isLoadingOlderHistory: false,
     }))
     return history.messages.length > 0
@@ -590,6 +604,7 @@ export async function newChatSession() {
     historyCursor: undefined,
     hasOlderHistory: false,
     isLoadingOlderHistory: false,
+    historyError: false,
   })
 
   if (store.get(gatewayAtom).status === "running") {

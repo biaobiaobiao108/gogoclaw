@@ -103,7 +103,7 @@ export function ChatComposer({
       <div className="mx-auto flex w-full max-w-4xl flex-col">
         <div
           className={cn(
-            "bg-card/90 supports-backdrop-filter:bg-card/75 border-border/80 focus-within:border-primary/50 relative flex w-full flex-col rounded-xl border shadow-xs backdrop-blur-sm transition-[background-color,border-color,box-shadow] duration-[var(--motion-state)] ease-out",
+            "bg-card/90 supports-backdrop-filter:bg-card/75 border-border/80 focus-within:border-primary/50 relative flex w-full flex-col rounded-lg border shadow-xs backdrop-blur-sm transition-[background-color,border-color,box-shadow] duration-[var(--motion-state)] ease-out",
             isDragActive &&
               "border-accent/80 bg-accent/5 ring-accent/20 ring-2",
           )}
@@ -113,7 +113,7 @@ export function ChatComposer({
           onDrop={onDrop}
         >
           {isDragActive && (
-            <div className="border-accent/60 bg-card/95 pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl border-2 border-dashed">
+            <div className="border-accent/60 bg-card/95 pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed">
               <div className="text-foreground font-mono text-xs font-medium">
                 {t("chat.dropImagesActive")}
               </div>

@@ -36,9 +36,9 @@
     "errorNetwork": "网络错误，请重试。"
   },
   "chat": {
-    "welcome": "今天我能为您做些什么？",
-    "welcomeDesc": "您可以询问我天气、设置或其他任何任务，我随时为您效劳。",
-    "placeholder": "输入新消息...",
+    "welcome": "开始一个任务",
+    "welcomeDesc": "描述你希望完成的结果，GoGoClaw 会检查工作区并持续执行。",
+    "placeholder": "描述任务或提出问题…",
     "disabledPlaceholder": {
       "gatewayUnknown": "无法对话：网关状态仍在检测中。请稍候重试，如仍无效请刷新页面或重启 Launcher。",
       "gatewayStarting": "无法对话：网关正在启动。请等待启动完成后重试。",
@@ -84,6 +84,8 @@
     "history": "历史记录",
     "noHistory": "暂无对话历史",
     "historyLoadFailed": "加载历史记录失败",
+    "historyLoadTitle": "无法载入对话",
+    "historyRetry": "重试",
     "loadingHistory": "正在加载历史记录",
     "historyOpenFailed": "打开该历史会话失败",
     "loadingMore": "加载更多...",
@@ -157,6 +159,7 @@
       "goToModels": "去模型页配置",
       "noSelectedModel": "尚未设置模型",
       "noSelectedModelDescription": "您已配置模型，但尚未设置默认模型。请选择一个模型后开始对话",
+      "selectModel": "选择模型",
       "notRunning": "服务尚未运行",
       "notRunningDescription": "请先启动网关服务后再开始对话，可点击顶部栏中的「启动服务」按钮。"
     },
@@ -198,7 +201,14 @@
         "stopping": "服务停止中...",
         "running": "服务在线"
       },
-      "restartRequired": "配置变更后需要重启服务才能生效。"
+      "restartRequired": "配置变更后需要重启服务才能生效。",
+      "startUnavailable": "服务配置未就绪，暂时无法启动。",
+      "startReason": {
+        "noDefaultModel": "请先选择默认模型，再启动服务。",
+        "noCredentials": "{{model}} 尚未配置凭据。",
+        "notReachable": "{{model}} 当前不可访问。",
+        "invalid": "{{model}} 不是有效的模型。"
+      }
     }
   },
   "common": {
@@ -528,60 +538,32 @@
     },
     "form": {
       "desc": {
-        "agentId": "指定处理消息的 Agent；留空时使用默认 Agent。",
         "allowFrom": "限制可触发该频道的发送者；留空表示不限制。",
         "allowOrigins": "限制允许连接 WebSocket 的浏览器来源。",
         "allowTokenQuery": "允许通过查询参数传递访问令牌。",
         "appId": "平台应用凭据中的 App ID。",
         "appSecret": "平台应用凭据中的 App Secret。",
         "baseUrl": "覆盖平台 API 的基础地址，通常无需修改。",
-        "bridgeUrl": "外部桥接服务的连接地址。",
-        "channels": "需要加入或监听的频道列表。",
-        "clientId": "客户端标识，由目标平台提供。",
-        "corpId": "企业 ID，由目标平台提供。",
-        "deviceId": "设备标识，用于区分同一账号的不同客户端。",
         "encryptKey": "平台回调消息的加密密钥。",
         "genericField": "配置 {{field}}。",
         "groupTriggerMentionOnly": "群聊中仅处理明确提及机器人的消息。",
         "groupTriggerPrefixes": "群聊消息只有以这些前缀开头时才触发 Agent。",
-        "homeserver": "Matrix homeserver 的地址。",
-        "host": "频道服务监听或连接使用的主机地址。",
         "isLark": "使用 Lark 国际版接口，而非飞书中国版。",
-        "joinOnInvite": "收到邀请后自动加入群组。",
         "maxBase64FileSizeMiB": "单个内联文件的最大体积，单位为 MiB。",
         "maxConnections": "频道服务允许的最大并发连接数。",
-        "maxSteps": "单次任务允许执行的最大 Agent 步数。",
         "mentionOnly": "仅在消息明确提及机器人时响应。",
-        "nick": "连接 IRC 时使用的昵称。",
         "pingInterval": "发送心跳的间隔，单位为秒。",
         "placeholderEnabled": "处理消息时先发送可更新的等待提示。",
-        "port": "频道服务监听或连接使用的端口。",
         "proxy": "频道请求使用的 HTTP 或 SOCKS 代理。",
         "randomReactionEmoji": "收到消息后从指定表情中选择一个作为回应。",
         "readTimeout": "读取响应的超时时间，单位为秒。",
-        "realName": "连接 IRC 时使用的真实名称。",
-        "reconnectInterval": "连接断开后重新连接前的等待时间，单位为秒。",
-        "replyTimeout": "等待上游回复的超时时间，单位为秒。",
-        "requestCaps": "连接 IRC 时请求的扩展能力。",
-        "server": "频道服务连接使用的服务器地址。",
-        "sessionStorePath": "频道会话状态的可选持久化路径。",
         "streamingEnabled": "逐步更新回复，而不是等待完整结果后一次发送。",
         "streamingMinGrowthChars": "流式文本至少增加这么多字符后才更新一次。",
         "streamingThrottleSeconds": "两次流式更新之间的最短间隔。",
-        "tls": "使用 TLS 加密连接。",
         "token": "平台机器人令牌，用于认证频道连接。",
         "typingEnabled": "处理消息期间向平台发送正在输入状态。",
-        "useNative": "优先使用平台原生能力，而不是兼容层。",
-        "user": "认证或连接使用的用户名。",
-        "userId": "平台账号的唯一标识。",
         "verificationToken": "平台回调签名校验使用的令牌。",
-        "webhookHost": "接收平台回调的监听地址。",
-        "webhookPath": "接收平台回调的 URL 路径。",
-        "webhookPort": "接收平台回调的监听端口。",
-        "webhookUrl": "平台向本服务推送事件的回调地址。",
-        "welcomeMessage": "新成员或新会话首次连接时发送的欢迎消息。",
-        "writeTimeout": "写入响应的超时时间，单位为秒。",
-        "wsUrl": "WebSocket 服务的完整连接地址。"
+        "writeTimeout": "写入响应的超时时间，单位为秒。"
       }
     },
     "loadError": "加载频道配置失败，请重试。",

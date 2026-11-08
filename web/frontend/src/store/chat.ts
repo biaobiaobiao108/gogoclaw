@@ -124,6 +124,7 @@ export interface ChatStoreState {
   activeSessionId: string
   hasHydratedActiveSession: boolean
   isHistoryLoading: boolean
+  historyError?: boolean
   isLoadingOlderHistory?: boolean
   historyCursor?: string
   hasOlderHistory?: boolean
@@ -139,6 +140,7 @@ const DEFAULT_CHAT_STATE: ChatStoreState = {
   activeSessionId: getInitialActiveSessionId(),
   hasHydratedActiveSession: false,
   isHistoryLoading: false,
+  historyError: false,
 }
 
 export const chatAtom = atom<ChatStoreState>(DEFAULT_CHAT_STATE)

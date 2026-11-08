@@ -36,9 +36,9 @@
     "errorNetwork": "Network error. Please try again."
   },
   "chat": {
-    "welcome": "How can I help you today?",
-    "welcomeDesc": "Ask me about weather, settings, or any other tasks. I'm here to assist you.",
-    "placeholder": "Start a new message...",
+    "welcome": "Start a task",
+    "welcomeDesc": "Describe the outcome you need. GoGoClaw will inspect the workspace and carry it through.",
+    "placeholder": "Describe a task or ask a question...",
     "disabledPlaceholder": {
       "gatewayUnknown": "Unable to chat: Gateway status is still being checked. Please wait, then refresh the page or restart Launcher if needed.",
       "gatewayStarting": "Unable to chat: Gateway is starting. Wait for startup to complete, then try again.",
@@ -84,6 +84,8 @@
     "history": "History",
     "noHistory": "No chat history yet",
     "historyLoadFailed": "Failed to load chat history",
+    "historyLoadTitle": "Conversation unavailable",
+    "historyRetry": "Retry",
     "loadingHistory": "Loading chat history",
     "historyOpenFailed": "Failed to open this chat history",
     "loadingMore": "Loading more...",
@@ -157,6 +159,7 @@
       "goToModels": "Go to Models",
       "noSelectedModel": "No Model Selected",
       "noSelectedModelDescription": "You have configured models, but none is set as default. Select a model before starting chat.",
+      "selectModel": "Select a model",
       "notRunning": "Gateway Not Running",
       "notRunningDescription": "Start the gateway service to begin chatting. Use the Start Gateway button in the top bar."
     },
@@ -198,7 +201,14 @@
         "stopping": "Stopping Gateway...",
         "running": "Gateway online"
       },
-      "restartRequired": "Configuration changes require a gateway restart to take effect."
+      "restartRequired": "Configuration changes require a gateway restart to take effect.",
+      "startUnavailable": "Gateway cannot start until its configuration is valid.",
+      "startReason": {
+        "noDefaultModel": "Select a default model before starting the gateway.",
+        "noCredentials": "{{model}} has no credentials configured.",
+        "notReachable": "{{model}} is not reachable.",
+        "invalid": "{{model}} is not a valid model."
+      }
     }
   },
   "common": {
@@ -528,60 +538,32 @@
     },
     "form": {
       "desc": {
-        "agentId": "Agent that handles messages from this channel. Leave blank to use the default agent.",
         "allowFrom": "Restrict which senders can trigger this channel. Leave empty for no restriction.",
         "allowOrigins": "Restrict browser origins allowed to connect over WebSocket.",
         "allowTokenQuery": "Allow the access token to be passed as a query parameter.",
         "appId": "App ID from the platform application credentials.",
         "appSecret": "App Secret from the platform application credentials.",
         "baseUrl": "Override the platform API base URL. This is usually left unchanged.",
-        "bridgeUrl": "Connection URL for the external bridge service.",
-        "channels": "Channels to join or monitor.",
-        "clientId": "Client identifier supplied by the target platform.",
-        "corpId": "Enterprise identifier supplied by the target platform.",
-        "deviceId": "Device identifier used to distinguish clients for the same account.",
         "encryptKey": "Encryption key for platform callback messages.",
         "genericField": "Configure {{field}}.",
         "groupTriggerMentionOnly": "Only handle group messages that explicitly mention the bot.",
         "groupTriggerPrefixes": "Only trigger the agent when a group message starts with one of these prefixes.",
-        "homeserver": "Address of the Matrix homeserver.",
-        "host": "Host used to listen for or connect to the channel service.",
         "isLark": "Use Lark international endpoints instead of Feishu China.",
-        "joinOnInvite": "Join groups automatically when invited.",
         "maxBase64FileSizeMiB": "Maximum size of one inline file in MiB.",
         "maxConnections": "Maximum concurrent connections accepted by the channel service.",
-        "maxSteps": "Maximum agent steps allowed for one task.",
         "mentionOnly": "Respond only when the bot is explicitly mentioned.",
-        "nick": "Nickname to use when connecting to IRC.",
         "pingInterval": "Interval between heartbeat messages in seconds.",
         "placeholderEnabled": "Send an updatable waiting placeholder while handling a message.",
-        "port": "Port used to listen for or connect to the channel service.",
         "proxy": "HTTP or SOCKS proxy used for channel requests.",
         "randomReactionEmoji": "Choose one of these reactions after receiving a message.",
         "readTimeout": "Response read timeout in seconds.",
-        "realName": "Real name to use when connecting to IRC.",
-        "reconnectInterval": "Seconds to wait before reconnecting after a disconnect.",
-        "replyTimeout": "Timeout for waiting on an upstream reply in seconds.",
-        "requestCaps": "IRC capabilities to request when connecting.",
-        "server": "Server address used for the channel connection.",
-        "sessionStorePath": "Optional persistence path for channel session state.",
         "streamingEnabled": "Update replies progressively instead of waiting for the complete result.",
         "streamingMinGrowthChars": "Minimum number of new characters before another streaming update.",
         "streamingThrottleSeconds": "Minimum interval between streaming updates.",
-        "tls": "Encrypt the connection with TLS.",
         "token": "Platform bot token used to authenticate the channel.",
         "typingEnabled": "Send a typing state to the platform while handling a message.",
-        "useNative": "Prefer native platform capabilities over the compatibility layer.",
-        "user": "Username used for authentication or connection.",
-        "userId": "Unique identifier for the platform account.",
         "verificationToken": "Token used to verify signatures on platform callbacks.",
-        "webhookHost": "Host used to listen for platform callbacks.",
-        "webhookPath": "URL path that receives platform callbacks.",
-        "webhookPort": "Port used to listen for platform callbacks.",
-        "webhookUrl": "Callback URL where the platform sends events to this service.",
-        "welcomeMessage": "Message sent when a new member or conversation first connects.",
-        "writeTimeout": "Response write timeout in seconds.",
-        "wsUrl": "Complete WebSocket service URL."
+        "writeTimeout": "Response write timeout in seconds."
       }
     },
     "loadError": "Failed to load channel configuration. Try again.",

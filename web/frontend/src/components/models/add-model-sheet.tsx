@@ -101,6 +101,7 @@ interface AddModelSheetProps {
   onMutationStarted?: () => void
   onMutationSettled?: () => void
   existingModelNames: string[]
+  hasDefaultModel: boolean
   providerOptions?: ModelProviderOption[]
 }
 
@@ -111,6 +112,7 @@ export function AddModelSheet({
   onMutationStarted,
   onMutationSettled,
   existingModelNames,
+  hasDefaultModel,
   providerOptions,
 }: AddModelSheetProps) {
   const { t } = useTranslation()
@@ -141,14 +143,14 @@ export function AddModelSheet({
   useEffect(() => {
     if (open) {
       setForm(EMPTY_ADD_FORM)
-      setSetAsDefault(false)
+      setSetAsDefault(!hasDefaultModel)
       setFieldErrors({})
       setServerError("")
       setModelValidation(null)
       setFetchedModels([])
       setCatalogModels([])
     }
-  }, [open])
+  }, [hasDefaultModel, open])
 
   // Load catalog models when provider or apiBase changes
   useEffect(() => {

@@ -1,9 +1,4 @@
-import {
-  IconPlugConnectedX,
-  IconRobot,
-  IconRobotOff,
-  IconStar,
-} from "@tabler/icons-react"
+import { IconPlugConnectedX, IconRobotOff } from "@tabler/icons-react"
 import { Link } from "@tanstack/react-router"
 import { useTranslation } from "react-i18next"
 
@@ -24,11 +19,9 @@ export function ChatEmptyState({
 
   if (!hasAvailableModels) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 text-center">
-        <div className="border-warning/20 bg-warning/10 text-warning mb-4 flex size-12 items-center justify-center rounded-lg border">
-          <IconRobotOff className="size-6" />
-        </div>
-        <h2 className="text-foreground text-base font-semibold tracking-tight">
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <h2 className="text-foreground flex items-center gap-2 text-base font-semibold tracking-tight">
+          <IconRobotOff className="text-warning size-4" aria-hidden="true" />
           {t("chat.empty.noConfiguredModel")}
         </h2>
         <p className="text-muted-foreground mt-1 max-w-sm text-xs leading-relaxed">
@@ -48,27 +41,33 @@ export function ChatEmptyState({
 
   if (!defaultModelName) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 text-center">
-        <div className="border-warning/20 bg-warning/10 text-warning mb-4 flex size-12 items-center justify-center rounded-lg border">
-          <IconStar className="size-6" />
-        </div>
-        <h2 className="text-foreground text-base font-semibold tracking-tight">
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <h2 className="text-foreground flex items-center gap-2 text-base font-semibold tracking-tight">
           {t("chat.empty.noSelectedModel")}
         </h2>
         <p className="text-muted-foreground mt-1 max-w-sm text-xs leading-relaxed">
           {t("chat.empty.noSelectedModelDescription")}
         </p>
+        <Button
+          asChild
+          variant="outline"
+          size="sm"
+          className="mt-4 h-8 px-3 text-xs"
+        >
+          <Link to="/models">{t("chat.empty.selectModel")}</Link>
+        </Button>
       </div>
     )
   }
 
   if (!isConnected) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 text-center">
-        <div className="border-border bg-muted/30 text-muted-foreground mb-4 flex size-12 items-center justify-center rounded-lg border">
-          <IconPlugConnectedX className="size-6" />
-        </div>
-        <h2 className="text-foreground text-base font-semibold tracking-tight">
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <h2 className="text-foreground flex items-center gap-2 text-base font-semibold tracking-tight">
+          <IconPlugConnectedX
+            className="text-muted-foreground size-4"
+            aria-hidden="true"
+          />
           {t("chat.empty.notRunning")}
         </h2>
         <p className="text-muted-foreground mt-1 max-w-sm text-xs leading-relaxed">
@@ -79,10 +78,7 @@ export function ChatEmptyState({
   }
 
   return (
-    <div className="flex flex-col items-center justify-center py-24 text-center">
-      <div className="border-border bg-muted/40 text-foreground mb-4 flex size-12 items-center justify-center rounded-lg border">
-        <IconRobot className="size-6 opacity-80" />
-      </div>
+    <div className="flex flex-col items-center justify-center py-20 text-center">
       <h2 className="text-foreground text-base font-semibold tracking-tight">
         {t("chat.welcome")}
       </h2>
