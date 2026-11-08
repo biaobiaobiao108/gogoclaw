@@ -1,4 +1,4 @@
-import { IconSearch, IconTrash } from "@tabler/icons-react"
+import { IconMessageCircle, IconSearch, IconTrash } from "@tabler/icons-react"
 import dayjs from "dayjs"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -61,8 +61,10 @@ export function SessionHistoryMenu({
   )
   const content = (
     <div className="flex h-full min-h-0 flex-col gap-3 p-3">
-      <h2 className="px-2 pt-2 text-sm font-medium">{t("chat.history")}</h2>
-      <label className="border-border flex items-center gap-2 rounded-lg border px-3 py-2">
+      <h2 className="text-muted-foreground px-2 text-xs font-medium">
+        {t("chat.history")}
+      </h2>
+      <label className="bg-card border-input focus-within:ring-ring/40 flex items-center gap-2 rounded-md border px-3 py-2 focus-within:ring-2">
         <IconSearch className="text-muted-foreground size-4 shrink-0" />
         <input
           className="w-full min-w-0 bg-transparent text-sm outline-none"
@@ -102,20 +104,23 @@ export function SessionHistoryMenu({
         {filtered.map((session) => (
           <div
             key={session.id}
-            className={`group hover:bg-muted flex items-center rounded-lg ${session.id === activeSessionId ? "bg-muted" : ""}`}
+            className={`group hover:bg-muted flex items-center rounded-md transition-colors ${session.id === activeSessionId ? "bg-muted font-medium" : ""}`}
           >
             <button
               type="button"
               aria-current={session.id === activeSessionId ? "page" : undefined}
-              className="min-w-0 flex-1 px-3 py-3 text-left"
+              className="focus-visible:ring-ring flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left focus-visible:ring-2 focus-visible:outline-none"
               title={session.title}
               onClick={() => {
                 onSwitchSession(session.id)
                 onOpenChange(false)
               }}
             >
-              <span className="block truncate text-sm">{session.title}</span>
-              <span className="text-muted-foreground block text-xs">
+              <IconMessageCircle className="text-muted-foreground size-4 shrink-0" />
+              <span className="block min-w-0 flex-1 truncate text-sm">
+                {session.title}
+              </span>
+              <span className="text-muted-foreground shrink-0 text-[11px] font-normal">
                 {dayjs(session.updated).format("MM-DD")}
               </span>
             </button>
@@ -145,12 +150,16 @@ export function SessionHistoryMenu({
   return (
     <>
       <aside
-        className={`bg-sidebar hidden h-full w-64 shrink-0 ${collapsed ? "" : "md:block"}`}
+        className={`bg-background border-border hidden h-full w-60 shrink-0 border-r ${collapsed ? "" : "md:block"}`}
       >
         {content}
       </aside>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="left" className="bg-sidebar gap-0 p-0">
+        <SheetContent
+          side="left"
+          aria-describedby={undefined}
+          className="bg-background gap-0 p-0 pt-4"
+        >
           <SheetTitle className="sr-only">{t("chat.history")}</SheetTitle>
           {content}
         </SheetContent>

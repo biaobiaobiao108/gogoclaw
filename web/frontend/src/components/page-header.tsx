@@ -6,6 +6,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar"
 import { cn } from "@/lib/utils"
 
 interface PageHeaderProps {
+  leading?: ReactNode
   title: string
   titleExtra?: ReactNode
   children?: ReactNode
@@ -13,6 +14,7 @@ interface PageHeaderProps {
 }
 
 export function PageHeader({
+  leading,
   title,
   titleExtra,
   children,
@@ -35,6 +37,7 @@ export function PageHeader({
         >
           <IconMenu2 />
         </SidebarTrigger>
+        {leading}
         <h1 className="text-foreground truncate text-sm font-semibold tracking-tight whitespace-nowrap">
           {title}
         </h1>
