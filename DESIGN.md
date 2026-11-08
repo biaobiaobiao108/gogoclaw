@@ -100,3 +100,5 @@ Use direct sentence case. Name the object and the action. Avoid page introductio
 Chat follows the requested ChatGPT direction: white / #212121 canvas, #f4f4f4 / #303030 user bubbles, unboxed assistant replies, 16px reading text, a 768px reading column and composer, and 24px bubble/composer radii. The history rail is 256px wide at desktop widths and becomes an accessible Sheet on mobile. History uses explicit cursor pagination and filters only loaded titles/previews. Continuous thought/tool messages share one collapsed process row; expansion is owned by the page so virtualization cannot reset it. Existing shared controls supply press/focus feedback.
 
 History navigation inherits the console background, 6px control radius, 40px single-line rows and muted date metadata. A 240px history pane sits below the page header; its named toggle stays on the left of that header in both open and closed states. App navigation and conversation history remain distinct controls.
+
+The desktop app menu is always expanded; page headers and the app menu edge have no collapse controls. Mobile keeps its menu drawer trigger. Conversation history retains its own left-aligned toggle.

@@ -1,8 +1,5 @@
-import { IconMenu2 } from "@tabler/icons-react"
 import type { ReactNode } from "react"
-import { useTranslation } from "react-i18next"
 
-import { SidebarTrigger } from "@/components/ui/sidebar"
 import { cn } from "@/lib/utils"
 
 interface PageHeaderProps {
@@ -20,8 +17,6 @@ export function PageHeader({
   children,
   className,
 }: PageHeaderProps) {
-  const { t } = useTranslation()
-
   return (
     <div
       className={cn(
@@ -30,13 +25,6 @@ export function PageHeader({
       )}
     >
       <div className="flex min-w-0 items-center gap-3">
-        <SidebarTrigger
-          className="border-border/60 bg-card text-muted-foreground hover:bg-muted hover:text-foreground hidden h-8 w-8 rounded-md border sm:flex [&>svg]:size-4"
-          aria-label={t("header.toggleSidebar")}
-          title={t("header.toggleSidebar")}
-        >
-          <IconMenu2 />
-        </SidebarTrigger>
         {leading}
         <h1 className="text-foreground truncate text-sm font-semibold tracking-tight whitespace-nowrap">
           {title}
