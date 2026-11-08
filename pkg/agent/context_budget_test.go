@@ -43,7 +43,9 @@ func TestRunTurnContinuesAfterActiveContextCompaction(t *testing.T) {
 	provider := &compactingTestProvider{}
 	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
 	defer cleanup()
-	agent.ContextWindow = 900
+	// Keep the model window small enough to force active-turn compaction while
+	// leaving room for the current default identity prompt and tool schemas.
+	agent.ContextWindow = 1500
 	agent.MaxTokens = 200
 	agent.Tools = tools.NewToolRegistry()
 	agent.Tools.Register(&longResultTool{})
