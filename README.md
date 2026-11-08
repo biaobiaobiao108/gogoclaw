@@ -1,66 +1,47 @@
 <div align="center">
 <img src="assets/logo.svg" alt="GoGoClaw" width="128">
 
-<h1>GoGoClaw: Ultra-Efficient AI Assistant in Go</h1>
+<h1>GoGoClaw</h1>
 
-<h3>Container-first agent harness · amd64 / arm64</h3>
-  <p>
-    <img src="https://img.shields.io/badge/Go-1.27.3+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
-    <img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64-blue" alt="Hardware">
-    <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-    <br>
-    <a href="https://github.com/biaobiaobiao108/gogoclaw"><img src="https://img.shields.io/badge/Repository-GitHub-181717?style=flat&logo=github&logoColor=white" alt="Repository"></a>
-    <a href="docs/README.md"><img src="https://img.shields.io/badge/Docs-Local-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
-  </p>
+<p>用 Go 构建的轻量级通用 Agent Harness 与 Web 控制台</p>
 
-[中文](docs/project/README.zh.md) | **English**
+<p>
+  <img src="https://img.shields.io/badge/Go-1.27.3+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
+  <img src="https://img.shields.io/badge/Arch-amd64%20%7C%20arm64-blue" alt="amd64 / arm64">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
+</p>
 
+<p>
+  <strong>中文</strong> | <a href="README.en.md">English</a>
+</p>
 </div>
 
 ---
 
-**GoGoClaw** is a lightweight agent harness and Web control console written in **Go**, with a React dashboard for sessions, models, channels, tools, approvals, and runtime diagnostics.
+GoGoClaw 是一个面向长期运行的通用 Agent Harness。核心后端使用 Go，Web 控制台使用 React 19 与 Tailwind CSS v4，通过 Bun 构建。它可以连接 OpenAI、Anthropic、Gemini 等模型协议，并把同一个 Agent 暴露到 Web、Telegram、微信、Discord、飞书和 QQ 等频道。
 
-**Container-first for production** — published images target 64-bit x86 and ARM Linux. Native binaries are for development and testing only.
+生产环境只支持容器部署。容器是运行时安全边界，工具调用审批默认关闭。
 
-> [!CAUTION]
-> **Security Notice**
->
-> * Production deployment is supported through the container image only.
-> * The container is the execution sandbox. Tool approval is therefore disabled by default; enable `tools.approval` explicitly when human review is required.
-> * Review the security guidance before exposing the console to a public network.
+## 核心能力
 
-## ✨ Features
+- **完整 Agent 循环**：会话、长期记忆、工作区文件、Skills、MCP、工具调用、计划、流式回复和子 Agent。
+- **统一模型协议**：OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Google Gemini generateContent。
+- **多频道接入**：Web、Telegram、微信个人号、Discord、飞书 / Lark、QQ。
+- **现代 Web 控制台**：模型、频道、工具、会话、审批、日志和运行状态都在同一处管理。
+- **容器优先**：发布镜像同时支持 Linux `amd64` 与 `arm64`，以非 root 用户运行。
+- **可持久化**：配置、凭据、会话、工作区、频道同步状态和日志统一存放在 `/data`。
 
-🪶 **Lean Go core**: The agent runs as a Go process without a Node.js or Python application runtime; production capacity comes from the container host.
+## 快速部署
 
+### 环境要求
 
-🌍 **Container-first**: Production images are published for x86-64 and ARM64 Linux.
+- Docker Engine
+- Docker Compose v2，可选
+- 64 位 Linux 主机，架构为 `amd64` 或 `arm64`
+- 能访问模型 API 和目标聊天平台。受限网络应准备 HTTP / SOCKS5 代理
+- 如果控制台暴露到不可信网络，前面必须有一个带 TLS 的反向代理
 
-🔌 **MCP support**: Native [Model Context Protocol](https://modelcontextprotocol.io/) integration — connect any MCP server to extend Agent capabilities.
-
-👁️ **Vision pipeline**: Send images and files directly to the Agent — automatic base64 encoding for multimodal LLMs.
-
-🧠 **Smart routing**: Rule-based model routing — simple queries go to lightweight models, saving API costs.
-
-> **[Hardware Compatibility List](docs/guides/hardware-compatibility.md)** — See tested Linux hosts that can run the container image.
-
-### 🐜 Container Hosts
-
-Production runs on 64-bit Linux hosts for `amd64` or `arm64` containers. See the [Hardware Compatibility List](docs/guides/hardware-compatibility.md) for host requirements.
-
-## 📦 Production Deployment (Containers Only)
-
-Production deployments are supported only through the published Linux container image. Native binaries built from source are intended for development and testing.
-
-### Requirements
-
-- Docker Engine with Docker Compose v2
-- A persistent Docker volume for `/data`
-- A reverse proxy with TLS if the Web console or webhook endpoint is exposed outside the local host
-- Outbound network access for model providers and chat platforms
-
-### Start With The Web Console
+### 方式一：Docker Compose
 
 ```bash
 git clone https://github.com/biaobiaobiao108/gogoclaw.git
@@ -70,354 +51,270 @@ docker compose -f docker/docker-compose.yml --profile launcher pull
 docker compose -f docker/docker-compose.yml --profile launcher up -d
 ```
 
-Open `http://127.0.0.1:18800`, create the dashboard password, then configure a model, channels, and tools. The launcher creates the initial config on first use and manages the gateway process inside the same container.
-
-The launcher port is bound to loopback by default. Keep it private, or place a hardened reverse proxy in front of it:
+默认只监听本机 `127.0.0.1:18800`。在 NAS 或局域网服务器上需要直接访问时：
 
 ```bash
-# Only do this behind a TLS reverse proxy or private network.
 GOGOCLAW_LAUNCHER_BIND=0.0.0.0 \
   docker compose -f docker/docker-compose.yml --profile launcher up -d
 ```
 
-### Headless Gateway
+Compose 使用命名卷 `gogoclaw-data`，不需要手动处理宿主机目录权限，适合首次部署。
 
-Create the initial configuration interactively:
+### 方式二：直接运行镜像（NAS 常用）
 
-```bash
-docker compose -f docker/docker-compose.yml --profile gateway pull
-docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint gogoclaw gogoclaw-gateway onboard
-```
-
-Then start the gateway:
+先准备持久化目录。容器内固定使用 UID/GID `10001`，宿主机目录必须归该用户所有：
 
 ```bash
-docker compose -f docker/docker-compose.yml --profile gateway up -d
+sudo mkdir -p /vol1/1000/docker/gogoclaw
+sudo chown -R 10001:10001 /vol1/1000/docker/gogoclaw
+sudo chmod 750 /vol1/1000/docker/gogoclaw
 ```
 
-Webhook-capable channels use gateway port `18790`. The host binding defaults to `127.0.0.1`; change `GOGOCLAW_GATEWAY_BIND` only when a reverse proxy or trusted network needs access.
-
-### One-Off CLI Commands
+启动 Web 控制台：
 
 ```bash
-# Ask a one-off question
-docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint gogoclaw gogoclaw-gateway agent -m "What is 2+2?"
-
-# Inspect status
-docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint gogoclaw gogoclaw-gateway status
+sudo docker run -d \
+  --name gogoclaw \
+  --restart unless-stopped \
+  --user 10001:10001 \
+  --read-only \
+  --cap-drop ALL \
+  --security-opt no-new-privileges:true \
+  --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m \
+  -e TZ=Asia/Shanghai \
+  -e GOGOCLAW_GATEWAY_HOST=0.0.0.0 \
+  -p 18800:18800 \
+  -v /vol1/1000/docker/gogoclaw:/data \
+  --health-cmd 'curl -fsS http://127.0.0.1:18800/api/auth/status >/dev/null || exit 1' \
+  --health-interval 30s \
+  --health-timeout 3s \
+  --health-retries 3 \
+  ghcr.io/biaobiaobiao108/gogoclaw:latest \
+  gogoclaw-launcher -public -no-browser
 ```
 
-### Data, Backup, And Updates
+打开 `http://<服务器 IP>:18800`。首次访问且 `/data` 为空时，页面会要求创建控制台密码；不存在默认密码。
 
-Application state is stored in the named volume `gogoclaw-data` and mounted at `/data`. This includes `/data/.gogoclaw/config.json`, credentials, workspace files, sessions, and logs.
+`18800` 是控制台端口。`gogoclaw-launcher` 会自动启动并管理同一容器内的 gateway，通常不需要再映射或启动第二个 `gogoclaw-gateway` 容器。
+
+### 首次配置顺序
+
+1. 创建控制台密码。
+2. 在“模型”页面添加至少一个模型并设为默认模型。
+3. 在“频道”页面配置 Telegram、微信或其他频道。
+4. 检查“概览”中的 gateway 与频道状态。
+5. 从 Web 对话或已连接的聊天平台发送一条测试消息。
+
+## 模型协议
+
+Web 控制台把模型入口收敛为四个通用协议：
+
+| Provider ID | 协议 | 默认 API Base |
+|---|---|---|
+| `openai` | OpenAI Chat Completions | `https://api.openai.com/v1` |
+| `openai-responses` | OpenAI Responses API | `https://api.openai.com/v1` |
+| `anthropic-messages` | Anthropic Messages API | `https://api.anthropic.com/v1` |
+| `gemini` | Google Gemini generateContent API | `https://generativelanguage.googleapis.com/v1beta` |
+
+兼容 OpenAI Chat Completions 的第三方服务，选择 `openai` 并覆盖 `api_base` 即可。兼容 Anthropic Messages 的服务使用 `anthropic-messages`，兼容 Gemini generateContent 的服务使用 `gemini`。
+
+模型条目的关键字段：
+
+```json
+{
+  "model_name": "my-model",
+  "provider": "openai",
+  "model": "model-id",
+  "api_base": "https://api.example.com/v1",
+  "api_keys": ["sk-..."],
+  "streaming": { "enabled": true }
+}
+```
+
+完整字段、回退链和路由说明见 [模型配置](docs/guides/providers.zh.md)。
+
+## 频道
+
+| 频道 | 连接方式 | 关键注意事项 |
+|---|---|---|
+| Web / Pico | 内置 WebSocket | 控制台首次使用时自动配置 |
+| Telegram | Bot API 长轮询 | 网络受限时只填 `settings.proxy`，不要填入 `base_url` |
+| 微信个人号 | 腾讯 iLink 扫码 | `allow_from` 必须使用 iLink 返回的 `from_user_id` |
+| Discord | Bot WebSocket | 需要正确的 bot intents |
+| 飞书 / Lark | WebSocket / SDK | 不需要公网回调地址 |
+| QQ | Bot WebSocket | 需要在 QQ 平台开放对应沙箱或群聊权限 |
+
+### Telegram 代理
+
+正确配置示例：
+
+```json
+{
+  "channel_list": {
+    "telegram": {
+      "enabled": true,
+      "type": "telegram",
+      "settings": {
+        "base_url": "https://api.telegram.org",
+        "proxy": "http://user:password@192.168.1.10:7890"
+      }
+    }
+  }
+}
+```
+
+`base_url` 是 Telegram Bot API 地址，不是代理地址。把代理 URL 填进 `base_url` 会让请求变成非法的 Bot API URL，日志通常表现为 `decode json: unexpected end of JSON input`。
+
+### 微信个人号
+
+Web 控制台扫码绑定成功后，会保存 token，并把扫码用户返回的 iLink `ilink_user_id` 自动写入 `allow_from`。`allow_from` 不能填写微信昵称；该协议中的真实发送者通常以 `@im.wechat` 结尾。
+
+如果升级前已经绑定过，建议在频道页面重新扫码一次，使 `allow_from` 更新为新的规范用户 ID。排障时把 `gateway.log_level` 临时设为 `debug`，日志会出现：
+
+```text
+Message rejected by allowlist  from_user_id=...
+```
+
+把日志中的精确 `from_user_id` 写入 `allow_from` 后重启 gateway。启用日志级别为 `warn` 时，拒绝消息也会保留为警告，避免静默丢消息。
+
+## Docker 部署常见坑
+
+### 1. 宿主机目录权限
+
+容器以 UID/GID `10001` 运行。使用 bind mount 时，如果 `/data` 归 root 或其他用户所有，容器虽然能启动，但保存配置、登录密码、数据库或日志时会失败。
 
 ```bash
-# Back up the volume
-docker run --rm \
-  -v gogoclaw-data:/data:ro \
-  -v "${PWD}:/backup" \
-  alpine tar czf /backup/gogoclaw-data.tgz -C /data .
-
-# Restore into an empty volume (the volume must not contain existing state)
-docker run --rm \
-  -v gogoclaw-data:/data \
-  -v "${PWD}:/backup" \
-  alpine tar xzf /backup/gogoclaw-data.tgz -C /data
+sudo chown -R 10001:10001 /path/to/gogoclaw-data
 ```
 
-Update by pulling the new image and recreating the service:
+不确定时优先使用 Compose 命名卷。
+
+### 2. 端口映射正确但局域网打不开
+
+- 容器内 launcher 必须使用 `-public` 才监听所有容器网卡。
+- Docker 需要发布 `18800:18800`。
+- NAS 防火墙、反向代理和上游安全组也要允许对应端口。
+- `18790` 是 gateway 端口，Telegram、微信、Discord、飞书和 QQ 使用主动连接，通常不需要向公网暴露。
+
+### 3. 同一个数据目录启动了多个服务
+
+`gogoclaw-launcher` 已经会管理 gateway。不要对同一个 `/data` 同时运行 launcher 和独立的 `gogoclaw-gateway`，否则会出现 PID、端口或配置竞争。
+
+### 4. 架构不匹配或拉错镜像
+
+```bash
+uname -m
+sudo docker image inspect ghcr.io/biaobiaobiao108/gogoclaw:latest \
+  --format '{{.Os}}/{{.Architecture}}'
+```
+
+`x86_64` 对应 `amd64`，`aarch64` 对应 `arm64`。项目不支持 32 位平台。
+
+### 5. 重启后出现未知密码页面
+
+控制台密码保存在持久化 `/data` 中。如果复用了旧目录或旧卷，登录密码属于那份旧数据，不是容器预设的默认值。全新部署应使用空 `/data`；保留旧数据时请使用原密码。
+
+### 6. 频道显示已启用但没有回复
+
+按顺序检查：
+
+1. 平台侧消息是否进入 gateway。
+2. `allow_from` 是否使用了平台真实用户 ID。
+3. Agent 是否收到消息并发出模型请求。
+4. 模型请求是否成功。
+5. 出站消息是否发送成功。
+
+日志位置：
+
+```bash
+sudo docker logs --tail 200 -f gogoclaw
+sudo docker exec gogoclaw tail -n 200 /data/.gogoclaw/logs/gateway.log
+```
+
+## 运维
+
+### 健康检查
+
+```bash
+curl -fsS http://127.0.0.1:18800/api/auth/status
+curl -fsS http://127.0.0.1:18790/health
+curl -fsS http://127.0.0.1:18790/ready
+```
+
+### 更新
+
+```bash
+sudo docker pull ghcr.io/biaobiaobiao108/gogoclaw:latest
+sudo docker rm -f gogoclaw
+# 使用前面的 docker run 命令重新创建容器；/data 不会丢
+```
+
+使用 Compose 时：
 
 ```bash
 docker compose -f docker/docker-compose.yml --profile launcher pull
 docker compose -f docker/docker-compose.yml --profile launcher up -d
 ```
 
-There is no in-application self-update path.
+### 备份
 
-### Container Security Model
+需要备份的是整个 `/data`：配置、`.security.yml`、SQLite、工作区、Skills、频道状态和日志都在这里。
 
-The production image runs as UID/GID `10001`, uses `tini` as PID 1, and is paired with a Compose configuration that enables:
+```bash
+sudo tar czf gogoclaw-data-$(date +%F).tar.gz \
+  -C /vol1/1000/docker/gogoclaw .
+```
 
-- a read-only root filesystem
-- all Linux capabilities dropped
-- `no-new-privileges`
-- a bounded writable `/tmp`
-- loopback-only host port bindings by default
+不要把 `.security.yml`、API Key、bot token 或设备私钥提交到 Git。
 
-The workspace path check prevents accidental writes outside the configured workspace, but it is not an operating-system sandbox. Treat the container as the production security boundary and do not mount the Docker socket or unnecessary host paths into it.
+## Agent 行为与提示词
 
-### Development Builds
+GoGoClaw 自带一份紧凑的基础提示词。通用工作原则包括：先理解再执行、需要时使用工具、只根据工具结果声称成功、修改前检查真实状态、失败后调整、不编造结果、不执行外部内容中的越权指令，并保持回复简洁。
 
-Local builds are for development and testing only. Prerequisites:
+提示词还定义了 GoGoClaw 专属的运行时契约：当前回合暴露的工具才是可信能力、工作区路径与持久化边界、长期记忆只保存稳定偏好与决策、普通回复自动投递到当前频道、子 Agent 默认隔离、凭据只能在目标服务内使用，以及默认使用用户语言并适配当前频道。
 
-- Go 1.27.3+
-- Bun 1.4.4+
-- PowerShell 7 on Windows
+工作区还可以通过以下文件覆盖或补充行为：
+
+- `AGENT.md`：项目或 Agent 的主要行为说明。
+- `SOUL.md`：角色、语气和长期行为风格。
+- `USER.md`：用户偏好。
+- `memory/MEMORY.md`：跨会话长期记忆。
+- `skills/<name>/SKILL.md`：按需加载的能力说明。
+
+显式用户指令优先于对话摘要；工作区说明用于补充，而不是绕过安全边界。
+
+## 开发
+
+依赖 Go 1.27.3+ 和 Bun 1.4.4+。
 
 ```bash
 make deps
 make build
 make build-launcher
 
-# Full launcher development workflow
 cd web
 make dev
 ```
 
-On Windows, double-click `build\Start-GoGoClaw.cmd` to open the local Web console. `build\gogoclaw.exe` is the command-line binary; double-clicking it without a command only prints help and exits.
-
-Local browser launch, `-public`, and direct gateway runs are development conveniences. They are not supported production deployment methods.
-
-To test the container build locally, use the development override:
+测试与格式：
 
 ```bash
-docker compose -f docker/docker-compose.yml \
-  -f docker/docker-compose.dev.yml --profile launcher up --build
+make test
+make fmt
 ```
 
-## 🔌 Providers (LLM)
+本地二进制、直接运行 gateway 和开发容器只用于开发测试，不是生产部署方式。
 
-GoGoClaw supports 30+ LLM providers through the `model_list` configuration. Use the `protocol/model` format:
+## 文档
 
-| Provider | Protocol | API Key | Notes |
-|----------|----------|---------|-------|
-| [OpenAI](https://platform.openai.com/api-keys) | `openai/` | Required | GPT-5.4, GPT-4o, o3, etc. |
-| [Anthropic](https://console.anthropic.com/settings/keys) | `anthropic/` | Required | Claude Opus 4.6, Sonnet 4.6, etc. |
-| [Google Gemini](https://aistudio.google.com/apikey) | `gemini/` | Required | Gemini 3 Flash, 2.5 Pro, etc. |
-| [OpenRouter](https://openrouter.ai/keys) | `openrouter/` | Required | 200+ models, unified API |
-| [Zhipu (GLM)](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys) | `zhipu/` | Required | GLM-4.7, GLM-5, etc. |
-| [DeepSeek](https://platform.deepseek.com/api_keys) | `deepseek/` | Required | DeepSeek-V3, DeepSeek-R1 |
-| [Volcengine](https://console.volcengine.com) | `volcengine/` | Required | Doubao, Ark models |
-| [Qwen](https://dashscope.console.aliyun.com/apiKey) | `qwen/` | Required | Qwen3, Qwen-Max, etc. |
-| [Groq](https://console.groq.com/keys) | `groq/` | Required | Fast inference (Llama, Mixtral) |
-| [Moonshot (Kimi)](https://platform.moonshot.cn/console/api-keys) | `moonshot/` | Required | Kimi models |
-| [Minimax](https://platform.minimaxi.com/user-center/basic-information/interface-key) | `minimax/` | Required | MiniMax models |
-| [Mistral](https://console.mistral.ai/api-keys) | `mistral/` | Required | Mistral Large, Codestral |
-| [NVIDIA NIM](https://build.nvidia.com/) | `nvidia/` | Required | NVIDIA hosted models |
-| [Cerebras](https://cloud.cerebras.ai/) | `cerebras/` | Required | Fast inference |
-| [NEAR AI Cloud](https://near.ai/) | `nearai/` | Required | TEE inference, OpenAI-compatible |
-| [Novita AI](https://novita.ai/) | `novita/` | Required | Various open models |
-| [Xiaomi MiMo](https://platform.xiaomimimo.com/) | `mimo/` | Required | MiMo models |
-| [Ollama](https://ollama.com/) | `ollama/` | Not needed | Local models, self-hosted |
-| [vLLM](https://docs.vllm.ai/) | `vllm/` | Not needed | Local deployment, OpenAI-compatible |
-| [LiteLLM](https://docs.litellm.ai/) | `litellm/` | Varies | Proxy for 100+ providers |
-| [Azure OpenAI](https://portal.azure.com/) | `azure/` | API key or Entra ID** | Enterprise Azure deployment |
-| [GitHub Copilot](https://github.com/features/copilot) | `github-copilot/` | OAuth | Device code login |
-| [Antigravity](https://console.cloud.google.com/) | `antigravity/` | OAuth | Google Cloud AI |
-| [AWS Bedrock](https://console.aws.amazon.com/bedrock)* | `bedrock/` | AWS credentials | Claude, Llama, Mistral on AWS |
+- [Docker 部署](docs/guides/docker.zh.md)
+- [频道配置](docs/guides/chat-apps.zh.md)
+- [模型与 Provider](docs/guides/providers.zh.md)
+- [配置参考](docs/guides/configuration.zh.md)
+- [工具与 MCP](docs/reference/tools_configuration.zh.md)
+- [疑难排查](docs/operations/troubleshooting.zh.md)
+- [贡献指南](docs/project/CONTRIBUTING.zh.md)
 
-> \* AWS Bedrock requires build tag: `go build -tags bedrock`. Set `api_base` to a region name (e.g., `us-east-1`) for automatic endpoint resolution across all AWS partitions (aws, aws-cn, aws-us-gov). When using a full endpoint URL instead, you must also configure `AWS_REGION` via environment variable or AWS config/profile.
->
-> \*\* Azure OpenAI uses `api_key` when set. If `api_key` is omitted, the provider falls back to Microsoft Entra ID via `DefaultAzureCredential` (env vars, workload identity, managed identity, Azure CLI, etc.). The Entra ID path requires build tag: `go build -tags azidentity`.
+## License
 
-<details>
-<summary><b>Local deployment (Ollama, vLLM, etc.)</b></summary>
-
-**Ollama:**
-```json
-{
-  "model_list": [
-    {
-      "model_name": "local-llama",
-      "model": "ollama/llama3.1:8b",
-      "api_base": "http://localhost:11434/v1"
-    }
-  ]
-}
-```
-
-**vLLM:**
-```json
-{
-  "model_list": [
-    {
-      "model_name": "local-vllm",
-      "model": "vllm/your-model",
-      "api_base": "http://localhost:8000/v1"
-    }
-  ]
-}
-```
-
-For full provider configuration details, see [Providers & Models](docs/guides/providers.md).
-
-</details>
-
-## 💬 Channels (Chat Apps)
-
-Talk to GoGoClaw through the built-in Web console or a supported messaging platform:
-
-| Channel | Setup | Protocol | Docs |
-|---------|-------|----------|------|
-| **Telegram** | Easy (bot token) | Long polling | [Guide](docs/channels/telegram/README.md) |
-| **Discord** | Easy (bot token + intents) | WebSocket | [Guide](docs/channels/discord/README.md) |
-| **Weixin** | Easy (Native QR scan) | iLink API | [Guide](docs/guides/chat-apps.md#weixin) |
-| **QQ** | Easy (AppID + AppSecret) | WebSocket | [Guide](docs/channels/qq/README.md) |
-| **Feishu / Lark** | Medium (App ID + Secret) | WebSocket/SDK | [Guide](docs/channels/feishu/README.md) |
-| **Pico** | Easy (enable) | Native protocol | Built-in |
-
-> The gateway listens on `gateway.host`:`gateway.port` (default `localhost:18790`). Feishu uses WebSocket/SDK mode and does not require a public callback URL.
-
-> Log verbosity is controlled by `gateway.log_level` (default: `warn`). Supported values: `debug`, `info`, `warn`, `error`, `fatal`. Can also be set via `GOGOCLAW_LOG_LEVEL`. See [Configuration](docs/guides/configuration.md#gateway-log-level) for details.
-
-For detailed channel setup instructions, see [Chat Apps Configuration](docs/guides/chat-apps.md).
-
-## 🔧 Tools
-
-### 🔍 Web Search
-
-GoGoClaw can search the web to provide up-to-date information. Configure in `tools.web`:
-
-| Search Engine | API Key | Free Tier | Link |
-|--------------|---------|-----------|------|
-| DuckDuckGo | Not needed | Unlimited | Built-in fallback |
-| [Gemini Google Search](https://aistudio.google.com/apikey) | Required | Varies | Gemini with Google Search grounding |
-| [Baidu Search](https://cloud.baidu.com/doc/qianfan-api/s/Wmbq4z7e5) | Required | 1500/month (daily allocation) | AI-powered, China-optimized |
-| [Tavily](https://tavily.com) | Required | 1000 queries/month | Optimized for AI Agents |
-| [Brave Search](https://brave.com/search/api) | Required | 2000 queries/month | Fast and private |
-| [Kagi Search](https://help.kagi.com/kagi/api/search.html) | Required | Paid/limited by API setup | Premium search results |
-| [Perplexity](https://www.perplexity.ai) | Required | Paid | AI-powered search |
-| [SearXNG](https://github.com/searxng/searxng) | Not needed | Self-hosted | Free metasearch engine |
-| [GLM Search](https://open.bigmodel.cn/) | Required | Varies | Zhipu web search |
-
-### ⚙️ Other Tools
-
-GoGoClaw includes built-in tools for file operations, code execution, scheduling, and more. See [Tools Configuration](docs/reference/tools_configuration.md) for details.
-
-## 🎯 Skills
-
-Skills are modular capabilities that extend your Agent. They are loaded from `SKILL.md` files in your workspace.
-
-**Install skills from ClawHub:**
-
-```bash
-gogoclaw skills search "web scraping"
-gogoclaw skills install <skill-name>
-```
-
-**Configure skill registries**:
-
-Add to your `config.json`:
-```json
-{
-  "tools": {
-    "skills": {
-      "registries": {
-        "clawhub": {
-          "auth_token": "your-clawhub-token"
-        },
-        "github": {
-          "base_url": "https://github.com",
-          "auth_token": "your-github-token",
-          "proxy": ""
-        }
-      }
-    }
-  }
-}
-```
-
-`tools.skills.github.*` is deprecated. Use `tools.skills.registries.github.*` instead.
-
-For more details, see [Tools Configuration - Skills](docs/reference/tools_configuration.md#skills-tool).
-
-## 🔗 MCP (Model Context Protocol)
-
-GoGoClaw natively supports [MCP](https://modelcontextprotocol.io/) — connect any MCP server to extend your Agent's capabilities with external tools and data sources.
-
-```json
-{
-  "tools": {
-    "mcp": {
-      "enabled": true,
-      "servers": {
-        "filesystem": {
-          "enabled": true,
-          "command": "bunx",
-          "args": ["--bun", "@modelcontextprotocol/server-filesystem", "/tmp"]
-        }
-      }
-    }
-  }
-}
-```
-
-You can manage common MCP setups directly from the CLI instead of editing JSON by hand:
-
-```bash
-gogoclaw mcp add filesystem -- bunx --bun @modelcontextprotocol/server-filesystem /tmp
-gogoclaw mcp list
-gogoclaw mcp test filesystem
-```
-
-`gogoclaw mcp` is a configuration manager: it updates `config.json` under `tools.mcp.servers`, but it does not keep the server process running itself.
-
-Use `gogoclaw mcp edit` when you need advanced fields that are not covered by `gogoclaw mcp add`.
-For example, `gogoclaw mcp add` supports `--deferred` and `--env-file`, while `gogoclaw mcp edit` is still useful for direct JSON editing and uncommon MCP settings.
-
-For full MCP configuration (stdio, SSE, HTTP transports, Tool Discovery), see [Tools Configuration - MCP](docs/reference/tools_configuration.md#mcp-tool). For CLI usage and examples, see [MCP Server CLI](docs/reference/mcp-cli.md).
-
-## 🖥️ CLI Reference
-
-| Command                   | Description                      |
-| ------------------------- | -------------------------------- |
-| `gogoclaw onboard`        | Initialize config & workspace    |
-| `gogoclaw auth weixin` | Connect WeChat account via QR |
-| `gogoclaw agent -m "..."` | Chat with the agent              |
-| `gogoclaw agent`          | Interactive chat mode            |
-| `gogoclaw gateway`        | Start the gateway                |
-| `gogoclaw status`         | Show status                      |
-| `gogoclaw version`        | Show version info                |
-| `gogoclaw model`          | View or switch the default model |
-| `gogoclaw mcp list`       | List configured MCP servers      |
-| `gogoclaw mcp add ...`    | Add or update an MCP server entry |
-| `gogoclaw mcp test`       | Probe a configured MCP server    |
-| `gogoclaw mcp edit`       | Open config for advanced MCP editing |
-| `gogoclaw mcp remove`     | Remove an MCP server entry       |
-| `gogoclaw cron list`      | List all scheduled jobs          |
-| `gogoclaw cron add ...`   | Add a scheduled job              |
-| `gogoclaw cron disable`   | Disable a scheduled job          |
-| `gogoclaw cron remove`    | Remove a scheduled job           |
-| `gogoclaw skills list`    | List installed skills            |
-| `gogoclaw skills install` | Install a skill                  |
-| `gogoclaw migrate`        | Migrate data from older versions |
-| `gogoclaw auth login`     | Authenticate with providers      |
-
-### ⏰ Scheduled Tasks / Reminders
-
-GoGoClaw supports scheduled reminders and recurring tasks through the `cron` tool:
-
-* **One-time reminders**: "Remind me in 10 minutes" -> triggers once after 10min
-* **Recurring tasks**: "Remind me every 2 hours" -> triggers every 2 hours
-* **Cron expressions**: "Remind me at 9am daily" -> uses cron expression
-
-See [docs/reference/cron.md](docs/reference/cron.md) for current schedule types, execution modes, command-job gates, and persistence details.
-
-## 📚 Documentation
-
-For detailed guides beyond this README:
-
-| Topic | Description |
-|-------|-------------|
-| [Docker & Quick Start](docs/guides/docker.md) | Docker Compose setup, Launcher/Agent modes |
-| [Chat Apps](docs/guides/chat-apps.md) | All 18+ channel setup guides |
-| [Configuration](docs/guides/configuration.md) | Environment variables, workspace layout, security sandbox |
-| [MCP Server CLI](docs/reference/mcp-cli.md) | Add, list, test, edit, and remove MCP server entries from the CLI |
-| [Scheduled Tasks and Cron Jobs](docs/reference/cron.md) | Cron schedule types, deliver modes, command gates, job storage |
-| [Providers & Models](docs/guides/providers.md) | 30+ LLM providers, model routing, model_list configuration |
-| [Spawn & Async Tasks](docs/guides/spawn-tasks.md) | Quick tasks, long tasks with spawn, async sub-agent orchestration |
-| [Hooks](docs/architecture/hooks/README.md) | Event-driven hook system: observers, interceptors, approval hooks |
-| [Steering](docs/architecture/steering.md) | Inject messages into a running agent loop between tool calls |
-| [SubTurn](docs/architecture/subturn.md) | Subagent coordination, concurrency control, lifecycle |
-| [Troubleshooting](docs/operations/troubleshooting.md) | Common issues and solutions |
-| [Tools Configuration](docs/reference/tools_configuration.md) | Per-tool enable/disable, exec policies, MCP, Skills |
-| [Hardware Compatibility](docs/guides/hardware-compatibility.md) | Supported container platforms and host requirements |
-
-## 🤝 Contribute & Roadmap
-
-PRs welcome! The codebase is intentionally small and readable.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) and the repository [issues](https://github.com/biaobiaobiao108/gogoclaw/issues) for guidelines.
+[MIT](LICENSE)

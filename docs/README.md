@@ -1,6 +1,6 @@
 # GoGoClaw Documentation
 
-GoGoClaw documentation is organized by document type. English is the source language; Chinese translations use the `.zh.md` suffix beside the source file.
+GoGoClaw documentation is organized by document type. English documents use the base filename and Chinese translations use the `.zh.md` suffix beside the source file. The repository root provides a Chinese README by default and an English README at `README.en.md`.
 
 ## Reader Navigation
 
@@ -18,7 +18,7 @@ For channel-specific setup, start with [Chat Apps Configuration](guides/chat-app
 - English documents use the base filename, such as `README.md` or `configuration.md`.
 - Chinese translations stay beside the English source and use `.zh.md`, such as `configuration.zh.md`.
 - Other locale suffixes are not maintained.
-- Project entry translations live in `docs/project/`; code-adjacent translations stay beside the code they describe.
+- Project entry documentation lives in the repository root; code-adjacent translations stay beside the code they describe.
 
 ## Directory Layout
 

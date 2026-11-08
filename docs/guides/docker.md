@@ -1,106 +1,237 @@
 # Docker Deployment
 
-> Back to [README](../../README.md)
+> Back to [README](../../README.en.md)
 
-GoGoClaw production deployments use the container image only. Native binaries and source builds are for development and testing.
+GoGoClaw production deployments use the container image only. Native binaries and source builds are for development and testing. This guide covers Compose, direct Docker on a NAS, first-run setup, updates, backups, and common deployment failures.
 
-## Prerequisites
+## Image And Ports
 
-- Docker Engine with Compose v2
-- A persistent volume for `/data`
-- TLS termination in a reverse proxy before exposing the Web console or webhook endpoint outside the local host
+```text
+ghcr.io/biaobiaobiao108/gogoclaw:latest
+```
 
-The published image contains both `gogoclaw` and `gogoclaw-launcher`. The Compose file uses one persistent volume, `gogoclaw-data`.
+Supported platforms are Linux `amd64` and `arm64`. The image contains:
 
-## Web Console
+- `gogoclaw`: CLI and gateway
+- `gogoclaw-launcher`: web console and gateway supervisor
+
+| Port | Purpose |
+|---|---|
+| `18800` | Web console |
+| `18790` | Gateway health checks and channel services |
+
+Telegram, WeChat, Discord, Feishu, and QQ make outbound connections. A normal deployment only needs to publish `18800`.
+
+## Requirements
+
+- Docker Engine
+- Docker Compose v2, optional
+- 64-bit Linux on `amd64` or `arm64`
+- Persistent storage for `/data`
+- Outbound access to model APIs and chat platforms; use a proxy when required
+- A TLS reverse proxy when exposing the console beyond a trusted LAN
+
+## Docker Compose
 
 ```bash
+git clone https://github.com/biaobiaobiao108/gogoclaw.git
+cd gogoclaw
+
 docker compose -f docker/docker-compose.yml --profile launcher pull
 docker compose -f docker/docker-compose.yml --profile launcher up -d
 ```
 
-Open `http://127.0.0.1:18800`, create the dashboard password, then configure models, channels, and tools. The launcher creates the initial config and manages the gateway process in the same container.
-
-The host port binds to loopback by default. Keep it private, or put a hardened TLS reverse proxy in front of it:
+The default URL is `http://127.0.0.1:18800`. For access from another device on a NAS or LAN:
 
 ```bash
 GOGOCLAW_LAUNCHER_BIND=0.0.0.0 \
   docker compose -f docker/docker-compose.yml --profile launcher up -d
 ```
 
-Run `config.json` and the Web console over HTTPS whenever they cross an untrusted network.
+Compose uses the `gogoclaw-data` named volume and is the recommended first deployment.
 
-## Headless Gateway
+## Direct Docker Run On A NAS
 
-Create the initial configuration:
+### 1. Create The Data Directory
+
+The image runs as UID/GID `10001`. A host bind mount must be owned by that identity:
 
 ```bash
-docker compose -f docker/docker-compose.yml --profile gateway pull
-docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint gogoclaw gogoclaw-gateway onboard
+sudo mkdir -p /vol1/1000/docker/gogoclaw
+sudo chown -R 10001:10001 /vol1/1000/docker/gogoclaw
+sudo chmod 750 /vol1/1000/docker/gogoclaw
 ```
 
-Start the gateway:
+### 2. Start The Container
 
 ```bash
-docker compose -f docker/docker-compose.yml --profile gateway up -d
+sudo docker run -d \
+  --name gogoclaw \
+  --restart unless-stopped \
+  --user 10001:10001 \
+  --read-only \
+  --cap-drop ALL \
+  --security-opt no-new-privileges:true \
+  --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m \
+  -e TZ=Asia/Shanghai \
+  -e GOGOCLAW_GATEWAY_HOST=0.0.0.0 \
+  -p 18800:18800 \
+  -v /vol1/1000/docker/gogoclaw:/data \
+  --health-cmd 'curl -fsS http://127.0.0.1:18800/api/auth/status >/dev/null || exit 1' \
+  --health-interval 30s \
+  --health-timeout 3s \
+  --health-retries 3 \
+  ghcr.io/biaobiaobiao108/gogoclaw:latest \
+  gogoclaw-launcher -public -no-browser
 ```
 
-Webhook-capable channels use port `18790`. The host binding defaults to `127.0.0.1`. Set `GOGOCLAW_GATEWAY_BIND` only for a reverse proxy or trusted private network.
+Open `http://<NAS-IP>:18800`.
 
-## One-Off Commands
+### 3. First-Run Setup
+
+1. Create the console password. An empty `/data` has no default password; reused data keeps its existing password.
+2. Add at least one model and set it as the default.
+3. Configure channels.
+4. Check gateway and channel status.
+5. Send a test message from Web or a connected chat platform.
+
+The launcher supervises the gateway. Do not start a separate `gogoclaw-gateway` container against the same `/data`.
+
+## Credentials And Encryption Passphrase
+
+Sensitive values are stored in `/data/.gogoclaw/.security.yml`. If credential encryption is enabled, provide `GOGOCLAW_KEY_PASSPHRASE`:
 
 ```bash
-docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint gogoclaw gogoclaw-gateway agent -m "What is 2+2?"
-
-docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint gogoclaw gogoclaw-gateway status
+-e GOGOCLAW_KEY_PASSPHRASE='your-strong-passphrase'
 ```
 
-## Data And Updates
+Do not put the passphrase in the image, repository, or a public Compose file. Back it up separately; encrypted credentials cannot be recovered without it.
 
-The volume is mounted at `/data`. It contains `/data/.gogoclaw/config.json`, credentials, workspace files, sessions, and logs.
+## Model Configuration
+
+The web console exposes four canonical protocols:
+
+| Provider | Protocol |
+|---|---|
+| `openai` | OpenAI Chat Completions |
+| `openai-responses` | OpenAI Responses API |
+| `anthropic-messages` | Anthropic Messages API |
+| `gemini` | Google Gemini generateContent API |
+
+For OpenAI Chat Completions-compatible services, select `openai` and set `api_base`. When reaching a model proxy on the Docker host, Linux commonly requires `http://172.17.0.1:<port>` rather than `localhost`, which refers to the container itself.
+
+At least one model must be configured as the default before ordinary channel messages can reach the agent.
+
+## Common Deployment Failures
+
+### Container Starts But Cannot Save Configuration
+
+Check host directory ownership:
 
 ```bash
-# Backup
-docker run --rm \
-  -v gogoclaw-data:/data:ro \
-  -v "${PWD}:/backup" \
-  alpine tar czf /backup/gogoclaw-data.tgz -C /data .
+sudo chown -R 10001:10001 /vol1/1000/docker/gogoclaw
+```
 
-# Restore into an empty volume
-docker run --rm \
-  -v gogoclaw-data:/data \
-  -v "${PWD}:/backup" \
-  alpine tar xzf /backup/gogoclaw-data.tgz -C /data
+### LAN Cannot Open The Console
 
-# Update
+- Start the launcher with `-public`.
+- Publish `18800:18800`.
+- Check the NAS firewall and reverse proxy.
+- A reverse proxy must allow WebSocket upgrades because Pico chat uses WebSocket.
+
+### Password Page Appears Although You Never Set One
+
+The console password is stored in `/data`, not an environment variable. This usually means an old directory or named volume is mounted. Use the old password for retained data or an empty `/data` for a fresh installation.
+
+### Telegram Does Not Reply
+
+Put the proxy in `settings.proxy`:
+
+```json
+{
+  "settings": {
+    "base_url": "https://api.telegram.org",
+    "proxy": "http://user:password@192.168.1.10:7890"
+  }
+}
+```
+
+Putting the proxy URL in `base_url` causes `decode json: unexpected end of JSON input`, and the bot never receives updates.
+
+### WeChat Binding Succeeds But There Is No Reply
+
+`allow_from` must contain the real iLink `from_user_id`, not a WeChat nickname. New web bindings automatically write the returned user ID. Accounts bound before this behavior was added should be rebound once.
+
+Temporarily set `gateway.log_level` to `debug`, then send a new message. A rejection looks like:
+
+```text
+Message rejected by allowlist  from_user_id=o9cq...@im.wechat
+```
+
+Put that exact value into `allow_from`, restart the gateway, and restore `warn` logging afterward.
+
+### ARM NAS Pull Is Slow Or Fails
+
+```bash
+uname -m
+```
+
+`aarch64` uses the `arm64` image. The first pull may download large multi-platform layers. Configure a reliable container registry mirror or network proxy when GHCR access is unstable.
+
+## Logs And Health Checks
+
+```bash
+sudo docker logs --tail 200 -f gogoclaw
+sudo docker exec gogoclaw tail -n 200 /data/.gogoclaw/logs/gateway.log
+
+curl -fsS http://127.0.0.1:18800/api/auth/status
+sudo docker exec gogoclaw curl -fsS http://127.0.0.1:18790/health
+sudo docker exec gogoclaw curl -fsS http://127.0.0.1:18790/ready
+```
+
+## Upgrade
+
+```bash
+sudo docker pull ghcr.io/biaobiaobiao108/gogoclaw:latest
+sudo docker rm -f gogoclaw
+# Recreate with the same docker run arguments; /data is preserved
+```
+
+Compose:
+
+```bash
 docker compose -f docker/docker-compose.yml --profile launcher pull
 docker compose -f docker/docker-compose.yml --profile launcher up -d
 ```
 
-The project has no in-application self-update command.
+## Backup And Restore
+
+Back up a named volume:
+
+```bash
+docker run --rm \
+  -v gogoclaw-data:/data:ro \
+  -v "${PWD}:/backup" \
+  alpine tar czf /backup/gogoclaw-data.tgz -C /data .
+```
+
+Back up a host directory:
+
+```bash
+sudo tar czf gogoclaw-data-$(date +%F).tar.gz \
+  -C /vol1/1000/docker/gogoclaw .
+```
+
+Stop the container and restore into an empty target directory. After restoring, set ownership back to `10001:10001`.
 
 ## Security Boundary
 
-The Compose service runs as UID/GID `10001`, uses a read-only root filesystem, drops all capabilities, sets `no-new-privileges`, and provides a bounded writable `/tmp`.
+The Compose and direct-run examples use:
 
-The workspace path check reduces accidental writes; it is not an operating-system sandbox. The container is the production boundary. Do not mount the Docker socket or unrelated host paths.
+- UID/GID `10001`
+- A read-only root filesystem
+- All Linux capabilities dropped
+- `no-new-privileges`
+- A bounded writable `/tmp`
 
-## Development
-
-Local builds and direct process execution are development-only:
-
-```bash
-make build
-make build-launcher
-cd web && make dev
-```
-
-For a local container build, use the development override:
-
-```bash
-docker compose -f docker/docker-compose.yml \
-  -f docker/docker-compose.dev.yml --profile gateway up --build
-```
+The container is the execution sandbox, so `tools.approval` is disabled by default. Do not mount the Docker socket or unrelated host directories.
