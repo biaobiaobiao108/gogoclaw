@@ -23,20 +23,37 @@ import (
 
 func boolPtr(b bool) *bool { return &b }
 
+type mcpResultCaptureProvider struct {
+	sequenceProvider
+	result string
+}
+
+func (p *mcpResultCaptureProvider) Chat(ctx context.Context, messages []providers.Message, tools []providers.ToolDefinition, model string, opts map[string]any) (*providers.LLMResponse, error) {
+	for _, message := range messages {
+		if message.Role == "tool" && message.ToolCallID == "echo" {
+			p.result = message.Content
+		}
+	}
+	return p.sequenceProvider.Chat(ctx, messages, tools, model, opts)
+}
+
 func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "fixture", Version: "1"}, nil)
 	sdkmcp.AddTool(server, &sdkmcp.Tool{Name: "echo", Description: "Echo a message"},
 		func(_ context.Context, _ *sdkmcp.CallToolRequest, args map[string]any) (*sdkmcp.CallToolResult, any, error) {
 			message, _ := args["message"].(string)
-			return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: message}}}, nil, nil
+			return &sdkmcp.CallToolResult{
+				Content:           []sdkmcp.Content{&sdkmcp.TextContent{Text: message}},
+				StructuredContent: map[string]any{"id": "note-123", "version": 7},
+			}, nil, nil
 		})
 	httpServer := httptest.NewServer(sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server }, &sdkmcp.StreamableHTTPOptions{JSONResponse: true}))
 	defer httpServer.Close()
-	provider := &sequenceProvider{responses: []*providers.LLMResponse{
+	provider := &mcpResultCaptureProvider{sequenceProvider: sequenceProvider{responses: []*providers.LLMResponse{
 		{ToolCalls: []providers.ToolCall{{ID: "search", Name: agenttools.BM25SearchToolName, Arguments: map[string]any{"query": "echo message"}}}},
 		{ToolCalls: []providers.ToolCall{{ID: "echo", Name: "mcp_fixture_echo", Arguments: map[string]any{"message": "hello mcp"}}}},
 		{Content: "done"},
-	}}
+	}}}
 	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
 	defer cleanup()
 	al.cfg.Tools.MCP = config.MCPConfig{
@@ -63,6 +80,9 @@ func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("MCP response was not saved in the conversation")
+	}
+	if !strings.Contains(provider.result, `"id":"note-123"`) || !strings.Contains(provider.result, `"version":7`) || !strings.Contains(provider.result, "hello mcp") {
+		t.Fatalf("model did not receive text and structured MCP data: %q", provider.result)
 	}
 }
 

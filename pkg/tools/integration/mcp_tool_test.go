@@ -2,6 +2,7 @@ package integrationtools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,88 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
 	toolshared "github.com/biaobiaobiao108/gogoclaw/pkg/tools/shared"
 )
+
+func TestMCPToolStructuredContent(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		structured any
+		text       string
+		want       string
+		isError    bool
+	}{
+		{"structured only", map[string]any{"id": "note-1", "version": 7}, "", `{"id":"note-1","version":7}`, false},
+		{"summary and data", map[string]any{"notebooks": []any{}}, "Returned notebooks", "Returned notebooks\n{\"notebooks\":[]}", false},
+		{"duplicate JSON", map[string]any{"id": "note-1", "version": 7}, "{\n \"version\": 7, \"id\": \"note-1\"\n}", `{"id":"note-1","version":7}`, false},
+		{"large integer", map[string]any{"id": json.Number("9007199254740993")}, `{"id":9007199254740992}`, "{\"id\":9007199254740992}\n{\"id\":9007199254740993}", false},
+		{"empty object", map[string]any{}, "", `{}`, false},
+		{"long JSON string", map[string]any{"id": strings.Repeat("a", 1200)}, "", `{"id":"` + strings.Repeat("a", 1200) + `"}`, false},
+		{"false value", false, "", `false`, false},
+		{"array", []any{1, "two"}, "", `[1,"two"]`, false},
+		{"structured error", map[string]any{"code": "VERSION_CONFLICT", "version": 8}, "Update failed", "MCP tool returned error: Update failed\n{\"code\":\"VERSION_CONFLICT\",\"version\":8}", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response := &mcp.CallToolResult{StructuredContent: tc.structured, IsError: tc.isError}
+			if tc.text != "" {
+				response.Content = []mcp.Content{&mcp.TextContent{Text: tc.text}}
+			}
+			manager := &MockMCPManager{callToolFunc: func(context.Context, string, string, map[string]any) (*mcp.CallToolResult, error) {
+				return response, nil
+			}}
+			result := NewMCPTool(manager, "notes", &mcp.Tool{Name: "read"}).Execute(context.Background(), nil)
+			if result.ForLLM != tc.want || result.IsError != tc.isError {
+				t.Fatalf("got %q (error=%v), want %q (error=%v)", result.ForLLM, result.IsError, tc.want, tc.isError)
+			}
+			if tc.isError && result.Err == nil {
+				t.Fatal("missing tool error")
+			}
+		})
+	}
+}
+
+func TestMCPToolStructuredContentPreservesMediaAndLargePayload(t *testing.T) {
+	for _, isError := range []bool{false, true} {
+		t.Run(fmt.Sprintf("error=%v", isError), func(t *testing.T) {
+			payload := map[string]any{"notes": strings.Repeat("笔记正文", 100)}
+			encoded, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := &mcp.CallToolResult{
+				StructuredContent: payload, IsError: isError,
+				Content: []mcp.Content{&mcp.TextContent{Text: "Result summary"}, &mcp.ImageContent{Data: []byte("image"), MIMEType: "image/png"}},
+			}
+			manager := &MockMCPManager{callToolFunc: func(context.Context, string, string, map[string]any) (*mcp.CallToolResult, error) {
+				return response, nil
+			}}
+			tool := NewMCPTool(manager, "notes", &mcp.Tool{Name: "read"})
+			tool.SetWorkspace(t.TempDir())
+			tool.SetMaxInlineTextRunes(100)
+			tool.SetMediaStore(media.NewFileMediaStore())
+			result := tool.Execute(WithToolContext(context.Background(), "pico", "test-chat"), nil)
+			if result.IsError != isError || len(result.Media) != 1 || len(result.ArtifactTags) != 1 {
+				t.Fatalf("lost status, media or artifact: %+v", result)
+			}
+			path := strings.TrimSuffix(strings.TrimPrefix(result.ArtifactTags[0], "[file:"), "]")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != "Result summary\n"+string(encoded) {
+				t.Fatalf("artifact lost data: %s", data)
+			}
+		})
+	}
+}
+
+func TestMCPToolStructuredContentEncodingFailure(t *testing.T) {
+	manager := &MockMCPManager{callToolFunc: func(context.Context, string, string, map[string]any) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{StructuredContent: make(chan int)}, nil
+	}}
+	result := NewMCPTool(manager, "notes", &mcp.Tool{Name: "read"}).Execute(context.Background(), nil)
+	if !result.IsError || result.Err == nil || !strings.Contains(result.ForLLM, "encode MCP structured content") {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
 
 // MockMCPManager is a mock implementation of MCPManager interface for testing
 type MockMCPManager struct {

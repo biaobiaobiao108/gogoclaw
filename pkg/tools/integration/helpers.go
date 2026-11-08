@@ -1,6 +1,7 @@
 package integrationtools
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"mime"
@@ -24,6 +25,11 @@ const (
 func sanitizeToolLLMContent(text string) string {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
+		return text
+	}
+	// JSON may contain long identifiers or strings that resemble base64. Keep
+	// structured results intact; the normal output budget handles their size.
+	if json.Valid([]byte(trimmed)) {
 		return text
 	}
 	if inlineMarkdownDataURLRe.MatchString(trimmed) || inlineRawDataURLRe.MatchString(trimmed) {

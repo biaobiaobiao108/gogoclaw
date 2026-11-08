@@ -1,6 +1,7 @@
 package integrationtools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -269,16 +270,60 @@ func (t *MCPTool) Execute(ctx context.Context, args map[string]any) *ToolResult 
 		return ErrorResult("MCP tool execution failed: nil result").WithError(nilErr)
 	}
 
-	// Handle error result from server
+	content, err := mcpResultContent(result)
+	if err != nil {
+		t.publishRuntimeEvent(ctx, runtimeevents.KindMCPToolCallEnd, startedAt, true, err.Error())
+		return ErrorResult(err.Error()).WithError(err)
+	}
+	normalized := t.normalizeResultContent(ctx, content)
+	// Tool errors still carry useful data, such as conflict versions and retry hints.
 	if result.IsError {
-		errMsg := extractContentText(result.Content)
+		errMsg := extractContentText(content)
 		t.publishRuntimeEvent(ctx, runtimeevents.KindMCPToolCallEnd, startedAt, true, errMsg)
-		return ErrorResult(fmt.Sprintf("MCP tool returned error: %s", errMsg)).
-			WithError(fmt.Errorf("MCP tool error: %s", errMsg))
+		normalized.ForLLM = "MCP tool returned error: " + normalized.ForLLM
+		normalized.IsError = true
+		normalized.Err = fmt.Errorf("MCP tool error: %s", normalized.ForLLM)
+		return normalized
 	}
 
 	t.publishRuntimeEvent(ctx, runtimeevents.KindMCPToolCallEnd, startedAt, false, "")
-	return t.normalizeResultContent(ctx, result.Content)
+	return normalized
+}
+
+// Preserve structured data alongside content blocks. Some servers also return
+// the same JSON as text for older clients; include that payload only once.
+func mcpResultContent(result *mcp.CallToolResult) ([]mcp.Content, error) {
+	if result.StructuredContent == nil {
+		return result.Content, nil
+	}
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		return nil, fmt.Errorf("encode MCP structured content: %w", err)
+	}
+	canonical := canonicalMCPJSON(encoded)
+	content := make([]mcp.Content, 0, len(result.Content)+1)
+	for _, block := range result.Content {
+		if text, ok := block.(*mcp.TextContent); ok && bytes.Equal(canonicalMCPJSON([]byte(text.Text)), canonical) {
+			continue
+		}
+		content = append(content, block)
+	}
+	return append(content, &mcp.TextContent{Text: string(encoded)}), nil
+}
+
+func canonicalMCPJSON(data []byte) []byte {
+	if !json.Valid(data) {
+		return nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	// IDs and versions may exceed float64 precision.
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil
+	}
+	encoded, _ := json.Marshal(value)
+	return encoded
 }
 
 func (t *MCPTool) publishRuntimeEvent(
