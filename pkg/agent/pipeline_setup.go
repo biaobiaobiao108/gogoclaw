@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -20,14 +21,19 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 	var history []providers.Message
 	var summary string
 	if !ts.opts.NoHistory {
-		if resp, err := p.ContextManager.Assemble(ctx, &AssembleRequest{
+		resp, err := p.ContextManager.Assemble(ctx, &AssembleRequest{
 			SessionKey: ts.sessionKey,
 			Budget:     ts.agent.ContextWindow,
 			MaxTokens:  ts.agent.MaxTokens,
-		}); err == nil && resp != nil {
-			history = resp.History
-			summary = resp.Summary
+		})
+		if err != nil {
+			return nil, fmt.Errorf("assemble session context: %w", err)
 		}
+		if resp == nil {
+			return nil, fmt.Errorf("assemble session context: empty response")
+		}
+		history = resp.History
+		summary = resp.Summary
 	}
 	ts.captureRestorePoint(history, summary)
 
@@ -56,20 +62,22 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 				Reason:     ContextCompressReasonProactive,
 				Budget:     ts.agent.ContextWindow,
 			}); err != nil {
-				logger.WarnCF("agent", "Proactive compact failed", map[string]any{
-					"session_key": ts.sessionKey,
-					"error":       err.Error(),
-				})
+				return nil, fmt.Errorf("compact session context: %w", err)
 			}
 			ts.refreshRestorePointFromSession(ts.agent)
-			if resp, err := p.ContextManager.Assemble(ctx, &AssembleRequest{
+			resp, err := p.ContextManager.Assemble(ctx, &AssembleRequest{
 				SessionKey: ts.sessionKey,
 				Budget:     ts.agent.ContextWindow,
 				MaxTokens:  ts.agent.MaxTokens,
-			}); err == nil && resp != nil {
-				history = resp.History
-				summary = resp.Summary
+			})
+			if err != nil {
+				return nil, fmt.Errorf("reassemble session context: %w", err)
 			}
+			if resp == nil {
+				return nil, fmt.Errorf("reassemble session context: empty response")
+			}
+			history = resp.History
+			summary = resp.Summary
 			originalHistoryCount := len(history)
 			var fit bool
 			history, messages, fit = trimHistoryToFitContextWindow(

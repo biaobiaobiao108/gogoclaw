@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,26 @@ import (
 
 // simpleConvProvider returns a simple text response without tools
 type simpleConvProvider struct{}
+
+type failingAssembleContextManager struct{ noopContextManager }
+
+func (*failingAssembleContextManager) Assemble(context.Context, *AssembleRequest) (*AssembleResponse, error) {
+	return nil, errors.New("history unavailable")
+}
+
+func TestSetupTurnReturnsContextReadError(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+	pipeline := NewPipeline(al)
+	pipeline.ContextManager = &failingAssembleContextManager{}
+	ts := newTurnState(agent, makeTestProcessOpts("context-error"), turnEventScope{
+		turnID: "context-error", context: newTurnContext(nil, nil, nil),
+	})
+	_, err := pipeline.SetupTurn(context.Background(), ts)
+	if err == nil || !strings.Contains(err.Error(), "history unavailable") {
+		t.Fatalf("expected context read failure, got %v", err)
+	}
+}
 
 func (p *simpleConvProvider) Chat(
 	ctx context.Context,

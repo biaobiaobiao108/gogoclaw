@@ -398,20 +398,22 @@ func (p *Pipeline) CallLLM(
 				Reason:     ContextCompressReasonRetry,
 				Budget:     ts.agent.ContextWindow,
 			}); compactErr != nil {
-				logger.WarnCF("agent", "Context overflow compact failed", map[string]any{
-					"session_key": ts.sessionKey,
-					"error":       compactErr.Error(),
-				})
+				return ControlBreak, fmt.Errorf("compact session context: %w", compactErr)
 			}
 			ts.refreshRestorePointFromSession(ts.agent)
-			if asmResp, asmErr := p.ContextManager.Assemble(ctx, &AssembleRequest{
+			asmResp, asmErr := p.ContextManager.Assemble(ctx, &AssembleRequest{
 				SessionKey: ts.sessionKey,
 				Budget:     ts.agent.ContextWindow,
 				MaxTokens:  ts.agent.MaxTokens,
-			}); asmErr == nil && asmResp != nil {
-				exec.history = asmResp.History
-				exec.summary = asmResp.Summary
+			})
+			if asmErr != nil {
+				return ControlBreak, fmt.Errorf("reassemble session context: %w", asmErr)
 			}
+			if asmResp == nil {
+				return ControlBreak, fmt.Errorf("reassemble session context: empty response")
+			}
+			exec.history = asmResp.History
+			exec.summary = asmResp.Summary
 			contextualSkills := ts.activeSkills
 			if ts.agent.ContextBuilder != nil {
 				contextualSkills = ts.agent.ContextBuilder.ResolveActiveSkillsForContext(ts.activeSkills)

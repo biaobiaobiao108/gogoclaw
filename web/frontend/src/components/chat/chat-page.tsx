@@ -377,6 +377,8 @@ export function ChatPage() {
         onDrop={handleComposerDrop}
         onRemoveAttachment={handleRemoveAttachment}
         onSend={handleSend}
+        onStop={() => sendMessage({ content: "/stop" })}
+        isRunning={isTyping}
         onContextDetail={() => {
           if (sendMessage({ content: "/context", attachments: [] })) {
             setInput("")

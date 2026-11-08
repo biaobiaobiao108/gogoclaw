@@ -10,8 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"runtime/debug"
-	"sync"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
@@ -151,63 +149,30 @@ func RunToolLoop(
 		}
 		messages = append(messages, assistantMsg)
 
-		// 7. Execute tool calls in parallel
-		type indexedResult struct {
-			result *ToolResult
-			tc     providers.ToolCall
-		}
-
-		results := make([]indexedResult, len(normalizedToolCalls))
-		var wg sync.WaitGroup
-
-		for i, tc := range normalizedToolCalls {
-			results[i].tc = tc
-
-			wg.Add(1)
-			go func(idx int, tc providers.ToolCall) {
-				defer wg.Done()
-				defer func() {
-					if r := recover(); r != nil {
-						logger.ErrorCF("toolloop", "tool execution goroutine panic recovered",
-							map[string]any{
-								"tool":  tc.Name,
-								"panic": fmt.Sprintf("%v", r),
-								"stack": string(debug.Stack()),
-							})
-						results[idx].result = ErrorResult(fmt.Sprintf("internal panic in tool %s", tc.Name))
-					}
-				}()
-
-				argsJSON, _ := json.Marshal(tc.Arguments)
-				argsPreview := utils.Truncate(string(argsJSON), 200)
-				logger.InfoCF("toolloop", fmt.Sprintf("Tool call: %s(%s)", tc.Name, argsPreview),
-					map[string]any{
-						"tool":      tc.Name,
-						"iteration": iteration,
-					})
-
-				var toolResult *ToolResult
-				if config.Tools != nil {
-					toolResult = config.Tools.ExecuteWithContext(ctx, tc.Name, tc.Arguments, channel, chatID, nil)
-				} else {
-					toolResult = ErrorResult("No tools available")
-				}
-				results[idx].result = toolResult
-			}(i, tc)
-		}
-		wg.Wait()
-
-		// Append results in original order
-		for _, r := range results {
-			contentForLLM := r.result.ContentForLLM()
+		// Preserve the model's order: tool calls can depend on earlier side effects.
+		for _, tc := range normalizedToolCalls {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			argsJSON, _ := json.Marshal(tc.Arguments)
+			argsPreview := utils.Truncate(string(argsJSON), 200)
+			logger.InfoCF("toolloop", fmt.Sprintf("Tool call: %s(%s)", tc.Name, argsPreview),
+				map[string]any{"tool": tc.Name, "iteration": iteration})
+			var result *ToolResult
+			if config.Tools != nil {
+				result = config.Tools.ExecuteWithContext(ctx, tc.Name, tc.Arguments, channel, chatID, nil)
+			} else {
+				result = ErrorResult("No tools available")
+			}
+			contentForLLM := result.ContentForLLM()
 
 			toolMsg := providers.Message{
 				Role:       "tool",
 				Content:    contentForLLM,
-				ToolCallID: r.tc.ID,
+				ToolCallID: tc.ID,
 			}
-			if len(r.result.Media) > 0 && !r.result.ResponseHandled {
-				toolMsg.Media = append(toolMsg.Media, r.result.Media...)
+			if len(result.Media) > 0 && !result.ResponseHandled {
+				toolMsg.Media = append(toolMsg.Media, result.Media...)
 			}
 			messages = append(messages, toolMsg)
 		}

@@ -93,6 +93,7 @@
       "noModel": "No default model configured. Go to Models page to set one."
     },
     "sendMessage": "Send message",
+    "stopTask": "Stop task",
     "composeHint": "Press Enter to send, Shift + Enter for a new line",
     "contextTitle": "Context",
     "contextDetail": "View Details",

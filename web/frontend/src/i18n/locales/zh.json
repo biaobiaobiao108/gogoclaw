@@ -93,6 +93,7 @@
       "noModel": "未设置默认模型，请前往模型页面进行配置。"
     },
     "sendMessage": "发送消息",
+    "stopTask": "停止任务",
     "composeHint": "按 Enter 发送，Shift + Enter 换行",
     "contextTitle": "上下文",
     "contextDetail": "查看详情",
