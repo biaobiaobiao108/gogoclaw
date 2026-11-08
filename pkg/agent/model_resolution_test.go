@@ -163,3 +163,32 @@ func TestResolveActiveModelConfig_DoesNotFallbackToOpenAIForDefaultProviderCandi
 		t.Fatalf("resolveActiveModelConfig() = %#v, want nil for non-active provider config", got)
 	}
 }
+
+func TestResolveActiveModelConfig_ResolvesAliasWithUnqualifiedModelID(t *testing.T) {
+	cfg := &config.Config{
+		ModelList: []*config.ModelConfig{
+			{
+				ModelName: "primary",
+				Provider:  "anthropic-messages",
+				Model:     "group/workbuddy",
+				Streaming: config.ModelStreamingConfig{Enabled: true},
+			},
+		},
+	}
+
+	candidate, ok := resolveModelCandidate(cfg, "", "primary")
+	if !ok {
+		t.Fatal("resolveModelCandidate() did not resolve configured alias")
+	}
+	if candidate.ConfigIndex != 1 {
+		t.Fatalf("candidate.ConfigIndex = %d, want 1", candidate.ConfigIndex)
+	}
+
+	got := resolveActiveModelConfig(cfg, "/workspace", []providers.FallbackCandidate{candidate}, "primary", "")
+	if got == nil {
+		t.Fatal("resolveActiveModelConfig() = nil, want configured model")
+	}
+	if got.ModelName != "primary" || !got.Streaming.Enabled {
+		t.Fatalf("resolved config = %#v, want primary with streaming enabled", got)
+	}
+}

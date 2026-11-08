@@ -7,7 +7,7 @@ import {
   IconFileText,
   IconTerminal2,
 } from "@tabler/icons-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import ReactMarkdown from "react-markdown"
 import rehypeHighlight from "rehype-highlight"
@@ -22,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard"
 import { formatMessageTime } from "@/hooks/use-pico-chat"
+import { useSmoothStreamText } from "@/hooks/use-smooth-stream-text"
 import { cn } from "@/lib/utils"
 import {
   type AssistantMessageKind,
@@ -36,6 +37,7 @@ interface AssistantMessageProps {
   modelName?: string
   toolCalls?: ChatToolCall[]
   timestamp?: string | number
+  isStreaming?: boolean
 }
 
 export function AssistantMessage({
@@ -45,6 +47,7 @@ export function AssistantMessage({
   modelName,
   toolCalls = [],
   timestamp = "",
+  isStreaming = false,
 }: AssistantMessageProps) {
   const { t } = useTranslation()
   const { copy, isCopied } = useCopyToClipboard()
@@ -60,10 +63,20 @@ export function AssistantMessage({
     (attachment) => attachment.type !== "image",
   )
   const [isExpanded, setIsExpanded] = useState(false)
+  const visibleContent = useSmoothStreamText(content, isStreaming)
+  const hasVisibleText = visibleContent.trim().length > 0
+
+  useEffect(() => {
+    if (!isThought) return
+    setIsExpanded(isStreaming)
+  }, [isStreaming, isThought])
+
   const formattedTimestamp =
     timestamp !== "" ? formatMessageTime(timestamp) : ""
   const collapsedLabel = isThought
-    ? t("chat.reasoningLabel")
+    ? isStreaming
+      ? t("chat.reasoningStreamingLabel")
+      : t("chat.reasoningLabel")
     : t("chat.toolCallsLabel")
   const copyMessageLabel = isCopied
     ? t("chat.copiedLabel")
@@ -128,6 +141,7 @@ export function AssistantMessage({
               type="button"
               className="hover:bg-muted/40 flex w-full items-center justify-between px-3 py-2 font-mono text-xs transition-colors"
               onClick={() => setIsExpanded(!isExpanded)}
+              aria-expanded={isExpanded}
             >
               <div className="flex items-center gap-2">
                 {isThought ? (
@@ -193,12 +207,17 @@ export function AssistantMessage({
           {/* Thought Content */}
           {isCollapsedBlock && isExpanded && isThought && hasText && (
             <div className="border-border/40 text-muted-foreground border-t p-3 font-mono text-xs leading-relaxed">
-              <div className="whitespace-pre-wrap">{content}</div>
+              <div className="whitespace-pre-wrap">
+                {visibleContent}
+                {isStreaming && (
+                  <span className="streaming-caret ml-0.5" aria-hidden="true" />
+                )}
+              </div>
             </div>
           )}
 
           {/* Normal Assistant Markdown Text */}
-          {!isCollapsedBlock && hasText && (
+          {!isCollapsedBlock && hasVisibleText && (
             <div className="prose dark:prose-invert max-w-none text-[14.5px] leading-relaxed [overflow-wrap:anywhere] break-words">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
@@ -207,8 +226,11 @@ export function AssistantMessage({
                   pre: MarkdownCodeBlock,
                 }}
               >
-                {content}
+                {visibleContent}
               </ReactMarkdown>
+              {isStreaming && (
+                <span className="streaming-caret ml-0.5" aria-hidden="true" />
+              )}
             </div>
           )}
         </div>

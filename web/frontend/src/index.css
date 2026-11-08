@@ -318,11 +318,37 @@ textarea {
   }
 }
 
+@keyframes streaming-caret {
+  0%,
+  45% {
+    opacity: 1;
+  }
+
+  50%,
+  100% {
+    opacity: 0.2;
+  }
+}
+
+.streaming-caret {
+  display: inline-block;
+  width: 0.45rem;
+  height: 1em;
+  border-radius: 1px;
+  background: currentColor;
+  vertical-align: -0.12em;
+  animation: streaming-caret 0.9s steps(1, end) infinite;
+}
+
 .channel-route-enter {
   animation: route-enter var(--motion-large) var(--ease-standard) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .streaming-caret {
+    animation: none;
+  }
+
   .channel-route-enter {
     animation: none;
   }

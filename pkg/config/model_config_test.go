@@ -215,17 +215,18 @@ func TestModelConfig_StreamingConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("defaults disabled", func(t *testing.T) {
+	t.Run("preserves explicit disable", func(t *testing.T) {
 		var cfg ModelConfig
 		err := json.Unmarshal([]byte(`{
 			"model_name": "plain-model",
-			"model": "openai/gpt-5.4"
+			"model": "openai/gpt-5.4",
+			"streaming": {"enabled": false}
 		}`), &cfg)
 		if err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
 		if cfg.Streaming.Enabled {
-			t.Fatal("Streaming.Enabled = true, want false by default")
+			t.Fatal("Streaming.Enabled = true, want explicit false preserved")
 		}
 	})
 
@@ -238,6 +239,57 @@ func TestModelConfig_StreamingConfig(t *testing.T) {
 			t.Fatal("ModelStreamingConfig missing Enabled field")
 		}
 	})
+}
+
+func TestLoadConfig_ModelStreamingDefaultsEnabled(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	data := []byte(`{
+		"version": 3,
+		"model_list": [
+			{"model_name": "legacy", "provider": "openai", "model": "gpt-5.4"},
+			{"model_name": "empty", "provider": "openai", "model": "gpt-5.4", "streaming": {}},
+			{"model_name": "disabled", "provider": "openai", "model": "gpt-5.4", "streaming": {"enabled": false}}
+		]
+	}`)
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if len(cfg.ModelList) != 3 {
+		t.Fatalf("len(ModelList) = %d, want 3", len(cfg.ModelList))
+	}
+	if !cfg.ModelList[0].Streaming.Enabled {
+		t.Fatal("legacy model streaming = false, want true by default")
+	}
+	if !cfg.ModelList[1].Streaming.Enabled {
+		t.Fatal("empty streaming object = false, want true by default")
+	}
+	if cfg.ModelList[2].Streaming.Enabled {
+		t.Fatal("explicit streaming disable = true, want false")
+	}
+
+	if err := SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+	saved, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	reloaded, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("reload LoadConfig() error = %v", err)
+	}
+	if !reloaded.ModelList[0].Streaming.Enabled {
+		t.Fatal("saved default streaming = false, want true")
+	}
+	if reloaded.ModelList[2].Streaming.Enabled {
+		securityData, _ := os.ReadFile(filepath.Join(filepath.Dir(configPath), SecurityConfigFile))
+		t.Fatalf("saved explicit streaming disable = true, want false\nconfig:\n%s\nsecurity:\n%s", saved, securityData)
+	}
 }
 
 func TestModelConfig_Validate(t *testing.T) {

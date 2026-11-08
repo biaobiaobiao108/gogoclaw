@@ -712,6 +712,9 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 	} else {
 		mc.ModelConfig.SetEnabled(true)
 	}
+	if _, ok := rawFields["streaming"]; !ok {
+		mc.ModelConfig.Streaming.Enabled = true
+	}
 
 	h.configMu.Lock()
 	defer h.configMu.Unlock()

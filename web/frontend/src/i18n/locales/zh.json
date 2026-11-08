@@ -61,6 +61,7 @@
       "step4": "马上就好..."
     },
     "reasoningLabel": "思考",
+    "reasoningStreamingLabel": "思考中",
     "toolCallsLabel": "工具调用",
     "toolCallExplanationLabel": "调用提示",
     "toolCallFunctionLabel": "调用摘要",

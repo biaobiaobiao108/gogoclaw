@@ -840,8 +840,11 @@ func isCmdProcessAliveLocked(cmd *exec.Cmd) bool {
 		return false
 	}
 
-	// Windows does not support Signal(0) probing. If we still own cmd and it
-	// has not reported exit, treat it as alive.
+	// Attached processes have no waiter that updates ProcessState. Probe the
+	// actual PID so Windows can detect termination after Process.Kill().
+	if !ppid.IsProcessRunning(cmd.Process.Pid) {
+		return false
+	}
 	if runtime.GOOS == "windows" {
 		return true
 	}

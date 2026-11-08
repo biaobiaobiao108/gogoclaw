@@ -5,14 +5,23 @@ import (
 	"strings"
 )
 
+var generalModelProviderIDs = map[string]struct{}{
+	"openai":             {},
+	"openai-responses":   {},
+	"anthropic-messages": {},
+	"gemini":             {},
+}
+
 // ModelProviderOptions returns the canonical provider catalog exposed to the Web UI.
 func ModelProviderOptions() []ModelProviderOption {
-	options := make([]ModelProviderOption, 0, len(modelProviderOptionsByName))
-	for _, option := range modelProviderOptionsByName {
-		options = append(options, option)
+	options := make([]ModelProviderOption, 0, len(generalModelProviderIDs))
+	for provider := range generalModelProviderIDs {
+		if option, ok := modelProviderOptionsByName[provider]; ok {
+			options = append(options, option)
+		}
 	}
 	sort.Slice(options, func(i, j int) bool {
-		return options[i].ID < options[j].ID
+		return options[i].Priority > options[j].Priority
 	})
 	return options
 }

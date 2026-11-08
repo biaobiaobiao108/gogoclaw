@@ -402,6 +402,18 @@ export function ChatPage() {
     overscan: 6,
   })
 
+  const streamingMessageId = (() => {
+    if (!activeTurn && !isTyping) {
+      return undefined
+    }
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === "assistant") {
+        return messages[i].id
+      }
+    }
+    return undefined
+  })()
+
   useEffect(() => {
     if (!scrollRef.current) return
     if (isAtBottom) {
@@ -553,6 +565,7 @@ export function ChatPage() {
                       modelName={row.message.modelName}
                       toolCalls={row.message.toolCalls}
                       timestamp={row.message.timestamp}
+                      isStreaming={row.message.id === streamingMessageId}
                     />
                   ) : (
                     <UserMessage

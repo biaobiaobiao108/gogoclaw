@@ -16,6 +16,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/azure"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/bedrock"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/common"
+	openairesponses "github.com/biaobiaobiao108/gogoclaw/pkg/providers/openai_responses"
 )
 
 // createClaudeAuthProvider creates a Claude provider using OAuth credentials from auth store.
@@ -135,6 +136,24 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 		)
 		provider.SetProviderName(protocol)
 		return finalizeProviderFromConfig(provider, modelID, cfg)
+
+	case "openai-responses":
+		if cfg.APIKey() == "" {
+			return nil, "", fmt.Errorf("api_key is required for openai-responses protocol (model: %s)", cfg.Model)
+		}
+		apiBase := cfg.APIBase
+		if apiBase == "" {
+			apiBase = getDefaultAPIBase(protocol)
+		}
+		return finalizeProviderFromConfig(openairesponses.NewProvider(
+			cfg.APIKey(),
+			apiBase,
+			cfg.Proxy,
+			userAgent,
+			cfg.RequestTimeout,
+			cfg.ExtraBody,
+			cfg.CustomHeaders,
+		), modelID, cfg)
 
 	case "azure":
 		// Azure OpenAI uses deployment-based URLs. Auth is Bearer token via api_key

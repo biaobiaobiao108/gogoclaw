@@ -167,6 +167,15 @@ func TestReadPidFileWithCheck(t *testing.T) {
 	}
 }
 
+func TestIsProcessRunning(t *testing.T) {
+	if !IsProcessRunning(os.Getpid()) {
+		t.Fatal("current process should be reported as running")
+	}
+	if IsProcessRunning(0) {
+		t.Fatal("invalid PID should not be reported as running")
+	}
+}
+
 // TestReadPidFileWithCheckNonexistent returns nil for missing file.
 func TestReadPidFileWithCheckNonexistent(t *testing.T) {
 	dir := tmpDir(t)

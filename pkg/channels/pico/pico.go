@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"mime"
 	"net/http"
 	"net/url"
@@ -633,6 +634,14 @@ type picoStreamer struct {
 	mu                sync.Mutex
 }
 
+const (
+	streamPacingThresholdRunes = 12
+	streamPacingFrameInterval  = 24 * time.Millisecond
+	streamPacingMinDuration    = 80 * time.Millisecond
+	streamPacingMaxDuration    = 420 * time.Millisecond
+	streamPacingMaxFrames      = 18
+)
+
 func (s *picoStreamer) SetModelName(modelName string) {
 	if s == nil {
 		return
@@ -733,7 +742,7 @@ func (s *picoStreamer) updateLocked(
 		}
 	}
 
-	return s.sendLocked(ctx, content, force, contextUsage)
+	return s.sendPacedLocked(ctx, content, force, contextUsage, false)
 }
 
 func (s *picoStreamer) updateReasoningLocked(ctx context.Context, content string, force bool) error {
@@ -753,7 +762,74 @@ func (s *picoStreamer) updateReasoningLocked(ctx context.Context, content string
 		}
 	}
 
-	return s.sendReasoningLocked(ctx, content)
+	return s.sendPacedLocked(ctx, content, false, nil, true)
+}
+
+func (s *picoStreamer) sendPacedLocked(
+	ctx context.Context,
+	content string,
+	final bool,
+	contextUsage *bus.ContextUsage,
+	reasoning bool,
+) error {
+	currentLen := s.lastLen
+	if reasoning {
+		currentLen = s.reasoningLastLen
+	}
+	if (!reasoning && s.messageID == "") || (reasoning && s.reasoningID == "") {
+		currentLen = 0
+	}
+
+	runes := []rune(content)
+	targetLen := len(runes)
+	delta := targetLen - currentLen
+	if delta <= streamPacingThresholdRunes {
+		if reasoning {
+			return s.sendReasoningLocked(ctx, content)
+		}
+		return s.sendLocked(ctx, content, final, contextUsage)
+	}
+
+	duration := time.Duration(delta) * 5 * time.Millisecond
+	if duration < streamPacingMinDuration {
+		duration = streamPacingMinDuration
+	}
+	if duration > streamPacingMaxDuration {
+		duration = streamPacingMaxDuration
+	}
+	frames := int(math.Ceil(float64(duration) / float64(streamPacingFrameInterval)))
+	if frames < 2 {
+		frames = 2
+	}
+	if frames > streamPacingMaxFrames {
+		frames = streamPacingMaxFrames
+	}
+
+	for frame := 1; frame < frames; frame++ {
+		progress := float64(frame) / float64(frames)
+		eased := 1 - math.Pow(1-progress, 3)
+		nextLen := currentLen + int(math.Ceil(float64(delta)*eased))
+		if nextLen <= currentLen || nextLen >= targetLen {
+			continue
+		}
+		if reasoning {
+			if err := s.sendReasoningLocked(ctx, string(runes[:nextLen])); err != nil {
+				return err
+			}
+		} else if err := s.sendLocked(ctx, string(runes[:nextLen]), false, nil); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(streamPacingFrameInterval):
+		}
+	}
+
+	if reasoning {
+		return s.sendReasoningLocked(ctx, content)
+	}
+	return s.sendLocked(ctx, content, final, contextUsage)
 }
 
 func (s *picoStreamer) sendLocked(
@@ -1553,12 +1629,35 @@ func (c *PicoChannel) loadMessageDedupeLocked() error {
 	if err != nil {
 		return fmt.Errorf("read inbound dedupe state: %w", err)
 	}
-	if err := json.Unmarshal(data, &c.messageSeen); err != nil {
-		return fmt.Errorf("decode inbound dedupe state: %w", err)
+
+	type entry struct {
+		Key      string    `json:"key"`
+		SeenTime time.Time `json:"seen_at"`
 	}
-	if c.messageSeen == nil {
-		c.messageSeen = make(map[string]time.Time)
+	var entries []entry
+	if err := json.Unmarshal(data, &entries); err == nil {
+		c.messageSeen = make(map[string]time.Time, len(entries))
+		for _, item := range entries {
+			if item.Key != "" {
+				c.messageSeen[item.Key] = item.SeenTime
+			}
+		}
+		return nil
 	}
+
+	var legacy map[string]time.Time
+	if err := json.Unmarshal(data, &legacy); err == nil {
+		c.messageSeen = legacy
+		if c.messageSeen == nil {
+			c.messageSeen = make(map[string]time.Time)
+		}
+		return nil
+	}
+
+	logger.WarnCF("pico", "Ignoring corrupt inbound dedupe state", map[string]any{
+		"path": c.dedupePath,
+	})
+	c.messageSeen = make(map[string]time.Time)
 	return nil
 }
 

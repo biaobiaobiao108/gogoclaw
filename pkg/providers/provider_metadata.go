@@ -27,7 +27,7 @@ type ModelProviderOption struct {
 var modelProviderOptionsByName = map[string]ModelProviderOption{
 	"openai": {
 		ID:                  "openai",
-		DisplayName:         "OpenAI",
+		DisplayName:         "OpenAI Chat Completions",
 		IconSlug:            "openai",
 		Domain:              "openai.com",
 		DefaultAPIBase:      "https://api.openai.com/v1",
@@ -37,6 +37,20 @@ var modelProviderOptionsByName = map[string]ModelProviderOption{
 		Priority:            100,
 		CommonModels:        []string{"gpt-5.4", "gpt-5.4-mini", "gpt-5.5"},
 		Aliases:             []string{"gpt"},
+		httpAPI:             true,
+	},
+	"openai-responses": {
+		ID:                  "openai-responses",
+		DisplayName:         "OpenAI Responses",
+		IconSlug:            "openai",
+		Domain:              "openai.com",
+		DefaultAPIBase:      "https://api.openai.com/v1",
+		CreateAllowed:       true,
+		DefaultModelAllowed: true,
+		SupportsFetch:       true,
+		Priority:            99,
+		CommonModels:        []string{"gpt-5.4", "gpt-5.4-mini", "gpt-5.5"},
+		Aliases:             []string{"responses", "openai-response"},
 		httpAPI:             true,
 	},
 	"anthropic": {
@@ -66,7 +80,7 @@ var modelProviderOptionsByName = map[string]ModelProviderOption{
 	},
 	"gemini": {
 		ID:                  "gemini",
-		DisplayName:         "Google Gemini",
+		DisplayName:         "Google Gemini generateContent",
 		IconSlug:            "googlegemini",
 		Domain:              "gemini.google.com",
 		DefaultAPIBase:      "https://generativelanguage.googleapis.com/v1beta",

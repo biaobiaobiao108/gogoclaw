@@ -560,7 +560,7 @@ func TestHandleListModels_BedrockUsesAmbientCredentialStatus(t *testing.T) {
 	}
 }
 
-func TestHandleListModels_CLIProvidersRequireInstalledCommands(t *testing.T) {
+func TestHandleListModels_ExposesOnlyGeneralProtocols(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 	resetOAuthHooks(t)
@@ -646,15 +646,13 @@ func TestHandleListModels_CLIProvidersRequireInstalledCommands(t *testing.T) {
 	for _, option := range resp.ProviderOptions {
 		optionsByID[option.ID] = option
 	}
-	if option, ok := optionsByID["claude-cli"]; !ok {
-		t.Fatal("claude-cli provider option missing")
-	} else if option.CreateAllowed {
-		t.Fatal("claude-cli should not be creatable when the claude command is missing")
+	if len(optionsByID) != 4 {
+		t.Fatalf("provider_options count = %d, want 4", len(optionsByID))
 	}
-	if option, ok := optionsByID["codex-cli"]; !ok {
-		t.Fatal("codex-cli provider option missing")
-	} else if !option.CreateAllowed {
-		t.Fatal("codex-cli should be creatable when the codex command is available")
+	for _, providerID := range []string{"openai", "openai-responses", "anthropic-messages", "gemini"} {
+		if _, ok := optionsByID[providerID]; !ok {
+			t.Fatalf("%s provider option missing", providerID)
+		}
 	}
 }
 
@@ -2236,98 +2234,11 @@ func TestHandleListModels_ReturnsProviderOptionsWithoutPersistingLegacyMigration
 	for _, option := range resp.ProviderOptions {
 		optionsByID[option.ID] = option
 	}
-	if len(optionsByID) == 0 {
-		t.Fatal("provider_options should not be empty")
+	if len(optionsByID) != 4 {
+		t.Fatalf("provider_options count = %d, want 4", len(optionsByID))
 	}
-	if option, ok := optionsByID["openai"]; !ok {
-		t.Fatal("openai provider option missing")
-	} else if option.DefaultAPIBase != "https://api.openai.com/v1" {
-		t.Fatalf("openai default_api_base = %q, want %q", option.DefaultAPIBase, "https://api.openai.com/v1")
-	} else if !option.SupportsFetch {
-		t.Fatal("openai provider option should report supports_fetch")
-	} else if option.DisplayName != "OpenAI" {
-		t.Fatalf("openai display_name = %q, want %q", option.DisplayName, "OpenAI")
-	} else if len(option.CommonModels) == 0 {
-		t.Fatal("openai common_models should not be empty")
-	}
-	if option, ok := optionsByID["anthropic"]; !ok {
-		t.Fatal("anthropic provider option missing")
-	} else if option.DefaultAPIBase != "https://api.anthropic.com/v1" {
-		t.Fatalf("anthropic default_api_base = %q, want %q", option.DefaultAPIBase, "https://api.anthropic.com/v1")
-	}
-	if _, ok := optionsByID["azure"]; !ok {
-		t.Fatal("azure provider option missing")
-	}
-	if option, ok := optionsByID["github-copilot"]; !ok {
-		t.Fatal("github-copilot provider option missing")
-	} else if option.DefaultAPIBase != "localhost:4321" {
-		t.Fatalf("github-copilot default_api_base = %q, want %q", option.DefaultAPIBase, "localhost:4321")
-	} else if !option.Local {
-		t.Fatal("github-copilot should be marked local")
-	}
-	if option, ok := optionsByID["elevenlabs"]; !ok {
-		t.Fatal("elevenlabs provider option missing")
-	} else {
-		if option.DefaultAPIBase != "https://api.elevenlabs.io" {
-			t.Fatalf("elevenlabs default_api_base = %q, want %q", option.DefaultAPIBase, "https://api.elevenlabs.io")
-		}
-		if option.DefaultModelAllowed {
-			t.Fatal("elevenlabs should be marked as not allowed for default chat model selection")
-		}
-	}
-	if option, ok := optionsByID["lmstudio"]; !ok {
-		t.Fatal("lmstudio provider option missing")
-	} else if !option.EmptyAPIKeyAllowed {
-		t.Fatal("lmstudio should allow empty api keys")
-	}
-	if option, ok := optionsByID["gpt4free"]; !ok {
-		t.Fatal("gpt4free provider option missing")
-	} else {
-		if option.DefaultAPIBase != "http://localhost:1337/v1" {
-			t.Fatalf("gpt4free default_api_base = %q, want %q", option.DefaultAPIBase, "http://localhost:1337/v1")
-		}
-		if !option.EmptyAPIKeyAllowed {
-			t.Fatal("gpt4free should allow empty api keys")
-		}
-		if !option.SupportsFetch {
-			t.Fatal("gpt4free provider option should report supports_fetch")
-		}
-	}
-	if option, ok := optionsByID["siliconflow"]; !ok {
-		t.Fatal("siliconflow provider option missing")
-	} else if option.DefaultAPIBase != "https://api.siliconflow.cn/v1" {
-		t.Fatalf(
-			"siliconflow default_api_base = %q, want %q",
-			option.DefaultAPIBase,
-			"https://api.siliconflow.cn/v1",
-		)
-	}
-	if option, ok := optionsByID["nearai"]; !ok {
-		t.Fatal("nearai provider option missing")
-	} else if option.DefaultAPIBase != "https://cloud-api.near.ai/v1" {
-		t.Fatalf("nearai default_api_base = %q, want %q", option.DefaultAPIBase, "https://cloud-api.near.ai/v1")
-	} else if !option.SupportsFetch {
-		t.Fatal("nearai provider option should report supports_fetch")
-	}
-	if option, ok := optionsByID["bedrock"]; !ok {
-		t.Fatal("bedrock provider option missing")
-	} else if !option.CreateAllowed {
-		t.Fatal("bedrock should stay creatable and defer AWS credential failures to runtime")
-	}
-	if option, ok := optionsByID["antigravity"]; !ok {
-		t.Fatal("antigravity provider option missing")
-	} else {
-		if option.DefaultAuthMethod != "oauth" {
-			t.Fatalf("antigravity default_auth_method = %q, want %q", option.DefaultAuthMethod, "oauth")
-		}
-		if !option.AuthMethodLocked {
-			t.Fatal("antigravity auth method should be locked")
-		}
-	}
-	if option, ok := optionsByID["qwen-portal"]; !ok {
-		t.Fatal("qwen-portal provider option missing")
-	} else if len(option.Aliases) == 0 || option.Aliases[0] != "qwen" {
-		t.Fatalf("qwen-portal aliases = %#v, want to include qwen", option.Aliases)
+	if option := optionsByID["openai"]; option.DisplayName != "OpenAI Chat Completions" {
+		t.Fatalf("openai display_name = %q", option.DisplayName)
 	}
 
 	updated, err := config.LoadConfig(configPath)
@@ -2430,17 +2341,17 @@ func TestHandleListModels_PreservesKnownProviderInCatalog(t *testing.T) {
 	if got := resp.Models[0].Model; got != "us.anthropic.claude-sonnet-4-20250514-v1:0" {
 		t.Fatalf("model = %q, want %q", got, "us.anthropic.claude-sonnet-4-20250514-v1:0")
 	}
-	foundBedrock := false
+	optionCount := 0
 	for _, option := range resp.ProviderOptions {
-		if option.ID == "bedrock" {
-			foundBedrock = true
-			if !option.CreateAllowed {
-				t.Fatal("bedrock should stay creatable in provider_options")
-			}
+		optionCount++
+		switch option.ID {
+		case "openai", "openai-responses", "anthropic-messages", "gemini":
+		default:
+			t.Fatalf("unexpected provider option %q", option.ID)
 		}
 	}
-	if !foundBedrock {
-		t.Fatal("bedrock should be included in provider_options for compatibility")
+	if optionCount != 4 {
+		t.Fatalf("provider_options count = %d, want 4", optionCount)
 	}
 }
 

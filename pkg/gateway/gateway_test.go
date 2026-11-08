@@ -201,6 +201,29 @@ func TestCollectGatewayStartupStatusHandlesMalformedInfo(t *testing.T) {
 	}
 }
 
+func TestCreateStartupProviderPreservesConfiguredModelAlias(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.ModelName = "primary"
+	cfg.ModelList = config.SecureModelList{
+		{
+			ModelName: "primary",
+			Provider:  "openai",
+			Model:     "group/workbuddy",
+			APIKeys:   config.SimpleSecureStrings("test-key"),
+			Streaming: config.ModelStreamingConfig{Enabled: true},
+		},
+	}
+
+	if _, err := createStartupProvider(cfg, false); err != nil {
+		t.Fatalf("createStartupProvider() error = %v", err)
+	}
+	if got := cfg.Agents.Defaults.GetModelName(); got != "primary" {
+		t.Fatalf("default model changed to %q, want configured alias %q", got, "primary")
+	}
+}
+
 func TestPublishGatewayEvent(t *testing.T) {
 	eventBus := runtimeevents.NewBus()
 	t.Cleanup(func() {

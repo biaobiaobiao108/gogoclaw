@@ -101,7 +101,7 @@ function buildInitialEditForm(model: ModelInfo): EditForm {
     requestTimeout: model.request_timeout ? String(model.request_timeout) : "",
     thinkingLevel: model.thinking_level ?? "",
     toolSchemaTransform: model.tool_schema_transform ?? "",
-    streamingEnabled: model.streaming?.enabled === true,
+    streamingEnabled: model.streaming?.enabled !== false,
     extraBody: model.extra_body
       ? JSON.stringify(model.extra_body, null, 2)
       : "",
@@ -136,7 +136,7 @@ export function EditModelSheet({
     requestTimeout: "",
     thinkingLevel: "",
     toolSchemaTransform: "",
-    streamingEnabled: false,
+    streamingEnabled: true,
     extraBody: "",
     customHeaders: "",
   })
@@ -369,10 +369,7 @@ export function EditModelSheet({
     try {
       const modelId = form.modelId.trim()
       const provider = canonicalProvider
-      const streaming =
-        model.streaming?.enabled === true || form.streamingEnabled
-          ? { enabled: form.streamingEnabled }
-          : undefined
+      const streaming = { enabled: form.streamingEnabled }
       const response = await updateModel(model.index, {
         model_name: model.model_name,
         provider: provider,

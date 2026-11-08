@@ -156,6 +156,65 @@ func TestHandleMessageSend_ForwardsMessageMetadata(t *testing.T) {
 	}
 }
 
+func TestLoadMessageDedupe_AcceptsSnapshotAndRecoversCorruptState(t *testing.T) {
+	newChannel := func(t *testing.T, state string) *PicoChannel {
+		t.Helper()
+		msgBus := bus.NewMessageBus()
+		bc := &config.Channel{Type: config.ChannelPico, Enabled: true}
+		cfg := &config.PicoSettings{}
+		cfg.SetToken("test-token")
+		ch, err := NewPicoChannel(bc, cfg, msgBus)
+		if err != nil {
+			t.Fatalf("NewPicoChannel: %v", err)
+		}
+		ch.dedupePath = filepath.Join(t.TempDir(), "pico-inbound.json")
+		if err := os.WriteFile(ch.dedupePath, []byte(state), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		return ch
+	}
+
+	t.Run("current snapshot format", func(t *testing.T) {
+		ch := newChannel(t, `[{"key":"sess-1\u0000msg-1","seen_at":"2026-11-09T00:00:00Z"}]`)
+		claimed, err := ch.claimMessage("sess-1\x00msg-1")
+		if err != nil {
+			t.Fatalf("claimMessage existing: %v", err)
+		}
+		if claimed {
+			t.Fatal("existing message was not deduplicated")
+		}
+		claimed, err = ch.claimMessage("sess-1\x00msg-2")
+		if err != nil {
+			t.Fatalf("claimMessage new: %v", err)
+		}
+		if !claimed {
+			t.Fatal("new message should be claimed")
+		}
+	})
+
+	t.Run("legacy map format", func(t *testing.T) {
+		ch := newChannel(t, `{"sess-1\u0000msg-1":"2026-11-09T00:00:00Z"}`)
+		claimed, err := ch.claimMessage("sess-1\x00msg-1")
+		if err != nil {
+			t.Fatalf("claimMessage: %v", err)
+		}
+		if claimed {
+			t.Fatal("legacy message was not deduplicated")
+		}
+	})
+
+	t.Run("corrupt state starts clean", func(t *testing.T) {
+		ch := newChannel(t, `{not-json`)
+		claimed, err := ch.claimMessage("sess-1\x00msg-1")
+		if err != nil {
+			t.Fatalf("claimMessage: %v", err)
+		}
+		if !claimed {
+			t.Fatal("message should be claimed after corrupt state recovery")
+		}
+	})
+}
+
 func TestFinalizeTrackedToolFeedbackMessage_StopsTrackingBeforeEdit(t *testing.T) {
 	ch := &PicoChannel{
 		progress: channels.NewToolFeedbackAnimator(nil),
@@ -468,7 +527,11 @@ func TestBeginStream_CreatesAndUpdatesSameMessage(t *testing.T) {
 	if err := streamer.Update(context.Background(), secondContent); err != nil {
 		t.Fatalf("Update(second) error = %v", err)
 	}
-	second := mustReceivePicoMessage(t, received)
+	sequence := mustReceivePicoContentSequence(t, received, secondContent)
+	if len(sequence) < 2 {
+		t.Fatalf("paced updates = %d, want multiple frames", len(sequence))
+	}
+	second := sequence[len(sequence)-1]
 	if second.Type != TypeMessageUpdate {
 		t.Fatalf("second type = %q, want %q", second.Type, TypeMessageUpdate)
 	}
@@ -591,6 +654,46 @@ func TestBeginStream_StreamsReasoningAsThoughtUpdates(t *testing.T) {
 	}
 }
 
+func TestBeginStream_PacesLargeReasoningUpdate(t *testing.T) {
+	ch := newTestPicoChannel(t)
+	ch.config.Streaming = config.StreamingConfig{Enabled: true}
+	if err := ch.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer ch.Stop(context.Background())
+
+	clientConn, received, cleanup := newTestPicoWebSocket(t)
+	defer cleanup()
+	ch.addConnForTest(&picoConn{id: "conn-1", conn: clientConn, sessionID: "sess-1"})
+
+	streamer, err := ch.BeginStream(context.Background(), "pico:sess-1")
+	if err != nil {
+		t.Fatalf("BeginStream() error = %v", err)
+	}
+	reasoningStreamer, ok := streamer.(bus.ReasoningStreamer)
+	if !ok {
+		t.Fatal("pico stream should support reasoning updates")
+	}
+
+	content := strings.Repeat("思考内容", 188)
+	if err := reasoningStreamer.UpdateReasoning(context.Background(), content); err != nil {
+		t.Fatalf("UpdateReasoning() error = %v", err)
+	}
+	sequence := mustReceivePicoContentSequence(t, received, content)
+	if len(sequence) < 5 {
+		t.Fatalf("reasoning paced frames = %d, want at least 5", len(sequence))
+	}
+	previousLen := 0
+	for _, message := range sequence {
+		got, _ := message.Payload[PayloadKeyContent].(string)
+		gotLen := len([]rune(got))
+		if gotLen < previousLen {
+			t.Fatalf("reasoning content length regressed from %d to %d", previousLen, gotLen)
+		}
+		previousLen = gotLen
+	}
+}
+
 func TestBeginStream_ThrottlesIntermediateUpdatesAndFinalFlushes(t *testing.T) {
 	ch := newTestPicoChannel(t)
 	ch.config.Streaming = config.StreamingConfig{
@@ -640,14 +743,19 @@ func TestBeginStream_ThrottlesIntermediateUpdatesAndFinalFlushes(t *testing.T) {
 	if err := streamer.Finalize(context.Background(), "first plus final text"); err != nil {
 		t.Fatalf("Finalize() error = %v", err)
 	}
-	final := mustReceivePicoMessage(t, received)
+	finalContent := "first plus final text"
+	sequence := mustReceivePicoContentSequence(t, received, finalContent)
+	if len(sequence) < 2 {
+		t.Fatalf("final paced updates = %d, want multiple frames", len(sequence))
+	}
+	final := sequence[len(sequence)-1]
 	if final.Type != TypeMessageUpdate {
 		t.Fatalf("final type = %q, want %q", final.Type, TypeMessageUpdate)
 	}
 	if got := final.Payload["message_id"]; got != msgID {
 		t.Fatalf("final message_id = %#v, want %q", got, msgID)
 	}
-	if got := final.Payload[PayloadKeyContent]; got != "first plus final text" {
+	if got := final.Payload[PayloadKeyContent]; got != finalContent {
 		t.Fatalf("final content = %#v, want final text", got)
 	}
 	assertNoPicoMessage(t, received)
@@ -1059,6 +1167,27 @@ func mustReceivePicoMessage(t *testing.T, received <-chan PicoMessage) PicoMessa
 		t.Fatal("expected pico message")
 	}
 	return PicoMessage{}
+}
+
+func mustReceivePicoContentSequence(
+	t *testing.T,
+	received <-chan PicoMessage,
+	want string,
+) []PicoMessage {
+	t.Helper()
+	deadline := time.After(3 * time.Second)
+	var messages []PicoMessage
+	for {
+		select {
+		case msg := <-received:
+			messages = append(messages, msg)
+			if content, _ := msg.Payload[PayloadKeyContent].(string); content == want {
+				return messages
+			}
+		case <-deadline:
+			t.Fatalf("expected pico content %q, got %+v", want, messages)
+		}
+	}
 }
 
 func assertNoPicoMessage(t *testing.T, received <-chan PicoMessage) {

@@ -106,7 +106,41 @@ func loadConfig(data []byte) (*Config, error) {
 	if evolutionExplicitWithoutMode {
 		cfg.Evolution.Mode = ""
 	}
+	applyDefaultModelStreaming(data, cfg)
 	return cfg, nil
+}
+
+// Older configs predate the model streaming field. Treat an omitted setting as
+// enabled so capable providers stream by default, while preserving explicit
+// opt-outs.
+func applyDefaultModelStreaming(data []byte, cfg *Config) {
+	if cfg == nil || len(cfg.ModelList) == 0 {
+		return
+	}
+
+	var raw struct {
+		ModelList []map[string]json.RawMessage `json:"model_list"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return
+	}
+
+	for i, modelCfg := range cfg.ModelList {
+		if modelCfg == nil || i >= len(raw.ModelList) {
+			continue
+		}
+		streaming, present := raw.ModelList[i]["streaming"]
+		if !present {
+			modelCfg.Streaming.Enabled = true
+			continue
+		}
+		var settings struct {
+			Enabled *bool `json:"enabled"`
+		}
+		if err := json.Unmarshal(streaming, &settings); err == nil && settings.Enabled == nil {
+			modelCfg.Streaming.Enabled = true
+		}
+	}
 }
 
 func configObjectHasTopLevelField(data []byte, field string) bool {

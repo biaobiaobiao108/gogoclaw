@@ -61,6 +61,7 @@
       "step4": "Almost there..."
     },
     "reasoningLabel": "Reasoning",
+    "reasoningStreamingLabel": "Thinking",
     "toolCallsLabel": "Tool calls",
     "toolCallExplanationLabel": "Call note",
     "toolCallFunctionLabel": "Call summary",

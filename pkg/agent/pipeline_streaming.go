@@ -329,18 +329,39 @@ func (p *Pipeline) configuredStreamingEligible(ts *turnState, exec *turnExecutio
 	if exec.activeModelConfig == nil || !exec.activeModelConfig.Streaming.Enabled {
 		modelName := ""
 		modelStreaming := false
+		candidateProvider := ""
+		candidateModel := ""
+		candidateDisplayName := ""
+		candidateIdentityKey := ""
+		candidateConfigIndex := 0
+		candidateConfigKey := ""
 		if exec.activeModelConfig != nil {
 			modelName = exec.activeModelConfig.ModelName
 			modelStreaming = exec.activeModelConfig.Streaming.Enabled
 		}
+		if len(exec.activeCandidates) > 0 {
+			candidate := exec.activeCandidates[0]
+			candidateProvider = candidate.Provider
+			candidateModel = candidate.Model
+			candidateDisplayName = candidate.DisplayName
+			candidateIdentityKey = candidate.IdentityKey
+			candidateConfigIndex = candidate.ConfigIndex
+			candidateConfigKey = candidate.ConfigKey
+		}
 		logger.DebugCF("agent", "configured streaming not used", map[string]any{
-			"agent_id":         ts.agent.ID,
-			"channel":          ts.channel,
-			"model":            exec.activeModel,
-			"model_name":       modelName,
-			"model_streaming":  modelStreaming,
-			"has_model_config": exec.activeModelConfig != nil,
-			"reason":           "model_streaming_disabled",
+			"agent_id":               ts.agent.ID,
+			"channel":                ts.channel,
+			"model":                  exec.activeModel,
+			"model_name":             modelName,
+			"model_streaming":        modelStreaming,
+			"has_model_config":       exec.activeModelConfig != nil,
+			"candidate_provider":     candidateProvider,
+			"candidate_model":        candidateModel,
+			"candidate_display_name": candidateDisplayName,
+			"candidate_identity_key": candidateIdentityKey,
+			"candidate_config_index": candidateConfigIndex,
+			"candidate_config_key":   candidateConfigKey,
+			"reason":                 "model_streaming_disabled",
 		})
 		return false
 	}

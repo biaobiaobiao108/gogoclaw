@@ -45,10 +45,10 @@ RUN apk add --no-cache \
       tzdata && \
     curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | env UV_INSTALL_DIR=/usr/local sh && \
     ln -sf /usr/local/bin/uv /usr/local/bin/uvx && \
-    addgroup -S -g 10001 gogoclaw && \
-    adduser -S -D -H -u 10001 -G gogoclaw gogoclaw && \
+    addgroup -S -g 10001 bun && \
+    adduser -S -D -H -u 10001 -G bun bun && \
     mkdir -p /data && \
-    chown -R gogoclaw:gogoclaw /data
+    chown -R bun:bun /data
 
 COPY --from=builder /src/build/gogoclaw /usr/local/bin/gogoclaw
 COPY --from=builder /src/build/gogoclaw-launcher /usr/local/bin/gogoclaw-launcher
@@ -66,7 +66,7 @@ ENV HOME=/data \
 
 WORKDIR /data
 VOLUME ["/data"]
-USER 10001:10001
+USER bun
 
 ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/gogoclaw-entrypoint"]
 CMD ["gateway"]

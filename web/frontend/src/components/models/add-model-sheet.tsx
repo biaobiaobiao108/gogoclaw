@@ -89,7 +89,7 @@ const EMPTY_ADD_FORM: AddForm = {
   requestTimeout: "",
   thinkingLevel: "",
   toolSchemaTransform: "",
-  streamingEnabled: false,
+  streamingEnabled: true,
   extraBody: "",
   customHeaders: "",
 }
@@ -408,7 +408,7 @@ export function AddModelSheet({
           : undefined,
         thinking_level: form.thinkingLevel.trim() || undefined,
         tool_schema_transform: form.toolSchemaTransform.trim() || undefined,
-        streaming: form.streamingEnabled ? { enabled: true } : undefined,
+        streaming: { enabled: form.streamingEnabled },
         extra_body: extraBody,
         custom_headers: customHeaders,
       })

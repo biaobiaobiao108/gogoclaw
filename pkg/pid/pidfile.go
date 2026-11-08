@@ -153,6 +153,11 @@ func ReadPidFileWithCheck(homePath string) *PidFileData {
 	return data
 }
 
+// IsProcessRunning reports whether the process ID is currently alive.
+func IsProcessRunning(pid int) bool {
+	return isProcessRunning(pid)
+}
+
 // RemovePidFile deletes the PID file (e.g. on graceful shutdown).
 func RemovePidFile(homePath string) {
 	pidMu.Lock()

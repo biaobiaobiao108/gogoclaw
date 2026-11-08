@@ -622,7 +622,7 @@ type VoiceConfig struct {
 }
 
 type ModelStreamingConfig struct {
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled"`
 }
 
 func (c ModelStreamingConfig) IsZero() bool {
@@ -658,7 +658,7 @@ type ModelConfig struct {
 	RequestTimeout      int                  `json:"request_timeout,omitempty"`
 	ThinkingLevel       string               `json:"thinking_level,omitempty"`        // Extended thinking: off|low|medium|high|xhigh|adaptive
 	ToolSchemaTransform string               `json:"tool_schema_transform,omitempty"` // Optional tool schema compatibility transform (e.g. "simple")
-	Streaming           ModelStreamingConfig `json:"streaming,omitzero"`              // Opt-in for provider streaming on this model entry
+	Streaming           ModelStreamingConfig `json:"streaming"`                       // Provider streaming defaults on; an explicit false disables it
 	ExtraBody           map[string]any       `json:"extra_body,omitempty"`            // Additional fields to inject into request body
 	CustomHeaders       map[string]string    `json:"custom_headers,omitempty"`        // Additional headers to inject into every HTTP request
 
