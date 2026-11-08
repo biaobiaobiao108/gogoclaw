@@ -43,6 +43,29 @@ func TestSetupTurnReturnsContextReadError(t *testing.T) {
 	}
 }
 
+func TestRepairInterruptedToolCalls(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+	ts := newTurnState(agent, makeTestProcessOpts("interrupted"), turnEventScope{
+		turnID: "interrupted", context: newTurnContext(nil, nil, nil),
+	})
+	agent.Sessions.AddFullMessage(ts.sessionKey, providers.Message{Role: "assistant", ToolCalls: []providers.ToolCall{{ID: "done"}, {ID: "unknown"}}})
+	agent.Sessions.AddFullMessage(ts.sessionKey, providers.Message{Role: "tool", ToolCallID: "done", Content: "completed"})
+	if err := al.repairInterruptedToolCalls(context.Background(), ts); err != nil {
+		t.Fatal(err)
+	}
+	history := agent.Sessions.GetHistory(ts.sessionKey)
+	if len(history) != 4 || history[2].ToolCallID != "unknown" || !strings.Contains(history[2].Content, "effects are unknown") {
+		t.Fatalf("unexpected repaired history: %+v", history)
+	}
+	if err := al.repairInterruptedToolCalls(context.Background(), ts); err != nil {
+		t.Fatal(err)
+	}
+	if len(agent.Sessions.GetHistory(ts.sessionKey)) != 4 {
+		t.Fatal("repair must be idempotent")
+	}
+}
+
 func (p *simpleConvProvider) Chat(
 	ctx context.Context,
 	messages []providers.Message,

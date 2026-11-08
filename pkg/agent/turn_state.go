@@ -227,9 +227,7 @@ type turnState struct {
 	providerCancel        context.CancelFunc
 	turnCancel            context.CancelFunc
 
-	restorePointHistory []providers.Message
-	restorePointSummary string
-	persistedMessages   []providers.Message
+	persistedMessages []providers.Message
 
 	// SubTurn support (from HEAD)
 	depth                int                    // SubTurn depth (0 for root turn)
@@ -295,8 +293,6 @@ func newTurnState(agent *AgentInstance, opts processOptions, scope turnEventScop
 		ts.session = agent.Sessions
 		history := agent.Sessions.GetHistory(opts.Dispatch.SessionKey)
 		ts.initialHistoryLength = len(history)
-		ts.restorePointHistory = append([]providers.Message(nil), history...)
-		ts.restorePointSummary = agent.Sessions.GetSummary(opts.Dispatch.SessionKey)
 	}
 
 	return ts
@@ -659,13 +655,6 @@ func (ts *turnState) eventMeta(source, tracePath string) HookMeta {
 	}
 }
 
-func (ts *turnState) captureRestorePoint(history []providers.Message, summary string) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	ts.restorePointHistory = append([]providers.Message(nil), history...)
-	ts.restorePointSummary = summary
-}
-
 func (ts *turnState) recordPersistedMessage(msg providers.Message) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -676,19 +665,6 @@ func (ts *turnState) persistedMessagesSnapshot() []providers.Message {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 	return append([]providers.Message(nil), ts.persistedMessages...)
-}
-
-func (ts *turnState) refreshRestorePointFromSession(agent *AgentInstance) {
-	history := agent.Sessions.GetHistory(ts.sessionKey)
-	summary := agent.Sessions.GetSummary(ts.sessionKey)
-
-	persisted := ts.persistedMessagesSnapshot()
-
-	if matched := matchingTurnMessageTail(history, persisted); matched > 0 {
-		history = append([]providers.Message(nil), history[:len(history)-matched]...)
-	}
-
-	ts.captureRestorePoint(history, summary)
 }
 
 // ingestMessage calls the ContextManager's Ingest method for a persisted message.
@@ -706,17 +682,6 @@ func (ts *turnState) ingestMessage(ctx context.Context, al *AgentLoop, msg provi
 			"error":       err.Error(),
 		})
 	}
-}
-
-func (ts *turnState) restoreSession(agent *AgentInstance) error {
-	ts.mu.RLock()
-	history := append([]providers.Message(nil), ts.restorePointHistory...)
-	summary := ts.restorePointSummary
-	ts.mu.RUnlock()
-
-	agent.Sessions.SetHistory(ts.sessionKey, history)
-	agent.Sessions.SetSummary(ts.sessionKey, summary)
-	return agent.Sessions.Save(ts.sessionKey)
 }
 
 func matchingTurnMessageTail(history, persisted []providers.Message) int {
@@ -760,6 +725,8 @@ func messagesEquivalent(a, b providers.Message) bool {
 }
 
 func normalizeMessageForComparison(msg providers.Message) providers.Message {
+	// Session stores may assign a timestamp while persisting a message.
+	msg.CreatedAt = nil
 	msg.PromptLayer = ""
 	msg.PromptSlot = ""
 	msg.PromptSource = ""

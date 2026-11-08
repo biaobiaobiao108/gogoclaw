@@ -21,6 +21,9 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 	var history []providers.Message
 	var summary string
 	if !ts.opts.NoHistory {
+		if err := p.al.repairInterruptedToolCalls(ctx, ts); err != nil {
+			return nil, err
+		}
 		resp, err := p.ContextManager.Assemble(ctx, &AssembleRequest{
 			SessionKey: ts.sessionKey,
 			Budget:     ts.agent.ContextWindow,
@@ -35,7 +38,6 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 		history = resp.History
 		summary = resp.Summary
 	}
-	ts.captureRestorePoint(history, summary)
 
 	contextualSkills := ts.activeSkills
 	if ts.agent.ContextBuilder != nil {
@@ -64,7 +66,6 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 			}); err != nil {
 				return nil, fmt.Errorf("compact session context: %w", err)
 			}
-			ts.refreshRestorePointFromSession(ts.agent)
 			resp, err := p.ContextManager.Assemble(ctx, &AssembleRequest{
 				SessionKey: ts.sessionKey,
 				Budget:     ts.agent.ContextWindow,

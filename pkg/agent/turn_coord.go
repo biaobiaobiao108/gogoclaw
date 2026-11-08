@@ -297,12 +297,42 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 func (al *AgentLoop) abortTurn(ts *turnState) (turnResult, error) {
 	ts.setPhase(TurnPhaseAborted)
 	if !ts.opts.NoHistory {
-		if err := ts.restoreSession(ts.agent); err != nil {
+		// Close any unfinished tool call with an explicitly uncertain result.
+		// A canceled tool may already have performed its side effect, so it must
+		// not be silently discarded or represented as safe to replay.
+		history := ts.agent.Sessions.GetHistory(ts.sessionKey)
+		persisted := ts.persistedMessagesSnapshot()
+		_, activeHistory := splitHistoryForActiveTurn(history, persisted)
+		for i := len(activeHistory) - 1; i >= 0; i-- {
+			if activeHistory[i].Role != "assistant" || len(activeHistory[i].ToolCalls) == 0 {
+				continue
+			}
+			completed := make(map[string]bool)
+			for _, msg := range activeHistory[i+1:] {
+				if msg.Role == "tool" {
+					completed[msg.ToolCallID] = true
+				}
+			}
+			for _, call := range activeHistory[i].ToolCalls {
+				if !completed[call.ID] {
+					msg := providers.Message{Role: "tool", ToolCallID: call.ID, Content: "Task interrupted before this tool returned. Its effects are unknown; inspect the current state before retrying."}
+					ts.agent.Sessions.AddFullMessage(ts.sessionKey, msg)
+					ts.ingestMessage(context.Background(), al, msg)
+				}
+			}
+			break
+		}
+		if len(persisted) > 0 {
+			msg := providers.Message{Role: "assistant", Content: "Task stopped. Completed work is retained; unfinished tool effects may be unknown. Ask me to continue when ready."}
+			ts.agent.Sessions.AddFullMessage(ts.sessionKey, msg)
+			ts.ingestMessage(context.Background(), al, msg)
+		}
+		if err := ts.agent.Sessions.Save(ts.sessionKey); err != nil {
 			al.emitEvent(
 				runtimeevents.KindAgentError,
 				ts.eventMeta("abortTurn", "turn.error"),
 				ErrorPayload{
-					Stage:   "session_restore",
+					Stage:   "session_save",
 					Message: err.Error(),
 				},
 			)
@@ -310,6 +340,42 @@ func (al *AgentLoop) abortTurn(ts *turnState) (turnResult, error) {
 		}
 	}
 	return turnResult{status: TurnEndStatusAborted}, nil
+}
+
+// repairInterruptedToolCalls closes an incomplete trailing tool batch left by
+// an interrupted process before the next user-initiated turn starts.
+func (al *AgentLoop) repairInterruptedToolCalls(ctx context.Context, ts *turnState) error {
+	history := ts.agent.Sessions.GetHistory(ts.sessionKey)
+	i := len(history) - 1
+	completed := make(map[string]bool)
+	for i >= 0 && history[i].Role == "tool" {
+		completed[history[i].ToolCallID] = true
+		i--
+	}
+	if i < 0 || history[i].Role != "assistant" || len(history[i].ToolCalls) == 0 {
+		return nil
+	}
+	repaired := false
+	for _, call := range history[i].ToolCalls {
+		if completed[call.ID] {
+			continue
+		}
+		msg := providers.Message{Role: "tool", ToolCallID: call.ID, Content: "Execution was interrupted before this tool returned. Its effects are unknown; inspect the current state before retrying."}
+		ts.agent.Sessions.AddFullMessage(ts.sessionKey, msg)
+		ts.ingestMessage(ctx, al, msg)
+		repaired = true
+	}
+	content := "The previous task was interrupted after the recorded tool results. Inspect the current state before continuing."
+	if repaired {
+		content = "The previous task was interrupted. Unfinished tool effects may be unknown; inspect the current state before continuing."
+	}
+	msg := providers.Message{Role: "assistant", Content: content}
+	ts.agent.Sessions.AddFullMessage(ts.sessionKey, msg)
+	ts.ingestMessage(ctx, al, msg)
+	if err := ts.agent.Sessions.Save(ts.sessionKey); err != nil {
+		return fmt.Errorf("save interrupted task history: %w", err)
+	}
+	return nil
 }
 
 func (al *AgentLoop) selectCandidates(

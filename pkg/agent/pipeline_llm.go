@@ -400,7 +400,6 @@ func (p *Pipeline) CallLLM(
 			}); compactErr != nil {
 				return ControlBreak, fmt.Errorf("compact session context: %w", compactErr)
 			}
-			ts.refreshRestorePointFromSession(ts.agent)
 			asmResp, asmErr := p.ContextManager.Assemble(ctx, &AssembleRequest{
 				SessionKey: ts.sessionKey,
 				Budget:     ts.agent.ContextWindow,

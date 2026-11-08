@@ -1567,7 +1567,7 @@ func TestAgentLoop_InterruptGraceful_UsesTerminalNoToolCall(t *testing.T) {
 	}
 }
 
-func TestAgentLoop_InterruptHard_RestoresSession(t *testing.T) {
+func TestAgentLoop_InterruptHard_PreservesSession(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "agent-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -1655,8 +1655,8 @@ func TestAgentLoop_InterruptHard_RestoresSession(t *testing.T) {
 		t.Fatal("expected active turn before hard abort")
 	}
 
-	if err := al.InterruptHard(); err != nil {
-		t.Fatalf("InterruptHard failed: %v", err)
+	if err := al.HardAbort(sessionKey); err != nil {
+		t.Fatalf("HardAbort failed: %v", err)
 	}
 
 	select {
@@ -1676,8 +1676,12 @@ func TestAgentLoop_InterruptHard_RestoresSession(t *testing.T) {
 	}
 
 	finalHistory := defaultAgent.Sessions.GetHistory(sessionKey)
-	if !reflect.DeepEqual(finalHistory, originalHistory) {
-		t.Fatalf("expected history rollback after hard abort, got %#v", finalHistory)
+	if len(finalHistory) < len(originalHistory)+4 || !reflect.DeepEqual(finalHistory[:len(originalHistory)], originalHistory) {
+		t.Fatalf("expected original history and interrupted turn, got %#v", finalHistory)
+	}
+	toolResult := finalHistory[len(finalHistory)-2]
+	if toolResult.Role != "tool" || toolResult.ToolCallID != "call_1" || !strings.Contains(toolResult.Content, "effects are unknown") {
+		t.Fatalf("expected uncertain interrupted tool result, got %#v", toolResult)
 	}
 
 	events := collectRuntimeEventStream(runtimeCh)

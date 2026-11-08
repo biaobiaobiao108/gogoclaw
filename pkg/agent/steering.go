@@ -532,21 +532,14 @@ func (al *AgentLoop) HardAbort(sessionKey string) error {
 
 	// Cancel the active provider/tool turn contexts immediately so long-running
 	// execution stops as soon as possible on the root turn.
-	_ = ts.requestHardAbort()
-
-	// IMPORTANT: Trigger cascading cancellation FIRST to stop all child SubTurns
-	// from adding more messages to the session. This prevents race conditions
-	// where rollback happens while children are still writing.
-	// Use isHardAbort=true for hard abort to immediately cancel all children.
-	ts.Finish(true)
-
-	// Roll back session history to the state before the turn started.
-	if ts.session != nil {
-		history := ts.session.GetHistory(sessionKey)
-		if ts.initialHistoryLength < len(history) {
-			ts.session.SetHistory(sessionKey, history[:ts.initialHistoryLength])
-		}
+	if ts.requestHardAbort() {
+		al.emitEvent(runtimeevents.KindAgentInterruptReceived,
+			ts.eventMeta("HardAbort", "turn.interrupt.received"),
+			InterruptReceivedPayload{Kind: InterruptKindHard})
 	}
+
+	// Cancel child turns before the root finalizes its retained history.
+	ts.Finish(true)
 
 	return nil
 }

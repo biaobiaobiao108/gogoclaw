@@ -532,9 +532,8 @@ func TestHardAbortCascading(t *testing.T) {
 	}
 }
 
-// TestHardAbortSessionRollback verifies that HardAbort rolls back session history
-// to the state before the turn started, discarding all messages added during the turn.
-func TestHardAbortSessionRollback(t *testing.T) {
+// Hard abort preserves history while cancellation propagates to the active turn.
+func TestHardAbortPreservesSessionHistory(t *testing.T) {
 	al, _, _, provider, cleanup := newTestAgentLoop(t)
 	_ = provider
 	defer cleanup()
@@ -576,15 +575,15 @@ func TestHardAbortSessionRollback(t *testing.T) {
 		t.Fatalf("HardAbort failed: %v", err)
 	}
 
-	// Verify history rolled back to initial 2 messages
+	// Verify history is retained.
 	finalHistory := sess.GetHistory("")
-	if len(finalHistory) != 2 {
-		t.Errorf("expected history to rollback to 2 messages, got %d", len(finalHistory))
+	if len(finalHistory) != 4 {
+		t.Errorf("expected 4 messages after abort, got %d", len(finalHistory))
 	}
 
 	// Verify the content matches the initial state
 	if finalHistory[0].Content != "initial message 1" || finalHistory[1].Content != "initial response 1" {
-		t.Error("history content does not match initial state after rollback")
+		t.Error("original history was modified")
 	}
 }
 
@@ -713,9 +712,7 @@ func TestDeliverSubTurnResultNoDeadlock(t *testing.T) {
 	}
 }
 
-// TestHardAbortOrderOfOperations verifies that HardAbort calls Finish() before
-// rolling back session history, minimizing the race window where new messages
-// could be added after rollback.
+// TestHardAbortOrderOfOperations verifies cancellation and history preservation.
 func TestHardAbortOrderOfOperations(t *testing.T) {
 	al, _, _, provider, cleanup := newTestAgentLoop(t)
 	_ = provider
@@ -759,14 +756,14 @@ func TestHardAbortOrderOfOperations(t *testing.T) {
 		t.Error("expected context to be canceled after HardAbort")
 	}
 
-	// Verify history was rolled back
+	// Verify history is retained.
 	finalHistory := sess.GetHistory("")
-	if len(finalHistory) != 1 {
-		t.Errorf("expected history to rollback to 1 message, got %d", len(finalHistory))
+	if len(finalHistory) != 3 {
+		t.Errorf("expected 3 messages after abort, got %d", len(finalHistory))
 	}
 
 	if finalHistory[0].Content != "initial message" {
-		t.Error("history content does not match initial state after rollback")
+		t.Error("original history was modified")
 	}
 }
 
