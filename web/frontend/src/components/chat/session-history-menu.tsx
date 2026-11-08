@@ -1,6 +1,7 @@
 import { IconMessageCircle, IconSearch, IconTrash } from "@tabler/icons-react"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import dayjs from "dayjs"
-import { useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import type { SessionSummary } from "@/api/sessions"
@@ -16,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
+import { useIsMobile } from "@/hooks/use-mobile"
 
 interface SessionHistoryMenuProps {
   collapsed: boolean
@@ -54,11 +56,52 @@ export function SessionHistoryMenu({
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null)
 
   const [query, setQuery] = useState("")
-  const filtered = sessions.filter((session) =>
-    `${session.title} ${session.preview}`
-      .toLocaleLowerCase()
-      .includes(query.toLocaleLowerCase()),
+  const isMobile = useIsMobile()
+  const scrollRef = useRef<HTMLElement>(null)
+  const filtered = useMemo(
+    () =>
+      sessions.filter((session) =>
+        `${session.title} ${session.preview}`
+          .toLocaleLowerCase()
+          .includes(query.toLocaleLowerCase()),
+      ),
+    [sessions, query],
   )
+  const visible = isMobile ? open : !collapsed
+  const virtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 40,
+    getItemKey: (index) => filtered[index].id,
+    overscan: 6,
+    enabled: visible,
+  })
+  const virtualRows = virtualizer.getVirtualItems()
+  const lastIndex = virtualRows.at(-1)?.index ?? -1
+  useEffect(() => {
+    if (
+      visible &&
+      !query &&
+      hasMore &&
+      !isLoading &&
+      !loadError &&
+      lastIndex >= filtered.length - 4 &&
+      filtered.length > 0
+    )
+      onLoadMore()
+  }, [
+    visible,
+    query,
+    hasMore,
+    isLoading,
+    loadError,
+    lastIndex,
+    filtered.length,
+    onLoadMore,
+  ])
+  useEffect(() => {
+    virtualizer.scrollToOffset(0)
+  }, [query])
   const content = (
     <div className="flex h-full min-h-0 flex-col gap-3 p-3">
       <h2 className="text-muted-foreground px-2 text-xs font-medium">
@@ -75,22 +118,10 @@ export function SessionHistoryMenu({
         />
       </label>
       <nav
+        ref={scrollRef}
         aria-label={t("chat.history")}
         className="min-h-0 flex-1 overflow-y-auto"
       >
-        {isLoading && (
-          <p role="status" className="text-muted-foreground p-2 text-sm">
-            {t("chat.loadingHistory")}
-          </p>
-        )}
-        {loadError && (
-          <div role="alert" className="p-2 text-sm">
-            <p>{loadErrorMessage}</p>
-            <Button variant="ghost" size="sm" onClick={onRefresh}>
-              {t("chat.historyRetry")}
-            </Button>
-          </div>
-        )}
         {deleteError && (
           <p role="alert" className="text-destructive p-2 text-sm">
             {t("chat.deleteSessionFailed")}
@@ -101,60 +132,93 @@ export function SessionHistoryMenu({
             {t(query ? "chat.noMatchingHistory" : "chat.noHistory")}
           </p>
         )}
-        {filtered.map((session) => (
+        <div
+          className="relative w-full"
+          style={{ height: virtualizer.getTotalSize() }}
+        >
+          {virtualRows.map((row) => {
+            const session = filtered[row.index]
+            return (
+              <div
+                key={session.id}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: 40,
+                  transform: `translateY(${row.start}px)`,
+                }}
+                className={`group hover:bg-muted flex items-center rounded-md transition-colors ${session.id === activeSessionId ? "bg-muted font-medium" : ""}`}
+              >
+                <button
+                  type="button"
+                  aria-current={
+                    session.id === activeSessionId ? "page" : undefined
+                  }
+                  className="focus-visible:ring-ring flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left focus-visible:ring-2 focus-visible:outline-none"
+                  title={session.title}
+                  onClick={() => {
+                    onSwitchSession(session.id)
+                    onOpenChange(false)
+                  }}
+                >
+                  <IconMessageCircle className="text-muted-foreground size-4 shrink-0" />
+                  <span className="block min-w-0 flex-1 truncate text-sm">
+                    {session.title}
+                  </span>
+                  <span className="text-muted-foreground shrink-0 text-[11px] font-normal">
+                    {dayjs(session.updated).format("MM-DD")}
+                  </span>
+                </button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground mr-1 size-8 shrink-0 md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100"
+                  aria-label={t("chat.deleteSession")}
+                  onClick={() => setDeleteTarget(session)}
+                >
+                  <IconTrash className="size-4" />
+                </Button>
+              </div>
+            )
+          })}
+        </div>
+        {isLoading && (
+          <p role="status" className="text-muted-foreground px-2 py-3 text-xs">
+            {t(sessions.length ? "chat.loadingMore" : "chat.loadingHistory")}
+          </p>
+        )}
+        {loadError && (
           <div
-            key={session.id}
-            className={`group hover:bg-muted flex items-center rounded-md transition-colors ${session.id === activeSessionId ? "bg-muted font-medium" : ""}`}
+            role="alert"
+            className="text-muted-foreground flex flex-wrap items-center justify-between gap-2 px-2 py-3 text-xs"
           >
-            <button
-              type="button"
-              aria-current={session.id === activeSessionId ? "page" : undefined}
-              className="focus-visible:ring-ring flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left focus-visible:ring-2 focus-visible:outline-none"
-              title={session.title}
-              onClick={() => {
-                onSwitchSession(session.id)
-                onOpenChange(false)
-              }}
-            >
-              <IconMessageCircle className="text-muted-foreground size-4 shrink-0" />
-              <span className="block min-w-0 flex-1 truncate text-sm">
-                {session.title}
-              </span>
-              <span className="text-muted-foreground shrink-0 text-[11px] font-normal">
-                {dayjs(session.updated).format("MM-DD")}
-              </span>
-            </button>
+            <span>{loadErrorMessage}</span>
             <Button
-              variant="ghost"
-              size="icon"
-              className="text-muted-foreground mr-1 size-8 shrink-0 md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100"
-              aria-label={t("chat.deleteSession")}
-              onClick={() => setDeleteTarget(session)}
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={isLoading}
+              onClick={sessions.length ? onLoadMore : onRefresh}
             >
-              <IconTrash className="size-4" />
+              {t("chat.historyRetry")}
             </Button>
           </div>
-        ))}
-        {hasMore && !isLoading && (
-          <Button
-            variant="ghost"
-            className="mt-2 w-full text-sm"
-            onClick={onLoadMore}
-          >
-            {t("chat.loadMoreSessions")}
-          </Button>
         )}
       </nav>
     </div>
   )
   return (
     <>
-      <aside
-        className={`bg-background border-r-border/20 hidden h-full w-60 shrink-0 border-r ${collapsed ? "" : "md:block"}`}
-      >
-        {content}
-      </aside>
-      <Sheet open={open} onOpenChange={onOpenChange}>
+      {!isMobile && (
+        <aside
+          className={`bg-background border-r-border/20 hidden h-full w-60 shrink-0 border-r ${collapsed ? "" : "md:block"}`}
+        >
+          {content}
+        </aside>
+      )}
+      <Sheet open={isMobile && open} onOpenChange={onOpenChange}>
         <SheetContent
           side="left"
           aria-describedby={undefined}

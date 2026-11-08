@@ -28,6 +28,7 @@ export function useSessionHistory({
       if (loadingRef.current) return
       loadingRef.current = true
       setIsLoading(true)
+      setLoadError(false)
       try {
         const currentCursor = reset ? undefined : cursor
         if (reset) {
@@ -56,9 +57,6 @@ export function useSessionHistory({
       } catch (err) {
         console.error("Failed to fetch session history:", err)
         setLoadError(true)
-        if (!reset) {
-          setHasMore(false)
-        }
       } finally {
         setIsLoading(false)
         loadingRef.current = false

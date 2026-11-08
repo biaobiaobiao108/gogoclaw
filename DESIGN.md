@@ -102,3 +102,5 @@ Chat follows the requested ChatGPT direction: white / #212121 canvas, #f4f4f4 / 
 History navigation inherits the console background, 6px control radius, 40px single-line rows and muted date metadata. A 240px history pane sits below the page header; its named toggle stays on the left of that header in both open and closed states. App navigation and conversation history remain distinct controls.
 
 The desktop app menu is always expanded; page headers and the app menu edge have no collapse controls. Mobile keeps its menu drawer trigger. Conversation history retains its own left-aligned toggle.
+
+History rows are windowed at 40px with six overscan rows, reusing TanStack Virtual. Scrolling near the loaded end requests the next cursor page; failures stop automatic requests and expose a compact retry that preserves the cursor and loaded rows. Filtering applies only to loaded entries and pauses pagination.
