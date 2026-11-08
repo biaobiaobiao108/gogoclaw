@@ -98,17 +98,17 @@ export function AppHeader() {
   }
 
   return (
-    <header className="bg-background/90 supports-backdrop-filter:bg-background/70 border-border/60 sticky top-0 z-50 flex h-14 shrink-0 items-center justify-between border-b px-4 backdrop-blur-md">
+    <header className="bg-background/80 supports-backdrop-filter:bg-background/60 border-border/40 sticky top-0 z-50 flex h-11 shrink-0 items-center justify-between border-b px-3 backdrop-blur-md">
       <div className="flex items-center gap-3">
         <SidebarTrigger className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded-md sm:hidden [&>svg]:size-4">
           <IconMenu2 />
         </SidebarTrigger>
-        <div className="hidden w-32 shrink-0 items-center sm:flex">
+        <div className="hidden w-28 shrink-0 items-center sm:flex">
           <Link
             to="/"
             className="opacity-90 transition-opacity hover:opacity-100"
           >
-            <img className="h-6 w-auto" src="/logo_with_text.png" alt="Logo" />
+            <img className="h-5 w-auto" src="/logo_with_text.png" alt="Logo" />
           </Link>
         </div>
       </div>

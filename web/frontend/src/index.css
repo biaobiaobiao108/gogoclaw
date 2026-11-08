@@ -137,12 +137,12 @@
 }
 
 [data-slot="sidebar-container"] {
-  top: 3.5rem !important;
-  height: calc(100svh - 3.5rem) !important;
+  top: 2.75rem !important;
+  height: calc(100svh - 2.75rem) !important;
 }
 
 [data-slot="sidebar-gap"] {
-  height: calc(100svh - 3.5rem);
+  height: calc(100svh - 2.75rem);
 }
 
 @keyframes shimmer {

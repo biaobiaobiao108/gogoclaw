@@ -20,7 +20,7 @@ export function PageHeader({
   return (
     <div
       className={cn(
-        "border-border/50 bg-background/80 z-30 flex h-14 shrink-0 items-center justify-between border-b px-6 backdrop-blur-xs",
+        "border-border/30 bg-background/50 z-30 flex h-12 shrink-0 items-center justify-between border-b px-4 backdrop-blur-xs",
         className,
       )}
     >
@@ -28,7 +28,7 @@ export function PageHeader({
         <SidebarTrigger className="border-border/60 bg-card text-muted-foreground hover:bg-muted hover:text-foreground hidden h-8 w-8 rounded-md border sm:flex [&>svg]:size-4">
           <IconMenu2 />
         </SidebarTrigger>
-        <h1 className="text-foreground text-base font-semibold tracking-tight">
+        <h1 className="text-foreground text-sm font-semibold tracking-tight">
           {title}
         </h1>
         {titleExtra}

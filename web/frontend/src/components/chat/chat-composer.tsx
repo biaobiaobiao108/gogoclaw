@@ -65,7 +65,6 @@ export function ChatComposer({
   const { t } = useTranslation()
   const canInput = inputDisabledReason === null
   const composingRef = useRef(false)
-  const hasInput = input.trim().length > 0
   const disabledMessage =
     inputDisabledReason === null
       ? null
@@ -205,12 +204,6 @@ export function ChatComposer({
             </div>
           </div>
         </div>
-
-        {hasInput && (
-          <div className="text-muted-foreground/60 mt-1.5 self-end px-1 font-mono text-[10px]">
-            {t("chat.composeHint")}
-          </div>
-        )}
       </div>
     </div>
   )
