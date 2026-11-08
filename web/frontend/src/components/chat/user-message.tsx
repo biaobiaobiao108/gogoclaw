@@ -58,10 +58,10 @@ export function UserMessage({
         <div className="relative max-w-[85%] sm:max-w-[75%]">
           <div
             className={cn(
-              "rounded-lg px-4 py-2.5 text-sm leading-relaxed wrap-break-word whitespace-pre-wrap",
+              "rounded-3xl px-5 py-3 text-base leading-relaxed wrap-break-word whitespace-pre-wrap",
               isCommand
                 ? "border-border/80 bg-muted/40 text-foreground border font-mono"
-                : "bg-primary text-primary-foreground selection:bg-accent selection:text-accent-foreground font-normal shadow-xs",
+                : "text-foreground bg-[var(--chat-user)] font-normal",
             )}
           >
             {isCommand ? (
@@ -78,10 +78,10 @@ export function UserMessage({
             variant="ghost"
             size="icon"
             className={cn(
-              "absolute top-1.5 right-1.5 h-6 w-6 rounded-md opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100",
+              "mt-1 ml-auto h-6 w-6 rounded-md opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100",
               isCommand
                 ? "text-muted-foreground hover:bg-muted"
-                : "text-primary-foreground/70 hover:bg-white/10 hover:text-white",
+                : "text-muted-foreground hover:bg-muted",
             )}
             onClick={() => void copy(content)}
             aria-label={copyMessageLabel}
@@ -96,8 +96,8 @@ export function UserMessage({
         </div>
       )}
 
-      {formattedTimestamp && (
-        <span className="text-muted-foreground px-1 font-mono text-[10px]">
+      {(formattedTimestamp || deliveryStatus) && (
+        <span className="text-muted-foreground px-1 text-xs opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
           {formattedTimestamp}
           {deliveryStatus === "sending" && <> · {t("chat.deliverySending")}</>}
           {deliveryStatus === "failed" && (

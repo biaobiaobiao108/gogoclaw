@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { deleteSession, getSessions, type SessionSummary } from "@/api/sessions"
@@ -15,17 +15,19 @@ export function useSessionHistory({
   onDeletedActiveSession,
 }: UseSessionHistoryOptions) {
   const { t } = useTranslation()
-  const observerRef = useRef<HTMLDivElement>(null)
+  const loadingRef = useRef(false)
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [cursor, setCursor] = useState<string>()
   const [hasMore, setHasMore] = useState(true)
-  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [deleteError, setDeleteError] = useState(false)
 
   const loadSessions = useCallback(
     async (reset = true) => {
+      if (loadingRef.current) return
+      loadingRef.current = true
+      setIsLoading(true)
       try {
         const currentCursor = reset ? undefined : cursor
         if (reset) {
@@ -59,33 +61,11 @@ export function useSessionHistory({
         }
       } finally {
         setIsLoading(false)
-        setIsLoadingMore(false)
+        loadingRef.current = false
       }
     },
     [cursor],
   )
-
-  useEffect(() => {
-    if (!observerRef.current || !hasMore || isLoadingMore || loadError) return
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (
-          entries[0].isIntersecting &&
-          hasMore &&
-          !isLoadingMore &&
-          !loadError
-        ) {
-          setIsLoadingMore(true)
-          void loadSessions(false)
-        }
-      },
-      { threshold: 0.1 },
-    )
-
-    observer.observe(observerRef.current)
-    return () => observer.disconnect()
-  }, [hasMore, isLoadingMore, loadError, loadSessions])
 
   const handleDeleteSession = useCallback(
     async (id: string) => {
@@ -101,7 +81,7 @@ export function useSessionHistory({
         setDeleteError(true)
       }
     },
-    [activeSessionId, onDeletedActiveSession, sessions],
+    [activeSessionId, onDeletedActiveSession],
   )
 
   return {
@@ -111,7 +91,6 @@ export function useSessionHistory({
     isLoading,
     deleteError,
     loadErrorMessage: t("chat.historyLoadFailed"),
-    observerRef,
     loadSessions,
     handleDeleteSession,
   }

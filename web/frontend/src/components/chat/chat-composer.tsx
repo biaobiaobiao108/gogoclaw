@@ -101,11 +101,11 @@ export function ChatComposer({
   }
 
   return (
-    <div className="relative z-20 shrink-0 px-4 pb-4 md:px-8 lg:px-24 xl:px-48">
-      <div className="mx-auto flex w-full max-w-4xl flex-col">
+    <div className="relative z-20 shrink-0 px-4 pb-4 md:px-8">
+      <div className="mx-auto flex w-full max-w-3xl flex-col">
         <div
           className={cn(
-            "bg-card/90 supports-backdrop-filter:bg-card/75 border-border/80 focus-within:border-primary/50 relative flex w-full flex-col rounded-lg border shadow-xs backdrop-blur-sm transition-[background-color,border-color,box-shadow] duration-[var(--motion-state)] ease-out",
+            "border-border focus-within:border-muted-foreground relative flex w-full flex-col rounded-3xl border bg-[var(--chat-composer)] shadow-xs transition-[background-color,border-color,box-shadow] duration-[var(--motion-state)] ease-out",
             isDragActive &&
               "border-accent/80 bg-accent/5 ring-accent/20 ring-2",
           )}
@@ -164,7 +164,7 @@ export function ChatComposer({
             disabled={!canInput}
             title={disabledMessage || undefined}
             className={cn(
-              "placeholder:text-muted-foreground/45 max-h-[220px] min-h-[48px] resize-none border-0 bg-transparent px-3 py-2.5 text-sm leading-relaxed shadow-none focus-visible:outline-none dark:bg-transparent",
+              "placeholder:text-muted-foreground/45 max-h-[220px] min-h-[48px] resize-none border-0 bg-transparent px-5 py-4 text-base leading-relaxed shadow-none focus-visible:outline-none dark:bg-transparent",
               !canInput && "cursor-not-allowed opacity-60",
             )}
             minRows={1}
@@ -178,7 +178,7 @@ export function ChatComposer({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="text-muted-foreground hover:text-foreground size-11 rounded-md md:size-8"
+                className="text-muted-foreground hover:text-foreground size-11 rounded-full md:size-8"
                 onClick={onAddImages}
                 disabled={!canInput}
                 aria-label={t("chat.attachImage")}
@@ -200,7 +200,7 @@ export function ChatComposer({
                   type="button"
                   variant="outline"
                   size="icon"
-                  className="size-11 rounded-md md:size-8"
+                  className="size-11 rounded-full md:size-8"
                   onClick={onStop}
                   aria-label={t("chat.stopTask")}
                   title={t("chat.stopTask")}
@@ -213,9 +213,9 @@ export function ChatComposer({
                   type="button"
                   size="icon"
                   className={cn(
-                    "size-11 rounded-md transition-[color,background-color,transform] duration-[var(--motion-state)] ease-out active:duration-[var(--motion-press)] md:size-8",
+                    "size-11 rounded-full transition-[color,background-color,transform] duration-[var(--motion-state)] ease-out active:duration-[var(--motion-press)] md:size-8",
                     canSend
-                      ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                      ? "bg-foreground text-background hover:bg-foreground/90"
                       : "bg-muted text-muted-foreground/40",
                   )}
                   onClick={onSend}

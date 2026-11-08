@@ -174,7 +174,13 @@
       "oauth": "OAuth",
       "local": "Local"
     },
-    "modelsLoadFailed": "Could not load models. Please retry."
+    "modelsLoadFailed": "Could not load models. Please retry.",
+    "processLabel": "Thinking & tools",
+    "toolCallCount": "{{count}} calls",
+    "filterHistory": "Filter loaded chats",
+    "noMatchingHistory": "No matching chats",
+    "loadMoreSessions": "Load more chats",
+    "scrollToBottom": "Scroll to bottom"
   },
   "header": {
     "home": "GoGoClaw console",

@@ -94,3 +94,7 @@ Use direct sentence case. Name the object and the action. Avoid page introductio
 
 - Logs and code blocks use a fixed dark code surface in both themes for stable syntax-reading contrast.
 - Hardware and provider names retain their official casing when shown as product names.
+
+## Conversation workspace
+
+Chat follows the requested ChatGPT direction: white / #212121 canvas, #f4f4f4 / #303030 user bubbles, unboxed assistant replies, 16px reading text, a 768px reading column and composer, and 24px bubble/composer radii. The history rail is 256px wide at desktop widths and becomes an accessible Sheet on mobile. History uses explicit cursor pagination and filters only loaded titles/previews. Continuous thought/tool messages share one collapsed process row; expansion is owned by the page so virtualization cannot reset it. Existing shared controls supply press/focus feedback.

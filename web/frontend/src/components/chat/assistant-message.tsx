@@ -7,7 +7,7 @@ import {
   IconFileText,
   IconTerminal2,
 } from "@tabler/icons-react"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import ReactMarkdown from "react-markdown"
 import rehypeHighlight from "rehype-highlight"
@@ -31,6 +31,7 @@ import {
 } from "@/store/chat"
 
 interface AssistantMessageProps {
+  detailOpen?: boolean
   content: string
   attachments?: ChatAttachment[]
   kind?: AssistantMessageKind
@@ -41,6 +42,7 @@ interface AssistantMessageProps {
 }
 
 export function AssistantMessage({
+  detailOpen = false,
   content,
   attachments = [],
   kind = "normal",
@@ -62,14 +64,9 @@ export function AssistantMessage({
   const fileAttachments = attachments.filter(
     (attachment) => attachment.type !== "image",
   )
-  const [isExpanded, setIsExpanded] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(detailOpen)
   const visibleContent = useSmoothStreamText(content, isStreaming)
   const hasVisibleText = visibleContent.trim().length > 0
-
-  useEffect(() => {
-    if (!isThought) return
-    setIsExpanded(isStreaming)
-  }, [isStreaming, isThought])
 
   const formattedTimestamp =
     timestamp !== "" ? formatMessageTime(timestamp) : ""
@@ -87,7 +84,7 @@ export function AssistantMessage({
     <div className="group relative flex w-full flex-col gap-1.5 py-1">
       {/* Meta header */}
       {!isCollapsedBlock && (
-        <div className="flex items-center justify-between gap-2 px-0.5 text-xs">
+        <div className="chat-message-meta flex items-center justify-between gap-2 px-0.5 text-xs">
           <div className="text-muted-foreground/80 flex items-center gap-1.5 font-mono text-[11px]">
             <span className="text-foreground/90 font-semibold">GoGoClaw</span>
             {trimmedModelName && (
@@ -131,7 +128,7 @@ export function AssistantMessage({
           className={cn(
             "relative w-full rounded-lg text-sm",
             isCollapsedBlock
-              ? "border-border/50 bg-muted/25 text-muted-foreground border"
+              ? "text-muted-foreground"
               : "text-foreground leading-relaxed",
           )}
         >
@@ -218,7 +215,7 @@ export function AssistantMessage({
 
           {/* Normal Assistant Markdown Text */}
           {!isCollapsedBlock && hasVisibleText && (
-            <div className="prose dark:prose-invert max-w-none text-[14.5px] leading-relaxed [overflow-wrap:anywhere] break-words">
+            <div className="prose dark:prose-invert max-w-none text-base leading-relaxed [overflow-wrap:anywhere] break-words">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeHighlight]}

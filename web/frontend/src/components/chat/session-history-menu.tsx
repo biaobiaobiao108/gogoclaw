@@ -1,6 +1,5 @@
-import { IconHistory, IconTrash } from "@tabler/icons-react"
+import { IconSearch, IconTrash } from "@tabler/icons-react"
 import dayjs from "dayjs"
-import type { RefObject } from "react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
@@ -16,15 +15,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 
 interface SessionHistoryMenuProps {
+  collapsed: boolean
+  open: boolean
+  onRefresh: () => void
+  onLoadMore: () => void
   sessions: SessionSummary[]
   activeSessionId: string
   hasMore: boolean
@@ -32,13 +29,16 @@ interface SessionHistoryMenuProps {
   loadErrorMessage: string
   isLoading: boolean
   deleteError: boolean
-  observerRef: RefObject<HTMLDivElement | null>
   onOpenChange: (open: boolean) => void
   onSwitchSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void
 }
 
 export function SessionHistoryMenu({
+  collapsed,
+  open,
+  onRefresh,
+  onLoadMore,
   sessions,
   activeSessionId,
   hasMore,
@@ -46,7 +46,6 @@ export function SessionHistoryMenu({
   loadErrorMessage,
   isLoading,
   deleteError,
-  observerRef,
   onOpenChange,
   onSwitchSession,
   onDeleteSession,
@@ -54,97 +53,108 @@ export function SessionHistoryMenu({
   const { t } = useTranslation()
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null)
 
+  const [query, setQuery] = useState("")
+  const filtered = sessions.filter((session) =>
+    `${session.title} ${session.preview}`
+      .toLocaleLowerCase()
+      .includes(query.toLocaleLowerCase()),
+  )
+  const content = (
+    <div className="flex h-full min-h-0 flex-col gap-3 p-3">
+      <h2 className="px-2 pt-2 text-sm font-medium">{t("chat.history")}</h2>
+      <label className="border-border flex items-center gap-2 rounded-lg border px-3 py-2">
+        <IconSearch className="text-muted-foreground size-4 shrink-0" />
+        <input
+          className="w-full min-w-0 bg-transparent text-sm outline-none"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={t("chat.filterHistory")}
+          aria-label={t("chat.filterHistory")}
+        />
+      </label>
+      <nav
+        aria-label={t("chat.history")}
+        className="min-h-0 flex-1 overflow-y-auto"
+      >
+        {isLoading && (
+          <p role="status" className="text-muted-foreground p-2 text-sm">
+            {t("chat.loadingHistory")}
+          </p>
+        )}
+        {loadError && (
+          <div role="alert" className="p-2 text-sm">
+            <p>{loadErrorMessage}</p>
+            <Button variant="ghost" size="sm" onClick={onRefresh}>
+              {t("chat.historyRetry")}
+            </Button>
+          </div>
+        )}
+        {deleteError && (
+          <p role="alert" className="text-destructive p-2 text-sm">
+            {t("chat.deleteSessionFailed")}
+          </p>
+        )}
+        {!isLoading && !loadError && filtered.length === 0 && (
+          <p className="text-muted-foreground p-2 text-sm">
+            {t(query ? "chat.noMatchingHistory" : "chat.noHistory")}
+          </p>
+        )}
+        {filtered.map((session) => (
+          <div
+            key={session.id}
+            className={`group hover:bg-muted flex items-center rounded-lg ${session.id === activeSessionId ? "bg-muted" : ""}`}
+          >
+            <button
+              type="button"
+              aria-current={session.id === activeSessionId ? "page" : undefined}
+              className="min-w-0 flex-1 px-3 py-3 text-left"
+              title={session.title}
+              onClick={() => {
+                onSwitchSession(session.id)
+                onOpenChange(false)
+              }}
+            >
+              <span className="block truncate text-sm">{session.title}</span>
+              <span className="text-muted-foreground block text-xs">
+                {dayjs(session.updated).format("MM-DD")}
+              </span>
+            </button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground mr-1 size-8 shrink-0 md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100"
+              aria-label={t("chat.deleteSession")}
+              onClick={() => setDeleteTarget(session)}
+            >
+              <IconTrash className="size-4" />
+            </Button>
+          </div>
+        ))}
+        {hasMore && !isLoading && (
+          <Button
+            variant="ghost"
+            className="mt-2 w-full text-sm"
+            onClick={onLoadMore}
+          >
+            {t("chat.loadMoreSessions")}
+          </Button>
+        )}
+      </nav>
+    </div>
+  )
   return (
-    <DropdownMenu onOpenChange={onOpenChange}>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="secondary"
-          size="sm"
-          className="h-9 gap-2"
-          aria-label={t("chat.history")}
-        >
-          <IconHistory className="size-4" />
-          <span className="hidden sm:inline">{t("chat.history")}</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72">
-        <ScrollArea className="max-h-[300px]">
-          {isLoading && sessions.length === 0 && (
-            <div className="space-y-2 p-2" aria-busy="true">
-              <span className="sr-only">{t("chat.loadingHistory")}</span>
-              {[80, 65, 72].map((width) => (
-                <div
-                  key={width}
-                  className="bg-muted/60 h-6 animate-pulse rounded"
-                  style={{ width: `${width}%` }}
-                  aria-hidden="true"
-                />
-              ))}
-            </div>
-          )}
-          {loadError && (
-            <DropdownMenuItem disabled>
-              <span className="text-destructive text-xs">
-                {loadErrorMessage}
-              </span>
-            </DropdownMenuItem>
-          )}
-          {deleteError && (
-            <DropdownMenuItem disabled>
-              <span className="text-destructive text-xs">
-                {t("chat.deleteSessionFailed")}
-              </span>
-            </DropdownMenuItem>
-          )}
-          {sessions.length === 0 && !loadError && !isLoading ? (
-            <DropdownMenuItem disabled>
-              <span className="text-muted-foreground text-xs">
-                {t("chat.noHistory")}
-              </span>
-            </DropdownMenuItem>
-          ) : (
-            sessions.map((session) => (
-              <DropdownMenuItem
-                key={session.id}
-                className={`group relative my-0.5 flex flex-col items-start gap-0.5 pr-8 ${
-                  session.id === activeSessionId ? "bg-accent" : ""
-                }`}
-                onClick={() => onSwitchSession(session.id)}
-              >
-                <span className="line-clamp-1 text-sm font-medium">
-                  {session.title}
-                </span>
-                <span className="text-muted-foreground text-xs">
-                  {t("chat.messagesCount", {
-                    count: session.message_count,
-                  })}{" "}
-                  · {dayjs(session.updated).fromNow()}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={t("chat.deleteSession")}
-                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive absolute top-1/2 right-2 h-7 w-7 -translate-y-1/2 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    setDeleteTarget(session)
-                  }}
-                >
-                  <IconTrash className="h-4 w-4" />
-                </Button>
-              </DropdownMenuItem>
-            ))
-          )}
-          {hasMore && sessions.length > 0 && (
-            <div ref={observerRef} className="py-2 text-center">
-              <span className="text-muted-foreground animate-pulse text-xs">
-                {t("chat.loadingMore")}
-              </span>
-            </div>
-          )}
-        </ScrollArea>
-      </DropdownMenuContent>
+    <>
+      <aside
+        className={`bg-sidebar hidden h-full w-64 shrink-0 ${collapsed ? "" : "md:block"}`}
+      >
+        {content}
+      </aside>
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent side="left" className="bg-sidebar gap-0 p-0">
+          <SheetTitle className="sr-only">{t("chat.history")}</SheetTitle>
+          {content}
+        </SheetContent>
+      </Sheet>
       <AlertDialog
         open={deleteTarget !== null}
         onOpenChange={(open) => {
@@ -174,6 +184,6 @@ export function SessionHistoryMenu({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </DropdownMenu>
+    </>
   )
 }

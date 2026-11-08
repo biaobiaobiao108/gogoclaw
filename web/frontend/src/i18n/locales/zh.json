@@ -174,7 +174,13 @@
       "oauth": "OAuth",
       "local": "本地模型"
     },
-    "modelsLoadFailed": "模型列表加载失败，请重试。"
+    "modelsLoadFailed": "模型列表加载失败，请重试。",
+    "processLabel": "思考与工具",
+    "toolCallCount": "{{count}} 次调用",
+    "filterHistory": "筛选已加载的对话",
+    "noMatchingHistory": "没有匹配的对话",
+    "loadMoreSessions": "加载更多对话",
+    "scrollToBottom": "回到底部"
   },
   "header": {
     "home": "GoGoClaw 控制台",

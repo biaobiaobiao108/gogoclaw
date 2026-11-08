@@ -355,3 +355,28 @@ textarea {
     animation: none;
   }
 }
+
+/* Conversation surfaces follow the neutral ChatGPT reading layout. */
+.chat-surface {
+  --chat-user: #f4f4f4;
+  --chat-composer: #fff;
+  background: #fff;
+}
+.dark .chat-surface {
+  --chat-user: #303030;
+  --chat-composer: #303030;
+  background: #212121;
+}
+.chat-message-meta {
+  opacity: 0;
+  transition: opacity 140ms ease-out;
+}
+.group:hover > .chat-message-meta,
+.group:focus-within > .chat-message-meta {
+  opacity: 1;
+}
+@media (hover: none) {
+  .chat-message-meta {
+    opacity: 1;
+  }
+}

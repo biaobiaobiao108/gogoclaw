@@ -1,4 +1,4 @@
-import { IconPlus } from "@tabler/icons-react"
+import { IconArrowDown, IconLayoutSidebar, IconPlus } from "@tabler/icons-react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useAtom } from "jotai"
 import {
@@ -21,12 +21,14 @@ import {
 } from "@/components/chat/chat-composer"
 import { ChatEmptyState } from "@/components/chat/chat-empty-state"
 import { ModelSelector } from "@/components/chat/model-selector"
+import { ProcessMessage } from "@/components/chat/process-message"
 import { SessionHistoryMenu } from "@/components/chat/session-history-menu"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { UserMessage } from "@/components/chat/user-message"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { retryChatMessage } from "@/features/chat/controller"
+import { groupChatMessages } from "@/features/chat/group-messages"
 import {
   buildChatImageAttachments,
   CHAT_IMAGE_ACCEPT,
@@ -96,6 +98,7 @@ type ChatStreamRow =
   | { kind: "historyError" }
   | { kind: "empty" }
   | { kind: "message"; message: ChatMessage }
+  | { kind: "process"; messages: ChatMessage[] }
   | { kind: "typing" }
   | {
       kind: "activity"
@@ -105,7 +108,11 @@ type ChatStreamRow =
     }
 
 function chatStreamRowKey(row: ChatStreamRow): string {
-  return row.kind === "message" ? `message:${row.message.id}` : row.kind
+  return row.kind === "message"
+    ? `message:${row.message.id}`
+    : row.kind === "process"
+      ? `process:${row.messages[0].id}`
+      : row.kind
 }
 
 function estimateChatStreamRow(row: ChatStreamRow): number {
@@ -131,6 +138,11 @@ export function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragDepthRef = useRef(0)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyCollapsed, setHistoryCollapsed] = useState(false)
+  const [expandedProcesses, setExpandedProcesses] = useState<
+    Record<string, boolean>
+  >({})
   const [isAtBottom, setIsAtBottom] = useState(true)
   const [hasScrolled, setHasScrolled] = useState(false)
   const [drafts, setDrafts] = useAtom(chatDraftsAtom)
@@ -226,13 +238,17 @@ export function ChatPage() {
     loadErrorMessage,
     isLoading: isLoadingHistory,
     deleteError,
-    observerRef,
     loadSessions,
     handleDeleteSession,
   } = useSessionHistory({
     activeSessionId,
     onDeletedActiveSession: newChat,
   })
+
+  useEffect(() => {
+    void loadSessions(true)
+    // Refresh titles after the current response finishes or the session changes.
+  }, [activeSessionId, Boolean(activeTurn), isTyping])
 
   const syncScrollState = (element: HTMLDivElement) => {
     const { clientHeight, scrollHeight, scrollTop } = element
@@ -408,9 +424,7 @@ export function ChatPage() {
     ) {
       rows.push({ kind: "empty" })
     }
-    for (const message of messages) {
-      rows.push({ kind: "message", message })
-    }
+    rows.push(...groupChatMessages(messages))
     if (isTyping) rows.push({ kind: "typing" })
     if (!isHistoryLoading && !historyError && !activeTurn) {
       rows.push({
@@ -468,282 +482,323 @@ export function ChatPage() {
   }, [streamRows, isAtBottom])
 
   return (
-    <div className="bg-background flex h-full flex-col">
-      <PageHeader
-        title={t("navigation.chat")}
-        className={`transition-shadow ${
-          hasScrolled ? "shadow-xs" : "shadow-none"
-        }`}
-        titleExtra={
-          hasAvailableModels && (
-            <ModelSelector
-              defaultModelName={defaultModelName}
-              apiKeyModels={apiKeyModels}
-              oauthModels={oauthModels}
-              localModels={localModels}
-              disabled={settingDefault}
-              onValueChange={handleSetDefault}
-            />
-          )
-        }
-      >
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={newChat}
-          className="h-8 gap-1.5 px-2.5 text-xs font-medium"
-          aria-label={t("chat.newChat")}
+    <div className="chat-surface flex h-full min-w-0">
+      <SessionHistoryMenu
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        hasMore={hasMore}
+        loadError={loadError}
+        loadErrorMessage={loadErrorMessage}
+        isLoading={isLoadingHistory}
+        deleteError={deleteError}
+        collapsed={historyCollapsed}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        onRefresh={() => void loadSessions(true)}
+        onLoadMore={() => void loadSessions(false)}
+        onSwitchSession={switchSession}
+        onDeleteSession={handleDeleteSession}
+      />
+      <div className="relative flex min-w-0 flex-1 flex-col">
+        <PageHeader
+          title={t("navigation.chat")}
+          className={`transition-shadow ${
+            hasScrolled ? "shadow-xs" : "shadow-none"
+          }`}
+          titleExtra={
+            hasAvailableModels && (
+              <ModelSelector
+                defaultModelName={defaultModelName}
+                apiKeyModels={apiKeyModels}
+                oauthModels={oauthModels}
+                localModels={localModels}
+                disabled={settingDefault}
+                onValueChange={handleSetDefault}
+              />
+            )
+          }
         >
-          <IconPlus className="size-3.5" />
-          <span className="hidden sm:inline">{t("chat.newChat")}</span>
-        </Button>
-
-        <SessionHistoryMenu
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          hasMore={hasMore}
-          loadError={loadError}
-          loadErrorMessage={loadErrorMessage}
-          isLoading={isLoadingHistory}
-          deleteError={deleteError}
-          observerRef={observerRef}
-          onOpenChange={(open) => {
-            if (open) {
-              void loadSessions(true)
-            }
-          }}
-          onSwitchSession={switchSession}
-          onDeleteSession={handleDeleteSession}
-        />
-      </PageHeader>
-      {modelsError && (
-        <div
-          role="alert"
-          className="mx-4 flex shrink-0 items-center justify-between gap-3 py-2 text-sm"
-        >
-          <span>{t("chat.modelsLoadFailed")}</span>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
-            disabled={modelsLoading}
-            onClick={() => void reloadModels()}
+            onClick={newChat}
+            className="h-8 gap-2 px-3 text-sm font-medium"
+            aria-label={t("chat.newChat")}
           >
-            {t("chat.historyRetry")}
+            <IconPlus className="size-3.5" />
+            <span className="hidden sm:inline">{t("chat.newChat")}</span>
           </Button>
-        </div>
-      )}
 
-      {/* Main chat stream container */}
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-8 lg:px-24 xl:px-48"
-      >
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-2 text-sm"
+            onClick={() => {
+              if (window.matchMedia("(min-width: 768px)").matches)
+                setHistoryCollapsed((value) => !value)
+              else setHistoryOpen(true)
+            }}
+            aria-label={t("chat.history")}
+          >
+            <IconLayoutSidebar className="size-4" />
+          </Button>
+        </PageHeader>
+        {modelsError && (
+          <div
+            role="alert"
+            className="mx-4 flex shrink-0 items-center justify-between gap-3 py-2 text-sm"
+          >
+            <span>{t("chat.modelsLoadFailed")}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={modelsLoading}
+              onClick={() => void reloadModels()}
+            >
+              {t("chat.historyRetry")}
+            </Button>
+          </div>
+        )}
+
+        {/* Main chat stream container */}
         <div
-          className="relative mx-auto w-full max-w-4xl"
-          style={{ height: `${streamVirtualizer.getTotalSize()}px` }}
-          role="list"
-          aria-label={t("chat.conversation")}
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-8"
         >
-          {streamVirtualizer.getVirtualItems().map((virtualRow) => {
-            const row = streamRows[virtualRow.index]
-            if (!row) return null
-            return (
-              <div
-                key={virtualRow.key}
-                ref={streamVirtualizer.measureElement}
-                data-index={virtualRow.index}
-                role="listitem"
-                className="absolute top-0 left-0 w-full pb-6"
-                style={{ transform: `translateY(${virtualRow.start}px)` }}
-              >
-                {row.kind === "loadOlder" && (
-                  <div className="flex justify-center">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleLoadOlderHistory()}
-                      disabled={isLoadingOlderHistory}
+          <div
+            className="relative mx-auto w-full max-w-3xl"
+            style={{ height: `${streamVirtualizer.getTotalSize()}px` }}
+            role="list"
+            aria-label={t("chat.conversation")}
+          >
+            {streamVirtualizer.getVirtualItems().map((virtualRow) => {
+              const row = streamRows[virtualRow.index]
+              if (!row) return null
+              return (
+                <div
+                  key={virtualRow.key}
+                  ref={streamVirtualizer.measureElement}
+                  data-index={virtualRow.index}
+                  role="listitem"
+                  className="absolute top-0 left-0 w-full pb-6"
+                  style={{ transform: `translateY(${virtualRow.start}px)` }}
+                >
+                  {row.kind === "loadOlder" && (
+                    <div className="flex justify-center">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleLoadOlderHistory()}
+                        disabled={isLoadingOlderHistory}
+                      >
+                        {isLoadingOlderHistory
+                          ? t("chat.loadingEarlierMessages")
+                          : t("chat.loadEarlierMessages")}
+                      </Button>
+                    </div>
+                  )}
+                  {row.kind === "historyLoading" && (
+                    <div className="space-y-3" aria-busy="true">
+                      <span className="sr-only">
+                        {t("chat.loadingConversation")}
+                      </span>
+                      {[72, 88, 56].map((width) => (
+                        <div
+                          key={width}
+                          className="bg-muted/50 h-4 animate-pulse rounded motion-reduce:animate-none"
+                          style={{ width: `${width}%` }}
+                          aria-hidden="true"
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {row.kind === "historyError" && (
+                    <div
+                      className="border-border bg-card flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
+                      role="alert"
                     >
-                      {isLoadingOlderHistory
-                        ? t("chat.loadingEarlierMessages")
-                        : t("chat.loadEarlierMessages")}
-                    </Button>
-                  </div>
-                )}
-                {row.kind === "historyLoading" && (
-                  <div className="space-y-3" aria-busy="true">
-                    <span className="sr-only">
-                      {t("chat.loadingConversation")}
-                    </span>
-                    {[72, 88, 56].map((width) => (
-                      <div
-                        key={width}
-                        className="bg-muted/50 h-4 animate-pulse rounded motion-reduce:animate-none"
-                        style={{ width: `${width}%` }}
-                        aria-hidden="true"
+                      <div>
+                        <p className="text-sm font-medium">
+                          {t("chat.historyLoadTitle")}
+                        </p>
+                        <p className="text-muted-foreground mt-0.5 text-xs">
+                          {t("chat.historyLoadFailed")}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void retryHistory()}
+                      >
+                        {t("chat.historyRetry")}
+                      </Button>
+                    </div>
+                  )}
+                  {row.kind === "empty" &&
+                    (modelsLoading && !hasDefaultModel ? (
+                      <div role="status">
+                        {t("chat.disabledPlaceholder.modelsLoading")}
+                      </div>
+                    ) : modelsError && !hasDefaultModel ? null : (
+                      <ChatEmptyState
+                        hasAvailableModels={hasAvailableModels}
+                        defaultModelName={defaultModelName}
+                        isConnected={isGatewayRunning}
                       />
                     ))}
-                  </div>
-                )}
-                {row.kind === "historyError" && (
-                  <div
-                    className="border-border bg-card flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
-                    role="alert"
-                  >
-                    <div>
-                      <p className="text-sm font-medium">
-                        {t("chat.historyLoadTitle")}
-                      </p>
-                      <p className="text-muted-foreground mt-0.5 text-xs">
-                        {t("chat.historyLoadFailed")}
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void retryHistory()}
-                    >
-                      {t("chat.historyRetry")}
-                    </Button>
-                  </div>
-                )}
-                {row.kind === "empty" &&
-                  (modelsLoading && !hasDefaultModel ? (
-                    <div role="status">
-                      {t("chat.disabledPlaceholder.modelsLoading")}
-                    </div>
-                  ) : modelsError && !hasDefaultModel ? null : (
-                    <ChatEmptyState
-                      hasAvailableModels={hasAvailableModels}
-                      defaultModelName={defaultModelName}
-                      isConnected={isGatewayRunning}
-                    />
-                  ))}
-                {row.kind === "message" &&
-                  (row.message.role === "assistant" ? (
-                    <AssistantMessage
-                      content={row.message.content}
-                      attachments={row.message.attachments}
-                      kind={row.message.kind}
-                      modelName={row.message.modelName}
-                      toolCalls={row.message.toolCalls}
-                      timestamp={row.message.timestamp}
-                      isStreaming={row.message.id === streamingMessageId}
-                    />
-                  ) : (
-                    <UserMessage
-                      content={row.message.content}
-                      attachments={row.message.attachments}
-                      timestamp={row.message.timestamp}
-                      deliveryStatus={row.message.deliveryStatus}
-                      onRetry={
-                        connectionState === "connected"
-                          ? () => retryChatMessage(row.message.id)
-                          : undefined
+                  {row.kind === "message" &&
+                    (row.message.role === "assistant" ? (
+                      <AssistantMessage
+                        content={row.message.content}
+                        attachments={row.message.attachments}
+                        kind={row.message.kind}
+                        modelName={row.message.modelName}
+                        toolCalls={row.message.toolCalls}
+                        timestamp={row.message.timestamp}
+                        isStreaming={row.message.id === streamingMessageId}
+                      />
+                    ) : (
+                      <UserMessage
+                        content={row.message.content}
+                        attachments={row.message.attachments}
+                        timestamp={row.message.timestamp}
+                        deliveryStatus={row.message.deliveryStatus}
+                        onRetry={
+                          connectionState === "connected"
+                            ? () => retryChatMessage(row.message.id)
+                            : undefined
+                        }
+                      />
+                    ))}
+                  {row.kind === "process" && (
+                    <ProcessMessage
+                      messages={row.messages}
+                      expanded={expandedProcesses[row.messages[0].id] ?? false}
+                      onToggle={() =>
+                        setExpandedProcesses((previous) => ({
+                          ...previous,
+                          [row.messages[0].id]: !previous[row.messages[0].id],
+                        }))
                       }
                     />
-                  ))}
-                {row.kind === "typing" && <TypingIndicator />}
-                {row.kind === "activity" && (
-                  <ActivityTimeline
-                    plan={row.plan}
-                    activities={row.activities}
-                    history={row.history}
-                  />
-                )}
-              </div>
-            )
-          })}
+                  )}
+                  {row.kind === "typing" && <TypingIndicator />}
+                  {row.kind === "activity" && (
+                    <ActivityTimeline
+                      plan={row.plan}
+                      activities={row.activities}
+                      history={row.history}
+                    />
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
-      </div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept={CHAT_IMAGE_ACCEPT}
-        multiple
-        className="hidden"
-        onChange={handleImageSelection}
-      />
-
-      {activeTurn && (
-        <div
-          role="status"
-          className="text-muted-foreground mx-auto w-full max-w-4xl px-4 pb-1 text-xs"
-        >
-          {t("chat.taskRunning", { iteration: activeTurn.iteration })}
-        </div>
-      )}
-      {activeTurn?.plan && activeTurn.plan.length > 0 && (
-        <details
-          open
-          className="mx-auto max-h-[25dvh] w-full max-w-4xl shrink-0 overflow-y-auto px-4 pb-2 text-xs"
-        >
-          <summary className="text-muted-foreground cursor-pointer">
-            {t("chat.taskPlan")}
-          </summary>
-          <ol className="mt-2 space-y-1 pl-4">
-            {activeTurn.plan.map((step, index) => (
-              <li key={index} className="text-muted-foreground">
-                <span aria-label={t(`chat.planStatus.${step.status}`)}>
-                  {step.status === "completed"
-                    ? "✓"
-                    : step.status === "in_progress"
-                      ? "●"
-                      : "○"}
-                </span>{" "}
-                {step.text}
-              </li>
-            ))}
-          </ol>
-        </details>
-      )}
-      {interrupted && !activeTurn && !isTyping && canInput && (
-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 px-4 pb-2 text-xs">
-          <span className="text-muted-foreground">
-            {t("chat.taskInterrupted")}
-          </span>
+        {!isAtBottom && (
           <Button
-            type="button"
-            size="sm"
             variant="outline"
-            onClick={() => sendMessage({ content: t("chat.continuePrompt") })}
+            size="icon"
+            className="absolute right-6 bottom-40 z-30 rounded-full"
+            aria-label={t("chat.scrollToBottom")}
+            onClick={() => {
+              const element = scrollRef.current
+              if (element) element.scrollTop = element.scrollHeight
+              setIsAtBottom(true)
+            }}
           >
-            {t("chat.continueTask")}
+            <IconArrowDown className="size-4" />
           </Button>
-        </div>
-      )}
-      {pendingApproval && (
-        <ApprovalPanel
-          approval={pendingApproval}
-          onRespond={respondToApproval}
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={CHAT_IMAGE_ACCEPT}
+          multiple
+          className="hidden"
+          onChange={handleImageSelection}
         />
-      )}
-      <ChatComposer
-        input={input}
-        attachments={attachments}
-        onInputChange={setInput}
-        onAddImages={handleAddImages}
-        onPaste={handleComposerPaste}
-        onDragEnter={handleComposerDragEnter}
-        onDragLeave={handleComposerDragLeave}
-        onDragOver={handleComposerDragOver}
-        onDrop={handleComposerDrop}
-        onRemoveAttachment={handleRemoveAttachment}
-        onSend={handleSend}
-        onStop={() => sendMessage({ content: "/stop" })}
-        isRunning={Boolean(activeTurn) || isTyping}
-        onContextDetail={() => {
-          sendMessage({ content: "/context", attachments: [] })
-        }}
-        inputDisabledReason={composerDisabledReason}
-        canSend={canSubmit}
-        isDragActive={isDragActive}
-        contextUsage={contextUsage}
-      />
+
+        {activeTurn && (
+          <div
+            role="status"
+            className="text-muted-foreground mx-auto w-full max-w-3xl px-4 pb-1 text-xs"
+          >
+            {t("chat.taskRunning", { iteration: activeTurn.iteration })}
+          </div>
+        )}
+        {activeTurn?.plan && activeTurn.plan.length > 0 && (
+          <details
+            open
+            className="mx-auto max-h-[25dvh] w-full max-w-3xl shrink-0 overflow-y-auto px-4 pb-2 text-xs"
+          >
+            <summary className="text-muted-foreground cursor-pointer">
+              {t("chat.taskPlan")}
+            </summary>
+            <ol className="mt-2 space-y-1 pl-4">
+              {activeTurn.plan.map((step, index) => (
+                <li key={index} className="text-muted-foreground">
+                  <span aria-label={t(`chat.planStatus.${step.status}`)}>
+                    {step.status === "completed"
+                      ? "✓"
+                      : step.status === "in_progress"
+                        ? "●"
+                        : "○"}
+                  </span>{" "}
+                  {step.text}
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
+        {interrupted && !activeTurn && !isTyping && canInput && (
+          <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 pb-2 text-xs">
+            <span className="text-muted-foreground">
+              {t("chat.taskInterrupted")}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => sendMessage({ content: t("chat.continuePrompt") })}
+            >
+              {t("chat.continueTask")}
+            </Button>
+          </div>
+        )}
+        {pendingApproval && (
+          <ApprovalPanel
+            approval={pendingApproval}
+            onRespond={respondToApproval}
+          />
+        )}
+        <ChatComposer
+          input={input}
+          attachments={attachments}
+          onInputChange={setInput}
+          onAddImages={handleAddImages}
+          onPaste={handleComposerPaste}
+          onDragEnter={handleComposerDragEnter}
+          onDragLeave={handleComposerDragLeave}
+          onDragOver={handleComposerDragOver}
+          onDrop={handleComposerDrop}
+          onRemoveAttachment={handleRemoveAttachment}
+          onSend={handleSend}
+          onStop={() => sendMessage({ content: "/stop" })}
+          isRunning={Boolean(activeTurn) || isTyping}
+          onContextDetail={() => {
+            sendMessage({ content: "/context", attachments: [] })
+          }}
+          inputDisabledReason={composerDisabledReason}
+          canSend={canSubmit}
+          isDragActive={isDragActive}
+          contextUsage={contextUsage}
+        />
+      </div>
     </div>
   )
 }
