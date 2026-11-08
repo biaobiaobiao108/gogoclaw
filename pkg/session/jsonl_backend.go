@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"strings"
 
@@ -27,6 +28,61 @@ type aliasPromotingStore interface {
 	PromoteAliasHistory(ctx context.Context, sessionKey string, scope json.RawMessage, aliases []string) (bool, error)
 }
 
+type turnMetaStore interface {
+	GetSessionMeta(context.Context, string) (memory.SessionMeta, error)
+	SetTurn(context.Context, string, json.RawMessage) error
+	ClearTurns(context.Context, string) error
+}
+
+func (b *JSONLBackend) ClearTurnCheckpoints(key string) error {
+	store, ok := b.store.(turnMetaStore)
+	if !ok {
+		return fmt.Errorf("session store does not support turn checkpoints")
+	}
+	key, err := b.resolveSessionKeyChecked(key)
+	if err != nil {
+		return err
+	}
+	return store.ClearTurns(context.Background(), key)
+}
+
+func (b *JSONLBackend) SetTurnCheckpoint(key string, checkpoint TurnCheckpoint) error {
+	store, ok := b.store.(turnMetaStore)
+	if !ok {
+		return fmt.Errorf("session store does not support turn checkpoints")
+	}
+	key, err := b.resolveSessionKeyChecked(key)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(checkpoint)
+	if err != nil {
+		return err
+	}
+	return store.SetTurn(context.Background(), key, data)
+}
+
+func (b *JSONLBackend) GetTurnCheckpoint(key string) (TurnCheckpoint, error) {
+	var checkpoint TurnCheckpoint
+	store, ok := b.store.(turnMetaStore)
+	if !ok {
+		return checkpoint, fmt.Errorf("session store does not support turn checkpoints")
+	}
+	key, err := b.resolveSessionKeyChecked(key)
+	if err != nil {
+		return checkpoint, err
+	}
+	meta, err := store.GetSessionMeta(context.Background(), key)
+	if err != nil {
+		return checkpoint, err
+	}
+	if len(meta.Turn) == 0 {
+		return checkpoint, nil
+	}
+	err = json.Unmarshal(meta.Turn, &checkpoint)
+	return checkpoint, err
+}
+
 // MetadataAwareSessionStore exposes structured session metadata operations.
 type MetadataAwareSessionStore interface {
 	EnsureSessionMetadata(sessionKey string, scope *SessionScope, aliases []string)
@@ -40,19 +96,27 @@ func NewJSONLBackend(store memory.Store) *JSONLBackend {
 }
 
 func (b *JSONLBackend) resolveSessionKey(sessionKey string) string {
-	metaStore, ok := b.store.(metaAwareStore)
-	if !ok {
-		return sessionKey
-	}
-	resolved, found, err := metaStore.ResolveSessionKey(context.Background(), sessionKey)
+	resolved, err := b.resolveSessionKeyChecked(sessionKey)
 	if err != nil {
 		log.Printf("session: resolve session key: %v", err)
 		return sessionKey
 	}
-	if found && resolved != "" {
-		return resolved
+	return resolved
+}
+
+func (b *JSONLBackend) resolveSessionKeyChecked(sessionKey string) (string, error) {
+	metaStore, ok := b.store.(metaAwareStore)
+	if !ok {
+		return sessionKey, nil
 	}
-	return sessionKey
+	resolved, found, err := metaStore.ResolveSessionKey(context.Background(), sessionKey)
+	if err != nil {
+		return "", err
+	}
+	if found && resolved != "" {
+		return resolved, nil
+	}
+	return sessionKey, nil
 }
 
 // ResolveSessionKey maps aliases onto their canonical session key when the
@@ -126,10 +190,49 @@ func (b *JSONLBackend) AddMessage(sessionKey, role, content string) {
 }
 
 func (b *JSONLBackend) AddFullMessage(sessionKey string, msg providers.Message) {
-	sessionKey = b.resolveSessionKey(sessionKey)
-	if err := b.store.AddFullMessage(context.Background(), sessionKey, msg); err != nil {
+	if err := b.AddFullMessageChecked(sessionKey, msg); err != nil {
 		log.Printf("session: add full message: %v", err)
 	}
+}
+
+func (b *JSONLBackend) AddFullMessageChecked(key string, msg providers.Message) error {
+	key, err := b.resolveSessionKeyChecked(key)
+	if err != nil {
+		return err
+	}
+	return b.store.AddFullMessage(context.Background(), key, msg)
+}
+
+func (b *JSONLBackend) GetHistoryChecked(key string) ([]providers.Message, error) {
+	key, err := b.resolveSessionKeyChecked(key)
+	if err != nil {
+		return nil, err
+	}
+	return b.store.GetHistory(context.Background(), key)
+}
+
+func (b *JSONLBackend) GetSummaryChecked(key string) (string, error) {
+	key, err := b.resolveSessionKeyChecked(key)
+	if err != nil {
+		return "", err
+	}
+	return b.store.GetSummary(context.Background(), key)
+}
+
+func (b *JSONLBackend) SetHistoryChecked(key string, history []providers.Message) error {
+	key, err := b.resolveSessionKeyChecked(key)
+	if err != nil {
+		return err
+	}
+	return b.store.SetHistory(context.Background(), key, history)
+}
+
+func (b *JSONLBackend) SetSummaryChecked(key, summary string) error {
+	key, err := b.resolveSessionKeyChecked(key)
+	if err != nil {
+		return err
+	}
+	return b.store.SetSummary(context.Background(), key, summary)
 }
 
 func (b *JSONLBackend) GetHistory(key string) []providers.Message {
@@ -177,7 +280,10 @@ func (b *JSONLBackend) TruncateHistory(key string, keepLast int) {
 // immediately, the data is already durable. Save runs compaction to reclaim
 // space from logically truncated messages (no-op when there are none).
 func (b *JSONLBackend) Save(key string) error {
-	key = b.resolveSessionKey(key)
+	key, err := b.resolveSessionKeyChecked(key)
+	if err != nil {
+		return err
+	}
 	return b.store.Compact(context.Background(), key)
 }
 

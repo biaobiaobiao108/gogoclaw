@@ -9,6 +9,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/session"
 )
 
 // SetupTurn extracts the one-time initialization phase, returning a
@@ -104,6 +105,10 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 				toolDefs,
 				ts.agent.MaxTokens,
 			)
+			currentTurnStart = len(messages)
+			if strings.TrimSpace(ts.userMessage) != "" || len(ts.media) > 0 {
+				currentTurnStart--
+			}
 			if dropped := originalHistoryCount - len(history); dropped > 0 {
 				logger.WarnCF("agent", "Trimmed rebuilt history after proactive compaction", map[string]any{
 					"session_key":     ts.sessionKey,
@@ -127,13 +132,13 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 
 	if !ts.opts.NoHistory && (strings.TrimSpace(ts.userMessage) != "" || len(ts.media) > 0) {
 		rootMsg := userPromptMessage(ts.userMessage, ts.media)
-		if len(rootMsg.Media) > 0 {
-			ts.agent.Sessions.AddFullMessage(ts.sessionKey, rootMsg)
-		} else {
-			ts.agent.Sessions.AddMessage(ts.sessionKey, rootMsg.Role, rootMsg.Content)
+		if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, rootMsg); err != nil {
+			return nil, fmt.Errorf("save user message: %w", err)
 		}
 		ts.recordPersistedMessage(rootMsg)
-		ts.ingestMessage(ctx, p.al, rootMsg)
+		if err := ts.ingestMessage(ctx, p.al, rootMsg); err != nil {
+			return nil, err
+		}
 	}
 
 	activeCandidates, activeModel, usedLight := p.al.selectCandidates(ts.agent, ts.userMessage, messages)

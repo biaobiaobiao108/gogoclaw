@@ -34,11 +34,11 @@ func TestConversationInterruptedUsesRoutedSession(t *testing.T) {
 	}
 	agent, _ := al.registry.GetAgent(agentID)
 	agent.Sessions.AddFullMessage(key, providers.Message{Role: "assistant", ToolCalls: []providers.ToolCall{{ID: "pending"}}})
-	if !al.ConversationInterrupted("pico", "pico:one", "pico-user") {
+	if interrupted, err := al.ConversationInterrupted("pico", "pico:one", "pico-user"); err != nil || !interrupted {
 		t.Fatal("interrupted turn not detected")
 	}
 	agent.Sessions.AddFullMessage(key, providers.Message{Role: "assistant", Content: "finished"})
-	if al.ConversationInterrupted("pico", "pico:one", "pico-user") {
+	if interrupted, err := al.ConversationInterrupted("pico", "pico:one", "pico-user"); err != nil || interrupted {
 		t.Fatal("finished turn detected as interrupted")
 	}
 }

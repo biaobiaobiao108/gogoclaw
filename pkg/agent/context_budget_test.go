@@ -1,12 +1,141 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/tools"
 )
+
+type longResultTool struct{}
+
+func (*longResultTool) Name() string               { return "long_result" }
+func (*longResultTool) Description() string        { return "Produces a long result" }
+func (*longResultTool) Parameters() map[string]any { return map[string]any{"type": "object"} }
+func (*longResultTool) Execute(context.Context, map[string]any) *tools.ToolResult {
+	return tools.SilentResult(strings.Repeat("result details ", 3000))
+}
+
+type compactingTestProvider struct {
+	mainCalls, summaries int
+	lastMessages         []providers.Message
+}
+
+func (*compactingTestProvider) GetDefaultModel() string { return "test" }
+func (p *compactingTestProvider) Chat(_ context.Context, messages []providers.Message, defs []providers.ToolDefinition, _ string, _ map[string]any) (*providers.LLMResponse, error) {
+	if len(defs) == 0 && len(messages) > 0 && strings.Contains(messages[0].Content, "Summarize task progress faithfully") {
+		p.summaries++
+		return &providers.LLMResponse{Content: "Completed the read; result details retained."}, nil
+	}
+	p.mainCalls++
+	p.lastMessages = append([]providers.Message(nil), messages...)
+	if p.mainCalls == 1 {
+		return &providers.LLMResponse{ToolCalls: []providers.ToolCall{{ID: "call", Name: "long_result", Arguments: map[string]any{}}}}, nil
+	}
+	return &providers.LLMResponse{Content: "done"}, nil
+}
+
+func TestRunTurnContinuesAfterActiveContextCompaction(t *testing.T) {
+	provider := &compactingTestProvider{}
+	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+	agent.ContextWindow = 2000
+	agent.MaxTokens = 200
+	agent.Tools = tools.NewToolRegistry()
+	agent.Tools.Register(&longResultTool{})
+	opts := makeTestProcessOpts("long-turn")
+	opts.Dispatch = DispatchRequest{SessionKey: "long-turn", UserMessage: "complete the task"}
+	ts := newTurnState(agent, opts, turnEventScope{turnID: "long-turn", context: newTurnContext(nil, nil, nil)})
+	result, err := al.runTurn(context.Background(), ts, NewPipeline(al))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.finalContent != "done" || provider.summaries < 1 || provider.mainCalls != 2 {
+		t.Fatalf("unexpected result: %+v, provider=%+v", result, provider)
+	}
+	found := false
+	for _, msg := range provider.lastMessages {
+		if strings.Contains(msg.Content, "Summary of earlier work") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("next model request lacks compacted progress")
+	}
+	stored := agent.Sessions.GetHistory(ts.sessionKey)
+	if len(stored) < 3 || stored[2].ToolCallID != "call" {
+		t.Fatalf("original tool history was not retained: %+v", stored)
+	}
+}
+
+func TestCompactActiveTurnSummarizesWithoutSplittingToolCalls(t *testing.T) {
+	provider := &sequenceProvider{}
+	messages := []providers.Message{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: "complete the task"},
+		{Role: "assistant", ToolCalls: []providers.ToolCall{{ID: "call"}}},
+		{Role: "tool", ToolCallID: "call", Content: strings.Repeat("result ", 3000)},
+	}
+	out, err := compactActiveTurn(context.Background(), provider, "test", messages, 1, 1000, 100, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 3 || out[1].Content != "complete the task" || !strings.Contains(out[2].Content, "Summary") {
+		t.Fatalf("unexpected compacted messages: %+v", out)
+	}
+	if provider.callCount < 2 {
+		t.Fatalf("expected bounded chunks, got %d", provider.callCount)
+	}
+	if len(messages) != 4 || messages[3].ToolCallID != "call" {
+		t.Fatal("original history changed")
+	}
+}
+
+func TestCompactActiveTurnReportsSummaryFailure(t *testing.T) {
+	messages := []providers.Message{{Role: "user", Content: "task"}, {Role: "assistant", Content: strings.Repeat("work ", 1000)}}
+	_, err := compactActiveTurn(context.Background(), &errorProvider{errType: "connection_reset"}, "test", messages, 0, 1000, 100, nil)
+	if err == nil || !strings.Contains(err.Error(), "summarize active turn") {
+		t.Fatalf("expected summary error, got %v", err)
+	}
+	if len(messages) != 2 || !strings.HasPrefix(messages[1].Content, "work") {
+		t.Fatal("failed compaction changed original messages")
+	}
+}
+
+func TestCompactActiveTurnRetainsMedia(t *testing.T) {
+	messages := []providers.Message{
+		{Role: "user", Content: "task", Media: []string{"media://original"}},
+		{Role: "assistant", Content: "result", Media: []string{"media://generated"}},
+	}
+	out, err := compactActiveTurn(context.Background(), &sequenceProvider{}, "test", messages, 0, 1000, 100, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 3 || len(out[0].Media) != 1 || len(out[2].Media) != 1 || out[2].Media[0] != "media://generated" {
+		t.Fatalf("media lost: %+v", out)
+	}
+}
+
+func TestCompactActiveTurnHandlesOversizedUserRequest(t *testing.T) {
+	messages := []providers.Message{
+		{Role: "user", Content: strings.Repeat("original request ", 4000), Media: []string{"media://original"}},
+		{Role: "assistant", ToolCalls: []providers.ToolCall{{ID: "call"}}},
+		{Role: "tool", ToolCallID: "call", Content: strings.Repeat("tool result ", 1000)},
+	}
+	out, err := compactActiveTurn(context.Background(), &sequenceProvider{}, "test", messages, 0, 1000, 100, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 2 || out[0].Role != "user" || !strings.Contains(out[0].Content, "Summary of the original request") || len(out[1].Media) != 1 {
+		t.Fatalf("unexpected summary: %+v", out)
+	}
+	if len(messages[0].Content) < 10000 {
+		t.Fatal("original request was modified")
+	}
+}
 
 func TestFitActiveTurnPreservesToolSequence(t *testing.T) {
 	messages := []providers.Message{

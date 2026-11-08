@@ -41,14 +41,57 @@ const (
 // Scope is stored as raw JSON so pkg/memory can stay decoupled from the
 // higher-level session package while still preserving structured scope data.
 type SessionMeta struct {
-	Key       string          `json:"key"`
-	Summary   string          `json:"summary"`
-	Skip      int             `json:"skip"`
-	Count     int             `json:"count"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
-	Scope     json.RawMessage `json:"scope,omitempty"`
-	Aliases   []string        `json:"aliases,omitempty"`
+	Key         string            `json:"key"`
+	Summary     string            `json:"summary"`
+	Skip        int               `json:"skip"`
+	Count       int               `json:"count"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+	Scope       json.RawMessage   `json:"scope,omitempty"`
+	Turn        json.RawMessage   `json:"turn,omitempty"`
+	TurnHistory []json.RawMessage `json:"turn_history,omitempty"`
+	Aliases     []string          `json:"aliases,omitempty"`
+}
+
+// SetTurn stores the latest durable turn checkpoint alongside session metadata.
+func (s *JSONLStore) SetTurn(_ context.Context, key string, turn json.RawMessage) error {
+	l := s.sessionLock(key)
+	l.Lock()
+	defer l.Unlock()
+	meta, err := s.readMeta(key)
+	if err != nil {
+		return err
+	}
+	var old, next struct {
+		TurnID string `json:"turn_id"`
+	}
+	if len(meta.Turn) > 0 {
+		if err := json.Unmarshal(meta.Turn, &old); err != nil {
+			return err
+		}
+		if err := json.Unmarshal(turn, &next); err != nil {
+			return err
+		}
+		if old.TurnID != "" && old.TurnID != next.TurnID {
+			meta.TurnHistory = append(meta.TurnHistory, cloneRawJSON(meta.Turn))
+		}
+	}
+	meta.Turn = cloneRawJSON(turn)
+	meta.UpdatedAt = time.Now()
+	return s.writeMeta(key, meta)
+}
+
+func (s *JSONLStore) ClearTurns(_ context.Context, key string) error {
+	l := s.sessionLock(key)
+	l.Lock()
+	defer l.Unlock()
+	meta, err := s.readMeta(key)
+	if err != nil {
+		return err
+	}
+	meta.Turn = nil
+	meta.TurnHistory = nil
+	return s.writeMeta(key, meta)
 }
 
 // JSONLStore implements Store using append-only JSONL files.
@@ -194,6 +237,7 @@ func (s *JSONLStore) GetSessionMeta(_ context.Context, sessionKey string) (Sessi
 		return SessionMeta{}, err
 	}
 	meta.Scope = cloneRawJSON(meta.Scope)
+	meta.Turn = cloneRawJSON(meta.Turn)
 	if len(meta.Aliases) > 0 {
 		meta.Aliases = append([]string(nil), meta.Aliases...)
 	}

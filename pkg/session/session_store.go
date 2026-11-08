@@ -1,6 +1,84 @@
 package session
 
-import "github.com/sipeed/picoclaw/pkg/providers"
+import (
+	"time"
+
+	"github.com/sipeed/picoclaw/pkg/providers"
+)
+
+type TurnCheckpoint struct {
+	TurnID    string                `json:"turn_id"`
+	Status    string                `json:"status"`
+	Iteration int                   `json:"iteration"`
+	Tool      string                `json:"tool,omitempty"`
+	Events    []TurnCheckpointEvent `json:"events,omitempty"`
+}
+
+type TurnCheckpointEvent struct {
+	Status    string         `json:"status"`
+	Iteration int            `json:"iteration"`
+	Tool      string         `json:"tool,omitempty"`
+	At        time.Time      `json:"at"`
+	Plan      []TurnPlanStep `json:"plan,omitempty"`
+}
+
+type TurnPlanStep struct {
+	Text   string `json:"text"`
+	Status string `json:"status"`
+}
+
+type TurnCheckpointStore interface {
+	SetTurnCheckpoint(string, TurnCheckpoint) error
+	GetTurnCheckpoint(string) (TurnCheckpoint, error)
+	ClearTurnCheckpoints(string) error
+}
+
+// CheckedStore exposes persistence errors to execution-critical checkpoints.
+type CheckedStore interface {
+	AddFullMessageChecked(string, providers.Message) error
+	GetHistoryChecked(string) ([]providers.Message, error)
+	GetSummaryChecked(string) (string, error)
+	SetHistoryChecked(string, []providers.Message) error
+	SetSummaryChecked(string, string) error
+}
+
+func SetHistoryChecked(store SessionStore, key string, history []providers.Message) error {
+	if checked, ok := store.(CheckedStore); ok {
+		return checked.SetHistoryChecked(key, history)
+	}
+	store.SetHistory(key, history)
+	return nil
+}
+
+func SetSummaryChecked(store SessionStore, key, summary string) error {
+	if checked, ok := store.(CheckedStore); ok {
+		return checked.SetSummaryChecked(key, summary)
+	}
+	store.SetSummary(key, summary)
+	return nil
+}
+
+func AppendChecked(store SessionStore, key string, msg providers.Message) error {
+	if checked, ok := store.(CheckedStore); ok {
+		return checked.AddFullMessageChecked(key, msg)
+	}
+	store.AddFullMessage(key, msg)
+	return nil
+}
+
+func HistoryChecked(store SessionStore, key string) ([]providers.Message, error) {
+	if checked, ok := store.(CheckedStore); ok {
+		return checked.GetHistoryChecked(key)
+	}
+	return store.GetHistory(key), nil
+}
+
+func SummaryChecked(store SessionStore, key string) (string, error) {
+	if checked, ok := store.(CheckedStore); ok {
+		return checked.GetSummaryChecked(key)
+	}
+	return store.GetSummary(key), nil
+}
 
 // SessionStore defines the persistence operations used by the agent loop.
 // Both SessionManager (legacy JSON backend) and JSONLBackend satisfy this

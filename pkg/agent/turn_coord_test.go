@@ -79,6 +79,25 @@ func TestRunTurnDoesNotExecuteToolWhenCheckpointFails(t *testing.T) {
 
 type failingAssembleContextManager struct{ noopContextManager }
 
+type failingIngestContextManager struct{ noopContextManager }
+
+func (*failingIngestContextManager) Ingest(context.Context, *IngestRequest) error {
+	return errors.New("context write failed")
+}
+
+func TestRunTurnReturnsContextIngestError(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+	al.contextManager = &failingIngestContextManager{}
+	opts := makeTestProcessOpts("ingest-error")
+	opts.Dispatch = DispatchRequest{SessionKey: "ingest-error", UserMessage: "hello"}
+	ts := newTurnState(agent, opts, turnEventScope{turnID: "ingest-error", context: newTurnContext(nil, nil, nil)})
+	_, err := al.runTurn(context.Background(), ts, NewPipeline(al))
+	if err == nil || !strings.Contains(err.Error(), "context write failed") {
+		t.Fatalf("expected ingest error, got %v", err)
+	}
+}
+
 func (*failingAssembleContextManager) Assemble(context.Context, *AssembleRequest) (*AssembleResponse, error) {
 	return nil, errors.New("history unavailable")
 }
@@ -1043,6 +1062,25 @@ func TestRunTurn_SimpleConversation(t *testing.T) {
 	}
 	if result.finalContent == "" {
 		t.Error("expected non-empty finalContent")
+	}
+}
+
+func TestRunTurnPersistsLifecycleCheckpoint(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+	opts := makeTestProcessOpts("checkpoint-lifecycle")
+	opts.Dispatch = DispatchRequest{SessionKey: "checkpoint-lifecycle", UserMessage: "hello"}
+	ts := newTurnState(agent, opts, turnEventScope{turnID: "checkpoint-lifecycle", context: newTurnContext(nil, nil, nil)})
+	if _, err := al.runTurn(context.Background(), ts, NewPipeline(al)); err != nil {
+		t.Fatal(err)
+	}
+	store, ok := agent.Sessions.(session.TurnCheckpointStore)
+	if !ok {
+		t.Fatal("session store does not support checkpoints")
+	}
+	checkpoint, err := store.GetTurnCheckpoint(ts.sessionKey)
+	if err != nil || checkpoint.Status != "completed" || checkpoint.TurnID != ts.turnID || len(checkpoint.Events) < 3 {
+		t.Fatalf("checkpoint = %+v, err = %v", checkpoint, err)
 	}
 }
 

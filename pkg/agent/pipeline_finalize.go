@@ -4,10 +4,12 @@ package agent
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/session"
 )
 
 // Finalize handles turn finalization, either:
@@ -48,9 +50,13 @@ func (p *Pipeline) Finalize(
 			ModelName:        exec.llmModelName,
 			ReasoningContent: responseReasoningContent(exec.response),
 		}
-		ts.agent.Sessions.AddFullMessage(ts.sessionKey, finalMsg)
+		if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, finalMsg); err != nil {
+			return turnResult{status: TurnEndStatusError}, fmt.Errorf("write final message: %w", err)
+		}
 		ts.recordPersistedMessage(finalMsg)
-		ts.ingestMessage(turnCtx, al, finalMsg)
+		if err := ts.ingestMessage(turnCtx, al, finalMsg); err != nil {
+			return turnResult{status: TurnEndStatusError}, err
+		}
 		if err := ts.agent.Sessions.Save(ts.sessionKey); err != nil {
 			al.emitEvent(
 				runtimeevents.KindAgentError,

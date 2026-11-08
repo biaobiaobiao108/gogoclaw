@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/session"
 	"github.com/sipeed/picoclaw/pkg/tools"
@@ -407,26 +407,38 @@ func (al *AgentLoop) GetActiveTurnByConversation(channel, chatID string) *Active
 }
 
 // ConversationInterrupted reports whether persisted history ends in an unfinished turn.
-func (al *AgentLoop) ConversationInterrupted(channel, chatID, senderID string) bool {
+func (al *AgentLoop) ConversationInterrupted(channel, chatID, senderID string) (bool, error) {
 	msg := bus.InboundMessage{
 		Channel: channel, ChatID: chatID, SenderID: senderID,
 		Context: bus.InboundContext{Channel: channel, ChatID: chatID, SenderID: senderID, ChatType: "direct"},
 	}
 	key, agentID, ok := al.resolveSteeringTarget(msg)
 	if !ok {
-		return false
+		return false, nil
 	}
 	agent, ok := al.registry.GetAgent(agentID)
 	if !ok || agent.Sessions == nil {
-		return false
+		return false, nil
 	}
-	history := agent.Sessions.GetHistory(key)
+	if store, ok := agent.Sessions.(session.TurnCheckpointStore); ok {
+		checkpoint, err := store.GetTurnCheckpoint(key)
+		if err != nil {
+			return false, err
+		}
+		if checkpoint.Status != "" {
+			return checkpoint.Status != "completed", nil
+		}
+	}
+	history, err := session.HistoryChecked(agent.Sessions, key)
+	if err != nil {
+		return false, err
+	}
 	if len(history) == 0 {
-		return false
+		return false, nil
 	}
 	last := history[len(history)-1]
 	return last.Role == "user" || last.Role == "tool" ||
-		(last.Role == "assistant" && (len(last.ToolCalls) > 0 || strings.HasPrefix(last.Content, "Task stopped. Completed work is retained;")))
+		(last.Role == "assistant" && (len(last.ToolCalls) > 0 || strings.HasPrefix(last.Content, "Task stopped. Completed work is retained;"))), nil
 }
 
 // =============================================================================
@@ -730,21 +742,18 @@ func (ts *turnState) persistedMessagesSnapshot() []providers.Message {
 	return append([]providers.Message(nil), ts.persistedMessages...)
 }
 
-// ingestMessage calls the ContextManager's Ingest method for a persisted message.
-// Errors are logged but never block the turn.
-func (ts *turnState) ingestMessage(ctx context.Context, al *AgentLoop, msg providers.Message) {
+// ingestMessage records a persisted message in the configured context manager.
+func (ts *turnState) ingestMessage(ctx context.Context, al *AgentLoop, msg providers.Message) error {
 	if al.contextManager == nil {
-		return
+		return nil
 	}
 	if err := al.contextManager.Ingest(ctx, &IngestRequest{
 		SessionKey: ts.sessionKey,
 		Message:    msg,
 	}); err != nil {
-		logger.WarnCF("agent", "Context manager ingest failed", map[string]any{
-			"session_key": ts.sessionKey,
-			"error":       err.Error(),
-		})
+		return fmt.Errorf("context manager ingest: %w", err)
 	}
+	return nil
 }
 
 func matchingTurnMessageTail(history, persisted []providers.Message) int {

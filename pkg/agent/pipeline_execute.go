@@ -16,6 +16,7 @@ import (
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/session"
 	"github.com/sipeed/picoclaw/pkg/tools"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
@@ -152,13 +153,19 @@ toolLoop:
 			}
 			messages = append(messages, deniedMsg)
 			if !ts.opts.NoHistory {
-				ts.agent.Sessions.AddFullMessage(ts.sessionKey, deniedMsg)
+				if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, deniedMsg); err != nil {
+					exec.executionErr = fmt.Errorf("write denied tool result: %w", err)
+					return true
+				}
 				ts.recordPersistedMessage(deniedMsg)
 			}
 			return true
 		}
 
 		if denyByTurnProfile() {
+			if exec.executionErr != nil {
+				return ToolControlBreak
+			}
 			continue
 		}
 
@@ -327,9 +334,15 @@ toolLoop:
 
 					messages = append(messages, toolResultMsg)
 					if !ts.opts.NoHistory {
-						ts.agent.Sessions.AddFullMessage(ts.sessionKey, toolResultMsg)
+						if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, toolResultMsg); err != nil {
+							exec.executionErr = fmt.Errorf("write tool result: %w", err)
+							return ToolControlBreak
+						}
 						ts.recordPersistedMessage(toolResultMsg)
-						ts.ingestMessage(turnCtx, al, toolResultMsg)
+						if err := ts.ingestMessage(turnCtx, al, toolResultMsg); err != nil {
+							exec.executionErr = err
+							return ToolControlBreak
+						}
 						if err := ts.agent.Sessions.Save(ts.sessionKey); err != nil {
 							exec.executionErr = fmt.Errorf("save tool result: %w", err)
 							return ToolControlBreak
@@ -377,7 +390,10 @@ toolLoop:
 								}
 								messages = append(messages, skippedMsg)
 								if !ts.opts.NoHistory {
-									ts.agent.Sessions.AddFullMessage(ts.sessionKey, skippedMsg)
+									if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, skippedMsg); err != nil {
+										exec.executionErr = fmt.Errorf("write skipped tool result: %w", err)
+										return ToolControlBreak
+									}
 									ts.recordPersistedMessage(skippedMsg)
 								}
 							}
@@ -393,7 +409,10 @@ toolLoop:
 								msg := subTurnResultPromptMessage(content)
 								messages = append(messages, msg)
 								if !ts.opts.NoHistory {
-									ts.agent.Sessions.AddFullMessage(ts.sessionKey, msg)
+									if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, msg); err != nil {
+										exec.executionErr = fmt.Errorf("write subtask result: %w", err)
+										return ToolControlBreak
+									}
 								}
 							}
 						default:
@@ -426,7 +445,10 @@ toolLoop:
 				}
 				messages = append(messages, deniedMsg)
 				if !ts.opts.NoHistory {
-					ts.agent.Sessions.AddFullMessage(ts.sessionKey, deniedMsg)
+					if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, deniedMsg); err != nil {
+						exec.executionErr = fmt.Errorf("write denied tool result: %w", err)
+						return ToolControlBreak
+					}
 					ts.recordPersistedMessage(deniedMsg)
 				}
 				continue
@@ -465,7 +487,10 @@ toolLoop:
 				}
 				messages = append(messages, deniedMsg)
 				if !ts.opts.NoHistory {
-					ts.agent.Sessions.AddFullMessage(ts.sessionKey, deniedMsg)
+					if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, deniedMsg); err != nil {
+						exec.executionErr = fmt.Errorf("write denied tool result: %w", err)
+						return ToolControlBreak
+					}
 					ts.recordPersistedMessage(deniedMsg)
 				}
 				continue
@@ -473,6 +498,9 @@ toolLoop:
 		}
 
 		if denyByTurnProfile() {
+			if exec.executionErr != nil {
+				return ToolControlBreak
+			}
 			continue
 		}
 
@@ -558,6 +586,12 @@ toolLoop:
 		}
 
 		toolStart := time.Now()
+		if !ts.opts.NoHistory {
+			if err := ts.saveTurnCheckpoint("running", toolName); err != nil {
+				exec.executionErr = fmt.Errorf("save tool checkpoint: %w", err)
+				return ToolControlBreak
+			}
+		}
 		execCtx := tools.WithToolInboundContext(
 			turnCtx,
 			ts.channel,
@@ -726,11 +760,21 @@ toolLoop:
 		)
 		messages = append(messages, toolResultMsg)
 		if !ts.opts.NoHistory {
-			ts.agent.Sessions.AddFullMessage(ts.sessionKey, toolResultMsg)
+			if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, toolResultMsg); err != nil {
+				exec.executionErr = fmt.Errorf("write tool result: %w", err)
+				return ToolControlBreak
+			}
 			ts.recordPersistedMessage(toolResultMsg)
-			ts.ingestMessage(turnCtx, al, toolResultMsg)
+			if err := ts.ingestMessage(turnCtx, al, toolResultMsg); err != nil {
+				exec.executionErr = err
+				return ToolControlBreak
+			}
 			if err := ts.agent.Sessions.Save(ts.sessionKey); err != nil {
 				exec.executionErr = fmt.Errorf("save tool result: %w", err)
+				return ToolControlBreak
+			}
+			if err := ts.saveTurnCheckpoint("running", ""); err != nil {
+				exec.executionErr = fmt.Errorf("save tool checkpoint: %w", err)
 				return ToolControlBreak
 			}
 		}
@@ -776,7 +820,10 @@ toolLoop:
 					}
 					messages = append(messages, skippedMsg)
 					if !ts.opts.NoHistory {
-						ts.agent.Sessions.AddFullMessage(ts.sessionKey, skippedMsg)
+						if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, skippedMsg); err != nil {
+							exec.executionErr = fmt.Errorf("write skipped tool result: %w", err)
+							return ToolControlBreak
+						}
 						ts.recordPersistedMessage(skippedMsg)
 					}
 				}
@@ -792,7 +839,10 @@ toolLoop:
 					msg := subTurnResultPromptMessage(content)
 					messages = append(messages, msg)
 					if !ts.opts.NoHistory {
-						ts.agent.Sessions.AddFullMessage(ts.sessionKey, msg)
+						if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, msg); err != nil {
+							exec.executionErr = fmt.Errorf("write subtask result: %w", err)
+							return ToolControlBreak
+						}
 					}
 				}
 			default:
@@ -836,15 +886,18 @@ toolLoop:
 			Attachments: append([]providers.Attachment(nil), handledAttachments...),
 		}
 		if !ts.opts.NoHistory {
-			ts.agent.Sessions.AddFullMessage(ts.sessionKey, summaryMsg)
+			if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, summaryMsg); err != nil {
+				exec.executionErr = fmt.Errorf("write delivered result: %w", err)
+				return ToolControlBreak
+			}
 			ts.recordPersistedMessage(summaryMsg)
-			ts.ingestMessage(turnCtx, al, summaryMsg)
+			if err := ts.ingestMessage(turnCtx, al, summaryMsg); err != nil {
+				exec.executionErr = err
+				return ToolControlBreak
+			}
 			if err := ts.agent.Sessions.Save(ts.sessionKey); err != nil {
-				logger.WarnCF("agent", "Failed to save session after tool delivery",
-					map[string]any{
-						"agent_id": ts.agent.ID,
-						"error":    err.Error(),
-					})
+				exec.executionErr = fmt.Errorf("save delivered result: %w", err)
+				return ToolControlBreak
 			}
 		}
 		if !ts.opts.NoHistory && ts.opts.EnableSummary {

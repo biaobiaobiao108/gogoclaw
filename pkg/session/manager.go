@@ -13,11 +13,43 @@ import (
 )
 
 type Session struct {
-	Key      string              `json:"key"`
-	Messages []providers.Message `json:"messages"`
-	Summary  string              `json:"summary,omitempty"`
-	Created  time.Time           `json:"created"`
-	Updated  time.Time           `json:"updated"`
+	Key         string              `json:"key"`
+	Messages    []providers.Message `json:"messages"`
+	Summary     string              `json:"summary,omitempty"`
+	Created     time.Time           `json:"created"`
+	Updated     time.Time           `json:"updated"`
+	Turn        TurnCheckpoint      `json:"turn,omitempty"`
+	TurnHistory []TurnCheckpoint    `json:"turn_history,omitempty"`
+}
+
+func (sm *SessionManager) SetTurnCheckpoint(key string, checkpoint TurnCheckpoint) error {
+	sm.GetOrCreate(key)
+	sm.mu.Lock()
+	if previous := sm.sessions[key].Turn; previous.TurnID != "" && previous.TurnID != checkpoint.TurnID {
+		sm.sessions[key].TurnHistory = append(sm.sessions[key].TurnHistory, previous)
+	}
+	sm.sessions[key].Turn = checkpoint
+	sm.mu.Unlock()
+	return sm.Save(key)
+}
+
+func (sm *SessionManager) GetTurnCheckpoint(key string) (TurnCheckpoint, error) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	if sess := sm.sessions[key]; sess != nil {
+		return sess.Turn, nil
+	}
+	return TurnCheckpoint{}, nil
+}
+
+func (sm *SessionManager) ClearTurnCheckpoints(key string) error {
+	sm.mu.Lock()
+	if sess := sm.sessions[key]; sess != nil {
+		sess.Turn = TurnCheckpoint{}
+		sess.TurnHistory = nil
+	}
+	sm.mu.Unlock()
+	return sm.Save(key)
 }
 
 type SessionManager struct {
@@ -213,10 +245,12 @@ func (sm *SessionManager) Save(key string) error {
 	}
 
 	snapshot := Session{
-		Key:     stored.Key,
-		Summary: stored.Summary,
-		Created: stored.Created,
-		Updated: stored.Updated,
+		Key:         stored.Key,
+		Summary:     stored.Summary,
+		Created:     stored.Created,
+		Updated:     stored.Updated,
+		Turn:        stored.Turn,
+		TurnHistory: append([]TurnCheckpoint(nil), stored.TurnHistory...),
 	}
 	if len(stored.Messages) > 0 {
 		snapshot.Messages = messageutil.FilterInvalidHistoryMessages(stored.Messages)

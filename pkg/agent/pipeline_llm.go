@@ -14,6 +14,7 @@ import (
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/session"
 )
 
 // CallLLM performs an LLM call with fallback support, hook invocation, and retry logic.
@@ -38,11 +39,15 @@ func (p *Pipeline) CallLLM(
 	exec.gracefulTerminal, _ = ts.gracefulInterruptRequested()
 	exec.providerToolDefs = ts.toolRegistry().ToProviderDefs()
 	exec.providerToolDefs = filterToolsByTurnProfile(exec.providerToolDefs, ts.profile)
-	if iteration > 1 {
+	if iteration >= 1 {
 		var fit bool
 		exec.messages, exec.currentTurnStart, fit = fitActiveTurn(exec.messages, exec.currentTurnStart, ts.agent.ContextWindow, exec.providerToolDefs, ts.agent.MaxTokens)
 		if !fit {
-			return ControlBreak, fmt.Errorf("active turn exceeds the context window; refusing to discard its tool results")
+			var compactErr error
+			exec.messages, compactErr = compactActiveTurn(turnCtx, exec.activeProvider, exec.activeModel, exec.messages, exec.currentTurnStart, ts.agent.ContextWindow, ts.agent.MaxTokens, exec.providerToolDefs)
+			if compactErr != nil {
+				return ControlBreak, compactErr
+			}
 		}
 	}
 
@@ -699,9 +704,13 @@ func (p *Pipeline) CallLLM(
 	}
 	exec.messages = append(exec.messages, assistantMsg)
 	if !ts.opts.NoHistory {
-		ts.agent.Sessions.AddFullMessage(ts.sessionKey, assistantMsg)
+		if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, assistantMsg); err != nil {
+			return ControlBreak, fmt.Errorf("save tool calls: %w", err)
+		}
 		ts.recordPersistedMessage(assistantMsg)
-		ts.ingestMessage(turnCtx, al, assistantMsg)
+		if err := ts.ingestMessage(turnCtx, al, assistantMsg); err != nil {
+			return ControlBreak, err
+		}
 		// Persist the intent before any tool runs. If the process stops after a
 		// side effect, recovery must be able to mark that call as uncertain.
 		if err := ts.agent.Sessions.Save(ts.sessionKey); err != nil {

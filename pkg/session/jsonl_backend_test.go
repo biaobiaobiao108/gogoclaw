@@ -1,6 +1,8 @@
 package session_test
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -10,6 +12,42 @@ import (
 	"github.com/sipeed/picoclaw/pkg/routing"
 	"github.com/sipeed/picoclaw/pkg/session"
 )
+
+type failingWriteStore struct{ memory.Store }
+
+func (s failingWriteStore) AddFullMessage(context.Context, string, providers.Message) error {
+	return errors.New("write failed")
+}
+
+type failingReadStore struct{ memory.Store }
+
+func (s failingReadStore) GetHistory(context.Context, string) ([]providers.Message, error) {
+	return nil, errors.New("read failed")
+}
+
+func TestCheckedAppendReturnsStorageError(t *testing.T) {
+	store, err := memory.NewJSONLStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	b := session.NewJSONLBackend(failingWriteStore{Store: store})
+	if err := session.AppendChecked(b, "session", providers.Message{Role: "user", Content: "hello"}); err == nil {
+		t.Fatal("expected storage error")
+	}
+}
+
+func TestCheckedHistoryReturnsStorageError(t *testing.T) {
+	store, err := memory.NewJSONLStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, err = session.HistoryChecked(session.NewJSONLBackend(failingReadStore{Store: store}), "session")
+	if err == nil {
+		t.Fatal("expected read error")
+	}
+}
 
 // Compile-time interface satisfaction checks.
 var (
@@ -42,6 +80,45 @@ func TestJSONLBackend_AddAndGetHistory(t *testing.T) {
 	}
 	if history[1].Role != "assistant" || history[1].Content != "hi" {
 		t.Errorf("msg[1] = %+v", history[1])
+	}
+}
+
+func TestTurnCheckpointPersistsAcrossReopen(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := session.NewJSONLBackend(store)
+	want := session.TurnCheckpoint{TurnID: "turn-1", Status: "running", Iteration: 3, Tool: "send", Events: []session.TurnCheckpointEvent{{Status: "running", Iteration: 3, Tool: "send"}}}
+	if err := b.SetTurnCheckpoint("session", want); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	got, err := session.NewJSONLBackend(store).GetTurnCheckpoint("session")
+	if err != nil || got.TurnID != want.TurnID || got.Tool != want.Tool || len(got.Events) != 1 {
+		t.Fatalf("checkpoint = %+v, err = %v", got, err)
+	}
+	if err := session.NewJSONLBackend(store).SetTurnCheckpoint("session", session.TurnCheckpoint{TurnID: "turn-2", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := store.GetSessionMeta(context.Background(), "session")
+	if err != nil || len(meta.TurnHistory) != 1 {
+		t.Fatalf("turn history = %+v, err = %v", meta.TurnHistory, err)
+	}
+	if err := session.NewJSONLBackend(store).ClearTurnCheckpoints("session"); err != nil {
+		t.Fatal(err)
+	}
+	meta, err = store.GetSessionMeta(context.Background(), "session")
+	if err != nil || len(meta.Turn) != 0 || len(meta.TurnHistory) != 0 {
+		t.Fatalf("turn history not cleared: %+v, err = %v", meta, err)
 	}
 }
 

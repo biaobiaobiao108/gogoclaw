@@ -12,9 +12,10 @@ import (
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/session"
 )
 
-func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipeline) (turnResult, error) {
+func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipeline) (result turnResult, retErr error) {
 	if ts != nil && ts.agent != nil && ts.agent.Tools != nil {
 		ts.tools = ts.agent.Tools.Clone()
 		ts.tools.Register(&turnPlanTool{turn: ts})
@@ -40,6 +41,22 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 	}
 
 	turnStatus := TurnEndStatusCompleted
+	if !ts.opts.NoHistory {
+		if err := ts.saveTurnCheckpoint("running", ""); err != nil {
+			return turnResult{}, fmt.Errorf("save turn checkpoint: %w", err)
+		}
+		defer func() {
+			status := "completed"
+			if turnStatus == TurnEndStatusAborted || result.finalContent == toolLimitResponse {
+				status = "interrupted"
+			} else if turnStatus == TurnEndStatusError || retErr != nil || result.status == "" {
+				status = "failed"
+			}
+			if err := ts.saveTurnCheckpoint(status, ""); err != nil && retErr == nil {
+				retErr = fmt.Errorf("save turn checkpoint: %w", err)
+			}
+		}()
+	}
 	defer func() {
 		attemptedSkills := ts.attemptedSkillsSnapshot()
 		skillContextSnapshots := ts.skillContextSnapshotsSnapshot()
@@ -111,6 +128,12 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		iteration := ts.currentIteration() + 1
 		ts.setIteration(iteration)
 		ts.setPhase(TurnPhaseRunning)
+		if !ts.opts.NoHistory {
+			if err := ts.saveTurnCheckpoint("running", ""); err != nil {
+				turnStatus = TurnEndStatusError
+				return turnResult{}, fmt.Errorf("save turn checkpoint: %w", err)
+			}
+		}
 
 		if iteration > 1 {
 			// For subsequent iterations, read from exec.pendingMessages which
@@ -166,9 +189,15 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 				messages = append(messages, resolvedPending[i])
 				totalContentLen += len(pm.Content)
 				if !ts.opts.NoHistory {
-					ts.agent.Sessions.AddFullMessage(ts.sessionKey, pm)
+					if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, pm); err != nil {
+						turnStatus = TurnEndStatusError
+						return turnResult{}, fmt.Errorf("write steering message: %w", err)
+					}
 					ts.recordPersistedMessage(pm)
-					ts.ingestMessage(turnCtx, al, pm)
+					if err := ts.ingestMessage(turnCtx, al, pm); err != nil {
+						turnStatus = TurnEndStatusError
+						return turnResult{}, err
+					}
 				}
 				logger.InfoCF("agent", "Injected steering message into context",
 					map[string]any{
@@ -292,11 +321,35 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		return al.abortTurn(ts)
 	}
 
-	result, err := pipeline.Finalize(ctx, turnCtx, ts, exec, turnStatus, finalContent)
+	result, err = pipeline.Finalize(ctx, turnCtx, ts, exec, turnStatus, finalContent)
 	if err != nil {
 		turnStatus = TurnEndStatusError
 	}
 	return result, err
+}
+
+func (ts *turnState) saveTurnCheckpoint(status, tool string) error {
+	store, ok := ts.agent.Sessions.(session.TurnCheckpointStore)
+	if !ok {
+		return nil
+	}
+	previous, err := store.GetTurnCheckpoint(ts.sessionKey)
+	if err != nil {
+		return err
+	}
+	checkpoint := session.TurnCheckpoint{TurnID: ts.turnID, Status: status, Iteration: ts.currentIteration(), Tool: tool}
+	if previous.TurnID == ts.turnID && !(status == "running" && checkpoint.Iteration == 0) {
+		checkpoint.Events = append(checkpoint.Events, previous.Events...)
+		if status == "failed" || status == "interrupted" {
+			checkpoint.Tool = previous.Tool
+		}
+	}
+	var plan []session.TurnPlanStep
+	for _, step := range ts.snapshot().Plan {
+		plan = append(plan, session.TurnPlanStep{Text: step.Text, Status: step.Status})
+	}
+	checkpoint.Events = append(checkpoint.Events, session.TurnCheckpointEvent{Status: status, Iteration: checkpoint.Iteration, Tool: checkpoint.Tool, At: time.Now().UTC(), Plan: plan})
+	return store.SetTurnCheckpoint(ts.sessionKey, checkpoint)
 }
 
 func (al *AgentLoop) abortTurn(ts *turnState) (turnResult, error) {
@@ -305,7 +358,10 @@ func (al *AgentLoop) abortTurn(ts *turnState) (turnResult, error) {
 		// Close any unfinished tool call with an explicitly uncertain result.
 		// A canceled tool may already have performed its side effect, so it must
 		// not be silently discarded or represented as safe to replay.
-		history := ts.agent.Sessions.GetHistory(ts.sessionKey)
+		history, err := session.HistoryChecked(ts.agent.Sessions, ts.sessionKey)
+		if err != nil {
+			return turnResult{}, fmt.Errorf("read interrupted turn: %w", err)
+		}
 		persisted := ts.persistedMessagesSnapshot()
 		_, activeHistory := splitHistoryForActiveTurn(history, persisted)
 		for i := len(activeHistory) - 1; i >= 0; i-- {
@@ -321,16 +377,24 @@ func (al *AgentLoop) abortTurn(ts *turnState) (turnResult, error) {
 			for _, call := range activeHistory[i].ToolCalls {
 				if !completed[call.ID] {
 					msg := providers.Message{Role: "tool", ToolCallID: call.ID, Content: "Task interrupted before this tool returned. Its effects are unknown; inspect the current state before retrying."}
-					ts.agent.Sessions.AddFullMessage(ts.sessionKey, msg)
-					ts.ingestMessage(context.Background(), al, msg)
+					if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, msg); err != nil {
+						return turnResult{}, fmt.Errorf("write interrupted tool result: %w", err)
+					}
+					if err := ts.ingestMessage(context.Background(), al, msg); err != nil {
+						return turnResult{}, err
+					}
 				}
 			}
 			break
 		}
 		if len(persisted) > 0 {
 			msg := providers.Message{Role: "assistant", Content: "Task stopped. Completed work is retained; unfinished tool effects may be unknown. Ask me to continue when ready."}
-			ts.agent.Sessions.AddFullMessage(ts.sessionKey, msg)
-			ts.ingestMessage(context.Background(), al, msg)
+			if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, msg); err != nil {
+				return turnResult{}, fmt.Errorf("write interrupted turn: %w", err)
+			}
+			if err := ts.ingestMessage(context.Background(), al, msg); err != nil {
+				return turnResult{}, err
+			}
 		}
 		if err := ts.agent.Sessions.Save(ts.sessionKey); err != nil {
 			al.emitEvent(
@@ -350,7 +414,10 @@ func (al *AgentLoop) abortTurn(ts *turnState) (turnResult, error) {
 // repairInterruptedToolCalls closes an incomplete trailing tool batch left by
 // an interrupted process before the next user-initiated turn starts.
 func (al *AgentLoop) repairInterruptedToolCalls(ctx context.Context, ts *turnState) error {
-	history := ts.agent.Sessions.GetHistory(ts.sessionKey)
+	history, err := session.HistoryChecked(ts.agent.Sessions, ts.sessionKey)
+	if err != nil {
+		return fmt.Errorf("read interrupted turn: %w", err)
+	}
 	i := len(history) - 1
 	completed := make(map[string]bool)
 	for i >= 0 && history[i].Role == "tool" {
@@ -366,8 +433,12 @@ func (al *AgentLoop) repairInterruptedToolCalls(ctx context.Context, ts *turnSta
 			continue
 		}
 		msg := providers.Message{Role: "tool", ToolCallID: call.ID, Content: "Execution was interrupted before this tool returned. Its effects are unknown; inspect the current state before retrying."}
-		ts.agent.Sessions.AddFullMessage(ts.sessionKey, msg)
-		ts.ingestMessage(ctx, al, msg)
+		if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, msg); err != nil {
+			return fmt.Errorf("write interrupted tool result: %w", err)
+		}
+		if err := ts.ingestMessage(ctx, al, msg); err != nil {
+			return err
+		}
 		repaired = true
 	}
 	content := "The previous task was interrupted after the recorded tool results. Inspect the current state before continuing."
@@ -375,8 +446,12 @@ func (al *AgentLoop) repairInterruptedToolCalls(ctx context.Context, ts *turnSta
 		content = "The previous task was interrupted. Unfinished tool effects may be unknown; inspect the current state before continuing."
 	}
 	msg := providers.Message{Role: "assistant", Content: content}
-	ts.agent.Sessions.AddFullMessage(ts.sessionKey, msg)
-	ts.ingestMessage(ctx, al, msg)
+	if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, msg); err != nil {
+		return fmt.Errorf("write interrupted turn: %w", err)
+	}
+	if err := ts.ingestMessage(ctx, al, msg); err != nil {
+		return err
+	}
 	if err := ts.agent.Sessions.Save(ts.sessionKey); err != nil {
 		return fmt.Errorf("save interrupted task history: %w", err)
 	}

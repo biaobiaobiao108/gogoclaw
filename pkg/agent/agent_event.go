@@ -5,15 +5,16 @@ package agent
 import (
 	"fmt"
 
+	"github.com/google/uuid"
+
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 )
 
 func (al *AgentLoop) newTurnEventScope(agentID, sessionKey string, turnCtx *TurnContext) turnEventScope {
-	seq := al.turnSeq.Add(1)
 	return turnEventScope{
 		agentID:    agentID,
 		sessionKey: sessionKey,
-		turnID:     fmt.Sprintf("%s-turn-%d", agentID, seq),
+		turnID:     fmt.Sprintf("%s-turn-%s", agentID, uuid.NewString()),
 		context:    cloneTurnContext(turnCtx),
 	}
 }

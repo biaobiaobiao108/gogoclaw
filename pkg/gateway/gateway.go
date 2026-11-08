@@ -460,7 +460,12 @@ func setupAndStartServices(
 				if turn == nil {
 					result := map[string]any{"active": false}
 					if includeRecovery {
-						result["interrupted"] = agentLoop.ConversationInterrupted(config.ChannelPico, chatID, "pico-user")
+						interrupted, err := agentLoop.ConversationInterrupted(config.ChannelPico, chatID, "pico-user")
+						if err != nil {
+							result["error"] = "Unable to read task recovery state"
+						} else {
+							result["interrupted"] = interrupted
+						}
 					}
 					return result
 				}

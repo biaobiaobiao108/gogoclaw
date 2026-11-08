@@ -10,6 +10,7 @@ import (
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/session"
 )
 
 // legacyContextManager wraps the existing summarization/compression logic
@@ -28,8 +29,14 @@ func (m *legacyContextManager) Assemble(_ context.Context, req *AssembleRequest)
 	if agent == nil {
 		return nil, fmt.Errorf("session agent not found for %q", req.SessionKey)
 	}
-	history := agent.Sessions.GetHistory(req.SessionKey)
-	summary := agent.Sessions.GetSummary(req.SessionKey)
+	history, err := session.HistoryChecked(agent.Sessions, req.SessionKey)
+	if err != nil {
+		return nil, fmt.Errorf("read session history: %w", err)
+	}
+	summary, err := session.SummaryChecked(agent.Sessions, req.SessionKey)
+	if err != nil {
+		return nil, fmt.Errorf("read session summary: %w", err)
+	}
 	return &AssembleResponse{
 		History: history,
 		Summary: summary,
@@ -40,7 +47,11 @@ func (m *legacyContextManager) Compact(_ context.Context, req *CompactRequest) e
 	switch req.Reason {
 	case ContextCompressReasonProactive, ContextCompressReasonRetry:
 		// Sync emergency compression — budget exceeded.
-		if result, ok := m.forceCompression(req.SessionKey); ok {
+		result, ok, err := m.forceCompression(req.SessionKey)
+		if err != nil {
+			return err
+		}
+		if ok {
 			m.al.emitEvent(
 				runtimeevents.KindAgentContextCompress,
 				m.al.newTurnEventScope("", req.SessionKey, nil).meta(0, "forceCompression", "turn.context.compress"),
@@ -69,8 +80,12 @@ func (m *legacyContextManager) Clear(_ context.Context, sessionKey string) error
 	if agent == nil || agent.Sessions == nil {
 		return fmt.Errorf("sessions not initialized")
 	}
-	agent.Sessions.SetHistory(sessionKey, []providers.Message{})
-	agent.Sessions.SetSummary(sessionKey, "")
+	if err := session.SetHistoryChecked(agent.Sessions, sessionKey, []providers.Message{}); err != nil {
+		return err
+	}
+	if err := session.SetSummaryChecked(agent.Sessions, sessionKey, ""); err != nil {
+		return err
+	}
 	return agent.Sessions.Save(sessionKey)
 }
 
@@ -114,15 +129,25 @@ type compressionResult struct {
 // forceCompression aggressively reduces context when the limit is hit.
 // It drops the oldest ~50% of Turns (a Turn is a complete user→LLM→response
 // cycle, as defined in #1316), so tool-call sequences are never split.
-func (m *legacyContextManager) forceCompression(sessionKey string) (compressionResult, bool) {
+func (m *legacyContextManager) forceCompression(sessionKey string) (compressionResult, bool, error) {
 	agent := m.al.agentForSession(sessionKey)
 	if agent == nil {
-		return compressionResult{}, false
+		return compressionResult{}, false, nil
 	}
 
-	history := agent.Sessions.GetHistory(sessionKey)
+	history, err := session.HistoryChecked(agent.Sessions, sessionKey)
+	if err != nil {
+		return compressionResult{}, false, err
+	}
+	var activeTail []providers.Message
+	if ts := m.al.getActiveTurnState(sessionKey); ts != nil {
+		history, activeTail = splitHistoryForActiveTurn(history, ts.persistedMessagesSnapshot())
+		if len(history) == 0 {
+			return compressionResult{}, false, nil
+		}
+	}
 	if len(history) <= 2 {
-		return compressionResult{}, false
+		return compressionResult{}, false, nil
 	}
 
 	turns := parseTurnBoundaries(history)
@@ -143,10 +168,14 @@ func (m *legacyContextManager) forceCompression(sessionKey string) (compressionR
 	} else {
 		keptHistory = history[mid:]
 	}
+	keptHistory = append(keptHistory, activeTail...)
 
-	droppedCount := len(history) - len(keptHistory)
+	droppedCount := len(history) + len(activeTail) - len(keptHistory)
 
-	existingSummary := agent.Sessions.GetSummary(sessionKey)
+	existingSummary, err := session.SummaryChecked(agent.Sessions, sessionKey)
+	if err != nil {
+		return compressionResult{}, false, err
+	}
 	compressionNote := fmt.Sprintf(
 		"[Emergency compression dropped %d oldest messages due to context limit]",
 		droppedCount,
@@ -154,10 +183,15 @@ func (m *legacyContextManager) forceCompression(sessionKey string) (compressionR
 	if existingSummary != "" {
 		compressionNote = existingSummary + "\n\n" + compressionNote
 	}
-	agent.Sessions.SetSummary(sessionKey, compressionNote)
-
-	agent.Sessions.SetHistory(sessionKey, keptHistory)
-	agent.Sessions.Save(sessionKey)
+	if err := session.SetSummaryChecked(agent.Sessions, sessionKey, compressionNote); err != nil {
+		return compressionResult{}, false, err
+	}
+	if err := session.SetHistoryChecked(agent.Sessions, sessionKey, keptHistory); err != nil {
+		return compressionResult{}, false, err
+	}
+	if err := agent.Sessions.Save(sessionKey); err != nil {
+		return compressionResult{}, false, err
+	}
 
 	logger.WarnCF("agent", "Forced compression executed", map[string]any{
 		"session_key":  sessionKey,
@@ -168,7 +202,7 @@ func (m *legacyContextManager) forceCompression(sessionKey string) (compressionR
 	return compressionResult{
 		DroppedMessages:   droppedCount,
 		RemainingMessages: len(keptHistory),
-	}, true
+	}, true, nil
 }
 
 func (m *legacyContextManager) summarizeSession(agent *AgentInstance, sessionKey string) {

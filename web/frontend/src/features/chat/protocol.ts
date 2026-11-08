@@ -109,6 +109,7 @@ export function handlePicoMessage(
 
   switch (message.type) {
     case "turn.status": {
+      if (typeof payload.error === "string") toast.error(payload.error)
       const active = payload.active === true
       updateChatStore({
         activeTurn: active
