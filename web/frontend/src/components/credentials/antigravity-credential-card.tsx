@@ -58,7 +58,7 @@ export function AntigravityCredentialCard({
         </div>
       }
       actions={
-        <div className="border-muted flex h-[120px] flex-col justify-center rounded-lg border p-3">
+        <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"

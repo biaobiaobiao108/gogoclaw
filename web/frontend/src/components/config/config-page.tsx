@@ -715,8 +715,8 @@ export function ConfigPage() {
           </Button>
         }
       />
-      <div className="flex-1 overflow-auto p-3 lg:p-6">
-        <div className="mx-auto w-full max-w-[1000px] space-y-6">
+      <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
+        <div className="mx-auto w-full max-w-4xl space-y-6">
           {isLoading ? (
             <div className="text-muted-foreground py-6 text-sm">
               {t("labels.loading")}
@@ -766,13 +766,12 @@ export function ConfigPage() {
         </div>
       </div>
       {isDirty && (
-        <div className="border-border/70 bg-background/95 supports-backdrop-filter:bg-background/80 shrink-0 border-t px-3 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.10)] backdrop-blur lg:px-6">
-          <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="border-border/70 bg-background/95 supports-backdrop-filter:bg-background/80 shrink-0 border-t px-3 py-3 backdrop-blur lg:px-6">
+          <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex-1">
               <ConfigChangeNotice
                 kind="save"
                 title={t("common.saveChangesTitle")}
-                description={t("pages.config.unsaved_changes")}
               />
             </div>
             {actionButtons}

@@ -44,7 +44,7 @@ export function CredentialsPage() {
     <div className="flex h-full flex-col">
       <PageHeader title={t("navigation.credentials")} />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6">
+      <div className="mx-auto min-h-0 w-full max-w-6xl flex-1 overflow-y-auto px-4 sm:px-6">
         <div className="pt-2">
           <p className="text-muted-foreground text-sm">
             {t("credentials.description")}
@@ -70,7 +70,7 @@ export function CredentialsPage() {
             {t("credentials.loading")}
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 py-5 lg:auto-rows-fr lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 py-5 xl:auto-rows-fr xl:grid-cols-3">
             <OpenAICredentialCard
               status={openaiStatus}
               activeAction={activeAction}

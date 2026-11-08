@@ -203,7 +203,7 @@ export function ModelCard({
         </div>
       </div>
 
-      <div className="border-border/40 flex items-center justify-between gap-2 border-t pt-2 text-xs">
+      <div className="flex items-center justify-between gap-2 pt-2 text-xs">
         <p className="text-muted-foreground truncate font-mono text-[11px]">
           {model.model}
         </p>

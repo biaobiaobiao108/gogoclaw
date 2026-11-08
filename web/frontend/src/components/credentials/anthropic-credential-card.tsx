@@ -50,7 +50,7 @@ export function AnthropicCredentialCard({
       status={status?.status ?? "not_logged_in"}
       authMethod={status?.auth_method}
       actions={
-        <div className="border-muted flex h-[120px] flex-col justify-center rounded-lg border p-3">
+        <div className="flex flex-col gap-3">
           <div className="flex h-full flex-col gap-3">
             <div className="flex h-full items-center gap-2">
               <Input

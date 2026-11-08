@@ -24,20 +24,20 @@ export function CredentialCard({
   footer,
 }: CredentialCardProps) {
   return (
-    <section className="bg-card flex h-full flex-col rounded-xl border p-4">
-      <div className="min-h-16">
+    <section className="bg-card flex h-full min-w-0 flex-col gap-4 rounded-lg border p-4">
+      <div className="space-y-1">
         <h3 className="text-base font-semibold">{title}</h3>
         <p className="text-muted-foreground mt-1 text-xs">{description}</p>
       </div>
 
       <ProviderStatusLine status={status} authMethod={authMethod} />
-      <div className="text-muted-foreground mt-3 min-h-11 text-xs leading-5">
-        {details}
-      </div>
+      {details && (
+        <div className="text-muted-foreground text-xs leading-5">{details}</div>
+      )}
 
-      <div className="mt-auto flex flex-col gap-4 pt-4">
-        <div className="min-h-[112px]">{actions}</div>
-        <div className="min-h-8">{footer}</div>
+      <div className="mt-auto flex flex-col gap-3 pt-2">
+        <div>{actions}</div>
+        {footer && <div>{footer}</div>}
       </div>
     </section>
   )

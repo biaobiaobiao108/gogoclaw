@@ -559,7 +559,7 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
         ) : (
           <div className="w-full max-w-4xl space-y-6 pt-5">
             {
-              <div className="bg-card text-card-foreground border-border/60 flex items-center justify-between rounded-xl border px-6 py-4 shadow-sm">
+              <div className="bg-card text-card-foreground border-border/60 flex items-center justify-between rounded-lg border px-4 py-4 shadow-none sm:px-6">
                 <p className="text-sm font-medium">
                   {t("channels.page.enableLabel")}
                 </p>
@@ -585,7 +585,7 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
               />
             )}
 
-            <div className="border-border/60 flex justify-end gap-2 border-t py-4">
+            <div className="flex justify-end gap-2 py-4">
               <Button
                 variant="outline"
                 onClick={handleReset}

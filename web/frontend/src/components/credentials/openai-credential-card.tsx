@@ -64,10 +64,10 @@ export function OpenAICredentialCard({
         ) : null
       }
       actions={
-        <div className="border-muted flex h-[120px] flex-col rounded-lg border p-3">
+        <div className="flex flex-col gap-3">
           <div className="flex h-full flex-col gap-3">
             <div className="min-h-8">
-              <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"
                   variant="outline"

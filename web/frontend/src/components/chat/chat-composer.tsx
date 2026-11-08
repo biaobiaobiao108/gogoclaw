@@ -172,7 +172,7 @@ export function ChatComposer({
           />
 
           {/* Action bar bottom */}
-          <div className="border-border/40 flex items-center justify-between border-t px-2.5 py-1.5">
+          <div className="flex items-center justify-between px-2.5 py-1.5">
             <div className="flex items-center gap-1">
               <Button
                 type="button"

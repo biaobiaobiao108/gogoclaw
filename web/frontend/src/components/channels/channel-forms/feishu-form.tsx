@@ -55,8 +55,8 @@ export function FeishuForm({
 
   return (
     <div className="space-y-6">
-      <Card className="py-3 shadow-sm">
-        <CardContent className="divide-border/60 divide-y px-6 py-0 [&>div]:py-5">
+      <Card className="py-6 shadow-none">
+        <CardContent className="space-y-6 px-4 py-0 sm:px-6">
           <Field
             label={t("channels.field.appId")}
             required
@@ -90,8 +90,8 @@ export function FeishuForm({
         </CardContent>
       </Card>
 
-      <Card className="py-3 shadow-sm">
-        <CardContent className="divide-border/60 divide-y px-6 py-0 [&>div]:py-5">
+      <Card className="py-6 shadow-none">
+        <CardContent className="space-y-6 px-4 py-0 sm:px-6">
           <Field
             label={t("channels.field.verificationToken")}
             hint={t("channels.form.desc.verificationToken")}
@@ -147,8 +147,8 @@ export function FeishuForm({
         </CardContent>
       </Card>
 
-      <Card className="py-3 shadow-sm">
-        <CardContent className="divide-border/60 divide-y px-6 py-0 [&>div]:py-5">
+      <Card className="py-6 shadow-none">
+        <CardContent className="space-y-6 px-4 py-0 sm:px-6">
           <div>
             <SwitchCardField
               label={t("channels.field.groupTriggerMentionOnly")}

@@ -265,7 +265,7 @@ export function GenericForm({
     <div className="space-y-6">
       {basicFields.length > 0 && (
         <Card className="shadow-sm">
-          <CardContent className="divide-border/60 divide-y px-6 py-0 [&>div]:py-5">
+          <CardContent className="space-y-6 px-4 py-0 sm:px-6">
             {basicFields.map(renderField)}
           </CardContent>
         </Card>
@@ -273,7 +273,7 @@ export function GenericForm({
 
       {hasAdvancedContent && (
         <Card className="shadow-sm">
-          <CardContent className="divide-border/60 divide-y px-6 py-0 [&>div]:py-5">
+          <CardContent className="space-y-6 px-4 py-0 sm:px-6">
             {advancedFields.map(renderField)}
 
             {config.allow_from !== undefined &&

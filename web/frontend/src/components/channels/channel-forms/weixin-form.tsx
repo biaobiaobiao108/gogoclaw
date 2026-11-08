@@ -319,7 +319,7 @@ export function WeixinForm({
       </Card>
 
       <Card className="shadow-sm">
-        <CardContent className="divide-border/60 divide-y px-6 py-0 [&>div]:py-5">
+        <CardContent className="space-y-6 px-4 py-0 sm:px-6">
           <ChannelArrayListField
             label={t("channels.field.allowFrom")}
             hint={t("channels.form.desc.weixinAllowFrom")}

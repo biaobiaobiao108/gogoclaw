@@ -51,22 +51,10 @@ export function ToolLibraryTab({
   const { t } = useTranslation()
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-2 space-y-12 duration-500">
-      <div className="flex flex-col gap-6 pt-2 sm:flex-row sm:items-end sm:justify-between">
-        <div className="hidden max-w-sm space-y-2 md:block">
-          <h1 className="text-foreground/90 text-2xl font-semibold tracking-tight">
-            {t("pages.agent.tools.library_title", "Tool Library")}
-          </h1>
-          <p className="text-muted-foreground/80 text-[14px] leading-relaxed">
-            {t(
-              "pages.agent.tools.library_description",
-              "Browse and manage the toolset available to your AI agents.",
-            )}
-          </p>
-        </div>
-
-        <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center md:w-auto">
-          <div className="group relative flex-1 md:w-80">
+    <div className="animate-in fade-in slide-in-from-bottom-2 space-y-6 duration-500">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="group relative min-w-0 flex-1 sm:max-w-80">
             <IconSearch className="text-muted-foreground/60 group-focus-within:text-foreground/80 absolute top-1/2 left-3.5 size-4 -translate-y-1/2 transition-colors" />
             <Input
               type="text"
@@ -78,7 +66,7 @@ export function ToolLibraryTab({
                 "pages.agent.tools.search_placeholder",
                 "Search tools...",
               )}
-              className="bg-muted/40 hover:bg-muted/60 focus-visible:bg-background focus-visible:border-border/80 focus-visible:ring-foreground/5 h-11 w-full rounded-md border-transparent pl-10 shadow-none transition-[color,background-color,border-color,box-shadow] duration-[var(--motion-state)]"
+              className="bg-muted/40 hover:bg-muted/60 focus-visible:bg-background focus-visible:border-border/80 focus-visible:ring-foreground/5 h-9 w-full rounded-md border-transparent pl-10 shadow-none transition-[color,background-color,border-color,box-shadow] duration-[var(--motion-state)]"
               value={searchQuery}
               onChange={(event) => onSearchQueryChange(event.target.value)}
             />
@@ -124,15 +112,15 @@ export function ToolLibraryTab({
       ) : totalFilteredCount === 0 ? (
         <LibraryEmptyState allToolsCount={allTools.length} />
       ) : (
-        <div className="space-y-12">
+        <div className="space-y-3">
           {groupedTools.map(([category, items]) => (
-            <section key={category} className="space-y-6">
+            <section key={category} className="space-y-3">
               <div className="flex items-center">
-                <h3 className="text-foreground/90 text-lg font-semibold tracking-tight capitalize">
+                <h3 className="text-foreground/90 text-sm font-semibold tracking-tight capitalize">
                   {t(`pages.agent.tools.categories.${category}`, category)}
                 </h3>
               </div>
-              <div className="grid gap-5 lg:grid-cols-2">
+              <div className="grid gap-3 lg:grid-cols-2">
                 {items.map((tool) => (
                   <ToolCard
                     key={tool.name}
@@ -241,9 +229,9 @@ function ToolCard({
 
 function LibraryLoadingState() {
   return (
-    <div className="space-y-12">
+    <div className="space-y-3">
       {[1, 2].map((groupIndex) => (
-        <div key={groupIndex} className="space-y-6">
+        <div key={groupIndex} className="space-y-3">
           <Skeleton className="h-6 w-32 rounded-md" />
           <div className="grid gap-5 lg:grid-cols-2">
             {[1, 2].map((itemIndex) => (

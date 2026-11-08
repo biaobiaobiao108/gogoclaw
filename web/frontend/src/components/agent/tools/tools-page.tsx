@@ -48,7 +48,7 @@ export function ToolsPage() {
 
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-auto px-6 py-6 pb-20"
+        className="min-h-0 flex-1 overflow-auto px-4 py-6 pb-20 sm:px-6"
       >
         <div className="mx-auto w-full max-w-6xl">
           {activeTab === "library" ? (

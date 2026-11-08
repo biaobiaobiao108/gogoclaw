@@ -67,12 +67,12 @@ export function Field({
 
   if (layout === "setting-row") {
     return (
-      <div className="flex flex-col gap-4 py-4 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:items-center lg:gap-6">
+      <div className="grid grid-cols-1 gap-3 py-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)] md:items-start md:gap-x-6">
         <div className="w-full min-w-0">
           <FieldLabel
             id={labelId}
             htmlFor={`${generatedId}-control`}
-            className="leading-relaxed break-words whitespace-normal"
+            className="leading-5 break-words whitespace-normal"
           >
             {label}
             {required && <span className="text-destructive ml-1">*</span>}
@@ -87,17 +87,14 @@ export function Field({
           )}
         </div>
         <div
-          className={cn(
-            "w-full md:max-w-[28rem] md:justify-self-end",
-            controlClassName,
-          )}
+          className={cn("w-full min-w-0 md:max-w-[28rem]", controlClassName)}
         >
           {control}
         </div>
         {error && (
           <FieldDescription
             id={errorId}
-            className="text-destructive text-xs leading-normal lg:col-start-2 lg:justify-self-end"
+            className="text-destructive text-xs leading-normal md:col-start-2 md:justify-self-start"
           >
             {error}
           </FieldDescription>
@@ -219,7 +216,7 @@ export function SwitchCardField({
 }: SwitchCardFieldProps) {
   if (layout === "setting-row") {
     return (
-      <div className="flex flex-col gap-4 py-4 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:items-center lg:gap-6">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 py-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)] md:items-start md:gap-x-6">
         <div className="w-full min-w-0">
           <p className="text-sm leading-relaxed font-medium break-words whitespace-normal">
             {label}
@@ -230,7 +227,7 @@ export function SwitchCardField({
             </p>
           )}
         </div>
-        <div className="flex items-center md:justify-self-end">
+        <div className="flex items-center md:min-h-9">
           <Switch
             checked={checked}
             onCheckedChange={onCheckedChange}
@@ -239,12 +236,12 @@ export function SwitchCardField({
           />
         </div>
         {children && (
-          <div className="mt-1 flex w-full justify-end lg:col-start-2">
-            <div className="w-full md:max-w-[28rem]">{children}</div>
+          <div className="col-span-2 mt-1 flex w-full md:col-span-1 md:col-start-2">
+            <div className="w-full min-w-0 md:max-w-[28rem]">{children}</div>
           </div>
         )}
         {error && (
-          <p className="text-destructive text-xs leading-normal lg:col-start-2 lg:justify-self-end">
+          <p className="text-destructive col-span-2 text-xs leading-normal md:col-span-1 md:col-start-2 md:justify-self-start">
             {error}
           </p>
         )}

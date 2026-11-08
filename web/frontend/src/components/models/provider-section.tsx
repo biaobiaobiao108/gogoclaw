@@ -41,12 +41,12 @@ export function ProviderSection({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="border-border/60 hover:border-border flex w-full items-center justify-between border-b pb-2 text-left transition-colors"
+        className="hover:bg-muted/50 flex w-full items-center justify-between rounded-md py-2 text-left transition-colors"
         aria-expanded={open}
       >
         <div className="flex items-center gap-2">
           <ProviderIcon provider={provider} />
-          <span className="text-foreground text-xs font-semibold">
+          <span className="text-foreground text-sm font-semibold">
             {provider.label}
           </span>
           <span className="text-muted-foreground font-mono text-[11px]">

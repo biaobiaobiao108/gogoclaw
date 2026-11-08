@@ -54,12 +54,16 @@ function ConfigSectionCard({
 }: ConfigSectionCardProps) {
   return (
     <Card size="sm">
-      <CardHeader className="border-border border-b">
+      <CardHeader>
         <CardTitle>{title}</CardTitle>
-        {description && <CardDescription>{description}</CardDescription>}
+        {description && (
+          <CardDescription className="text-xs leading-5">
+            {description}
+          </CardDescription>
+        )}
       </CardHeader>
       <CardContent className="pt-0">
-        <div className="divide-border/70 divide-y">{children}</div>
+        <div className="space-y-2">{children}</div>
       </CardContent>
     </Card>
   )
@@ -562,10 +566,7 @@ export function MCPSection({
           >
             <div className="flex flex-col gap-3">
               {form.mcpServers.map((server) => (
-                <div
-                  key={server.id}
-                  className="border-border rounded-md border p-3"
-                >
+                <div key={server.id} className="bg-background rounded-lg p-4">
                   <div className="mb-3 flex items-center justify-between">
                     <div className="text-sm font-medium">
                       {server.name.trim() || t("pages.config.mcp_server_new")}

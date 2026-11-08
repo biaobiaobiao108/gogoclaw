@@ -59,7 +59,7 @@ export function TelegramForm({
   return (
     <div className="space-y-6">
       <Card className="shadow-sm">
-        <CardContent className="divide-border/60 divide-y px-6 py-0 [&>div]:py-5">
+        <CardContent className="space-y-6 px-4 py-0 sm:px-6">
           <Field
             label={t("channels.field.token")}
             required
@@ -92,7 +92,7 @@ export function TelegramForm({
       </Card>
 
       <Card className="shadow-sm">
-        <CardContent className="divide-border/60 divide-y px-6 py-0 [&>div]:py-5">
+        <CardContent className="space-y-6 px-4 py-0 sm:px-6">
           <Field
             label={t("channels.field.proxy")}
             hint={t("channels.form.desc.telegramProxy")}
