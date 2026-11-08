@@ -57,6 +57,26 @@ func TestRunTurnRepeatedFailuresStopToolExecution(t *testing.T) {
 	}
 }
 
+func TestRunTurnDoesNotExecuteToolWhenCheckpointFails(t *testing.T) {
+	provider := &sequenceProvider{responses: []*providers.LLMResponse{{ToolCalls: []providers.ToolCall{{
+		ID: "call", Name: "always_fail", Arguments: map[string]any{},
+	}}}}}
+	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+	agent.Tools.Register(&alwaysFailTool{})
+	agent.Sessions = &saveFailingSessionStore{SessionStore: agent.Sessions, err: errors.New("disk full")}
+	ts := newTurnState(agent, makeTestProcessOpts("checkpoint-error"), turnEventScope{
+		turnID: "checkpoint-error", context: newTurnContext(nil, nil, nil),
+	})
+	_, err := al.runTurn(context.Background(), ts, NewPipeline(al))
+	if err == nil || !strings.Contains(err.Error(), "disk full") {
+		t.Fatalf("expected checkpoint failure, got %v", err)
+	}
+	if len(ts.toolExecutionsSnapshot()) != 0 {
+		t.Fatal("tool ran after checkpoint failure")
+	}
+}
+
 type failingAssembleContextManager struct{ noopContextManager }
 
 func (*failingAssembleContextManager) Assemble(context.Context, *AssembleRequest) (*AssembleResponse, error) {
@@ -351,6 +371,39 @@ func makeTestProcessOpts(sessionKey string) processOptions {
 type saveFailingSessionStore struct {
 	session.SessionStore
 	err error
+}
+
+type secondSaveFailingStore struct {
+	session.SessionStore
+	calls int
+}
+
+func (s *secondSaveFailingStore) Save(key string) error {
+	s.calls++
+	if s.calls == 2 {
+		return errors.New("result checkpoint failed")
+	}
+	return s.SessionStore.Save(key)
+}
+
+func TestRunTurnStopsWhenToolResultCheckpointFails(t *testing.T) {
+	provider := &sequenceProvider{responses: []*providers.LLMResponse{{ToolCalls: []providers.ToolCall{{
+		ID: "call", Name: "always_fail", Arguments: map[string]any{},
+	}}}}}
+	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+	agent.Tools.Register(&alwaysFailTool{})
+	agent.Sessions = &secondSaveFailingStore{SessionStore: agent.Sessions}
+	ts := newTurnState(agent, makeTestProcessOpts("result-checkpoint-error"), turnEventScope{
+		turnID: "result-checkpoint-error", context: newTurnContext(nil, nil, nil),
+	})
+	_, err := al.runTurn(context.Background(), ts, NewPipeline(al))
+	if err == nil || !strings.Contains(err.Error(), "result checkpoint failed") {
+		t.Fatalf("expected checkpoint failure, got %v", err)
+	}
+	if provider.callCount != 1 {
+		t.Fatalf("model called again after save failure: %d", provider.callCount)
+	}
 }
 
 func (s *saveFailingSessionStore) Save(_ string) error {

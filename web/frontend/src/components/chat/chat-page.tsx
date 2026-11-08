@@ -91,6 +91,8 @@ export function ChatPage() {
     messages,
     connectionState,
     isTyping,
+    activeTurn,
+    interrupted,
     activeSessionId,
     contextUsage,
     sendMessage,
@@ -365,6 +367,29 @@ export function ChatPage() {
         onChange={handleImageSelection}
       />
 
+      {activeTurn && (
+        <div
+          role="status"
+          className="text-muted-foreground mx-auto w-full max-w-4xl px-4 pb-1 text-xs"
+        >
+          {t("chat.taskRunning", { iteration: activeTurn.iteration })}
+        </div>
+      )}
+      {interrupted && !activeTurn && !isTyping && canInput && (
+        <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 px-4 pb-2 text-xs">
+          <span className="text-muted-foreground">
+            {t("chat.taskInterrupted")}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => sendMessage({ content: t("chat.continuePrompt") })}
+          >
+            {t("chat.continueTask")}
+          </Button>
+        </div>
+      )}
       <ChatComposer
         input={input}
         attachments={attachments}
@@ -378,7 +403,7 @@ export function ChatPage() {
         onRemoveAttachment={handleRemoveAttachment}
         onSend={handleSend}
         onStop={() => sendMessage({ content: "/stop" })}
-        isRunning={isTyping}
+        isRunning={Boolean(activeTurn) || isTyping}
         onContextDetail={() => {
           if (sendMessage({ content: "/context", attachments: [] })) {
             setInput("")

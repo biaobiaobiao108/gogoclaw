@@ -108,6 +108,25 @@ export function handlePicoMessage(
   const payload = message.payload || {}
 
   switch (message.type) {
+    case "turn.status": {
+      const active = payload.active === true
+      updateChatStore({
+        activeTurn: active
+          ? {
+              turnId:
+                typeof payload.turn_id === "string" ? payload.turn_id : "",
+              phase: typeof payload.phase === "string" ? payload.phase : "",
+              iteration: Number(payload.iteration) || 0,
+            }
+          : undefined,
+        ...(typeof payload.interrupted === "boolean"
+          ? { interrupted: payload.interrupted }
+          : active
+            ? { interrupted: false }
+            : {}),
+      })
+      break
+    }
     case "message.create":
     case "media.create": {
       const messageId = (payload.message_id as string) || `pico-${Date.now()}`

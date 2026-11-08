@@ -451,6 +451,23 @@ func setupAndStartServices(
 	}
 
 	agentLoop.SetChannelManager(runningServices.ChannelManager)
+	if channel, ok := runningServices.ChannelManager.GetChannel(config.ChannelPico); ok {
+		if provider, ok := channel.(interface {
+			SetTurnStatusProvider(func(string, bool) map[string]any)
+		}); ok {
+			provider.SetTurnStatusProvider(func(chatID string, includeRecovery bool) map[string]any {
+				turn := agentLoop.GetActiveTurnByConversation(config.ChannelPico, chatID)
+				if turn == nil {
+					result := map[string]any{"active": false}
+					if includeRecovery {
+						result["interrupted"] = agentLoop.ConversationInterrupted(config.ChannelPico, chatID, "pico-user")
+					}
+					return result
+				}
+				return map[string]any{"active": true, "turn_id": turn.TurnID, "phase": turn.Phase, "iteration": turn.Iteration}
+			})
+		}
+	}
 	agentLoop.SetMediaStore(runningServices.MediaStore)
 
 	transcriber := asr.DetectTranscriber(cfg)

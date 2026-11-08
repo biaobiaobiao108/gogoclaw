@@ -4,8 +4,44 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
+
+func TestGetActiveTurnByConversationIsScoped(t *testing.T) {
+	al := &AgentLoop{}
+	al.activeTurnStates.Store("one", &turnState{turnID: "one", channel: "pico", chatID: "pico:one", phase: TurnPhaseRunning})
+	al.activeTurnStates.Store("two", &turnState{turnID: "two", channel: "pico", chatID: "pico:two", phase: TurnPhaseTools})
+	got := al.GetActiveTurnByConversation("pico", "pico:two")
+	if got == nil || got.TurnID != "two" || got.Phase != TurnPhaseTools {
+		t.Fatalf("unexpected snapshot: %+v", got)
+	}
+	if al.GetActiveTurnByConversation("pico", "pico:missing") != nil {
+		t.Fatal("unexpected status for another conversation")
+	}
+}
+
+func TestConversationInterruptedUsesRoutedSession(t *testing.T) {
+	al, _, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+	msg := bus.InboundMessage{
+		Channel: "pico", ChatID: "pico:one", SenderID: "pico-user",
+		Context: bus.InboundContext{Channel: "pico", ChatID: "pico:one", SenderID: "pico-user", ChatType: "direct"},
+	}
+	key, agentID, ok := al.resolveSteeringTarget(msg)
+	if !ok {
+		t.Fatal("could not resolve session")
+	}
+	agent, _ := al.registry.GetAgent(agentID)
+	agent.Sessions.AddFullMessage(key, providers.Message{Role: "assistant", ToolCalls: []providers.ToolCall{{ID: "pending"}}})
+	if !al.ConversationInterrupted("pico", "pico:one", "pico-user") {
+		t.Fatal("interrupted turn not detected")
+	}
+	agent.Sessions.AddFullMessage(key, providers.Message{Role: "assistant", Content: "finished"})
+	if al.ConversationInterrupted("pico", "pico:one", "pico-user") {
+		t.Fatal("finished turn detected as interrupted")
+	}
+}
 
 func TestMatchingTurnMessageTail_IgnoresInternalRuntimeFields(t *testing.T) {
 	history := []providers.Message{

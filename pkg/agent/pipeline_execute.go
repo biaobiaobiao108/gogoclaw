@@ -330,6 +330,10 @@ toolLoop:
 						ts.agent.Sessions.AddFullMessage(ts.sessionKey, toolResultMsg)
 						ts.recordPersistedMessage(toolResultMsg)
 						ts.ingestMessage(turnCtx, al, toolResultMsg)
+						if err := ts.agent.Sessions.Save(ts.sessionKey); err != nil {
+							exec.executionErr = fmt.Errorf("save tool result: %w", err)
+							return ToolControlBreak
+						}
 					}
 
 					if steerMsgs := al.dequeueSteeringMessagesForScope(ts.sessionKey); len(steerMsgs) > 0 {
@@ -725,6 +729,10 @@ toolLoop:
 			ts.agent.Sessions.AddFullMessage(ts.sessionKey, toolResultMsg)
 			ts.recordPersistedMessage(toolResultMsg)
 			ts.ingestMessage(turnCtx, al, toolResultMsg)
+			if err := ts.agent.Sessions.Save(ts.sessionKey); err != nil {
+				exec.executionErr = fmt.Errorf("save tool result: %w", err)
+				return ToolControlBreak
+			}
 		}
 
 		if steerMsgs := al.dequeueSteeringMessagesForScope(ts.sessionKey); len(steerMsgs) > 0 {

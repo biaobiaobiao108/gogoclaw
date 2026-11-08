@@ -243,6 +243,10 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 				messages = exec.messages
 				continue
 			case ToolControlBreak:
+				if exec.executionErr != nil {
+					turnStatus = TurnEndStatusError
+					return turnResult{}, exec.executionErr
+				}
 				// Hard abort: delegate to abortTurn (sets TurnEndStatusAborted)
 				if exec.abortedByHardAbort {
 					turnStatus = TurnEndStatusAborted

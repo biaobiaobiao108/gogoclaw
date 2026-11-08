@@ -36,6 +36,22 @@ func newTestPicoChannel(t *testing.T) *PicoChannel {
 	return ch
 }
 
+func TestTurnStatusUsesConnectionSession(t *testing.T) {
+	ch := newTestPicoChannel(t)
+	ch.SetTurnStatusProvider(func(chatID string, _ bool) map[string]any {
+		return map[string]any{"active": true, "chat": chatID}
+	})
+	conn, received, cleanup := newTestPicoWebSocket(t)
+	defer cleanup()
+	ch.handleMessage(&picoConn{conn: conn, sessionID: "own"}, PicoMessage{
+		Type: TypeTurnStatusGet, SessionID: "another", ID: "request",
+	})
+	msg := mustReceivePicoMessage(t, received)
+	if msg.Type != TypeTurnStatus || msg.SessionID != "own" || msg.Payload["chat"] != "pico:own" {
+		t.Fatalf("unexpected status response: %+v", msg)
+	}
+}
+
 func TestHandleMessageSend_ForwardsMessageMetadata(t *testing.T) {
 	msgBus := bus.NewMessageBus()
 	bc := &config.Channel{Type: config.ChannelPico, Enabled: true}

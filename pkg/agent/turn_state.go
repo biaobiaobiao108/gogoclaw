@@ -122,6 +122,7 @@ type turnExecution struct {
 
 	// Turn output
 	finalContent string
+	executionErr error
 
 	// Iteration tracking
 	iteration int
@@ -383,6 +384,47 @@ func (al *AgentLoop) GetActiveTurnBySession(sessionKey string) *ActiveTurnInfo {
 	}
 	info := ts.snapshot()
 	return &info
+}
+
+// GetActiveTurnByConversation finds the active root turn for a channel chat.
+func (al *AgentLoop) GetActiveTurnByConversation(channel, chatID string) *ActiveTurnInfo {
+	var found *ActiveTurnInfo
+	al.activeTurnStates.Range(func(_, value any) bool {
+		ts, ok := value.(*turnState)
+		if !ok {
+			return true
+		}
+		info := ts.snapshot()
+		if info.Depth == 0 && info.Channel == channel && info.ChatID == chatID {
+			found = &info
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+// ConversationInterrupted reports whether persisted history ends in an unfinished turn.
+func (al *AgentLoop) ConversationInterrupted(channel, chatID, senderID string) bool {
+	msg := bus.InboundMessage{
+		Channel: channel, ChatID: chatID, SenderID: senderID,
+		Context: bus.InboundContext{Channel: channel, ChatID: chatID, SenderID: senderID, ChatType: "direct"},
+	}
+	key, agentID, ok := al.resolveSteeringTarget(msg)
+	if !ok {
+		return false
+	}
+	agent, ok := al.registry.GetAgent(agentID)
+	if !ok || agent.Sessions == nil {
+		return false
+	}
+	history := agent.Sessions.GetHistory(key)
+	if len(history) == 0 {
+		return false
+	}
+	last := history[len(history)-1]
+	return last.Role == "user" || last.Role == "tool" ||
+		(last.Role == "assistant" && (len(last.ToolCalls) > 0 || strings.HasPrefix(last.Content, "Task stopped. Completed work is retained;")))
 }
 
 // =============================================================================

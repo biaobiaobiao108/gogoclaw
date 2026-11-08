@@ -31,6 +31,7 @@ let unsubscribeGateway: (() => void) | null = null
 let hydratePromise: Promise<void> | null = null
 let connectionGeneration = 0
 let reconnectTimer: number | null = null
+let turnStatusTimer: number | null = null
 let reconnectAttempts = 0
 let shouldMaintainConnection = false
 
@@ -89,6 +90,10 @@ function disconnectChatInternal({
 }) {
   connectionGeneration += 1
   clearReconnectTimer()
+  if (turnStatusTimer !== null) {
+    window.clearInterval(turnStatusTimer)
+    turnStatusTimer = null
+  }
 
   if (clearDesiredConnection) {
     shouldMaintainConnection = false
@@ -103,6 +108,8 @@ function disconnectChatInternal({
   updateChatStore({
     connectionState: "disconnected",
     isTyping: false,
+    activeTurn: undefined,
+    interrupted: false,
   })
 }
 
@@ -163,6 +170,23 @@ export async function connectChat() {
       }
       updateChatStore({ connectionState: "connected" })
       isConnecting = false
+      let firstStatusRequest = true
+      const requestTurnStatus = () => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(
+            JSON.stringify({
+              type: "turn.status.get",
+              payload: {
+                include_recovery:
+                  firstStatusRequest || Boolean(getChatState().activeTurn),
+              },
+            }),
+          )
+          firstStatusRequest = false
+        }
+      }
+      requestTurnStatus()
+      turnStatusTimer = window.setInterval(requestTurnStatus, 2000)
       const reconnected = reconnectAttempts > 0
       reconnectAttempts = 0
       // Reconcile messages produced while the socket was disconnected.
@@ -230,9 +254,14 @@ export async function connectChat() {
       }
       wsRef = null
       isConnecting = false
+      if (turnStatusTimer !== null) {
+        window.clearInterval(turnStatusTimer)
+        turnStatusTimer = null
+      }
       updateChatStore({
         connectionState: "disconnected",
         isTyping: false,
+        activeTurn: undefined,
       })
       scheduleReconnect(generation, sessionId)
     }
@@ -381,6 +410,7 @@ export function sendChatMessage({
       },
     ],
     isTyping: true,
+    interrupted: false,
   }))
 
   try {

@@ -695,6 +695,11 @@ func (p *Pipeline) CallLLM(
 		ts.agent.Sessions.AddFullMessage(ts.sessionKey, assistantMsg)
 		ts.recordPersistedMessage(assistantMsg)
 		ts.ingestMessage(turnCtx, al, assistantMsg)
+		// Persist the intent before any tool runs. If the process stops after a
+		// side effect, recovery must be able to mark that call as uncertain.
+		if err := ts.agent.Sessions.Save(ts.sessionKey); err != nil {
+			return ControlBreak, fmt.Errorf("save tool calls before execution: %w", err)
+		}
 	}
 	if shouldPublishPicoToolCallInterim {
 		al.publishPicoToolCallInterim(

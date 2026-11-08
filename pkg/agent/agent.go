@@ -185,8 +185,12 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 			// during turn setup. Each placeholder has a unique turnID to prevent
 			// cross-worker cleanup issues.
 			placeholder := &turnState{
-				turnID: makePendingTurnID(sessionKey, al.turnSeq.Add(1)),
-				phase:  TurnPhaseSetup,
+				turnID:     makePendingTurnID(sessionKey, al.turnSeq.Add(1)),
+				phase:      TurnPhaseSetup,
+				channel:    msg.Channel,
+				chatID:     msg.ChatID,
+				sessionKey: sessionKey,
+				agentID:    agentID,
 			}
 			if _, loaded := al.activeTurnStates.LoadOrStore(sessionKey, placeholder); loaded {
 				if al.tryHandleStopCommand(ctx, msg, sessionKey) {

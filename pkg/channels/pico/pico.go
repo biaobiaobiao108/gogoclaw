@@ -107,6 +107,12 @@ type PicoChannel struct {
 	deleteMessageFn    func(context.Context, string, string) error
 	// broadcastFn lets tests intercept outbound broadcasts. nil → broadcastToSession.
 	broadcastFn func(chatID string, msg PicoMessage) error
+	turnStatus  func(chatID string, includeRecovery bool) map[string]any
+}
+
+// SetTurnStatusProvider supplies a session-scoped snapshot for connected clients.
+func (c *PicoChannel) SetTurnStatusProvider(provider func(string, bool) map[string]any) {
+	c.turnStatus = provider
 }
 
 // NewPicoChannel creates a new Pico Protocol channel.
@@ -1179,6 +1185,16 @@ func (c *PicoChannel) handleMessage(pc *picoConn, msg PicoMessage) {
 		pong := newMessage(TypePong, nil)
 		pong.ID = msg.ID
 		pc.writeJSON(pong)
+	case TypeTurnStatusGet:
+		payload := map[string]any{"active": false}
+		if c.turnStatus != nil {
+			includeRecovery, _ := msg.Payload["include_recovery"].(bool)
+			payload = c.turnStatus("pico:"+pc.sessionID, includeRecovery)
+		}
+		status := newMessage(TypeTurnStatus, payload)
+		status.SessionID = pc.sessionID
+		status.ID = msg.ID
+		pc.writeJSON(status)
 
 	case TypeMessageSend:
 		c.handleMessageSend(pc, msg)
