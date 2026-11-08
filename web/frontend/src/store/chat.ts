@@ -38,7 +38,7 @@ export interface ChatToolCall {
 
 export type AssistantMessageKind = "normal" | "thought" | "tool_calls"
 export type MessageDeliveryStatus =
-  "sending" | "accepted" | "duplicate" | "failed"
+  "sending" | "accepted" | "duplicate" | "failed" | "unknown"
 
 export interface ChatMessage {
   id: string

@@ -25,6 +25,7 @@ import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { UserMessage } from "@/components/chat/user-message"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
+import { retryChatMessage } from "@/features/chat/controller"
 import {
   buildChatImageAttachments,
   CHAT_IMAGE_ACCEPT,
@@ -573,6 +574,11 @@ export function ChatPage() {
                       attachments={row.message.attachments}
                       timestamp={row.message.timestamp}
                       deliveryStatus={row.message.deliveryStatus}
+                      onRetry={
+                        connectionState === "connected"
+                          ? () => retryChatMessage(row.message.id)
+                          : undefined
+                      }
                     />
                   ))}
                 {row.kind === "typing" && <TypingIndicator />}

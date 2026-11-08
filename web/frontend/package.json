@@ -6,8 +6,8 @@
   "packageManager": "bun@1.4.4",
   "scripts": {
     "dev": "bun --bun vite",
-    "build": "bun --bun vite build && bun --bun tsc -b",
-    "build:backend": "bun --bun vite build --outDir ../backend/dist --emptyOutDir && bun --bun tsc -b && bun ./scripts/ensure-backend-gitkeep.ts",
+    "build": "bun --bun vite build && bun check -b",
+    "build:backend": "bun --bun vite build --outDir ../backend/dist --emptyOutDir && bun check -b && bun ./scripts/ensure-backend-gitkeep.ts",
     "preview": "bun --bun vite preview",
     "test": "bun test",
     "fmt": "bun fmt",
@@ -52,7 +52,6 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.2.1",
-    "typescript": "~7.0.2",
     "vite": "^8.3.6"
   }
 }

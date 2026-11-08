@@ -925,6 +925,9 @@ func (ts *turnState) interruptHintMessage() providers.Message {
 
 // Finish marks the turn as finished and closes the pendingResults channel
 func (ts *turnState) Finish(isHardAbort bool) {
+	if isHardAbort {
+		ts.requestHardAbort()
+	}
 	ts.isFinished.Store(true)
 	if isHardAbort {
 		ts.finishRunningActivities("effects_unknown", "The turn was stopped before the tool result could be verified.")

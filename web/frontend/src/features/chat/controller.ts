@@ -31,6 +31,7 @@ let reconnectTimer: number | null = null
 let turnStatusTimer: number | null = null
 let reconnectAttempts = 0
 let shouldMaintainConnection = false
+let sessionSelectionGeneration = 0
 
 function clearReconnectTimer() {
   if (reconnectTimer !== null) {
@@ -109,6 +110,13 @@ function disconnectChatInternal({
     pendingApproval: undefined,
     interrupted: false,
   })
+  updateChatStore((prev) => ({
+    messages: prev.messages.map((message) =>
+      message.deliveryStatus === "sending"
+        ? { ...message, deliveryStatus: "unknown" }
+        : message,
+    ),
+  }))
 }
 
 export async function connectChat() {
@@ -274,6 +282,13 @@ export async function connectChat() {
         isTyping: false,
         activeTurn: undefined,
       })
+      updateChatStore((prev) => ({
+        messages: prev.messages.map((message) =>
+          message.deliveryStatus === "sending"
+            ? { ...message, deliveryStatus: "unknown" }
+            : message,
+        ),
+      }))
       scheduleReconnect(generation, sessionId)
     }
 
@@ -476,6 +491,35 @@ export function sendChatMessage({
   }
 }
 
+export function retryChatMessage(id: string) {
+  const message = getChatState().messages.find((item) => item.id === id)
+  if (!message || !wsRef || wsRef.readyState !== WebSocket.OPEN) return false
+  try {
+    wsRef.send(
+      JSON.stringify({
+        type: "message.send",
+        id,
+        payload: {
+          content: message.content,
+          media: (message.attachments ?? [])
+            .filter((item) => item.type === "image")
+            .map((item) => item.url),
+        },
+      }),
+    )
+    updateChatStore((prev) => ({
+      messages: prev.messages.map((item) =>
+        item.id === id ? { ...item, deliveryStatus: "sending" } : item,
+      ),
+    }))
+    return true
+  } catch (error) {
+    console.error("Failed to retry pico message:", error)
+    toast.error(i18n.t("chat.deliveryRetryFailed"))
+    return false
+  }
+}
+
 export async function loadOlderChatHistory(): Promise<boolean> {
   const state = getChatState()
   if (
@@ -553,13 +597,17 @@ export function respondToApproval({
 }
 
 export async function switchChatSession(sessionId: string) {
+  const selection = ++sessionSelectionGeneration
   if (sessionId === activeSessionIdRef) {
+    updateChatStore({ isHistoryLoading: false })
     return
   }
 
   try {
     updateChatStore({ isHistoryLoading: true })
     const history = await loadSessionHistory(sessionId)
+
+    if (selection !== sessionSelectionGeneration) return
 
     disconnectChatInternal({ clearDesiredConnection: false })
     setActiveSessionId(sessionId)
@@ -581,6 +629,7 @@ export async function switchChatSession(sessionId: string) {
       await connectChat()
     }
   } catch (error) {
+    if (selection !== sessionSelectionGeneration) return
     updateChatStore({ isHistoryLoading: false })
     console.error("Failed to load session history:", error)
     toast.error(i18n.t("chat.historyOpenFailed"))
@@ -588,7 +637,9 @@ export async function switchChatSession(sessionId: string) {
 }
 
 export async function newChatSession() {
+  sessionSelectionGeneration += 1
   if (getChatState().messages.length === 0) {
+    updateChatStore({ isHistoryLoading: false })
     return
   }
 

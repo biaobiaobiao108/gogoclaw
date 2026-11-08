@@ -16,6 +16,12 @@ import (
 )
 
 func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipeline) (result turnResult, retErr error) {
+	if ts.al == nil {
+		ts.al = al
+	}
+	if ts.concurrencySem == nil {
+		ts.concurrencySem = make(chan struct{}, al.getSubTurnConfig().maxConcurrent)
+	}
 	if ts != nil && ts.agent != nil && ts.agent.Tools != nil {
 		ts.tools = ts.agent.Tools.Clone()
 		ts.tools.Register(&turnPlanTool{turn: ts})
@@ -106,6 +112,7 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 	// SetupTurn extracts the one-time initialization phase.
 	exec, err := pipeline.SetupTurn(turnCtx, ts)
 	if err != nil {
+		turnStatus = TurnEndStatusError
 		return turnResult{}, err
 	}
 	defer exec.closeOwnedProviders()

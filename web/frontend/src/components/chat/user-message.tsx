@@ -12,6 +12,7 @@ interface UserMessageProps {
   attachments?: ChatAttachment[]
   timestamp?: string | number
   deliveryStatus?: MessageDeliveryStatus
+  onRetry?: () => void
 }
 
 export function UserMessage({
@@ -19,6 +20,7 @@ export function UserMessage({
   attachments = [],
   timestamp = "",
   deliveryStatus,
+  onRetry,
 }: UserMessageProps) {
   const { t } = useTranslation()
   const { copy, isCopied } = useCopyToClipboard()
@@ -104,6 +106,17 @@ export function UserMessage({
               · {t("chat.deliveryFailed")}
             </span>
           )}
+          {deliveryStatus === "unknown" && <> · {t("chat.deliveryUnknown")}</>}
+          {(deliveryStatus === "unknown" || deliveryStatus === "failed") &&
+            onRetry && (
+              <button
+                type="button"
+                className="ml-2 underline"
+                onClick={onRetry}
+              >
+                {t("chat.deliveryRetry")}
+              </button>
+            )}
         </span>
       )}
     </div>

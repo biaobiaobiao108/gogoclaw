@@ -11,6 +11,7 @@ import (
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/routing"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
@@ -100,6 +101,30 @@ func TestRunTurnReturnsContextIngestError(t *testing.T) {
 
 func (*failingAssembleContextManager) Assemble(context.Context, *AssembleRequest) (*AssembleResponse, error) {
 	return nil, errors.New("history unavailable")
+}
+
+func TestSetupFailureEmitsFailedTurnAndInitializesRoot(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+	events, closeEvents := subscribeRuntimeEventsForTest(t, al, 16, runtimeevents.KindAgentTurnEnd)
+	defer closeEvents()
+	pipeline := NewPipeline(al)
+	pipeline.ContextManager = &failingAssembleContextManager{}
+	ts := newTurnState(agent, makeTestProcessOpts("setup-failure"), turnEventScope{turnID: "setup-failure", context: newTurnContext(nil, nil, nil)})
+	if _, err := al.runTurn(context.Background(), ts, pipeline); err == nil {
+		t.Fatal("expected setup failure")
+	}
+	if ts.al != al || cap(ts.concurrencySem) != al.getSubTurnConfig().maxConcurrent {
+		t.Fatal("root turn was not configured for subturn cancellation and concurrency")
+	}
+	select {
+	case event := <-events:
+		if payload := event.Payload.(TurnEndPayload); payload.Status != TurnEndStatusError {
+			t.Fatalf("got status %s", payload.Status)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("missing turn end event")
+	}
 }
 
 func TestSetupTurnReturnsContextReadError(t *testing.T) {

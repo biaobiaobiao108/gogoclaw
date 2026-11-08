@@ -438,6 +438,10 @@ func spawnSubTurn(
 
 	// 5. Establish parent-child relationship (thread-safe)
 	parentTS.mu.Lock()
+	if parentTS.hardAbort {
+		parentTS.mu.Unlock()
+		return nil, context.Canceled
+	}
 	parentTS.childTurnIDs = append(parentTS.childTurnIDs, childID)
 	parentTS.mu.Unlock()
 

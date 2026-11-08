@@ -23,6 +23,30 @@ const (
 	testMaxConcurrentSubTurns = defaultMaxConcurrentSubTurns
 )
 
+func TestHardAbortRootCancelsRegisteredChild(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+	root := newTurnState(agent, makeTestProcessOpts("abort-root"), turnEventScope{turnID: "abort-root"})
+	root.al = al
+	childCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	child := &turnState{cancelFunc: cancel}
+	al.activeTurnStates.Store("abort-child", child)
+	defer al.activeTurnStates.Delete("abort-child")
+	root.childTurnIDs = []string{"abort-child"}
+	root.requestHardAbort()
+	root.Finish(true)
+	select {
+	case <-childCtx.Done():
+	default:
+		t.Fatal("hard abort did not cancel child")
+	}
+	_, err := spawnSubTurn(context.Background(), al, root, SubTurnConfig{Model: agent.Model})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("spawn after hard abort: %v", err)
+	}
+}
+
 // ====================== Test Helper: Event Collector ======================
 type eventCollector struct {
 	mu     sync.Mutex

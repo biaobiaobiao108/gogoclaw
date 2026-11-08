@@ -133,11 +133,11 @@ endif
 
 build-frontend:
 ifeq ($(OS),Windows_NT)
-	@$(POWERSHELL) "if ((-not (Test-Path -LiteralPath '$(FRONTEND_DIR)/node_modules')) -or (-not (Test-Path -LiteralPath '$(FRONTEND_DIR)/node_modules/.bin/tsc')) -or (-not (Test-Path -LiteralPath '$(FRONTEND_INSTALL_STAMP)')) -or ((Get-Content -LiteralPath '$(FRONTEND_INSTALL_STAMP)' -Raw).Trim() -ne (((Get-FileHash -LiteralPath '$(FRONTEND_DIR)/package.json' -Algorithm SHA256).Hash + ':' + (Get-FileHash -LiteralPath '$(FRONTEND_DIR)/bun.lock' -Algorithm SHA256).Hash)))) { Write-Host 'Installing frontend dependencies...'; Push-Location '$(FRONTEND_DIR)'; try { $(BUN) install --frozen-lockfile } finally { Pop-Location }; Set-Content -LiteralPath '$(FRONTEND_INSTALL_STAMP)' -Value (((Get-FileHash -LiteralPath '$(FRONTEND_DIR)/package.json' -Algorithm SHA256).Hash + ':' + (Get-FileHash -LiteralPath '$(FRONTEND_DIR)/bun.lock' -Algorithm SHA256).Hash)) -NoNewline }"
+	@$(POWERSHELL) "if ((-not (Test-Path -LiteralPath '$(FRONTEND_DIR)/node_modules')) -or (-not (Test-Path -LiteralPath '$(FRONTEND_DIR)/node_modules/vite/package.json')) -or (-not (Test-Path -LiteralPath '$(FRONTEND_INSTALL_STAMP)')) -or ((Get-Content -LiteralPath '$(FRONTEND_INSTALL_STAMP)' -Raw).Trim() -ne (((Get-FileHash -LiteralPath '$(FRONTEND_DIR)/package.json' -Algorithm SHA256).Hash + ':' + (Get-FileHash -LiteralPath '$(FRONTEND_DIR)/bun.lock' -Algorithm SHA256).Hash)))) { Write-Host 'Installing frontend dependencies...'; Push-Location '$(FRONTEND_DIR)'; try { $(BUN) install --frozen-lockfile } finally { Pop-Location }; Set-Content -LiteralPath '$(FRONTEND_INSTALL_STAMP)' -Value (((Get-FileHash -LiteralPath '$(FRONTEND_DIR)/package.json' -Algorithm SHA256).Hash + ':' + (Get-FileHash -LiteralPath '$(FRONTEND_DIR)/bun.lock' -Algorithm SHA256).Hash)) -NoNewline }"
 else
 	@expected_stamp="$$(cat $(FRONTEND_DIR)/package.json $(FRONTEND_DIR)/bun.lock | cksum | awk '{print $$1 ":" $$2}')"; \
 	if [ ! -d $(FRONTEND_DIR)/node_modules ] || \
-		[ ! -x $(FRONTEND_DIR)/node_modules/.bin/tsc ] || \
+		[ ! -f $(FRONTEND_DIR)/node_modules/vite/package.json ] || \
 		[ ! -f $(FRONTEND_INSTALL_STAMP) ] || \
 		[ "$$(cat $(FRONTEND_INSTALL_STAMP) 2>/dev/null)" != "$$expected_stamp" ]; then \
 		echo "Installing frontend dependencies..."; \
