@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,39 @@ import (
 
 // simpleConvProvider returns a simple text response without tools
 type simpleConvProvider struct{}
+
+type alwaysFailTool struct{}
+
+func (*alwaysFailTool) Name() string               { return "always_fail" }
+func (*alwaysFailTool) Description() string        { return "Always fails" }
+func (*alwaysFailTool) Parameters() map[string]any { return map[string]any{"type": "object"} }
+func (*alwaysFailTool) Execute(context.Context, map[string]any) *tools.ToolResult {
+	return tools.ErrorResult("unavailable")
+}
+
+func TestRunTurnRepeatedFailuresStopToolExecution(t *testing.T) {
+	var responses []*providers.LLMResponse
+	for i := 0; i < 4; i++ {
+		responses = append(responses, &providers.LLMResponse{ToolCalls: []providers.ToolCall{{
+			ID: fmt.Sprintf("call-%d", i), Name: "always_fail", Arguments: map[string]any{},
+		}}})
+	}
+	responses = append(responses, &providers.LLMResponse{Content: "The service is unavailable."})
+	provider := &sequenceProvider{responses: responses}
+	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+	agent.Tools.Register(&alwaysFailTool{})
+	ts := newTurnState(agent, makeTestProcessOpts("repeated-failures"), turnEventScope{
+		turnID: "repeated-failures", context: newTurnContext(nil, nil, nil),
+	})
+	result, err := al.runTurn(context.Background(), ts, NewPipeline(al))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ts.toolExecutionsSnapshot()) != 4 || result.finalContent != "The service is unavailable." {
+		t.Fatalf("expected four attempts and a final explanation, got %+v, calls %+v", result, ts.toolExecutionsSnapshot())
+	}
+}
 
 type failingAssembleContextManager struct{ noopContextManager }
 

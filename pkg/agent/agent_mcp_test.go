@@ -9,15 +9,62 @@ package agent
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/mcp"
+	"github.com/sipeed/picoclaw/pkg/providers"
 	agenttools "github.com/sipeed/picoclaw/pkg/tools"
 )
 
 func boolPtr(b bool) *bool { return &b }
+
+func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
+	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "fixture", Version: "1"}, nil)
+	sdkmcp.AddTool(server, &sdkmcp.Tool{Name: "echo", Description: "Echo a message"},
+		func(_ context.Context, _ *sdkmcp.CallToolRequest, args map[string]any) (*sdkmcp.CallToolResult, any, error) {
+			message, _ := args["message"].(string)
+			return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: message}}}, nil, nil
+		})
+	httpServer := httptest.NewServer(sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server }, &sdkmcp.StreamableHTTPOptions{JSONResponse: true}))
+	defer httpServer.Close()
+	provider := &sequenceProvider{responses: []*providers.LLMResponse{
+		{ToolCalls: []providers.ToolCall{{ID: "search", Name: agenttools.BM25SearchToolName, Arguments: map[string]any{"query": "echo message"}}}},
+		{ToolCalls: []providers.ToolCall{{ID: "echo", Name: "mcp_fixture_echo", Arguments: map[string]any{"message": "hello mcp"}}}},
+		{Content: "done"},
+	}}
+	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+	al.cfg.Tools.MCP = config.MCPConfig{
+		ToolConfig: config.ToolConfig{Enabled: true},
+		Discovery:  config.ToolDiscoveryConfig{Enabled: true, UseBM25: true, TTL: 1},
+		Servers:    map[string]config.MCPServerConfig{"fixture": {Enabled: true, Type: "streamable-http", URL: httpServer.URL}},
+	}
+	if err := al.ensureMCPInitialized(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ts := newTurnState(agent, makeTestProcessOpts("real-mcp"), turnEventScope{turnID: "real-mcp", context: newTurnContext(nil, nil, nil)})
+	if _, err := al.runTurn(context.Background(), ts, NewPipeline(al)); err != nil {
+		t.Fatal(err)
+	}
+	records := ts.toolExecutionsSnapshot()
+	if len(records) != 2 || records[1].Name != "mcp_fixture_echo" || !records[1].Success {
+		t.Fatalf("MCP tool did not execute: %+v", records)
+	}
+	found := false
+	for _, msg := range agent.Sessions.GetHistory(ts.sessionKey) {
+		if msg.ToolCallID == "echo" && strings.Contains(msg.Content, "hello mcp") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("MCP response was not saved in the conversation")
+	}
+}
 
 func TestMCPRuntimeResetClearsState(t *testing.T) {
 	var rt mcpRuntime

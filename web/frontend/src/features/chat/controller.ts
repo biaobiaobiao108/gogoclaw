@@ -163,7 +163,34 @@ export async function connectChat() {
       }
       updateChatStore({ connectionState: "connected" })
       isConnecting = false
+      const reconnected = reconnectAttempts > 0
       reconnectAttempts = 0
+      // Reconcile messages produced while the socket was disconnected.
+      if (reconnected)
+        void loadSessionMessages(sessionId)
+          .then((historyMessages) => {
+            if (
+              !isCurrentSocket({
+                socket,
+                currentSocket: wsRef,
+                generation,
+                currentGeneration: connectionGeneration,
+                sessionId,
+                currentSessionId: activeSessionIdRef,
+              })
+            ) {
+              return
+            }
+            updateChatStore((prev) => ({
+              messages: mergeHistoryMessages(historyMessages, prev.messages),
+            }))
+          })
+          .catch((error) => {
+            console.warn(
+              "Failed to reconcile chat history after reconnect:",
+              error,
+            )
+          })
     }
 
     socket.onmessage = (event) => {

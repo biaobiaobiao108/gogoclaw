@@ -205,6 +205,8 @@ type turnState struct {
 	skillContextTrace []SkillContextSnapshot
 	toolKinds         []string
 	toolExecutions    []ToolExecutionRecord
+	lastFailedCall    string
+	repeatedFailures  int
 	turnCtx           *TurnContext
 
 	channel     string
@@ -255,6 +257,22 @@ type turnState struct {
 
 	// Back-reference to the owning AgentLoop (set for SubTurns only, used for hard abort cascade)
 	al *AgentLoop
+}
+
+func (ts *turnState) recordRepeatedFailure(key string, failed bool) int {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if !failed {
+		ts.lastFailedCall = ""
+		ts.repeatedFailures = 0
+		return 0
+	}
+	if ts.lastFailedCall != key {
+		ts.lastFailedCall = key
+		ts.repeatedFailures = 0
+	}
+	ts.repeatedFailures++
+	return ts.repeatedFailures
 }
 
 func (ts *turnState) toolRegistry() *tools.ToolRegistry {

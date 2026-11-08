@@ -614,6 +614,13 @@ toolLoop:
 		if toolResult == nil {
 			toolResult = tools.ErrorResult("hook returned nil tool result")
 		}
+		failureKey := toolName + "\x00" + string(argsJSON) + "\x00" + toolResult.ContentForLLM()
+		failures := ts.recordRepeatedFailure(failureKey, toolResult.IsError)
+		if failures == 3 {
+			toolResult.ForLLM = toolResult.ContentForLLM() + "\n\nThis same tool call has failed three times. Change the approach or explain the blocker instead of repeating it."
+		} else if failures >= 4 {
+			ts.requestGracefulInterrupt("The same tool call repeatedly failed. Explain the blocker, completed work, and what is needed to continue.")
+		}
 
 		if len(toolResult.Media) > 0 && toolResult.ResponseHandled {
 			parts := make([]bus.MediaPart, 0, len(toolResult.Media))
