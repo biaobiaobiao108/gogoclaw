@@ -1,5 +1,14 @@
 # 仓库开发与贡献指南 (Repository Guidelines)
 
+## 项目概述与定位
+
+PicoClaw 是一个轻量级、面向多通道连接的私有化智能 Agent 框架与 Web 控制台系统。
+
+- **运行形态**：生产环境**仅支持容器化部署**，本地电脑仅作开发与测试。
+- **核心架构**：
+  - **核心后端 (Go)**：提供模型协议适配、Agent 执行引擎、多通道即时通讯接入（飞书、钉钉、Telegram、MQTT 等）及统一 SQLite 持久化。
+  - **管理控制台 (Web)**：嵌入式 React 19 单页应用，全链路使用 **Bun (1.4.4+)** 驱动管理，基于 TanStack Router 与 Tailwind CSS v4 构建。
+
 ## 项目结构与模块划分
 
 - `cmd/picoclaw`：CLI 核心入口与根命令定义。
