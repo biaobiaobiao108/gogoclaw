@@ -526,6 +526,66 @@ func TestSendWithRetry_TemporaryThenSuccess(t *testing.T) {
 	}
 }
 
+func TestSendWithRetry_RetriesUseSameLogicalMessageID(t *testing.T) {
+	m := newTestManager()
+	var messageIDs []string
+	ch := &mockChannel{
+		sendFn: func(_ context.Context, msg bus.OutboundMessage) error {
+			messageIDs = append(messageIDs, msg.ID)
+			if len(messageIDs) == 1 {
+				return fmt.Errorf("network error: %w", ErrTemporary)
+			}
+			return nil
+		},
+	}
+	w := &channelWorker{ch: ch, limiter: rate.NewLimiter(rate.Inf, 1)}
+	msg := testOutboundMessage(bus.OutboundMessage{
+		ID:      "delivery-123",
+		Channel: "test",
+		ChatID:  "1",
+		Content: "hello",
+	})
+
+	m.sendWithRetry(context.Background(), "test", w, msg)
+
+	if len(messageIDs) != 2 {
+		t.Fatalf("Send calls = %d, want 2", len(messageIDs))
+	}
+	if messageIDs[0] != "delivery-123" || messageIDs[1] != messageIDs[0] {
+		t.Fatalf("message IDs = %q, want identical delivery-123", messageIDs)
+	}
+}
+
+func TestSendMediaWithRetry_RetriesUseSameLogicalMessageID(t *testing.T) {
+	m := newTestManager()
+	var messageIDs []string
+	ch := &mockMediaChannel{
+		sendMediaFn: func(_ context.Context, msg bus.OutboundMediaMessage) ([]string, error) {
+			messageIDs = append(messageIDs, msg.ID)
+			if len(messageIDs) == 1 {
+				return nil, fmt.Errorf("network error: %w", ErrTemporary)
+			}
+			return nil, nil
+		},
+	}
+	w := &channelWorker{ch: ch, limiter: rate.NewLimiter(rate.Inf, 1)}
+	msg := testOutboundMediaMessage(bus.OutboundMediaMessage{
+		ID:      "media-delivery-123",
+		Channel: "test",
+		ChatID:  "1",
+		Parts:   []bus.MediaPart{{Ref: "media://abc"}},
+	})
+
+	_, _ = m.sendMediaWithRetry(context.Background(), "test", w, msg)
+
+	if len(messageIDs) != 2 {
+		t.Fatalf("SendMedia calls = %d, want 2", len(messageIDs))
+	}
+	if messageIDs[0] != "media-delivery-123" || messageIDs[1] != messageIDs[0] {
+		t.Fatalf("message IDs = %q, want identical media-delivery-123", messageIDs)
+	}
+}
+
 func TestSendWithRetry_PermanentFailure(t *testing.T) {
 	m := newTestManager()
 	var callCount int
@@ -751,7 +811,7 @@ func TestSendMedia_DeletesPlaceholderBeforeSending(t *testing.T) {
 	}
 }
 
-func TestSendWithRetry_UnknownError(t *testing.T) {
+func TestSendWithRetry_UnknownErrorIsNotRetried(t *testing.T) {
 	m := newTestManager()
 	var callCount int
 	ch := &mockChannel{
@@ -773,8 +833,8 @@ func TestSendWithRetry_UnknownError(t *testing.T) {
 
 	m.sendWithRetry(ctx, "test", w, msg)
 
-	if callCount != 2 {
-		t.Fatalf("expected 2 Send calls (unknown error treated as temporary), got %d", callCount)
+	if callCount != 1 {
+		t.Fatalf("expected 1 Send call (unknown delivery state), got %d", callCount)
 	}
 }
 

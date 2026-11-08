@@ -50,8 +50,8 @@ type FeishuChannel struct {
 
 	progress        *channels.ToolFeedbackAnimator
 	deleteMessageFn func(context.Context, string, string) error
-	sendMediaPartFn func(context.Context, string, bus.MediaPart, media.MediaStore) error
-	sendTextFn      func(context.Context, string, string) (string, error)
+	sendMediaPartFn func(context.Context, string, bus.MediaPart, media.MediaStore, string) error
+	sendTextFn      func(context.Context, string, string, string) (string, error)
 }
 
 type cachedMessage struct {
@@ -187,7 +187,12 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 	cardContent, err := buildMarkdownCard(sendContent)
 	if err != nil {
 		// If card build fails, fall back to plain text
-		msgID, sendErr := c.sendText(ctx, msg.ChatID, sendContent)
+		msgID, sendErr := c.sendText(
+			ctx,
+			msg.ChatID,
+			sendContent,
+			channels.StableID(msg.ID, "text"),
+		)
 		if sendErr != nil {
 			return nil, sendErr
 		}
@@ -200,7 +205,12 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 	}
 
 	// First attempt: try sending as interactive card
-	msgID, err := c.sendCard(ctx, msg.ChatID, cardContent)
+	msgID, err := c.sendCard(
+		ctx,
+		msg.ChatID,
+		cardContent,
+		channels.StableID(msg.ID, "card"),
+	)
 	if err == nil {
 		if isToolFeedback {
 			c.RecordToolFeedbackMessage(msg.ChatID, msgID, msg.Content)
@@ -222,7 +232,12 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 		})
 
 		// Second attempt: fall back to plain text message
-		msgID, textErr := c.sendText(ctx, msg.ChatID, sendContent)
+		msgID, textErr := c.sendText(
+			ctx,
+			msg.ChatID,
+			sendContent,
+			channels.StableID(msg.ID, "text"),
+		)
 		if textErr == nil {
 			if isToolFeedback {
 				c.RecordToolFeedbackMessage(msg.ChatID, msgID, msg.Content)
@@ -501,14 +516,20 @@ func (c *FeishuChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 
 	caption := firstMediaCaption(msg.Parts)
 	sentAny := false
-	for _, part := range msg.Parts {
-		if err := c.sendMediaPartFn(ctx, msg.ChatID, part, store); err != nil {
+	for index, part := range msg.Parts {
+		operationID := channels.StableID(msg.ID, "part", fmt.Sprintf("%d", index))
+		if err := c.sendMediaPartFn(ctx, msg.ChatID, part, store, operationID); err != nil {
 			return nil, err
 		}
 		sentAny = true
 	}
 	if sentAny && caption != "" {
-		if _, err := c.sendTextFn(ctx, msg.ChatID, caption); err != nil {
+		if _, err := c.sendTextFn(
+			ctx,
+			msg.ChatID,
+			caption,
+			channels.StableID(msg.ID, "caption"),
+		); err != nil {
 			return nil, err
 		}
 	}
@@ -526,6 +547,7 @@ func (c *FeishuChannel) sendMediaPart(
 	chatID string,
 	part bus.MediaPart,
 	store media.MediaStore,
+	operationID string,
 ) error {
 	localPath, err := store.Resolve(part.Ref)
 	if err != nil {
@@ -548,13 +570,20 @@ func (c *FeishuChannel) sendMediaPart(
 
 	switch part.Type {
 	case "image":
-		err = c.sendImage(ctx, chatID, file)
+		err = c.sendImage(ctx, chatID, file, channels.StableID(operationID, "image"))
 	default:
 		filename := part.Filename
 		if filename == "" {
 			filename = "file"
 		}
-		err = c.sendFile(ctx, chatID, file, filename, part.Type)
+		err = c.sendFile(
+			ctx,
+			chatID,
+			file,
+			filename,
+			part.Type,
+			channels.StableID(operationID, "file"),
+		)
 	}
 
 	if err != nil {
@@ -1070,13 +1099,19 @@ func appendMediaTags(content, messageType string, mediaRefs []string) string {
 }
 
 // sendCard sends an interactive card message to a chat.
-func (c *FeishuChannel) sendCard(ctx context.Context, chatID, cardContent string) (string, error) {
+func (c *FeishuChannel) sendCard(
+	ctx context.Context,
+	chatID,
+	cardContent,
+	idempotencyKey string,
+) (string, error) {
 	req := larkim.NewCreateMessageReqBuilder().
 		ReceiveIdType(larkim.CreateMessageV1ReceiveIDTypeChatId).
 		Body(larkim.NewCreateMessageReqBodyBuilder().
 			ReceiveId(chatID).
 			MsgType(larkim.MsgTypeInteractive).
 			Content(cardContent).
+			Uuid(idempotencyKey).
 			Build()).
 		Build()
 
@@ -1101,7 +1136,12 @@ func (c *FeishuChannel) sendCard(ctx context.Context, chatID, cardContent string
 }
 
 // sendText sends a plain text message to a chat (fallback when card fails).
-func (c *FeishuChannel) sendText(ctx context.Context, chatID, text string) (string, error) {
+func (c *FeishuChannel) sendText(
+	ctx context.Context,
+	chatID,
+	text,
+	idempotencyKey string,
+) (string, error) {
 	content, _ := json.Marshal(map[string]string{"text": text})
 
 	req := larkim.NewCreateMessageReqBuilder().
@@ -1110,6 +1150,7 @@ func (c *FeishuChannel) sendText(ctx context.Context, chatID, text string) (stri
 			ReceiveId(chatID).
 			MsgType(larkim.MsgTypeText).
 			Content(string(content)).
+			Uuid(idempotencyKey).
 			Build()).
 		Build()
 
@@ -1133,7 +1174,12 @@ func (c *FeishuChannel) sendText(ctx context.Context, chatID, text string) (stri
 }
 
 // sendImage uploads an image and sends it as a message.
-func (c *FeishuChannel) sendImage(ctx context.Context, chatID string, file *os.File) error {
+func (c *FeishuChannel) sendImage(
+	ctx context.Context,
+	chatID string,
+	file *os.File,
+	idempotencyKey string,
+) error {
 	// Upload image to get image_key
 	uploadReq := larkim.NewCreateImageReqBuilder().
 		Body(larkim.NewCreateImageReqBodyBuilder().
@@ -1164,6 +1210,7 @@ func (c *FeishuChannel) sendImage(ctx context.Context, chatID string, file *os.F
 			ReceiveId(chatID).
 			MsgType(larkim.MsgTypeImage).
 			Content(string(content)).
+			Uuid(idempotencyKey).
 			Build()).
 		Build()
 
@@ -1179,7 +1226,14 @@ func (c *FeishuChannel) sendImage(ctx context.Context, chatID string, file *os.F
 }
 
 // sendFile uploads a file and sends it as a message.
-func (c *FeishuChannel) sendFile(ctx context.Context, chatID string, file *os.File, filename, fileType string) error {
+func (c *FeishuChannel) sendFile(
+	ctx context.Context,
+	chatID string,
+	file *os.File,
+	filename,
+	fileType,
+	idempotencyKey string,
+) error {
 	// Map part type to Feishu file type
 	feishuFileType := "stream"
 	switch fileType {
@@ -1220,6 +1274,7 @@ func (c *FeishuChannel) sendFile(ctx context.Context, chatID string, file *os.Fi
 			ReceiveId(chatID).
 			MsgType(larkim.MsgTypeFile).
 			Content(string(content)).
+			Uuid(idempotencyKey).
 			Build()).
 		Build()
 

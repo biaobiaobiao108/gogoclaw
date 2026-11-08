@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -196,7 +197,13 @@ func (c *DiscordChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]s
 	if isToolFeedback {
 		content = channels.InitialAnimatedToolFeedbackContent(msg.Content)
 	}
-	msgID, err := c.sendChunk(ctx, channelID, content, msg.ReplyToMessageID)
+	msgID, err := c.sendChunk(
+		ctx,
+		channelID,
+		content,
+		msg.ReplyToMessageID,
+		channels.StableNumericID(msg.ID, "text"),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -327,15 +334,37 @@ func (c *DiscordChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMes
 	}
 	done := make(chan mediaResult, 1)
 	go func() {
-		sentMsg, err := c.session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
-			Content: caption,
-			Files:   files,
-		})
+		payload := map[string]any{
+			"content":       caption,
+			"nonce":         channels.StableNumericID(msg.ID, "media"),
+			"enforce_nonce": true,
+		}
+		contentType, body, encodeErr := discordgo.MultipartBodyWithJSON(payload, files)
+		if encodeErr != nil {
+			done <- mediaResult{err: encodeErr}
+			return
+		}
+		endpoint := discordgo.EndpointChannelMessages(channelID)
+		response, err := c.session.RequestRaw(
+			"POST",
+			endpoint,
+			contentType,
+			body,
+			endpoint,
+			0,
+		)
+		if err == nil {
+			var sentMsg discordgo.Message
+			if err = json.Unmarshal(response, &sentMsg); err == nil {
+				done <- mediaResult{id: sentMsg.ID}
+				return
+			}
+		}
 		if err != nil {
 			done <- mediaResult{err: err}
 			return
 		}
-		done <- mediaResult{id: sentMsg.ID}
+		done <- mediaResult{err: fmt.Errorf("decode Discord media response")}
 	}()
 
 	select {
@@ -360,7 +389,7 @@ func (c *DiscordChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMes
 				closer.Close()
 			}
 		}
-		return nil, sendCtx.Err()
+		return nil, fmt.Errorf("discord send media: %w: %v", channels.ErrTemporary, sendCtx.Err())
 	}
 }
 
@@ -468,7 +497,13 @@ func (c *DiscordChannel) FinalizeToolFeedbackMessage(ctx context.Context, msg bu
 	return c.finalizeTrackedToolFeedbackMessage(ctx, msg.ChatID, msg.Content, c.EditMessage)
 }
 
-func (c *DiscordChannel) sendChunk(ctx context.Context, channelID, content, replyToID string) (string, error) {
+func (c *DiscordChannel) sendChunk(
+	ctx context.Context,
+	channelID,
+	content,
+	replyToID,
+	nonce string,
+) (string, error) {
 	// Use the passed ctx for timeout control
 	sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
@@ -479,27 +514,26 @@ func (c *DiscordChannel) sendChunk(ctx context.Context, channelID, content, repl
 	}
 	done := make(chan result, 1)
 	go func() {
-		var (
-			msg *discordgo.Message
-			err error
-		)
-
-		// If we have an ID, we send the message as "Reply"
-		if replyToID != "" {
-			msg, err = c.session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
-				Content: content,
-				Reference: &discordgo.MessageReference{
-					MessageID: replyToID,
-					ChannelID: channelID,
-				},
-			})
-		} else {
-			// Otherwise, we send a normal message
-			msg, err = c.session.ChannelMessageSend(channelID, content)
+		payload := map[string]any{
+			"content":       content,
+			"nonce":         nonce,
+			"enforce_nonce": true,
 		}
-
+		if replyToID != "" {
+			payload["message_reference"] = &discordgo.MessageReference{
+				MessageID: replyToID,
+				ChannelID: channelID,
+			}
+		}
+		endpoint := discordgo.EndpointChannelMessages(channelID)
+		response, err := c.session.RequestWithBucketID("POST", endpoint, payload, endpoint)
 		if err != nil {
 			done <- result{err: fmt.Errorf("discord send: %w", channels.ErrTemporary)}
+			return
+		}
+		var msg discordgo.Message
+		if err := json.Unmarshal(response, &msg); err != nil {
+			done <- result{err: fmt.Errorf("discord decode response: %w", channels.ErrTemporary)}
 			return
 		}
 		done <- result{id: msg.ID}
@@ -509,7 +543,7 @@ func (c *DiscordChannel) sendChunk(ctx context.Context, channelID, content, repl
 	case r := <-done:
 		return r.id, r.err
 	case <-sendCtx.Done():
-		return "", sendCtx.Err()
+		return "", fmt.Errorf("discord send: %w: %v", channels.ErrTemporary, sendCtx.Err())
 	}
 }
 

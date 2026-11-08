@@ -14,7 +14,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/tencent-connect/botgo"
@@ -70,9 +69,6 @@ type QQChannel struct {
 
 	// Passive reply: store last inbound message ID per chat.
 	lastMsgID sync.Map // chatID → string
-
-	// msg_seq: per-chat atomic counter for multi-part replies.
-	msgSeqCounters sync.Map // chatID → *atomic.Uint64
 
 	// Time-based dedup replacing the unbounded map.
 	dedup   map[string]time.Time
@@ -225,7 +221,7 @@ func (c *QQChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string
 		msgToCreate.Content = ""
 	}
 
-	c.applyPassiveReplyMetadata(msg.ChatID, msgToCreate)
+	c.applyPassiveReplyMetadata(msg.ChatID, msgToCreate, msg.ID)
 
 	// Sanitize URLs in group messages to avoid QQ's URL blacklist rejection.
 	if chatKind == "group" {
@@ -335,7 +331,7 @@ func (c *QQChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessage)
 	chatKind := c.getChatKind(msg.ChatID)
 
 	var messageIDs []string
-	for _, part := range msg.Parts {
+	for index, part := range msg.Parts {
 		fileInfo, err := c.uploadMedia(ctx, chatKind, msg.ChatID, part)
 		if err != nil {
 			logger.ErrorCF("qq", "Failed to upload media", map[string]any{
@@ -349,7 +345,8 @@ func (c *QQChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessage)
 			return nil, fmt.Errorf("qq send media: %w", channels.ErrTemporary)
 		}
 
-		sentMsg, err := c.sendUploadedMedia(ctx, chatKind, msg.ChatID, part, fileInfo)
+		operationID := channels.StableID(msg.ID, "part", fmt.Sprintf("%d", index))
+		sentMsg, err := c.sendUploadedMedia(ctx, chatKind, msg.ChatID, operationID, part, fileInfo)
 		if err != nil {
 			logger.ErrorCF("qq", "Failed to send media", map[string]any{
 				"type":    part.Type,
@@ -527,7 +524,7 @@ func (c *QQChannel) outboundMediaType(part bus.MediaPart, localPath string) stri
 
 func (c *QQChannel) sendUploadedMedia(
 	ctx context.Context,
-	chatKind, chatID string,
+	chatKind, chatID, operationID string,
 	part bus.MediaPart,
 	fileInfo []byte,
 ) (*dto.Message, error) {
@@ -538,7 +535,7 @@ func (c *QQChannel) sendUploadedMedia(
 			FileInfo: fileInfo,
 		},
 	}
-	c.applyPassiveReplyMetadata(chatID, msg)
+	c.applyPassiveReplyMetadata(chatID, msg, operationID)
 
 	if chatKind == "group" && msg.Content != "" {
 		msg.Content = sanitizeURLs(msg.Content)
@@ -552,17 +549,17 @@ func (c *QQChannel) sendUploadedMedia(
 	return sentMsg, err
 }
 
-func (c *QQChannel) applyPassiveReplyMetadata(chatID string, msg *dto.MessageToCreate) {
+func (c *QQChannel) applyPassiveReplyMetadata(
+	chatID string,
+	msg *dto.MessageToCreate,
+	operationID string,
+) {
 	if v, ok := c.lastMsgID.Load(chatID); ok {
 		if msgID, ok := v.(string); ok && msgID != "" {
 			msg.MsgID = msgID
 
-			// Increment msg_seq atomically for multi-part replies.
-			if counterVal, ok := c.msgSeqCounters.Load(chatID); ok {
-				if counter, ok := counterVal.(*atomic.Uint64); ok {
-					seq := counter.Add(1)
-					msg.MsgSeq = uint32(seq)
-				}
+			if operationID != "" {
+				msg.MsgSeq = channels.StableSequence("qq", chatID, operationID)
 			}
 		}
 	}
@@ -653,9 +650,6 @@ func (c *QQChannel) handleC2CMessage() event.C2CMessageEventHandler {
 		c.chatType.Store(senderID, "direct")
 		c.lastMsgID.Store(senderID, data.ID)
 
-		// Reset msg_seq counter for new inbound message.
-		c.msgSeqCounters.Store(senderID, new(atomic.Uint64))
-
 		metadata := map[string]string{
 			"account_id": senderID,
 		}
@@ -729,9 +723,6 @@ func (c *QQChannel) handleGroupATMessage() event.GroupATMessageEventHandler {
 		// Store chat routing context using GroupID as chatID.
 		c.chatType.Store(data.GroupID, "group")
 		c.lastMsgID.Store(data.GroupID, data.ID)
-
-		// Reset msg_seq counter for new inbound message.
-		c.msgSeqCounters.Store(data.GroupID, new(atomic.Uint64))
 
 		metadata := map[string]string{
 			"account_id": senderID,

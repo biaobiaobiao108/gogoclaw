@@ -16,9 +16,9 @@ func TestClassifySendError(t *testing.T) {
 		wantNil    bool
 	}{
 		{"429 -> ErrRateLimit", 429, ErrRateLimit, false},
-		{"500 -> ErrTemporary", 500, ErrTemporary, false},
-		{"502 -> ErrTemporary", 502, ErrTemporary, false},
-		{"503 -> ErrTemporary", 503, ErrTemporary, false},
+		{"500 -> ErrDeliveryUnknown", 500, ErrDeliveryUnknown, false},
+		{"502 -> ErrDeliveryUnknown", 502, ErrDeliveryUnknown, false},
+		{"503 -> ErrDeliveryUnknown", 503, ErrDeliveryUnknown, false},
 		{"400 -> ErrSendFailed", 400, ErrSendFailed, false},
 		{"403 -> ErrSendFailed", 403, ErrSendFailed, false},
 		{"404 -> ErrSendFailed", 404, ErrSendFailed, false},
@@ -58,13 +58,16 @@ func TestClassifySendErrorNoFalsePositive(t *testing.T) {
 		t.Error("429 should not match ErrSendFailed")
 	}
 
-	// 500 should NOT match ErrRateLimit or ErrSendFailed
+	// 500 should NOT match ErrRateLimit, ErrTemporary, or ErrSendFailed
 	err = ClassifySendError(500, raw)
 	if errors.Is(err, ErrRateLimit) {
 		t.Error("500 should not match ErrRateLimit")
 	}
 	if errors.Is(err, ErrSendFailed) {
 		t.Error("500 should not match ErrSendFailed")
+	}
+	if errors.Is(err, ErrTemporary) {
+		t.Error("500 should not match ErrTemporary")
 	}
 
 	// 400 should NOT match ErrRateLimit or ErrTemporary
@@ -84,14 +87,14 @@ func TestClassifyNetError(t *testing.T) {
 		}
 	})
 
-	t.Run("non-nil error wraps as ErrTemporary", func(t *testing.T) {
+	t.Run("non-nil error wraps as ErrDeliveryUnknown", func(t *testing.T) {
 		raw := fmt.Errorf("connection refused")
 		err := ClassifyNetError(raw)
 		if err == nil {
 			t.Fatal("expected non-nil error")
 		}
-		if !errors.Is(err, ErrTemporary) {
-			t.Errorf("errors.Is(err, ErrTemporary) = false, want true; err = %v", err)
+		if !errors.Is(err, ErrDeliveryUnknown) {
+			t.Errorf("errors.Is(err, ErrDeliveryUnknown) = false, want true; err = %v", err)
 		}
 	})
 }

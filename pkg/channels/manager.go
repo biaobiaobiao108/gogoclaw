@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1489,10 +1490,11 @@ func (m *Manager) runWorker(ctx context.Context, name string, w *channelWorker) 
 				chunks = splitOutboundMessageContent(msg, maxLen)
 			}
 
-			// Step 3: Send all chunks
-			for _, chunk := range chunks {
-				chunkMsg := msg
-				chunkMsg.Content = chunk
+			// Step 3: Send all chunks. Each chunk gets a stable derived ID so
+			// retries target the same platform message while separate chunks
+			// remain independently idempotent.
+			for index, chunk := range chunks {
+				chunkMsg := outboundChunkMessage(msg, chunk, index, len(chunks))
 				m.sendWithRetry(ctx, name, w, chunkMsg)
 			}
 		case <-ctx.Done():
@@ -1534,17 +1536,34 @@ func splitOutboundMessageContent(msg bus.OutboundMessage, maxLen int) []string {
 	return []string{msg.Content}
 }
 
+func outboundChunkMessage(
+	msg bus.OutboundMessage,
+	content string,
+	index int,
+	chunkCount int,
+) bus.OutboundMessage {
+	msg = bus.NormalizeOutboundMessage(msg)
+	msg.Content = content
+	if chunkCount > 1 {
+		msg.ID = StableID(msg.ID, "chunk", strconv.Itoa(index))
+	}
+	return msg
+}
+
 // sendWithRetry sends a message through the channel with rate limiting and
 // retry logic. It classifies errors to determine the retry strategy:
-//   - ErrNotRunning / ErrSendFailed: permanent, no retry
+//   - ErrNotRunning / ErrSendFailed / ErrDeliveryUnknown: no retry
 //   - ErrRateLimit: fixed delay retry
-//   - ErrTemporary / unknown: exponential backoff retry
+//   - ErrTemporary: exponential backoff retry; channels must only return this
+//     when retrying is safe (stable idempotency or known-not-delivered)
+//   - unknown errors: no retry
 func (m *Manager) sendWithRetry(
 	ctx context.Context,
 	name string,
 	w *channelWorker,
 	msg bus.OutboundMessage,
 ) ([]string, bool) {
+	msg = bus.NormalizeOutboundMessage(msg)
 	// Rate limit: wait for token
 	if err := w.limiter.Wait(ctx); err != nil {
 		// ctx canceled, shutting down
@@ -1578,7 +1597,16 @@ func (m *Manager) sendWithRetry(
 		}
 
 		// Permanent failures — don't retry
-		if errors.Is(lastErr, ErrNotRunning) || errors.Is(lastErr, ErrSendFailed) {
+		if errors.Is(lastErr, ErrNotRunning) ||
+			errors.Is(lastErr, ErrSendFailed) ||
+			errors.Is(lastErr, ErrDeliveryUnknown) {
+			break
+		}
+
+		// Only explicit retry-safe failures are retried. Unknown errors are
+		// treated conservatively because the platform may already have accepted
+		// the request.
+		if !errors.Is(lastErr, ErrRateLimit) && !errors.Is(lastErr, ErrTemporary) {
 			break
 		}
 
@@ -1597,7 +1625,7 @@ func (m *Manager) sendWithRetry(
 			}
 		}
 
-		// ErrTemporary or unknown error — exponential backoff
+		// Retry-safe transient error — exponential backoff
 		backoff := min(time.Duration(float64(baseBackoff)*math.Pow(2, float64(attempt))), maxBackoff)
 		select {
 		case <-time.After(backoff):
@@ -1735,6 +1763,7 @@ func (m *Manager) sendMediaWithRetry(
 	w *channelWorker,
 	msg bus.OutboundMediaMessage,
 ) ([]string, error) {
+	msg = bus.NormalizeOutboundMediaMessage(msg)
 	ms, ok := w.ch.(MediaSender)
 	if !ok {
 		err := fmt.Errorf("channel %q does not support media sending", name)
@@ -1773,7 +1802,14 @@ func (m *Manager) sendMediaWithRetry(
 		}
 
 		// Permanent failures — don't retry
-		if errors.Is(lastErr, ErrNotRunning) || errors.Is(lastErr, ErrSendFailed) {
+		if errors.Is(lastErr, ErrNotRunning) ||
+			errors.Is(lastErr, ErrSendFailed) ||
+			errors.Is(lastErr, ErrDeliveryUnknown) {
+			break
+		}
+
+		// Only explicit retry-safe failures are retried.
+		if !errors.Is(lastErr, ErrRateLimit) && !errors.Is(lastErr, ErrTemporary) {
 			break
 		}
 
@@ -1792,7 +1828,7 @@ func (m *Manager) sendMediaWithRetry(
 			}
 		}
 
-		// ErrTemporary or unknown error — exponential backoff
+		// Retry-safe transient error — exponential backoff
 		backoff := min(time.Duration(float64(baseBackoff)*math.Pow(2, float64(attempt))), maxBackoff)
 		select {
 		case <-time.After(backoff):
@@ -2053,14 +2089,13 @@ func (m *Manager) SendMessage(ctx context.Context, msg bus.OutboundMessage) erro
 		maxLen = mlp.MaxMessageLength()
 	}
 	if chunks := splitOutboundMessageContent(msg, maxLen); len(chunks) > 1 {
-		for _, chunk := range chunks {
-			chunkMsg := msg
-			chunkMsg.Content = chunk
+		for index, chunk := range chunks {
+			chunkMsg := outboundChunkMessage(msg, chunk, index, len(chunks))
 			m.sendWithRetry(ctx, channelName, w, chunkMsg)
 		}
 	} else {
 		if len(chunks) == 1 {
-			msg.Content = chunks[0]
+			msg = outboundChunkMessage(msg, chunks[0], 0, len(chunks))
 		}
 		m.sendWithRetry(ctx, channelName, w, msg)
 	}

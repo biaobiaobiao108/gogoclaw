@@ -908,12 +908,13 @@ func (c *WeixinChannel) sendMessageItem(
 	ctx context.Context,
 	toUserID,
 	contextToken string,
+	clientID string,
 	item MessageItem,
 ) error {
 	resp, err := c.api.SendMessage(ctx, SendMessageReq{
 		Msg: WeixinMessage{
 			ToUserID:     toUserID,
-			ClientID:     "gogoclaw-" + uuid.New().String(),
+			ClientID:     clientID,
 			MessageType:  MessageTypeBot,
 			MessageState: MessageStateFinish,
 			ItemList:     []MessageItem{item},
@@ -939,12 +940,13 @@ func (c *WeixinChannel) sendTextMessage(
 	ctx context.Context,
 	toUserID,
 	contextToken,
+	clientID,
 	text string,
 ) error {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
-	return c.sendMessageItem(ctx, toUserID, contextToken, MessageItem{
+	return c.sendMessageItem(ctx, toUserID, contextToken, clientID, MessageItem{
 		Type: MessageItemTypeText,
 		TextItem: &TextItem{
 			Text: text,
@@ -960,11 +962,18 @@ func (c *WeixinChannel) sendUploadedMedia(
 	ctx context.Context,
 	toUserID,
 	contextToken,
+	clientIDBase,
 	caption string,
 	mediaType int,
 	uploaded *uploadedFileInfo,
 ) error {
-	if err := c.sendTextMessage(ctx, toUserID, contextToken, caption); err != nil {
+	if err := c.sendTextMessage(
+		ctx,
+		toUserID,
+		contextToken,
+		basechannels.StableID(clientIDBase, "caption"),
+		caption,
+	); err != nil {
 		return err
 	}
 
@@ -976,32 +985,35 @@ func (c *WeixinChannel) sendUploadedMedia(
 
 	switch mediaType {
 	case UploadMediaTypeImage:
-		return c.sendMessageItem(ctx, toUserID, contextToken, MessageItem{
-			Type: MessageItemTypeImage,
-			ImageItem: &ImageItem{
-				Media:   mediaRef,
-				MidSize: uploaded.cipherSize,
-			},
-		})
+		return c.sendMessageItem(ctx, toUserID, contextToken,
+			basechannels.StableID(clientIDBase, "image"), MessageItem{
+				Type: MessageItemTypeImage,
+				ImageItem: &ImageItem{
+					Media:   mediaRef,
+					MidSize: uploaded.cipherSize,
+				},
+			})
 
 	case UploadMediaTypeVideo:
-		return c.sendMessageItem(ctx, toUserID, contextToken, MessageItem{
-			Type: MessageItemTypeVideo,
-			VideoItem: &VideoItem{
-				Media:     mediaRef,
-				VideoSize: uploaded.cipherSize,
-			},
-		})
+		return c.sendMessageItem(ctx, toUserID, contextToken,
+			basechannels.StableID(clientIDBase, "video"), MessageItem{
+				Type: MessageItemTypeVideo,
+				VideoItem: &VideoItem{
+					Media:     mediaRef,
+					VideoSize: uploaded.cipherSize,
+				},
+			})
 
 	default:
-		return c.sendMessageItem(ctx, toUserID, contextToken, MessageItem{
-			Type: MessageItemTypeFile,
-			FileItem: &FileItem{
-				Media:    mediaRef,
-				FileName: uploaded.filename,
-				Len:      fmt.Sprintf("%d", uploaded.fileSize),
-			},
-		})
+		return c.sendMessageItem(ctx, toUserID, contextToken,
+			basechannels.StableID(clientIDBase, "file"), MessageItem{
+				Type: MessageItemTypeFile,
+				FileItem: &FileItem{
+					Media:    mediaRef,
+					FileName: uploaded.filename,
+					Len:      fmt.Sprintf("%d", uploaded.fileSize),
+				},
+			})
 	}
 }
 
@@ -1117,7 +1129,7 @@ func (c *WeixinChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 		)
 	}
 
-	for _, part := range msg.Parts {
+	for index, part := range msg.Parts {
 		localPath, filename, contentType, cleanup, err := c.resolveOutboundPart(ctx, part)
 		if err != nil {
 			logger.ErrorCF("weixin", "Failed to resolve outbound media", map[string]any{
@@ -1138,7 +1150,16 @@ func (c *WeixinChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 				err = uploadErr
 				return
 			}
-			err = c.sendUploadedMedia(ctx, msg.ChatID, contextToken, part.Caption, kind, uploaded)
+			clientIDBase := basechannels.StableID(msg.ID, "part", fmt.Sprintf("%d", index))
+			err = c.sendUploadedMedia(
+				ctx,
+				msg.ChatID,
+				contextToken,
+				clientIDBase,
+				part.Caption,
+				kind,
+				uploaded,
+			)
 		}()
 		if err != nil {
 			logger.ErrorCF("weixin", "Failed to send outbound media", map[string]any{

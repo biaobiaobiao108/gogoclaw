@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/mymmrac/telego"
+	ta "github.com/mymmrac/telego/telegoapi"
 	th "github.com/mymmrac/telego/telegohandler"
 	tu "github.com/mymmrac/telego/telegoutil"
 
@@ -294,7 +295,7 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]
 					useMarkdownV2: useMarkdownV2,
 				})
 				if err != nil {
-					return nil, err
+					return nil, telegramSendError("telegram send", err, len(messageIDs) > 0)
 				}
 				messageIDs = append(messageIDs, msgID)
 				replyToID = ""
@@ -334,7 +335,7 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]
 			useMarkdownV2: useMarkdownV2,
 		})
 		if err != nil {
-			return nil, err
+			return nil, telegramSendError("telegram send", err, len(messageIDs) > 0)
 		}
 		messageIDs = append(messageIDs, msgID)
 		// Only the first chunk should be a reply; subsequent chunks are normal messages.
@@ -383,13 +384,16 @@ func (c *TelegramChannel) sendChunk(
 
 	pMsg, err := c.bot.SendMessage(ctx, tgMsg)
 	if err != nil {
+		if !isTelegramParseError(err) {
+			return "", telegramSendError("telegram send", err, false)
+		}
 		logParseFailed(err, params.useMarkdownV2)
 
 		tgMsg.Text = params.mdFallback
 		tgMsg.ParseMode = ""
 		pMsg, err = c.bot.SendMessage(ctx, tgMsg)
 		if err != nil {
-			return "", fmt.Errorf("telegram send: %w", channels.ErrTemporary)
+			return "", telegramSendError("telegram send fallback", err, false)
 		}
 	}
 
@@ -659,7 +663,7 @@ func (c *TelegramChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMe
 				"count": len(msg.Parts),
 				"error": err.Error(),
 			})
-			return nil, fmt.Errorf("telegram send media group: %w", channels.ErrTemporary)
+			return nil, telegramSendError("telegram send media group", err, len(messageIDs) > 0)
 		}
 		if len(groupIDs) > 0 {
 			messageIDs = append(messageIDs, groupIDs...)
@@ -702,7 +706,11 @@ func (c *TelegramChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMe
 			if err != nil && strings.Contains(err.Error(), "PHOTO_INVALID_DIMENSIONS") {
 				if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
 					file.Close()
-					return nil, fmt.Errorf("telegram rewind media after photo failure: %w", channels.ErrTemporary)
+					return nil, telegramSendError(
+						"telegram rewind media after photo failure",
+						seekErr,
+						len(messageIDs) > 0,
+					)
 				}
 
 				docParams := &telego.SendDocumentParams{
@@ -762,7 +770,7 @@ func (c *TelegramChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMe
 				"type":  part.Type,
 				"error": err.Error(),
 			})
-			return nil, fmt.Errorf("telegram send media: %w", channels.ErrTemporary)
+			return nil, telegramSendError("telegram send media", err, len(messageIDs) > 0)
 		}
 	}
 
@@ -802,7 +810,7 @@ func (c *TelegramChannel) sendImageMediaGroups(
 		}
 		groupIDs, err := c.sendSingleImageMediaGroup(ctx, chatID, threadID, store, parts[start:end])
 		if err != nil {
-			return nil, err
+			return nil, telegramSendError("telegram send media group", err, len(messageIDs) > 0)
 		}
 		messageIDs = append(messageIDs, groupIDs...)
 	}
@@ -895,7 +903,7 @@ func (c *TelegramChannel) sendCaptionText(
 			useMarkdownV2: false,
 		})
 		if err != nil {
-			return nil, err
+			return nil, telegramSendError("telegram send caption", err, len(messageIDs) > 0)
 		}
 		messageIDs = append(messageIDs, msgID)
 	}
@@ -1557,6 +1565,55 @@ func logParseFailed(err error, useMarkdownV2 bool) {
 	)
 }
 
+func isTelegramParseError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *ta.Error
+	if errors.As(err, &apiErr) {
+		if apiErr.ErrorCode != http.StatusBadRequest {
+			return false
+		}
+		err = errors.New(apiErr.Description)
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "can't parse entities") ||
+		strings.Contains(message, "can't find end tag") ||
+		strings.Contains(message, "unsupported start tag")
+}
+
+// Telegram has no server-side idempotency key. Only definite platform errors
+// are safe to retry; transport failures may have delivered the message already.
+func telegramSendError(action string, err error, partial bool) error {
+	if err == nil {
+		return nil
+	}
+	if partial {
+		if errors.Is(err, channels.ErrDeliveryUnknown) {
+			return err
+		}
+		return fmt.Errorf("%s: %w: %v", action, channels.ErrDeliveryUnknown, err)
+	}
+	if errors.Is(err, channels.ErrDeliveryUnknown) ||
+		errors.Is(err, channels.ErrRateLimit) ||
+		errors.Is(err, channels.ErrSendFailed) {
+		return err
+	}
+	var apiErr *ta.Error
+	if errors.As(err, &apiErr) {
+		switch {
+		case apiErr.ErrorCode == http.StatusTooManyRequests:
+			return fmt.Errorf("%s: %w: %v", action, channels.ErrRateLimit, err)
+		case apiErr.ErrorCode >= http.StatusBadRequest && apiErr.ErrorCode < http.StatusInternalServerError:
+			return fmt.Errorf("%s: %w: %v", action, channels.ErrSendFailed, err)
+		}
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "bad request:") {
+		return fmt.Errorf("%s: %w: %v", action, channels.ErrSendFailed, err)
+	}
+	return fmt.Errorf("%s: %w: %v", action, channels.ErrDeliveryUnknown, err)
+}
+
 // isBotMentioned checks if the bot is mentioned in the message via entities.
 func (c *TelegramChannel) isBotMentioned(message *telego.Message) bool {
 	text, entities := telegramEntityTextAndList(message)
@@ -1715,7 +1772,7 @@ func (s *telegramStreamer) Update(ctx context.Context, content string) error {
 			"error": err.Error(),
 		})
 		s.failed = true
-		return fmt.Errorf("telegram draft update: %w", err)
+		return telegramSendError("telegram draft update", err, false)
 	}
 
 	s.lastLen = len(content)
@@ -1730,7 +1787,12 @@ func (s *telegramStreamer) Finalize(ctx context.Context, content string) error {
 	tgMsg.ParseMode = telego.ModeHTML
 
 	if _, err := s.bot.SendMessage(ctx, tgMsg); err != nil {
-		// Fallback to plain text
+		if !isTelegramParseError(err) {
+			return telegramSendError("telegram finalize", err, false)
+		}
+		logParseFailed(err, false)
+		// Fallback to plain text only after Telegram definitively rejected the
+		// formatted request; a transport error may already have delivered it.
 		tgMsg.ParseMode = ""
 		if _, err = s.bot.SendMessage(ctx, tgMsg); err != nil {
 			logger.ErrorCF("telegram", "Finalize failed after HTML and plain-text attempts", map[string]any{
@@ -1738,7 +1800,7 @@ func (s *telegramStreamer) Finalize(ctx context.Context, content string) error {
 				"error":   err.Error(),
 				"len":     len(content),
 			})
-			return fmt.Errorf("telegram finalize: %w", err)
+			return telegramSendError("telegram finalize fallback", err, false)
 		}
 	}
 	s.Cancel(ctx)

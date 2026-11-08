@@ -3,6 +3,7 @@ package channels
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
@@ -317,5 +318,98 @@ func TestHandleInboundContext_PublishesNormalizedContext(t *testing.T) {
 				t.Fatalf("ChatType = %q, want %q", msg.Context.ChatType, tt.inbound.ChatType)
 			}
 		})
+	}
+}
+
+func TestHandleInboundContext_DeduplicatesPlatformMessage(t *testing.T) {
+	msgBus := bus.NewMessageBus()
+	defer msgBus.Close()
+
+	ch := NewBaseChannel("test", nil, msgBus, nil)
+	inbound := bus.InboundContext{
+		Channel:   "test",
+		Account:   "bot-1",
+		ChatID:    "chat-1",
+		ChatType:  "direct",
+		SenderID:  "user-1",
+		MessageID: "msg-1",
+	}
+
+	if err := ch.HandleInboundContext(context.Background(), "chat-1", "hello", nil, inbound); err != nil {
+		t.Fatalf("first HandleInboundContext() error = %v", err)
+	}
+	if err := ch.HandleInboundContext(context.Background(), "chat-1", "hello", nil, inbound); err != nil {
+		t.Fatalf("duplicate HandleInboundContext() error = %v", err)
+	}
+
+	select {
+	case msg := <-msgBus.InboundChan():
+		if msg.MessageID != "msg-1" {
+			t.Fatalf("MessageID = %q, want msg-1", msg.MessageID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for inbound message")
+	}
+	select {
+	case msg := <-msgBus.InboundChan():
+		t.Fatalf("unexpected duplicate inbound message: %+v", msg)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestHandleInboundContext_MessageIDIsScopedByChatAndAccount(t *testing.T) {
+	msgBus := bus.NewMessageBus()
+	defer msgBus.Close()
+
+	ch := NewBaseChannel("test", nil, msgBus, nil)
+	base := bus.InboundContext{
+		Channel:   "test",
+		Account:   "bot-1",
+		ChatID:    "chat-1",
+		ChatType:  "direct",
+		SenderID:  "user-1",
+		MessageID: "msg-1",
+	}
+	if err := ch.HandleInboundContext(context.Background(), base.ChatID, "first", nil, base); err != nil {
+		t.Fatalf("first HandleInboundContext() error = %v", err)
+	}
+
+	otherChat := base
+	otherChat.ChatID = "chat-2"
+	if err := ch.HandleInboundContext(context.Background(), otherChat.ChatID, "second", nil, otherChat); err != nil {
+		t.Fatalf("other chat HandleInboundContext() error = %v", err)
+	}
+	otherAccount := base
+	otherAccount.Account = "bot-2"
+	if err := ch.HandleInboundContext(context.Background(), base.ChatID, "third", nil, otherAccount); err != nil {
+		t.Fatalf("other account HandleInboundContext() error = %v", err)
+	}
+
+	want := map[string]bool{"first": true, "second": true, "third": true}
+	for i := 0; i < 3; i++ {
+		select {
+		case msg := <-msgBus.InboundChan():
+			if !want[msg.Content] {
+				t.Fatalf("unexpected message content %q", msg.Content)
+			}
+			delete(want, msg.Content)
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for remaining messages: %v", want)
+		}
+	}
+}
+
+func TestInboundDeduplicator_ReleaseAllowsRetry(t *testing.T) {
+	var dedup inboundDeduplicator
+	now := time.Now()
+	if !dedup.reserve("key", now) {
+		t.Fatal("first reserve() = false, want true")
+	}
+	if dedup.reserve("key", now) {
+		t.Fatal("duplicate reserve() = true, want false")
+	}
+	dedup.release("key")
+	if !dedup.reserve("key", now) {
+		t.Fatal("reserve() after release = false, want true")
 	}
 }

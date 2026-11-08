@@ -2,9 +2,14 @@ package feishu
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/larksuite/oapi-sdk-go/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
@@ -106,6 +111,52 @@ func TestExtractContent(t *testing.T) {
 				t.Errorf("extractContent(%q, %q) = %q, want %q", tt.messageType, tt.rawContent, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSendCard_RetriesUseSameUUID(t *testing.T) {
+	var uuids []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/open-apis/auth/v3/tenant_access_token/internal":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"code":0,"msg":"success","tenant_access_token":"token-1","expire":7200}`)
+		case "/open-apis/im/v1/messages":
+			var body struct {
+				UUID string `json:"uuid"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode message request: %v", err)
+			}
+			uuids = append(uuids, body.UUID)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"code":0,"msg":"success","data":{"message_id":"om_1"}}`)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := lark.NewClient(
+		"app-id",
+		"app-secret",
+		lark.WithOpenBaseUrl(server.URL),
+		lark.WithTokenCache(newTokenCache()),
+	)
+	ch := &FeishuChannel{
+		BaseChannel: channels.NewBaseChannel("feishu", nil, nil, nil),
+		client:      client,
+		progress:    channels.NewToolFeedbackAnimator(nil),
+	}
+	key := channels.StableID("delivery-1", "card")
+	for i := 0; i < 2; i++ {
+		if _, err := ch.sendCard(context.Background(), "oc_1", `{"schema":"2.0"}`, key); err != nil {
+			t.Fatalf("sendCard() call %d error = %v", i, err)
+		}
+	}
+
+	if len(uuids) != 2 || uuids[0] != key || uuids[1] != key {
+		t.Fatalf("uuids = %q, want [%q %q]", uuids, key, key)
 	}
 }
 
@@ -329,11 +380,11 @@ func TestSendMedia_SendsCaptionFallbackAfterMedia(t *testing.T) {
 
 	var mediaOrder []string
 	var textCalls []string
-	ch.sendMediaPartFn = func(ctx context.Context, chatID string, part bus.MediaPart, store media.MediaStore) error {
+	ch.sendMediaPartFn = func(ctx context.Context, chatID string, part bus.MediaPart, store media.MediaStore, operationID string) error {
 		mediaOrder = append(mediaOrder, part.Type)
 		return nil
 	}
-	ch.sendTextFn = func(ctx context.Context, chatID, text string) (string, error) {
+	ch.sendTextFn = func(ctx context.Context, chatID, text, idempotencyKey string) (string, error) {
 		textCalls = append(textCalls, chatID+"|"+text)
 		return "msg-1", nil
 	}

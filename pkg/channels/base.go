@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -94,6 +95,58 @@ type BaseChannel struct {
 	placeholderRecorder PlaceholderRecorder
 	owner               Channel // the concrete channel that embeds this BaseChannel
 	reasoningChannelID  string
+	inboundDedup        *inboundDeduplicator
+}
+
+const (
+	inboundDedupTTL     = 10 * time.Minute
+	inboundDedupMaxSize = 8192
+)
+
+type inboundDeduplicator struct {
+	mu     sync.Mutex
+	seen   map[string]time.Time
+	nextGC time.Time
+}
+
+func (d *inboundDeduplicator) reserve(key string, now time.Time) bool {
+	if key == "" {
+		return true
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.seen == nil {
+		d.seen = make(map[string]time.Time)
+	}
+	if d.nextGC.IsZero() || now.After(d.nextGC) || len(d.seen) >= inboundDedupMaxSize {
+		for candidate, seenAt := range d.seen {
+			if now.Sub(seenAt) >= inboundDedupTTL {
+				delete(d.seen, candidate)
+			}
+		}
+		for candidate := range d.seen {
+			if len(d.seen) < inboundDedupMaxSize {
+				break
+			}
+			delete(d.seen, candidate)
+		}
+		d.nextGC = now.Add(time.Minute)
+	}
+	if seenAt, ok := d.seen[key]; ok && now.Sub(seenAt) < inboundDedupTTL {
+		return false
+	}
+	d.seen[key] = now
+	return true
+}
+
+func (d *inboundDeduplicator) release(key string) {
+	if key == "" {
+		return
+	}
+	d.mu.Lock()
+	delete(d.seen, key)
+	d.mu.Unlock()
 }
 
 func NewBaseChannel(
@@ -114,10 +167,11 @@ func NewBaseChannel(
 		allowList = []string{}
 	}
 	bc := &BaseChannel{
-		config:    config,
-		bus:       bus,
-		name:      name,
-		allowList: allowList,
+		config:       config,
+		bus:          bus,
+		name:         name,
+		allowList:    allowList,
+		inboundDedup: &inboundDeduplicator{},
 	}
 	for _, opt := range opts {
 		opt(bc)
@@ -300,6 +354,22 @@ func (c *BaseChannel) HandleMessageWithContext(
 	if inboundCtx.SenderID == "" {
 		inboundCtx.SenderID = resolvedSenderID
 	}
+	inboundCtx.MessageID = strings.TrimSpace(inboundCtx.MessageID)
+	inboundCtx.Account = strings.TrimSpace(inboundCtx.Account)
+	inboundCtx.ChatID = strings.TrimSpace(inboundCtx.ChatID)
+
+	dedupeKey := ""
+	if inboundCtx.MessageID != "" {
+		dedupeKey = strings.Join([]string{
+			c.name,
+			inboundCtx.Account,
+			inboundCtx.ChatID,
+			inboundCtx.MessageID,
+		}, "\x00")
+		if c.inboundDedup != nil && !c.inboundDedup.reserve(dedupeKey, time.Now()) {
+			return nil
+		}
+	}
 
 	scope := BuildMediaScope(c.name, deliveryChatID, inboundCtx.MessageID)
 
@@ -345,6 +415,9 @@ func (c *BaseChannel) HandleMessageWithContext(
 	}
 
 	if err := c.bus.PublishInbound(ctx, msg); err != nil {
+		if c.inboundDedup != nil {
+			c.inboundDedup.release(dedupeKey)
+		}
 		logger.ErrorCF("channels", "Failed to publish inbound message", map[string]any{
 			"channel": c.name,
 			"chat_id": deliveryChatID,

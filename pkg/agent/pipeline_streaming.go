@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
@@ -241,7 +242,7 @@ func finalizeConfiguredStreamingLLM(
 	exec.streamingDelivery = nil
 	visibleBeforeFinalize := publisher.Published()
 	if err := publisher.Finalize(ctx, content, contextUsage); err != nil {
-		if visibleBeforeFinalize {
+		if visibleBeforeFinalize || publisher.Published() {
 			if delivery != nil {
 				if persistErr := al.completeStreamingDelivery(ts.sessionKey, *delivery, content, contextUsage, false); persistErr != nil {
 					logger.WarnCF("agent", "Failed to persist retryable stream delivery", map[string]any{
@@ -453,6 +454,9 @@ func (p *streamingChunkPublisher) Update(ctx context.Context, accumulated string
 	}
 	if err := p.streamer.Update(ctx, accumulated); err != nil {
 		p.err = err
+		if errors.Is(err, channels.ErrDeliveryUnknown) {
+			p.published = true
+		}
 		logger.WarnCF("agent", "stream update failed", map[string]any{
 			"channel": p.channel,
 			"chat_id": p.chatID,
@@ -523,6 +527,9 @@ func (p *streamingChunkPublisher) Finalize(ctx context.Context, content string, 
 		err = p.streamer.Finalize(ctx, content)
 	}
 	if err != nil {
+		if errors.Is(err, channels.ErrDeliveryUnknown) {
+			p.published = true
+		}
 		return fmt.Errorf("stream finalize: %w", err)
 	}
 	p.published = true

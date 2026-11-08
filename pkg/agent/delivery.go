@@ -131,6 +131,7 @@ func (al *AgentLoop) publishTrackedOutbound(ctx context.Context, sessionKey stri
 	if msg.Content == "" {
 		return nil
 	}
+	msg = bus.NormalizeOutboundMessage(msg)
 	now := time.Now().UTC()
 	delivery := turnDeliveryFromOutbound(msg)
 	delivery.Status = deliveryStatusQueued
@@ -171,6 +172,7 @@ func (al *AgentLoop) publishTrackedOutbound(ctx context.Context, sessionKey stri
 func turnDeliveryFromOutbound(msg bus.OutboundMessage) session.TurnDelivery {
 	return session.TurnDelivery{
 		ID:           "delivery-" + uuid.NewString(),
+		MessageID:    msg.ID,
 		Status:       deliveryStatusQueued,
 		Channel:      msg.Context.Channel,
 		ChatID:       msg.Context.ChatID,
@@ -208,7 +210,14 @@ func outboundFromTurnDelivery(sessionKey string, delivery session.TurnDelivery) 
 	if delivery.Context != nil {
 		contextValue = *cloneInboundContext(delivery.Context)
 	}
+	messageID := strings.TrimSpace(delivery.MessageID)
+	if messageID == "" {
+		// Deliveries persisted before MessageID existed still need a stable key
+		// across outbox retries and process restarts.
+		messageID = delivery.ID
+	}
 	return bus.OutboundMessage{
+		ID:           messageID,
 		Channel:      contextValue.Channel,
 		ChatID:       contextValue.ChatID,
 		Context:      contextValue,
@@ -222,6 +231,7 @@ func outboundFromTurnDelivery(sessionKey string, delivery session.TurnDelivery) 
 
 func (al *AgentLoop) prepareStreamingDelivery(ts *turnState) session.TurnDelivery {
 	msg := outboundMessageForTurn(ts, "")
+	msg = bus.NormalizeOutboundMessage(msg)
 	delivery := turnDeliveryFromOutbound(msg)
 	delivery.Status = deliveryStatusStreaming
 	if err := al.setTurnDelivery(ts.sessionKey, delivery); err != nil {

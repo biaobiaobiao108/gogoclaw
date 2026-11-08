@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	basechannels "github.com/biaobiaobiao108/gogoclaw/pkg/channels"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 )
@@ -40,6 +41,48 @@ func TestParseWeixinMediaAESKey(t *testing.T) {
 	}
 	if !bytes.Equal(got, raw) {
 		t.Fatalf("parseWeixinMediaAESKey(hex-string) = %x, want %x", got, raw)
+	}
+}
+
+func TestSend_UsesStableClientIDAcrossRetries(t *testing.T) {
+	var requests []SendMessageReq
+	ch := &WeixinChannel{
+		BaseChannel: basechannels.NewBaseChannel("weixin", nil, nil, nil),
+		api: &ApiClient{
+			BaseURL: "https://weixin.example/",
+			HttpClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				var req SendMessageReq
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Fatalf("decode send request: %v", err)
+				}
+				requests = append(requests, req)
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(bytes.NewBufferString(`{"ret":0,"errcode":0}`)),
+					Header:     make(http.Header),
+				}, nil
+			})},
+		},
+		config:      &config.WeixinSettings{},
+		typingCache: make(map[string]typingTicketCacheEntry),
+	}
+	ch.SetRunning(true)
+	ch.contextTokens.Store("user-1", "ctx-1")
+	msg := bus.OutboundMessage{ID: "delivery-1", ChatID: "user-1", Content: "hello"}
+
+	if _, err := ch.Send(context.Background(), msg); err != nil {
+		t.Fatalf("first Send() error = %v", err)
+	}
+	if _, err := ch.Send(context.Background(), msg); err != nil {
+		t.Fatalf("retry Send() error = %v", err)
+	}
+
+	if len(requests) != 2 {
+		t.Fatalf("send requests = %d, want 2", len(requests))
+	}
+	want := basechannels.StableID("delivery-1", "text")
+	if requests[0].Msg.ClientID != want || requests[1].Msg.ClientID != want {
+		t.Fatalf("client IDs = %q, %q; want %q", requests[0].Msg.ClientID, requests[1].Msg.ClientID, want)
 	}
 }
 
@@ -349,6 +392,7 @@ func TestSendUploadedMedia_SendsCaptionAsSeparateTextBeforeMedia(t *testing.T) {
 		context.Background(),
 		"user-1",
 		"ctx-1",
+		"client-id-1",
 		"recipe translation",
 		UploadMediaTypeImage,
 		&uploadedFileInfo{

@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -183,6 +184,63 @@ func TestSend_NonToolFeedbackDeletesTrackedProgressMessage(t *testing.T) {
 	}
 	if !reflect.DeepEqual(requests, wantRequests) {
 		t.Fatalf("requests = %v, want %v", requests, wantRequests)
+	}
+}
+
+func TestSend_RetriesUseSameEnforcedNonce(t *testing.T) {
+	type sentPayload struct {
+		Nonce        string `json:"nonce"`
+		EnforceNonce bool   `json:"enforce_nonce"`
+	}
+	var payloads []sentPayload
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/channels/chat-1/messages" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		var payload sentPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		payloads = append(payloads, payload)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"sent-1"}`)
+	}))
+	defer server.Close()
+
+	origChannels := discordgo.EndpointChannels
+	discordgo.EndpointChannels = server.URL + "/channels/"
+	defer func() { discordgo.EndpointChannels = origChannels }()
+
+	session, err := discordgo.New("Bot test-token")
+	if err != nil {
+		t.Fatalf("discordgo.New() error = %v", err)
+	}
+	session.Client = server.Client()
+	ch := &DiscordChannel{
+		BaseChannel: channels.NewBaseChannel("discord", nil, bus.NewMessageBus(), nil),
+		session:     session,
+		ctx:         context.Background(),
+		typingStop:  make(map[string]chan struct{}),
+		voiceSSRC:   make(map[string]map[uint32]string),
+	}
+	ch.SetRunning(true)
+	msg := bus.OutboundMessage{ID: "delivery-1", ChatID: "chat-1", Content: "hello"}
+
+	if _, err := ch.Send(context.Background(), msg); err != nil {
+		t.Fatalf("first Send() error = %v", err)
+	}
+	if _, err := ch.Send(context.Background(), msg); err != nil {
+		t.Fatalf("retry Send() error = %v", err)
+	}
+
+	if len(payloads) != 2 {
+		t.Fatalf("payloads = %d, want 2", len(payloads))
+	}
+	want := channels.StableNumericID("delivery-1", "text")
+	for i, payload := range payloads {
+		if payload.Nonce != want || !payload.EnforceNonce {
+			t.Fatalf("payload[%d] = %+v, want nonce %q with enforce_nonce", i, payload, want)
+		}
 	}
 }
 

@@ -126,6 +126,10 @@ func TestPublishTrackedOutboundPersistsFailureAndRetries(t *testing.T) {
 	if failed.Delivery == nil || failed.Delivery.Status != deliveryStatusFailed || failed.Delivery.Attempts != 1 {
 		t.Fatalf("failed delivery = %+v", failed.Delivery)
 	}
+	if failed.Delivery.MessageID == "" {
+		t.Fatal("failed delivery MessageID is empty")
+	}
+	failedMessageID := failed.Delivery.MessageID
 
 	al.retryPendingDelivery(context.Background())
 
@@ -155,6 +159,9 @@ func TestPublishTrackedOutboundPersistsFailureAndRetries(t *testing.T) {
 	}
 	if transport.outbound[0].Context.Raw[metadataKeyOutboundKind] != outboundKindFinal {
 		t.Fatalf("retried outbound was not marked final: %+v", transport.outbound[0].Context.Raw)
+	}
+	if transport.outbound[0].ID != failedMessageID {
+		t.Fatalf("retried outbound ID = %q, want %q", transport.outbound[0].ID, failedMessageID)
 	}
 }
 
@@ -277,10 +284,13 @@ func TestRetryPendingDeliveryReconcilesInterruptedStreaming(t *testing.T) {
 				t.Fatal("dead-letter timestamp is nil")
 			}
 			transport.mu.Lock()
-			outbox := len(transport.outbound)
+			outbox := append([]bus.OutboundMessage(nil), transport.outbound...)
 			transport.mu.Unlock()
-			if outbox != tt.wantOutbox {
-				t.Fatalf("outbox deliveries = %d, want %d", outbox, tt.wantOutbox)
+			if len(outbox) != tt.wantOutbox {
+				t.Fatalf("outbox deliveries = %d, want %d", len(outbox), tt.wantOutbox)
+			}
+			if tt.wantOutbox > 0 && outbox[0].ID != delivery.ID {
+				t.Fatalf("legacy delivery retry ID = %q, want stable fallback %q", outbox[0].ID, delivery.ID)
 			}
 		})
 	}

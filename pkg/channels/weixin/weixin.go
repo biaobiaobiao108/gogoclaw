@@ -3,11 +3,10 @@ package weixin
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
@@ -289,9 +288,9 @@ func (c *WeixinChannel) handleInboundMessage(ctx context.Context, msg WeixinMess
 		return
 	}
 
-	messageID := msg.ClientID
-	if messageID == "" {
-		messageID = uuid.New().String()
+	messageID := strings.TrimSpace(msg.ClientID)
+	if messageID == "" && msg.MessageID != 0 {
+		messageID = "message-id-" + strconv.FormatInt(msg.MessageID, 10)
 	}
 
 	// Build text content from item_list
@@ -425,7 +424,13 @@ func (c *WeixinChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 		return nil, fmt.Errorf("weixin send: %w: missing context token for chat %s", channels.ErrSendFailed, toUserID)
 	}
 
-	if err := c.sendTextMessage(ctx, toUserID, contextToken, msg.Content); err != nil {
+	if err := c.sendTextMessage(
+		ctx,
+		toUserID,
+		contextToken,
+		channels.StableID(msg.ID, "text"),
+		msg.Content,
+	); err != nil {
 		logger.ErrorCF("weixin", "Failed to send message", map[string]any{
 			"to_user_id": toUserID,
 			"error":      err.Error(),

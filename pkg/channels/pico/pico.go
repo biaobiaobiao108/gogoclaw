@@ -396,7 +396,10 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]stri
 		content = channels.InitialAnimatedToolFeedbackContent(msg.Content)
 	}
 	deliveryID := strings.TrimSpace(msg.Context.Raw[PayloadKeyDeliveryID])
-	msgID := deliveryID
+	msgID := strings.TrimSpace(msg.ID)
+	if msgID == "" {
+		msgID = deliveryID
+	}
 	if msgID == "" {
 		msgID = uuid.New().String()
 	}
@@ -428,6 +431,7 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]stri
 	}
 	setContextUsagePayload(payload, msg.ContextUsage)
 	outMsg := newMessage(TypeMessageCreate, payload)
+	outMsg.ID = msgID
 
 	if err := c.broadcastToSession(msg.ChatID, outMsg); err != nil {
 		return nil, err
@@ -459,6 +463,7 @@ func (c *PicoChannel) DeleteMessage(ctx context.Context, chatID string, messageI
 	outMsg := newMessage(TypeMessageDelete, map[string]any{
 		"message_id": messageID,
 	})
+	outMsg.ID = messageID
 	return c.broadcastToSession(chatID, outMsg)
 }
 
@@ -588,6 +593,7 @@ func (c *PicoChannel) SendPlaceholder(ctx context.Context, chatID string) (strin
 		PayloadKeyPlaceholder: true,
 		"message_id":          msgID,
 	})
+	outMsg.ID = msgID
 
 	if err := c.broadcastToSession(chatID, outMsg); err != nil {
 		return "", err
@@ -860,6 +866,7 @@ func (s *picoStreamer) sendLocked(
 		setContextUsagePayload(payload, contextUsage)
 		setTurnUsagePayload(payload, s.turnInputTokens, s.turnOutputTokens)
 		outMsg := newMessage(TypeMessageCreate, payload)
+		outMsg.ID = s.messageID
 		if err := s.channel.broadcast(s.chatID, outMsg); err != nil {
 			return err
 		}
@@ -918,6 +925,7 @@ func (s *picoStreamer) sendReasoningLocked(ctx context.Context, content string) 
 			payload[PayloadKeyModelName] = s.modelName
 		}
 		outMsg := newMessage(TypeMessageUpdate, payload)
+		outMsg.ID = s.reasoningID
 		if err := s.channel.broadcastToSession(s.chatID, outMsg); err != nil {
 			return err
 		}
@@ -1002,12 +1010,16 @@ func (c *PicoChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessag
 		return nil, fmt.Errorf("no deliverable media parts: %w", channels.ErrSendFailed)
 	}
 
-	msgID := uuid.New().String()
+	msgID := strings.TrimSpace(msg.ID)
+	if msgID == "" {
+		msgID = uuid.New().String()
+	}
 	outMsg := newMessage(TypeMessageCreate, map[string]any{
 		PayloadKeyContent: caption,
 		"attachments":     attachments,
 		"message_id":      msgID,
 	})
+	outMsg.ID = msgID
 	if modelName := strings.TrimSpace(msg.Context.Raw[PayloadKeyModelName]); modelName != "" {
 		outMsg.Payload[PayloadKeyModelName] = modelName
 	}
@@ -1927,5 +1939,6 @@ func (c *PicoChannel) editMessagePayload(
 	normalized["message_id"] = messageID
 	setContextUsagePayload(normalized, contextUsage)
 	outMsg := newMessage(TypeMessageUpdate, normalized)
+	outMsg.ID = messageID
 	return c.broadcastToSession(chatID, outMsg)
 }

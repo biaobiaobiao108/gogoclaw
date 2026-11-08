@@ -138,6 +138,65 @@ func TestClientChannel_ConnectAndSend(t *testing.T) {
 	}
 }
 
+func TestClientChannel_SendUsesLogicalMessageID(t *testing.T) {
+	received := make(chan PicoMessage, 1)
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			_, raw, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var msg PicoMessage
+			if err := json.Unmarshal(raw, &msg); err != nil {
+				continue
+			}
+			if msg.Type == TypeMessageSend {
+				received <- msg
+			}
+		}
+	}))
+	defer srv.Close()
+
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
+		URL:         wsURL(srv.URL),
+		SessionID:   "sess-id",
+		ReadTimeout: 10,
+	}, bus.NewMessageBus())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := ch.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer ch.Stop(ctx)
+
+	if _, err := ch.Send(ctx, bus.OutboundMessage{
+		ID:      "delivery-1",
+		ChatID:  "pico_client:sess-id",
+		Content: "hello",
+	}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	select {
+	case msg := <-received:
+		if msg.ID != "delivery-1" {
+			t.Fatalf("message ID = %q, want delivery-1", msg.ID)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for outbound message")
+	}
+}
+
 func TestClientChannel_AuthFailure(t *testing.T) {
 	srv := testServer(t, "correct-token")
 	defer srv.Close()

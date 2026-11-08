@@ -122,6 +122,34 @@ func TestTurnStatusUsesConnectionSession(t *testing.T) {
 	}
 }
 
+func TestSend_UsesLogicalMessageIDAcrossRetries(t *testing.T) {
+	ch := newTestPicoChannel(t)
+	clientConn, received, cleanup := newTestPicoWebSocket(t)
+	defer cleanup()
+	ch.addConnForTest(&picoConn{id: "conn-1", conn: clientConn, sessionID: "sess-1"})
+	ch.SetRunning(true)
+	msg := bus.OutboundMessage{
+		ID:      "delivery-1",
+		ChatID:  "pico:sess-1",
+		Content: "hello",
+		Context: bus.NewOutboundContext("pico", "pico:sess-1", ""),
+	}
+
+	if _, err := ch.Send(context.Background(), msg); err != nil {
+		t.Fatalf("first Send() error = %v", err)
+	}
+	if _, err := ch.Send(context.Background(), msg); err != nil {
+		t.Fatalf("retry Send() error = %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		out := mustReceivePicoMessage(t, received)
+		if got := out.Payload["message_id"]; got != "delivery-1" {
+			t.Fatalf("message[%d].message_id = %#v, want delivery-1", i, got)
+		}
+	}
+}
+
 func TestHandleMessageSend_ForwardsMessageMetadata(t *testing.T) {
 	msgBus := bus.NewMessageBus()
 	bc := &config.Channel{Type: config.ChannelPico, Enabled: true}

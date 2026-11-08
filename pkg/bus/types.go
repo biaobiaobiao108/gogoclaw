@@ -73,6 +73,10 @@ type ContextUsage struct {
 }
 
 type OutboundMessage struct {
+	// ID is the stable logical delivery ID generated when the message enters
+	// the outbound bus. Channel retries must preserve it for platform-level
+	// idempotency.
+	ID               string         `json:"id,omitempty"`
 	Channel          string         `json:"channel"`
 	ChatID           string         `json:"chat_id"`
 	Context          InboundContext `json:"context"`
@@ -95,6 +99,9 @@ type MediaPart struct {
 
 // OutboundMediaMessage carries media attachments from Agent to channels via the bus.
 type OutboundMediaMessage struct {
+	// ID is the stable logical delivery ID generated when the media message
+	// enters the outbound bus. Channel retries must preserve it.
+	ID         string         `json:"id,omitempty"`
 	Channel    string         `json:"channel"`
 	ChatID     string         `json:"chat_id"`
 	Context    InboundContext `json:"context"`

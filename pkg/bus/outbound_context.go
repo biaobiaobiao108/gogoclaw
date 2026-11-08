@@ -1,6 +1,10 @@
 package bus
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/google/uuid"
+)
 
 // NewOutboundContext builds the minimal normalized addressing context required
 // to deliver an outbound text message or reply.
@@ -15,6 +19,10 @@ func NewOutboundContext(channel, chatID, replyToMessageID string) InboundContext
 // NormalizeOutboundMessage ensures Context is normalized and keeps convenience
 // mirrors in sync for runtime consumers.
 func NormalizeOutboundMessage(msg OutboundMessage) OutboundMessage {
+	msg.ID = strings.TrimSpace(msg.ID)
+	if msg.ID == "" {
+		msg.ID = uuid.NewString()
+	}
 	msg.Channel = strings.TrimSpace(msg.Channel)
 	msg.ChatID = strings.TrimSpace(msg.ChatID)
 	msg.ReplyToMessageID = strings.TrimSpace(msg.ReplyToMessageID)
@@ -47,6 +55,10 @@ func NormalizeOutboundMessage(msg OutboundMessage) OutboundMessage {
 // NormalizeOutboundMediaMessage ensures media outbound messages also carry a
 // normalized context while keeping convenience mirrors in sync.
 func NormalizeOutboundMediaMessage(msg OutboundMediaMessage) OutboundMediaMessage {
+	msg.ID = strings.TrimSpace(msg.ID)
+	if msg.ID == "" {
+		msg.ID = uuid.NewString()
+	}
 	msg.Channel = strings.TrimSpace(msg.Channel)
 	msg.ChatID = strings.TrimSpace(msg.ChatID)
 	if msg.Context.Channel == "" {

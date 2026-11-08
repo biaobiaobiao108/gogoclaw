@@ -11,9 +11,15 @@ var (
 	// Manager will wait a fixed delay and retry.
 	ErrRateLimit = errors.New("rate limited")
 
-	// ErrTemporary indicates a transient failure (e.g. network timeout, 5xx).
-	// Manager will use exponential backoff and retry.
+	// ErrTemporary indicates a failure that is safe to retry because the channel
+	// supplied a stable idempotency key or knows the platform did not accept the
+	// request.
 	ErrTemporary = errors.New("temporary failure")
+
+	// ErrDeliveryUnknown indicates the request may have reached the platform but
+	// no conclusive response was received, or only part of a multi-part delivery
+	// completed. Retrying can create duplicates, so Manager will not retry it.
+	ErrDeliveryUnknown = errors.New("delivery state unknown")
 
 	// ErrSendFailed indicates a permanent failure (e.g. invalid chat ID, 4xx non-429).
 	// Manager will not retry.

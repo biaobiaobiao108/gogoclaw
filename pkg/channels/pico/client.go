@@ -286,7 +286,7 @@ func (c *PicoClientChannel) handleServerMessage(pc *picoConn, msg PicoMessage) {
 		ChatID:    chatID,
 		ChatType:  "direct",
 		SenderID:  senderID,
-		MessageID: msg.ID,
+		MessageID: picoMessageID(msg),
 		Raw: map[string]string{
 			"platform":   "pico_client",
 			"session_id": sessionID,
@@ -294,6 +294,16 @@ func (c *PicoClientChannel) handleServerMessage(pc *picoConn, msg PicoMessage) {
 	}
 
 	c.HandleInboundContext(c.ctx, chatID, content, media, inboundCtx, sender)
+}
+
+func picoMessageID(msg PicoMessage) string {
+	if id := strings.TrimSpace(msg.ID); id != "" {
+		return id
+	}
+	if id, ok := msg.Payload["message_id"].(string); ok {
+		return strings.TrimSpace(id)
+	}
+	return ""
 }
 
 // Send sends a message to the remote server.
@@ -311,8 +321,12 @@ func (c *PicoClientChannel) Send(ctx context.Context, msg bus.OutboundMessage) (
 	outMsg := newMessage(TypeMessageSend, map[string]any{
 		PayloadKeyContent: msg.Content,
 	})
+	outMsg.ID = msg.ID
 	outMsg.SessionID = strings.TrimPrefix(msg.ChatID, "pico_client:")
-	return nil, pc.writeJSON(outMsg)
+	if err := pc.writeJSON(outMsg); err != nil {
+		return nil, fmt.Errorf("pico client send: %w: %w", channels.ErrTemporary, err)
+	}
+	return nil, nil
 }
 
 // StartTyping implements channels.TypingCapable.

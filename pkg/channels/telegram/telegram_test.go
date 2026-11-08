@@ -270,7 +270,7 @@ func TestSendMedia_ImageNonDimensionErrorDoesNotFallback(t *testing.T) {
 	})
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, channels.ErrTemporary)
+	assert.ErrorIs(t, err, channels.ErrDeliveryUnknown)
 	require.Len(t, caller.calls, 1)
 	assert.Contains(t, caller.calls[0].URL, "sendPhoto")
 	require.Len(t, constructor.calls, 1)
@@ -799,7 +799,7 @@ func TestSend_HTMLFallback_PerChunk(t *testing.T) {
 	assert.Equal(t, 2, len(caller.calls), "should have HTML attempt + plain text fallback")
 }
 
-func TestSend_HTMLFallback_BothFail(t *testing.T) {
+func TestSend_UnknownErrorDoesNotFallback(t *testing.T) {
 	caller := &stubCaller{
 		callFn: func(ctx context.Context, url string, data *ta.RequestData) (*ta.Response, error) {
 			return nil, errors.New("send failed")
@@ -813,13 +813,29 @@ func TestSend_HTMLFallback_BothFail(t *testing.T) {
 	})
 
 	assert.Error(t, err)
-	assert.True(t, errors.Is(err, channels.ErrTemporary), "error should wrap ErrTemporary")
-	assert.Equal(t, 2, len(caller.calls), "should have HTML attempt + plain text attempt")
+	assert.True(t, errors.Is(err, channels.ErrDeliveryUnknown), "transport errors have unknown delivery state")
+	assert.Equal(t, 1, len(caller.calls), "unknown delivery state must not trigger a second send")
 }
 
-func TestSend_LongMessage_HTMLFallback_StopsOnError(t *testing.T) {
-	// With a long message that gets split into 2 chunks, if both HTML and
-	// plain text fail on the first chunk, Send should return early.
+func TestSend_HTMLFallback_BothParseAttemptsFail(t *testing.T) {
+	caller := &stubCaller{
+		callFn: func(ctx context.Context, url string, data *ta.RequestData) (*ta.Response, error) {
+			return nil, errors.New("Bad Request: can't parse entities")
+		},
+	}
+	ch := newTestChannel(t, caller)
+
+	_, err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:  "12345",
+		Content: "Hello **world**",
+	})
+
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, channels.ErrSendFailed)
+	assert.Equal(t, 2, len(caller.calls), "parse rejection is safe to retry once as plain text")
+}
+
+func TestSend_LongMessage_UnknownErrorStopsOnFirstChunk(t *testing.T) {
 	caller := &stubCaller{
 		callFn: func(ctx context.Context, url string, data *ta.RequestData) (*ta.Response, error) {
 			return nil, errors.New("send failed")
@@ -835,8 +851,8 @@ func TestSend_LongMessage_HTMLFallback_StopsOnError(t *testing.T) {
 	})
 
 	assert.Error(t, err)
-	// Should fail on the first chunk (2 calls: HTML + fallback), never reaching the second chunk.
-	assert.Equal(t, 2, len(caller.calls), "should stop after first chunk fails both HTML and plain text")
+	assert.ErrorIs(t, err, channels.ErrDeliveryUnknown)
+	assert.Equal(t, 1, len(caller.calls), "should stop after the first unknown delivery state")
 }
 
 func TestSend_MarkdownShortButHTMLLong_MultipleCalls(t *testing.T) {

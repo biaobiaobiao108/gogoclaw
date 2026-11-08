@@ -9,7 +9,6 @@ import (
 	"errors"
 	"os"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -208,9 +207,8 @@ func TestSendMedia_UploadsLocalFileAsBase64(t *testing.T) {
 	ch.SetMediaStore(store)
 	ch.chatType.Store("group-1", "group")
 	ch.lastMsgID.Store("group-1", "msg-1")
-	ch.msgSeqCounters.Store("group-1", new(atomic.Uint64))
-
 	_, err = ch.SendMedia(context.Background(), bus.OutboundMediaMessage{
+		ID:     "delivery-media-1",
 		ChatID: "group-1",
 		Parts: []bus.MediaPart{{
 			Type:    "image",
@@ -256,8 +254,13 @@ func TestSendMedia_UploadsLocalFileAsBase64(t *testing.T) {
 	if msg.MsgID != "msg-1" {
 		t.Fatalf("msg.MsgID = %q, want msg-1", msg.MsgID)
 	}
-	if msg.MsgSeq != 1 {
-		t.Fatalf("msg.MsgSeq = %d, want 1", msg.MsgSeq)
+	wantSequence := channels.StableSequence(
+		"qq",
+		"group-1",
+		channels.StableID("delivery-media-1", "part", "0"),
+	)
+	if msg.MsgSeq != wantSequence {
+		t.Fatalf("msg.MsgSeq = %d, want %d", msg.MsgSeq, wantSequence)
 	}
 	if msg.Content != "see https://example。com/image" {
 		t.Fatalf("msg.Content = %q", msg.Content)
@@ -597,6 +600,46 @@ func TestSendMedia_ReturnsSendFailedWhenLocalFileExceedsBase64MiBLimit(t *testin
 	}
 	if len(api.transportCalls) != 0 {
 		t.Fatalf("transportCalls = %d, want 0", len(api.transportCalls))
+	}
+}
+
+func TestSend_RetriesUseStablePassiveReplySequence(t *testing.T) {
+	messageBus := bus.NewMessageBus()
+	api := &fakeQQAPI{}
+	ch := &QQChannel{
+		BaseChannel: channels.NewBaseChannel("qq", nil, messageBus, nil),
+		config:      &config.QQSettings{},
+		api:         api,
+		dedup:       make(map[string]time.Time),
+		done:        make(chan struct{}),
+		ctx:         context.Background(),
+	}
+	ch.SetRunning(true)
+	ch.chatType.Store("group-1", "group")
+	ch.lastMsgID.Store("group-1", "inbound-msg-1")
+	msg := bus.OutboundMessage{ID: "delivery-text-1", ChatID: "group-1", Content: "hello"}
+
+	if _, err := ch.Send(context.Background(), msg); err != nil {
+		t.Fatalf("first Send() error = %v", err)
+	}
+	if _, err := ch.Send(context.Background(), msg); err != nil {
+		t.Fatalf("retry Send() error = %v", err)
+	}
+
+	if len(api.groupMessages) != 2 {
+		t.Fatalf("group messages = %d, want 2", len(api.groupMessages))
+	}
+	first, ok := api.groupMessages[0].(*dto.MessageToCreate)
+	if !ok {
+		t.Fatalf("first message type = %T", api.groupMessages[0])
+	}
+	second, ok := api.groupMessages[1].(*dto.MessageToCreate)
+	if !ok {
+		t.Fatalf("retry message type = %T", api.groupMessages[1])
+	}
+	want := channels.StableSequence("qq", "group-1", "delivery-text-1")
+	if first.MsgSeq != want || second.MsgSeq != want {
+		t.Fatalf("msg_seq values = %d, %d; want %d", first.MsgSeq, second.MsgSeq, want)
 	}
 }
 

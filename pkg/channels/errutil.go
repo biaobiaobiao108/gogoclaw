@@ -13,7 +13,7 @@ func ClassifySendError(statusCode int, rawErr error) error {
 	case statusCode == http.StatusTooManyRequests:
 		return fmt.Errorf("%w: %w", ErrRateLimit, rawErr)
 	case statusCode >= 500:
-		return fmt.Errorf("%w: %w", ErrTemporary, rawErr)
+		return fmt.Errorf("%w: %w", ErrDeliveryUnknown, rawErr)
 	case statusCode >= 400:
 		return fmt.Errorf("%w: %w", ErrSendFailed, rawErr)
 	default:
@@ -21,10 +21,10 @@ func ClassifySendError(statusCode int, rawErr error) error {
 	}
 }
 
-// ClassifyNetError wraps a network/timeout error as ErrTemporary.
+// ClassifyNetError marks a transport failure whose delivery state is unknown.
 func ClassifyNetError(err error) error {
 	if err == nil {
 		return nil
 	}
-	return fmt.Errorf("%w: %w", ErrTemporary, err)
+	return fmt.Errorf("%w: %w", ErrDeliveryUnknown, err)
 }

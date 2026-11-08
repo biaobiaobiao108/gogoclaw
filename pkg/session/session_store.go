@@ -45,6 +45,7 @@ type TurnActivity struct {
 
 type TurnDelivery struct {
 	ID             string              `json:"id"`
+	MessageID      string              `json:"message_id,omitempty"`
 	Status         string              `json:"status"`
 	Channel        string              `json:"channel,omitempty"`
 	ChatID         string              `json:"chat_id,omitempty"`
