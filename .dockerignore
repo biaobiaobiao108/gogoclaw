@@ -3,9 +3,16 @@
 .git
 .gitignore
 build/
+.cache/
 .picoclaw/
 config/
 .env
 .env.example
 *.md
+# Required by //go:embed workspace in onboard_workspace_embed.go.
+!workspace/**
 assets/
+dist/
+web/frontend/node_modules/
+web/frontend/.bun/
+web/backend/dist/

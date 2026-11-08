@@ -16,7 +16,7 @@ import (
 func DefaultConfig() *Config {
 	workspacePath := filepath.Join(GetHome(), pkg.WorkspaceName)
 
-	return &Config{
+	cfg := &Config{
 		Version: CurrentVersion,
 		// Isolation is opt-in so existing installations keep their current behavior
 		// until the user explicitly enables subprocess sandboxing.
@@ -392,7 +392,7 @@ func DefaultConfig() *Config {
 					Enabled: true,
 				},
 				EnableDenyPatterns: true,
-				AllowRemote:        true,
+				AllowRemote:        false,
 				TimeoutSeconds:     60,
 			},
 			Skills: SkillsToolsConfig{
@@ -514,6 +514,10 @@ func DefaultConfig() *Config {
 			GoVersion: GoVersion,
 		},
 	}
+	for _, model := range cfg.ModelList {
+		model.Enabled = true
+	}
+	return cfg
 }
 
 func defaultChannels() ChannelsConfig {

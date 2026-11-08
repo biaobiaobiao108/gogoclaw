@@ -106,8 +106,6 @@ const (
 )
 
 // SecureStrings is a slice of SecureString
-//
-//nolint:recvcheck
 type SecureStrings []*SecureString
 
 // IsZero returns true if the SecureStrings is nil or empty.
@@ -185,8 +183,6 @@ func (s *SecureStrings) UnmarshalJSON(value []byte) error {
 }
 
 // SecureString the string value that can be decrypted or resolved
-//
-//nolint:recvcheck
 type SecureString struct {
 	resolved string // Decrypted/resolved value returned by String()
 	raw      string // Persisted raw value (enc://, file://, or plaintext)
@@ -322,6 +318,47 @@ func (s *SecureString) UnmarshalText(text []byte) error {
 }
 
 type SecureModelList []*ModelConfig
+
+func (v *SecureModelList) UnmarshalJSON(data []byte) error {
+	var items []json.RawMessage
+	if err := json.Unmarshal(data, &items); err != nil {
+		return err
+	}
+	models := make(SecureModelList, 0, len(items))
+	for _, item := range items {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(item, &fields); err != nil {
+			return err
+		}
+		var model ModelConfig
+		if err := json.Unmarshal(item, &model); err != nil {
+			return err
+		}
+		_, model.enabledExplicit = fields["enabled"]
+		if !model.enabledExplicit {
+			model.Enabled = true
+		}
+		models = append(models, &model)
+	}
+	*v = models
+	return nil
+}
+
+func (v SecureModelList) MarshalJSON() ([]byte, error) {
+	type modelJSON ModelConfig
+	models := make([]modelJSON, 0, len(v))
+	for _, model := range v {
+		if model == nil {
+			continue
+		}
+		item := modelJSON(*model)
+		if !model.enabledExplicit {
+			item.Enabled = true
+		}
+		models = append(models, item)
+	}
+	return json.Marshal(models)
+}
 
 func (v *SecureModelList) UnmarshalYAML(value *yaml.Node) error {
 	mm := make(map[string]*ModelConfig)

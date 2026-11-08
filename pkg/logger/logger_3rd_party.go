@@ -79,8 +79,6 @@ func (b *Logger) Fatalf(format string, v ...any) {
 // caller: unused parameter reserved for compatibility
 // format: format string
 // a: format arguments
-//
-//nolint:goprintffuncname
 func (b *Logger) Log(msgL, caller int, format string, a ...any) {
 	level := LogLevel(msgL)
 	if b.levels != nil {

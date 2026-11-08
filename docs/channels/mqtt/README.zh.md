@@ -110,6 +110,8 @@ channel_list:
 | `client_id` | `settings` | 否 | 自动生成 | 发送给 Broker 的 paho 客户端 ID。未配置时自动生成为 `picoclaw-mqtt-{agent_id}-{8位hex}`，进程生命周期内固定不变，断线重连时复用同一 ID |
 | `keep_alive` | `settings` | 否 | `60` | MQTT 心跳间隔（秒） |
 | `qos` | `settings` | 否 | `0` | 发布和订阅的 QoS 级别：`0`、`1` 或 `2` |
+| `tls_ca_file` | `settings` | 否 | 系统根证书 | 用于验证 Broker 证书的 PEM CA 证书包 |
+| `tls_insecure_skip_verify` | `settings` | 否 | `false` | 关闭证书校验。仅可用于连接可信测试 Broker 的本地开发环境 |
 
 ### 环境变量
 
@@ -125,6 +127,8 @@ channel_list:
 | `PICOCLAW_CHANNELS_MQTT_CLIENT_ID` | `client_id` |
 | `PICOCLAW_CHANNELS_MQTT_KEEP_ALIVE` | `keep_alive` |
 | `PICOCLAW_CHANNELS_MQTT_QOS` | `qos` |
+| `PICOCLAW_CHANNELS_MQTT_TLS_CA_FILE` | `tls_ca_file` |
+| `PICOCLAW_CHANNELS_MQTT_TLS_INSECURE_SKIP_VERIFY` | `tls_insecure_skip_verify` |
 
 ---
 
@@ -136,7 +140,7 @@ channel_list:
 
 ## ⚠️ 注意事项
 
-- **TLS**：支持 SSL/TLS（Broker 地址使用 `ssl://`），默认跳过证书验证。
+- **TLS**：支持 SSL/TLS（Broker 地址使用 `ssl://`），默认使用系统根证书验证 Broker。私有 CA 通过 `tls_ca_file` 指定；`tls_insecure_skip_verify: true` 是仅供开发环境显式启用的例外。
 - **流式响应**：流式输出时会向 response topic 发送多条消息，客户端按顺序拼接即为完整回复。
 - **client_id 与会话 ID 的区别**：topic 路径中的 `client_id` 由客户端应用自行设置，用于区分会话；它与 PicoClaw paho 连接 Broker 时使用的客户端 ID 是两个独立的概念。
 - **多实例部署**：若多个 PicoClaw 实例使用相同 `agent_id` 连接同一 Broker，需为每个实例配置不同的 `client_id` 以避免 Broker 层面的冲突。

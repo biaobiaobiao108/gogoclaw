@@ -4,16 +4,16 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
 import {
-  type WebSearchConfigResponse,
   getTools,
   getWebSearchConfig,
   setToolEnabled,
   updateWebSearchConfig,
+  type WebSearchConfigResponse,
 } from "@/api/tools"
 import { showSaveSuccessOrRestartToast } from "@/lib/restart-required"
 import { refreshGatewayState } from "@/store/gateway"
 
-import type { GroupedTools, ToolStatusFilter, ToolsPageTab } from "./types"
+import type { GroupedTools, ToolsPageTab, ToolStatusFilter } from "./types"
 
 export function useToolsPage() {
   const { t } = useTranslation()

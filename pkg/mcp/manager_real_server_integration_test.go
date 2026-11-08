@@ -35,7 +35,7 @@ import (
 //
 // Stdio subprocess example:
 //
-//	PICOCLAW_MCP_REAL_SERVER_JSON='{"enabled":true,"type":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","."]}'
+//	PICOCLAW_MCP_REAL_SERVER_JSON='{"enabled":true,"type":"stdio","command":"bunx","args":["-y","@modelcontextprotocol/server-filesystem","."]}'
 func TestIntegration_RealConfiguredServer(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

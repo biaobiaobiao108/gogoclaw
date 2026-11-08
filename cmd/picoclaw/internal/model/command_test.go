@@ -128,6 +128,8 @@ func TestListAvailableModels_Empty(t *testing.T) {
 }
 
 func TestListAvailableModels_WithModels(t *testing.T) {
+	noKeyModel := &config.ModelConfig{ModelName: "no-key-model", Model: "openai/test"}
+	noKeyModel.SetEnabled(false)
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
@@ -147,7 +149,7 @@ func TestListAvailableModels_WithModels(t *testing.T) {
 				APIKeys:   config.SecureStrings{config.NewSecureString("test")},
 				Enabled:   true,
 			},
-			{ModelName: "no-key-model", Model: "openai/test"},
+			noKeyModel,
 		},
 	}
 
@@ -224,6 +226,8 @@ func TestSetDefaultModel_InvalidModel(t *testing.T) {
 func TestSetDefaultModel_ModelWithoutAPIKey(t *testing.T) {
 	initTest(t)
 
+	noKeyModel := &config.ModelConfig{ModelName: "no-key-model", Model: "openai/nokey"}
+	noKeyModel.SetEnabled(false)
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
@@ -237,7 +241,7 @@ func TestSetDefaultModel_ModelWithoutAPIKey(t *testing.T) {
 				APIKeys:   config.SecureStrings{config.NewSecureString("test")},
 				Enabled:   true,
 			},
-			{ModelName: "no-key-model", Model: "openai/nokey"},
+			noKeyModel,
 		},
 	}
 
@@ -245,8 +249,11 @@ func TestSetDefaultModel_ModelWithoutAPIKey(t *testing.T) {
 }
 
 func TestSetDefaultModel_SaveConfigError(t *testing.T) {
-	// Use an invalid path to trigger save error
-	invalidPath := "/nonexistent/directory/config.json"
+	parent := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(parent, []byte("blocked"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	invalidPath := filepath.Join(parent, "config.json")
 
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{

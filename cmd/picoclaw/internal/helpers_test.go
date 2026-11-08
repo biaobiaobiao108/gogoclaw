@@ -13,6 +13,9 @@ import (
 )
 
 func TestGetConfigPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("HOME-based expectation is POSIX-specific; see TestGetConfigPath_Windows")
+	}
 	t.Setenv("HOME", "/tmp/home")
 
 	got := GetConfigPath()

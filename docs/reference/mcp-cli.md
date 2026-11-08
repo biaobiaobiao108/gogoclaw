@@ -30,22 +30,22 @@ Behavior notes:
 
 ## Quick Start
 
-Add a stdio server via `npx`:
+Add a stdio server via `bunx`:
 
 ```bash
-picoclaw mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem /tmp
+picoclaw mcp add filesystem -- bunx --bun @modelcontextprotocol/server-filesystem /tmp
 ```
 
 Add a stdio server with environment variables saved in config:
 
 ```bash
-picoclaw mcp add github --env GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx -- npx -y @modelcontextprotocol/server-github
+picoclaw mcp add github --env GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx -- bunx --bun @modelcontextprotocol/server-github
 ```
 
 Add a stdio server using an env file for secrets:
 
 ```bash
-picoclaw mcp add github --env-file .env.github -- npx -y @modelcontextprotocol/server-github
+picoclaw mcp add github --env-file .env.github -- bunx --bun @modelcontextprotocol/server-github
 ```
 
 Add a remote HTTP server:
@@ -63,7 +63,7 @@ picoclaw mcp add apify "https://mcp.apify.com/" -t http --header "Authorization:
 Add a stdio server using an explicit command separator:
 
 ```bash
-picoclaw mcp add --transport stdio --env AIRTABLE_API_KEY=YOUR_KEY airtable -- npx -y airtable-mcp-server
+picoclaw mcp add --transport stdio --env AIRTABLE_API_KEY=YOUR_KEY airtable -- bunx --bun airtable-mcp-server
 ```
 
 Inspect the configured entries:
@@ -146,7 +146,7 @@ Secret handling:
 Example:
 
 ```bash
-picoclaw mcp add sqlite npx -y @modelcontextprotocol/server-sqlite --db ./mydb.db
+picoclaw mcp add sqlite bunx --bun @modelcontextprotocol/server-sqlite --db ./mydb.db
 ```
 
 This stores:
@@ -160,8 +160,8 @@ This stores:
         "sqlite": {
           "enabled": true,
           "type": "stdio",
-          "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-sqlite", "--db", "./mydb.db"]
+          "command": "bunx",
+          "args": ["--bun", "@modelcontextprotocol/server-sqlite", "--db", "./mydb.db"]
         }
       }
     }
@@ -172,7 +172,7 @@ This stores:
 Adding the same server with `--deferred` stores the extra field:
 
 ```bash
-picoclaw mcp add --deferred sqlite npx -y @modelcontextprotocol/server-sqlite --db ./mydb.db
+picoclaw mcp add --deferred sqlite bunx --bun @modelcontextprotocol/server-sqlite --db ./mydb.db
 ```
 
 ```json
@@ -180,8 +180,8 @@ picoclaw mcp add --deferred sqlite npx -y @modelcontextprotocol/server-sqlite --
   "sqlite": {
     "enabled": true,
     "type": "stdio",
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-sqlite", "--db", "./mydb.db"],
+    "command": "bunx",
+    "args": ["--bun", "@modelcontextprotocol/server-sqlite", "--db", "./mydb.db"],
     "deferred": true
   }
 }
@@ -285,7 +285,7 @@ Example output (wide terminal):
 │ ⬡  filesystem                                            │
 │                                                          │
 │ Type        stdio                                        │
-│ Target      npx -y @modelcontextprotocol/server-fs /tmp  │
+│ Target      bunx --bun @modelcontextprotocol/server-fs /tmp  │
 │ Enabled     yes                                          │
 │ Deferred    no                                           │
 │                                                          │

@@ -191,7 +191,7 @@ PICOCLAW_TOOLS_EXEC_ENABLED=false
 - 权限提升：`sudo`、`chmod`、`chown`
 - 进程控制：`pkill`、`killall`、`kill -9`
 - 远程操作：`curl | sh`、`wget | sh`、`ssh`
-- 包管理：`apt`、`yum`、`dnf`、`npm install -g`、`pip install --user`
+- 包管理：`apt`、`yum`、`dnf`、`bun add -g`、`pip install --user`
 - 容器：`docker run`、`docker exec`
 - Git：`git push`、`git force`
 - 其他：`eval`、`source *.sh`
@@ -205,7 +205,7 @@ exec 守卫仅验证发送给 PicoClaw 的顶层命令。它**不会**递归检�
 - `make run`
 - `go run ./cmd/...`
 - `cargo run`
-- `npm run build`
+- `bun run build`
 
 这意味着守卫对于拦截明显危险的直接命令很有用，但它**不是**未审查构建管道的完整沙箱。如果你的威胁模型包括工作区中的不受信任代码，请使用更强的隔离措施，如容器、虚拟机或围绕构建和运行命令的审批流程。
 
@@ -299,9 +299,9 @@ LLM 不会加载所有工具，而是获得一个轻量级搜索工具（使用 
       "servers": {
         "filesystem": {
           "enabled": true,
-          "command": "npx",
+          "command": "bunx",
           "args": [
-            "-y",
+            "--bun",
             "@modelcontextprotocol/server-filesystem",
             "/tmp"
           ]
@@ -353,9 +353,9 @@ LLM 不会加载所有工具，而是获得一个轻量级搜索工具（使用 
       "servers": {
         "github": {
           "enabled": true,
-          "command": "npx",
+          "command": "bunx",
           "args": [
-            "-y",
+            "--bun",
             "@modelcontextprotocol/server-github"
           ],
           "env": {
@@ -364,9 +364,9 @@ LLM 不会加载所有工具，而是获得一个轻量级搜索工具（使用 
         },
         "postgres": {
           "enabled": true,
-          "command": "npx",
+          "command": "bunx",
           "args": [
-            "-y",
+            "--bun",
             "@modelcontextprotocol/server-postgres",
             "postgresql://user:password@localhost/dbname"
           ]
@@ -374,9 +374,9 @@ LLM 不会加载所有工具，而是获得一个轻量级搜索工具（使用 
         "slack": {
           "enabled": true,
           "type": "slack",
-          "command": "npx",
+          "command": "bunx",
           "args": [
-            "-y",
+            "--bun",
             "@modelcontextprotocol/server-slack"
           ],
           "env": {

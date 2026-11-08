@@ -41,7 +41,6 @@ const (
 
 	logPath   = "logs"
 	panicFile = "launcher_panic.log"
-	logFile   = "launcher.log"
 )
 
 var (
@@ -49,16 +48,12 @@ var (
 
 	servers    []*http.Server
 	serverAddr string
-	// browserLaunchURL is opened by openBrowser() (auto-open + tray "open console").
+	// browserLaunchURL is opened by openBrowser() when local browser launch is enabled.
 	browserLaunchURL string
 	apiHandler       *api.Handler
 
 	noBrowser *bool
 )
-
-func shouldEnableLauncherFileLogging(enableConsole, debug bool) bool {
-	return !enableConsole || debug
-}
 
 func shouldEnableLocalAutoLogin(noBrowser bool, probeHost string) bool {
 	return !noBrowser && isLoopbackLaunchHost(probeHost)
@@ -402,8 +397,6 @@ func main() {
 	host := flag.String("host", "", "Host to listen on (overrides -public when set)")
 	public := flag.Bool("public", false, "Listen on all interfaces (dual-stack) instead of localhost only")
 	noBrowser = flag.Bool("no-browser", false, "Do not auto-open browser on startup")
-	lang := flag.String("lang", "", "Language: en (English) or zh (Chinese). Default: auto-detect from system locale")
-	console := flag.Bool("console", false, "Console mode, no GUI")
 
 	var debug bool
 	flag.BoolVar(&debug, "d", false, "Enable debug logging")
@@ -418,7 +411,7 @@ func main() {
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  %s\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "      Use default config path in GUI mode\n")
+		fmt.Fprintf(os.Stderr, "      Use the default config path\n")
 		fmt.Fprintf(os.Stderr, "  %s ./config.json\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "      Specify a config file\n")
 		fmt.Fprintf(
@@ -429,7 +422,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "      Allow access from other devices on the local network\n")
 		fmt.Fprintf(os.Stderr, "  %s -host :: ./config.json\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "      Bind launcher host explicitly with exact host semantics\n")
-		fmt.Fprintf(os.Stderr, "  %s -console -d ./config.json\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -d ./config.json\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "      Run in the terminal with debug logs enabled\n")
 	}
 	flag.Parse()
@@ -444,27 +437,8 @@ func main() {
 	}
 	defer panicFunc()
 
-	enableConsole := *console
-	fileLoggingEnabled := shouldEnableLauncherFileLogging(enableConsole, debug)
-	if fileLoggingEnabled {
-		// GUI mode writes launcher logs to file. Debug mode keeps file logging enabled in console mode too.
-		if !debug {
-			logger.DisableConsole()
-		}
-
-		f := filepath.Join(picoHome, logPath, logFile)
-		if err = logger.EnableFileLogging(f); err != nil {
-			panic(fmt.Sprintf("error enabling file logging: %v", err))
-		}
-		defer logger.DisableFileLogging()
-	}
 	if debug {
 		logger.SetLevel(logger.DEBUG)
-	}
-
-	// Set language from command line or auto-detect
-	if *lang != "" {
-		SetLanguage(*lang)
 	}
 
 	// Resolve config path
@@ -492,8 +466,7 @@ func main() {
 		logger.DebugC(
 			"web",
 			fmt.Sprintf(
-				"Launcher flags: console=%t host=%q public=%t no_browser=%t config=%s",
-				enableConsole,
+				"Launcher flags: host=%q public=%t no_browser=%t config=%s",
 				*host,
 				*public,
 				*noBrowser,
@@ -579,23 +552,11 @@ func main() {
 
 	// Open the bcrypt password store (creates the DB file on first run).
 	authStore, authStoreErr := dashboardauth.New(picoHome)
-	var passwordStore api.PasswordStore
-	if authStoreErr == nil {
-		passwordStore = authStore
-		defer authStore.Close()
-	} else if errors.Is(authStoreErr, dashboardauth.ErrUnsupportedPlatform) {
-		logger.InfoC(
-			"web",
-			fmt.Sprintf(
-				"Dashboard SQLite password store unavailable on this platform; using launcher-config password storage: %v",
-				authStoreErr,
-			),
-		)
-		passwordStore = launcherconfig.NewPasswordStore(launcherPath, launcherCfg)
-		authStoreErr = nil
-	} else {
-		logger.ErrorC("web", fmt.Sprintf("Warning: could not open auth store: %v", authStoreErr))
+	if authStoreErr != nil {
+		logger.Fatalf("Dashboard auth store setup failed: %v", authStoreErr)
 	}
+	defer authStore.Close()
+	passwordStore := api.PasswordStore(authStore)
 
 	migrationResult, migrationErr := launcherconfig.MigrateLegacyLauncherToken(
 		context.Background(),
@@ -642,7 +603,6 @@ func main() {
 	api.RegisterLauncherAuthRoutes(mux, api.LauncherAuthRouteOpts{
 		SessionCookie: dashboardSessionCookie,
 		PasswordStore: passwordStore,
-		StoreError:    authStoreErr,
 	})
 
 	// API Routes (e.g. /api/status)
@@ -685,27 +645,24 @@ func main() {
 		),
 	)
 
-	// Print startup banner (console mode only).
-	if enableConsole || debug {
-		consoleHosts := launcherConsoleHosts(hostInput, effectivePublic)
+	consoleHosts := launcherConsoleHosts(hostInput, effectivePublic)
 
-		fmt.Print(utils.Banner)
-		fmt.Println()
-		if needsInitialSetup {
-			if *noBrowser {
-				fmt.Println("  First-time setup: open /launcher-setup to create the dashboard password.")
-			} else {
-				fmt.Println("  Launcher will open /launcher-setup automatically.")
-			}
-			fmt.Println()
-		}
-		fmt.Println("  Dashboard address:")
-		fmt.Println()
-		for _, host := range consoleHosts {
-			fmt.Printf("    >> http://%s <<\n", net.JoinHostPort(host, effectivePort))
+	fmt.Print(utils.Banner)
+	fmt.Println()
+	if needsInitialSetup {
+		if *noBrowser {
+			fmt.Println("  First-time setup: open /launcher-setup to create the dashboard password.")
+		} else {
+			fmt.Println("  Launcher will open /launcher-setup automatically.")
 		}
 		fmt.Println()
 	}
+	fmt.Println("  Dashboard address:")
+	fmt.Println()
+	for _, host := range consoleHosts {
+		fmt.Printf("    >> http://%s <<\n", net.JoinHostPort(host, effectivePort))
+	}
+	fmt.Println()
 
 	// Log startup info to file
 	for _, ln := range listeners {
@@ -745,30 +702,22 @@ func main() {
 
 	defer shutdownApp()
 
-	// Start system tray or run in console mode
-	if enableConsole {
-		if !*noBrowser {
-			// Auto-open browser after systray is ready (if not disabled)
-			// Check no-browser flag via environment or pass as parameter if needed
-			if err := openBrowser(); err != nil {
-				logger.Errorf("Warning: Failed to auto-open browser: %v", err)
-			}
+	if !*noBrowser {
+		if err := openBrowser(); err != nil {
+			logger.Errorf("Warning: Failed to auto-open browser: %v", err)
 		}
+	}
 
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-		// Main event loop - wait for signals or config changes
-		for {
-			select {
-			case <-sigChan:
-				logger.Info("Shutting down...")
+	// Main event loop - wait for termination signals.
+	for {
+		select {
+		case <-sigChan:
+			logger.Info("Shutting down...")
 
-				return
-			}
+			return
 		}
-	} else {
-		// GUI mode: start system tray
-		runTray()
 	}
 }

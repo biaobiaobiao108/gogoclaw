@@ -4,9 +4,9 @@ import { useTranslation } from "react-i18next"
 
 import {
   type ModelInfo,
-  type TestModelInlineRequest,
   testModel,
   testModelInline,
+  type TestModelInlineRequest,
 } from "@/api/models"
 import { Button } from "@/components/ui/button"
 import {

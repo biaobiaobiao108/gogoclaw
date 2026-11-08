@@ -80,7 +80,7 @@ The new `model_list` configuration offers several advantages:
 }
 ```
 
-> **Note**: The `enabled` field can be omitted — during V1→V2 migration it is auto-inferred (models with API keys or the `local-model` name are enabled by default). For new configs, you can explicitly set `"enabled": false` to disable a model entry without removing it.
+> **Note**: In the current config version, an omitted `enabled` field is treated as `true`. During V1→V2 migration, the legacy state is inferred instead: models with API keys or the `local-model` name are enabled, while other entries are disabled. Set `"enabled": false` explicitly to disable a current model entry without removing it.
 
 ## Provider / Model Resolution
 
@@ -124,7 +124,7 @@ Examples:
 | `model` | Yes | Native model ID when `provider` is set, or legacy `provider/model` when `provider` is omitted |
 | `api_base` | No | API endpoint URL |
 | `api_keys` | No | API authentication keys (array; supports multiple keys for load balancing) |
-| `enabled` | No | Whether this model entry is active. Defaults to `true` during migration for models with API keys or named `local-model`. Set to `false` to disable. |
+| `enabled` | No | Whether this model entry is active. Current configs default an omitted value to `true`; V1→V2 migration infers the legacy state from API keys and the `local-model` name. Set to `false` to disable. |
 | `proxy` | No | HTTP proxy URL |
 | `auth_method` | No | Authentication method: `oauth`, `token` |
 | `connect_mode` | No | Connection mode for CLI providers: `stdio`, `grpc` |

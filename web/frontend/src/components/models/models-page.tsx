@@ -16,10 +16,10 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
 import {
+  getModels,
   type ModelInfo,
   type ModelProviderOption,
   type ModelReferenceRename,
-  getModels,
   updateDefaultChain,
 } from "@/api/models"
 import { ConfigChangeNotice } from "@/components/config-change-notice"

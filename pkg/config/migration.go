@@ -327,7 +327,9 @@ func migrateV1ToV2(m map[string]any) error {
 				if mVal["model_name"] == "local-model" {
 					mVal["enabled"] = true
 				}
-				logger.Infof("model: %v", mVal)
+				if _, hasEnabled := mVal["enabled"]; !hasEnabled {
+					mVal["enabled"] = false
+				}
 			}
 		}
 	} else {
@@ -347,6 +349,15 @@ func migrateV1ToV2(m map[string]any) error {
 func migrateV2ToV3(m map[string]any) error {
 	if !compareInt(m["version"], 2) {
 		return fmt.Errorf("migrateV2ToV3: expected version 2, got %v", m["version"])
+	}
+	if modelList, ok := m["model_list"].([]any); ok {
+		for _, model := range modelList {
+			if modelMap, ok := model.(map[string]any); ok {
+				if _, hasEnabled := modelMap["enabled"]; !hasEnabled {
+					modelMap["enabled"] = false
+				}
+			}
+		}
 	}
 
 	migrateLegacyAgentDefaultsModel(m)

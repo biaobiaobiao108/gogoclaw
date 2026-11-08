@@ -270,7 +270,7 @@ By default, PicoClaw blocks the following dangerous commands:
 - Privilege escalation: `sudo`, `chmod`, `chown`
 - Process control: `pkill`, `killall`, `kill -9`
 - Remote operations: `curl | sh`, `wget | sh`, `ssh`
-- Package management: `apt`, `yum`, `dnf`, `npm install -g`, `pip install --user`
+- Package management: `apt`, `yum`, `dnf`, `bun add -g`, `pip install --user`
 - Containers: `docker run`, `docker exec`
 - Git: `git push`, `git force`
 - Other: `eval`, `source *.sh`
@@ -285,7 +285,7 @@ Examples of workflows that can bypass the direct command guard once the initial 
 - `make run`
 - `go run ./cmd/...`
 - `cargo run`
-- `npm run build`
+- `bun run build`
 
 This means the guard is useful for blocking obviously dangerous direct commands, but it is **not** a full sandbox for
 unreviewed build pipelines. If your threat model includes untrusted code in the workspace, use stronger isolation such
@@ -399,9 +399,9 @@ and injected into the context for a configured number of turns (`ttl`).
       "servers": {
         "filesystem": {
           "enabled": true,
-          "command": "npx",
+          "command": "bunx",
           "args": [
-            "-y",
+            "--bun",
             "@modelcontextprotocol/server-filesystem",
             "/tmp"
           ]
@@ -454,9 +454,9 @@ dynamically only when requested by the user.*
       "servers": {
         "github": {
           "enabled": true,
-          "command": "npx",
+          "command": "bunx",
           "args": [
-            "-y",
+            "--bun",
             "@modelcontextprotocol/server-github"
           ],
           "env": {
@@ -465,9 +465,9 @@ dynamically only when requested by the user.*
         },
         "postgres": {
           "enabled": true,
-          "command": "npx",
+          "command": "bunx",
           "args": [
-            "-y",
+            "--bun",
             "@modelcontextprotocol/server-postgres",
             "postgresql://user:password@localhost/dbname"
           ]
@@ -475,9 +475,9 @@ dynamically only when requested by the user.*
         "slack": {
           "enabled": true,
           "type": "slack",
-          "command": "npx",
+          "command": "bunx",
           "args": [
-            "-y",
+            "--bun",
             "@modelcontextprotocol/server-slack"
           ],
           "env": {
@@ -510,19 +510,19 @@ default (deferred). `aws` explicitly opts in to deferred mode even though it is 
       "servers": {
         "filesystem": {
           "enabled": true,
-          "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+          "command": "bunx",
+          "args": ["--bun", "@modelcontextprotocol/server-filesystem", "/workspace"],
           "deferred": false
         },
         "context7": {
           "enabled": true,
-          "command": "npx",
-          "args": ["-y", "@upstash/context7-mcp"]
+          "command": "bunx",
+          "args": ["--bun", "@upstash/context7-mcp"]
         },
         "aws": {
           "enabled": true,
-          "command": "npx",
-          "args": ["-y", "aws-mcp-server"],
+          "command": "bunx",
+          "args": ["--bun", "aws-mcp-server"],
           "deferred": true
         }
       }

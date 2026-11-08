@@ -29,7 +29,7 @@ func TranslateMessages(messages []protocoltypes.Message) (input responses.Respon
 			if msg.ToolCallID != "" {
 				input = append(input, responses.ResponseInputItemUnionParam{
 					OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
-						CallID: msg.ToolCallID,
+						CallID: openai.Opt(msg.ToolCallID),
 						Output: responses.ResponseInputItemFunctionCallOutputOutputUnionParam{
 							OfString: openai.Opt(msg.Content),
 						},
@@ -85,7 +85,7 @@ func TranslateMessages(messages []protocoltypes.Message) (input responses.Respon
 		case "tool":
 			input = append(input, responses.ResponseInputItemUnionParam{
 				OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
-					CallID: msg.ToolCallID,
+					CallID: openai.Opt(msg.ToolCallID),
 					Output: responses.ResponseInputItemFunctionCallOutputOutputUnionParam{
 						OfString: openai.Opt(msg.Content),
 					},
@@ -230,13 +230,14 @@ func parseResponse(apiResp *responses.Response) *protocoltypes.LLMResponse {
 				}
 			}
 		case "function_call":
+			call := item.AsFunctionCall()
 			var args map[string]any
-			if err := json.Unmarshal([]byte(item.Arguments), &args); err != nil {
-				args = map[string]any{"raw": item.Arguments}
+			if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
+				args = map[string]any{"raw": call.Arguments}
 			}
 			toolCalls = append(toolCalls, protocoltypes.ToolCall{
-				ID:        item.CallID,
-				Name:      item.Name,
+				ID:        call.CallID,
+				Name:      call.Name,
 				Arguments: args,
 			})
 		case "reasoning":

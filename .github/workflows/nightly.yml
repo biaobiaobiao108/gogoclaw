@@ -43,22 +43,14 @@ jobs:
 
       - name: Setup Go from go.mod
         id: setup-go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          version: 10.33.0
-          run_install: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: web/frontend/pnpm-lock.yaml
+          bun-version: 1.4.4
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -80,9 +72,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Install zip
-        run: sudo apt-get install -y zip
-
       - name: Create local tag for GoReleaser
         run: git tag "${{ steps.version.outputs.version }}"
 
@@ -98,13 +87,7 @@ jobs:
           DOCKERHUB_IMAGE_NAME: ${{ vars.DOCKERHUB_REPOSITORY }}
           GOVERSION: ${{ steps.setup-go.outputs.go-version }}
           GORELEASER_CURRENT_TAG: ${{ steps.version.outputs.version }}
-          INCLUDE_ANDROID_BUNDLE: "true"
           NIGHTLY_BUILD: "true"
-          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
-          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
-          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
-          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
-          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
 
       - name: Update nightly release
         env:
@@ -130,17 +113,10 @@ jobs:
           git tag -fa nightly -m "Nightly build ${VERSION}"
           git push origin nightly
 
-          # Collect release artifacts from goreleaser dist/
-          ASSETS=()
-          for f in dist/*.tar.gz dist/*.zip dist/*.deb dist/*.rpm dist/checksums.txt build/picoclaw-android-universal.zip; do
-            [ -f "$f" ] && ASSETS+=("$f")
-          done
-
           # Create nightly release (prerelease, NOT latest)
           gh release create nightly \
             --title "Nightly Build" \
             --notes "$NOTES" \
             --target "${{ github.sha }}" \
             --prerelease \
-            --latest=false \
-            "${ASSETS[@]}"
+            --latest=false

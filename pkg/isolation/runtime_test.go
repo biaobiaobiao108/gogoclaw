@@ -13,12 +13,13 @@ import (
 
 func TestResolveInstanceRoot_UsesPicoclawHome(t *testing.T) {
 	t.Setenv(config.EnvHome, "/custom/picoclaw/home")
+	want := filepath.Clean("/custom/picoclaw/home")
 	root, err := ResolveInstanceRoot()
 	if err != nil {
 		t.Fatalf("ResolveInstanceRoot() error = %v", err)
 	}
-	if root != "/custom/picoclaw/home" {
-		t.Fatalf("ResolveInstanceRoot() = %q, want %q", root, "/custom/picoclaw/home")
+	if root != want {
+		t.Fatalf("ResolveInstanceRoot() = %q, want %q", root, want)
 	}
 }
 
@@ -78,20 +79,25 @@ func TestIsSupportedOn(t *testing.T) {
 }
 
 func TestValidateExposePaths(t *testing.T) {
-	err := ValidateExposePaths([]config.ExposePath{{Source: "/src", Target: "/dst", Mode: "ro"}})
+	root := t.TempDir()
+	source := filepath.Join(root, "src")
+	target := filepath.Join(root, "dst")
+	other := filepath.Join(root, "other")
+
+	err := ValidateExposePaths([]config.ExposePath{{Source: source, Target: target, Mode: "ro"}})
 	if err != nil {
 		t.Fatalf("ValidateExposePaths() error = %v", err)
 	}
 
-	err = ValidateExposePaths([]config.ExposePath{{Source: "/src", Target: "/dst", Mode: "bad"}})
+	err = ValidateExposePaths([]config.ExposePath{{Source: source, Target: target, Mode: "bad"}})
 	if err == nil {
 		t.Fatal("ValidateExposePaths() expected invalid mode error")
 	}
 
 	err = ValidateExposePaths(
 		[]config.ExposePath{
-			{Source: "/src", Target: "/dst", Mode: "ro"},
-			{Source: "/other", Target: "/dst", Mode: "rw"},
+			{Source: source, Target: target, Mode: "ro"},
+			{Source: other, Target: target, Mode: "rw"},
 		},
 	)
 	if err == nil {
@@ -100,15 +106,19 @@ func TestValidateExposePaths(t *testing.T) {
 }
 
 func TestMergeExposePaths_OverrideByTarget(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "dst")
+	sourceA := filepath.Join(root, "src-a")
+	sourceB := filepath.Join(root, "src-b")
 	merged := MergeExposePaths(
-		[]config.ExposePath{{Source: "/src-a", Target: "/dst", Mode: "ro"}},
-		[]config.ExposePath{{Source: "/src-b", Target: "/dst", Mode: "rw"}},
+		[]config.ExposePath{{Source: sourceA, Target: target, Mode: "ro"}},
+		[]config.ExposePath{{Source: sourceB, Target: target, Mode: "rw"}},
 	)
 	if len(merged) != 1 {
 		t.Fatalf("MergeExposePaths len = %d, want 1", len(merged))
 	}
-	if got := merged[0]; got.Source != "/src-b" || got.Target != "/dst" || got.Mode != "rw" {
-		t.Fatalf("merged[0] = %+v, want source=/src-b target=/dst mode=rw", got)
+	if got := merged[0]; got.Source != sourceB || got.Target != target || got.Mode != "rw" {
+		t.Fatalf("merged[0] = %+v, want source=%s target=%s mode=rw", got, sourceB, target)
 	}
 }
 
@@ -214,6 +224,9 @@ func TestExistingExposePaths_SkipsMissingPaths(t *testing.T) {
 func TestPrepareCommand_AppliesUserEnv(t *testing.T) {
 	if !isSupportedOn(runtime.GOOS) {
 		t.Skipf("isolation not supported on %s", runtime.GOOS)
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows restricted-token checks are environment-dependent; production isolation target is Linux")
 	}
 	t.Setenv(config.EnvHome, filepath.Join(t.TempDir(), "home"))
 	if runtime.GOOS == "linux" {

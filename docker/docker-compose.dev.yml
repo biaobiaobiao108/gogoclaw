@@ -1,0 +1,21 @@
+name: picoclaw
+
+# Local development override. Production uses docker-compose.yml without this file.
+services:
+  picoclaw-gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: ${PICOCLAW_IMAGE:-picoclaw:dev}
+
+  picoclaw-launcher:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: ${PICOCLAW_IMAGE:-picoclaw:dev}
+
+  picoclaw-agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: ${PICOCLAW_IMAGE:-picoclaw:dev}

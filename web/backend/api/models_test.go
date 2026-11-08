@@ -1320,6 +1320,37 @@ func TestHandleAddModel_DefaultsAntigravityToOAuth(t *testing.T) {
 	}
 }
 
+func TestHandleAddModel_DefaultsEnabledWhenOmitted(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	added := addModelAndLoadLatest(t, configPath, `{
+		"model_name":"implicit-enabled",
+		"provider":"openai",
+		"model":"gpt-4o",
+		"api_key":"sk-test"
+	}`)
+	if !added.IsEnabled() {
+		t.Fatal("new model should be enabled when enabled is omitted")
+	}
+}
+
+func TestHandleAddModel_PreservesExplicitDisabled(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	added := addModelAndLoadLatest(t, configPath, `{
+		"model_name":"explicit-disabled",
+		"provider":"openai",
+		"model":"gpt-4o",
+		"api_key":"sk-test",
+		"enabled":false
+	}`)
+	if added.IsEnabled() {
+		t.Fatal("new model should remain disabled when enabled=false is explicit")
+	}
+}
+
 func TestHandleAddModel_NormalizesMixedCaseAuthMethod(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

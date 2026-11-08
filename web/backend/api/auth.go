@@ -14,7 +14,7 @@ import (
 )
 
 // PasswordStore is the interface for dashboard password persistence.
-// Implemented by dashboardauth.Store and launcherconfig.PasswordStore.
+// Implemented by dashboardauth.Store.
 type PasswordStore interface {
 	IsInitialized(ctx context.Context) (bool, error)
 	SetPassword(ctx context.Context, plain string) error
@@ -27,10 +27,6 @@ type LauncherAuthRouteOpts struct {
 	SecureCookie  func(*http.Request) bool
 	// PasswordStore enables password login. It must be non-nil for auth to work.
 	PasswordStore PasswordStore
-	// StoreError holds the error returned when opening the password store. When
-	// non-nil and PasswordStore is nil, auth endpoints fail closed with a
-	// recovery message.
-	StoreError error
 }
 
 type launcherAuthLoginBody struct {
@@ -57,7 +53,6 @@ func RegisterLauncherAuthRoutes(mux *http.ServeMux, opts LauncherAuthRouteOpts) 
 		sessionCookie: opts.SessionCookie,
 		secureCookie:  secure,
 		store:         opts.PasswordStore,
-		storeErr:      opts.StoreError,
 		loginLimit:    newLoginRateLimiter(),
 	}
 	mux.HandleFunc("POST /api/auth/login", h.handleLogin)
@@ -70,7 +65,6 @@ type launcherAuthHandlers struct {
 	sessionCookie string
 	secureCookie  func(*http.Request) bool
 	store         PasswordStore
-	storeErr      error // set when the store failed to open; drives recovery messages
 	loginLimit    *loginRateLimiter
 }
 
@@ -79,12 +73,6 @@ type launcherAuthHandlers struct {
 // "uninitialized", to keep auth fail-closed.
 func (h *launcherAuthHandlers) isStoreInitialized(ctx context.Context) (bool, error) {
 	if h.store == nil {
-		if h.storeErr != nil {
-			return false, fmt.Errorf(
-				"password store unavailable (%w); "+
-					"to recover, stop the application, reset dashboard password storage, and restart",
-				h.storeErr)
-		}
 		return false, fmt.Errorf("password store not configured")
 	}
 	return h.store.IsInitialized(ctx)
@@ -261,11 +249,7 @@ func (h *launcherAuthHandlers) handleSetup(w http.ResponseWriter, r *http.Reques
 
 	if h.store == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		if h.storeErr != nil {
-			writeErrorf(w, "password store unavailable: %v", h.storeErr)
-		} else {
-			_, _ = w.Write([]byte(`{"error":"password store not configured"}`))
-		}
+		_, _ = w.Write([]byte(`{"error":"password store not configured"}`))
 		return
 	}
 

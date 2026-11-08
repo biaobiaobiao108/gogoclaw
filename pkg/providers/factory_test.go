@@ -83,6 +83,22 @@ func TestResolveModelConfigPrefersConfiguredProviderTemplate(t *testing.T) {
 	}
 }
 
+func TestResolveModelConfigRejectsExplicitlyDisabledModel(t *testing.T) {
+	cfg := config.DefaultConfig()
+	disabled := &config.ModelConfig{
+		ModelName: "disabled",
+		Provider:  "openai",
+		Model:     "gpt-4o",
+		APIKeys:   config.SimpleSecureStrings("sk-test"),
+	}
+	disabled.SetEnabled(false)
+	cfg.ModelList = []*config.ModelConfig{disabled}
+
+	if _, err := ResolveModelConfig(cfg, "disabled"); err == nil {
+		t.Fatal("ResolveModelConfig() should reject an explicitly disabled model")
+	}
+}
+
 func TestResolveModelConfigPrefersConfiguredExactRawMatch(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.ModelList = []*config.ModelConfig{

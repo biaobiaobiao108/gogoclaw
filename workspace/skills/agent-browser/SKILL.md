@@ -1,12 +1,12 @@
 ---
 name: agent-browser
 description: "Browser automation via agent-browser CLI. Use when the user needs to navigate websites, fill forms, click buttons, take screenshots, extract data, or test web apps."
-metadata: {"nanobot":{"emoji":"🌐","requires":{"bins":["agent-browser"]},"install":[{"id":"npm","kind":"npm","package":"agent-browser","global":true,"bins":["agent-browser"],"label":"Install agent-browser (npm)"}]}}
+metadata: {"nanobot":{"emoji":"🌐","requires":{"bins":["agent-browser"]},"install":[{"id":"npm","kind":"npm","package":"agent-browser","global":true,"bins":["agent-browser"],"label":"Install agent-browser (Bun)"}]}}
 ---
 
 # Agent Browser
 
-CLI browser automation via Chrome/Chromium CDP. Install: `npm i -g agent-browser && agent-browser install`.
+CLI browser automation via Chrome/Chromium CDP. Install: `bun add -g agent-browser && agent-browser install`.
 
 **Before using this skill**, verify the tool is available by running `which agent-browser`. If the command is not found, tell the user that browser automation requires the `agent-browser` CLI and Chromium, which are only available in the heavy container image. Do not attempt to install it at runtime.
 

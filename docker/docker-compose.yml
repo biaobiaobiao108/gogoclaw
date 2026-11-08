@@ -1,64 +1,67 @@
+name: picoclaw
+
+x-production-security: &production-security
+  user: "10001:10001"
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,noexec,size=256m
+
 services:
-  # ─────────────────────────────────────────────
-  # PicoClaw Agent (one-shot query)
-  #   docker compose -f docker/docker-compose.yml run --rm picoclaw-agent -m "Hello"
-  # ─────────────────────────────────────────────
-  picoclaw-agent:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    image: docker.io/sipeed/picoclaw:latest
-    container_name: picoclaw-agent
-    profiles:
-      - agent
-    # Uncomment to access host network; leave commented unless needed.
-    #extra_hosts:
-    #  - "host.docker.internal:host-gateway"
+  picoclaw-gateway:
+    image: ${PICOCLAW_IMAGE:-ghcr.io/sipeed/picoclaw:latest}
+    profiles: [gateway]
+    restart: unless-stopped
+    <<: *production-security
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      PICOCLAW_GATEWAY_HOST: 0.0.0.0
+    ports:
+      - "${PICOCLAW_GATEWAY_BIND:-127.0.0.1}:18790:18790"
     volumes:
-      - ./data:/root/.picoclaw
-    entrypoint: ["picoclaw", "agent"]
+      - picoclaw-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18790/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  picoclaw-launcher:
+    image: ${PICOCLAW_IMAGE:-ghcr.io/sipeed/picoclaw:latest}
+    profiles: [launcher]
+    restart: unless-stopped
+    <<: *production-security
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      PICOCLAW_GATEWAY_HOST: 0.0.0.0
+    command: ["picoclaw-launcher", "-public", "-no-browser"]
+    ports:
+      - "${PICOCLAW_LAUNCHER_BIND:-127.0.0.1}:18800:18800"
+    volumes:
+      - picoclaw-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18800/api/auth/status"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  picoclaw-agent:
+    image: ${PICOCLAW_IMAGE:-ghcr.io/sipeed/picoclaw:latest}
+    profiles: [agent]
+    <<: *production-security
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    command: ["agent"]
     stdin_open: true
     tty: true
-
-  # ─────────────────────────────────────────────
-  # PicoClaw Gateway (Long-running Bot)
-  #   docker compose -f docker/docker-compose.yml --profile gateway up
-  # ─────────────────────────────────────────────
-  picoclaw-gateway:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    image: docker.io/sipeed/picoclaw:latest
-    container_name: picoclaw-gateway
-    restart: unless-stopped
-    profiles:
-      - gateway
-    # Uncomment to access host network; leave commented unless needed.
-    #extra_hosts:
-    #  - "host.docker.internal:host-gateway"
     volumes:
-      - ./data:/root/.picoclaw
+      - picoclaw-data:/data
 
-  # ─────────────────────────────────────────────
-  # PicoClaw Launcher (Web Console + Gateway)
-  #   docker compose -f docker/docker-compose.yml --profile launcher up
-  # ─────────────────────────────────────────────
-  picoclaw-launcher:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.launcher
-    image: docker.io/sipeed/picoclaw:launcher
-    container_name: picoclaw-launcher
-    restart: unless-stopped
-    profiles:
-      - launcher
-    environment:
-      - PICOCLAW_GATEWAY_HOST=0.0.0.0
-      # Set a fixed dashboard token instead of a random one each restart.
-      # If not set, a random token is generated and printed to the console on startup.
-      #- PICOCLAW_LAUNCHER_TOKEN=your-secret-token-here
-    ports:
-      - "18800:18800"
-      - "18790:18790"
-    volumes:
-      - ./data:/root/.picoclaw
+volumes:
+  picoclaw-data:
+    name: picoclaw-data

@@ -284,7 +284,6 @@ func getCallerSkip() (int, string) {
 	return 3, locUnknown
 }
 
-//nolint:zerologlint
 func getEvent(logger zerolog.Logger, level LogLevel) *zerolog.Event {
 	switch level {
 	case zerolog.DebugLevel:

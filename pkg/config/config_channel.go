@@ -218,8 +218,6 @@ func (r *RawNode) IsEmpty() bool {
 // Standard Go JSON/YAML unmarshaling handles nested format correctly:
 //   - JSON: {"enabled": true, "type": "telegram", "settings": {"base_url": "..."}}
 //   - YAML: settings: {token: xxx}  (for .security.yml)
-//
-//nolint:recvcheck
 type Channel struct {
 	name               string
 	Enabled            bool                `json:"enabled"                 yaml:"-"`
@@ -401,8 +399,6 @@ func (b Channel) CollectSensitiveValues() []string {
 // ChannelsConfig maps channel name to its Channel configuration.
 // Each Channel stores the full channel config in Settings and handles
 // JSON/YAML serialization (removing/keeping secure fields automatically).
-//
-//nolint:recvcheck
 type ChannelsConfig map[string]*Channel
 
 // UnmarshalYAML implements yaml.Unmarshaler for ChannelsConfig.

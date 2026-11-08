@@ -1,17 +1,17 @@
 # PicoClaw Web
 
-`web/` contains the standalone WebUI launcher for PicoClaw.
+`web/` contains the WebUI launcher used for local development and inside the production container image.
 It is not just a frontend: it is a small launcher service that bundles a React dashboard, exposes a backend API, manages launcher authentication, and starts or attaches to the `picoclaw gateway` process.
 
-![PicoClaw Launcher](./picoclaw-launcher.png)
+Production deployments must use the published container image. Building the launcher locally is for development and testing only.
 
 ## What This Directory Provides
 
 - A browser-based chat UI backed by the Pico channel WebSocket proxy.
 - A dashboard for models, credentials, channels, agent tools, skills, logs, and runtime settings.
-- A launcher process that can auto-open the browser, show a system tray menu, and persist launcher-specific settings.
+- A launcher process that can auto-open the browser during local development and persist launcher-specific settings.
 - A controlled way to start, stop, restart, and inspect the `picoclaw gateway` subprocess.
-- A single-binary deployment target where the frontend is embedded into the Go backend.
+- A frontend build embedded into the Go backend for development and container builds.
 
 ## Architecture
 
@@ -55,7 +55,7 @@ The current frontend exposes these major pages and flows:
 - `/agent/tools`
   - View tool availability and enable or disable tool switches through config-backed APIs.
 - `/config`
-  - Edit agent defaults, self-evolution, exec controls, cron controls, heartbeat, device monitoring, launcher networking, and launch-at-login settings.
+  - Edit agent defaults, self-evolution, exec controls, cron controls, heartbeat, device monitoring, and launcher networking.
 - `/logs`
   - View the in-memory gateway log buffer and clear it.
 
@@ -163,18 +163,14 @@ When public access is enabled:
 
 ### Prerequisites
 
-- Go `1.25+`
-- Node.js 20.19+ or 22.13+
-- `pnpm`
-
-On macOS, the `web` Makefile enables `CGO_ENABLED=1` so tray-enabled launcher builds work as expected.
-On Darwin or FreeBSD without cgo, the launcher falls back to headless mode without a tray.
+- Go `1.27.3+`
+- Bun `1.4.4+`
 
 If you want to prepare the frontend workspace manually, you can still install dependencies yourself:
 
 ```bash
 cd frontend
-pnpm install
+bun install
 ```
 
 ### Recommended Development Workflow
@@ -249,12 +245,12 @@ For frontend work there are two useful package scripts:
 
 ```bash
 cd frontend
-pnpm build
-pnpm build:backend
+bun run build
+bun run build:backend
 ```
 
-- `pnpm build` writes a normal Vite build to `frontend/dist`
-- `pnpm build:backend` writes the embeddable build to `../backend/dist`
+- `bun run build` writes a normal Vite build to `frontend/dist`
+- `bun run build:backend` writes the embeddable build to `../backend/dist`
 
 ### Run The Built Launcher
 
@@ -262,7 +258,6 @@ Examples:
 
 ```bash
 ./build/picoclaw-launcher
-./build/picoclaw-launcher -console
 ./build/picoclaw-launcher -public
 ./build/picoclaw-launcher -port 19999 /path/to/config.json
 ```
@@ -272,8 +267,6 @@ Current launcher flags:
 - `-port`
 - `-public`
 - `-no-browser`
-- `-lang`
-- `-console`
 
 ## Make Targets
 
@@ -286,22 +279,16 @@ make dev-backend
 make build
 make build-frontend
 make test
-make lint
 make clean
 ```
 
 What they do today:
 
 - `make build-frontend`
-  - Runs `pnpm install --frozen-lockfile` when dependencies are missing or stale.
+  - Runs `bun install --frozen-lockfile` when dependencies are missing or stale.
   - Builds the embeddable frontend into `backend/dist`.
 - `make test`
   - Runs backend Go tests.
-  - Runs frontend `pnpm lint`.
-- `make lint`
-  - Runs backend `go vet`.
-  - Runs frontend `pnpm check`.
-  - `pnpm check` currently formats files with Prettier and fixes lint issues with ESLint, so this target can modify your working tree.
 - `make clean`
   - Removes `frontend/dist`, `backend/dist`, and `build/`, then recreates `backend/dist/.gitkeep`.
 
@@ -315,7 +302,6 @@ web/
 │   ├── middleware/      # auth, content type, logging, CIDR allowlist
 │   ├── model/           # Go data structures and logic wrappers
 │   ├── utils/           # runtime helpers, onboarding, browser launch
-│   ├── winres/          # Windows application resources
 │   └── dist/            # embedded frontend build output
 ├── frontend/
 │   ├── src/api/         # browser API clients

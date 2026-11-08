@@ -156,7 +156,7 @@ func TestExpandHomeCommandPath(t *testing.T) {
 		t.Fatalf("expandHomeCommandPath() = %q, want %q", got, want)
 	}
 
-	if got := expandHomeCommandPath("npx"); got != "npx" {
+	if got := expandHomeCommandPath("bunx"); got != "bunx" {
 		t.Fatalf("expandHomeCommandPath() should leave bare commands unchanged, got %q", got)
 	}
 }
@@ -695,6 +695,17 @@ func (t *scriptedTransport) Write(ctx context.Context, msg jsonrpc.Message) erro
 	}
 
 	switch req.Method {
+	case "server/discover":
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case t.incoming <- &jsonrpc.Response{
+			ID:    req.ID,
+			Error: &jsonrpc.Error{Code: -32601, Message: "method not found"},
+		}:
+			return nil
+		}
+
 	case "initialize":
 		payload, err := json.Marshal(&sdkmcp.InitializeResult{
 			ProtocolVersion: "2025-11-25",

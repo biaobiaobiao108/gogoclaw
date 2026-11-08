@@ -1,34 +1,72 @@
-# ============================================================
-# Stage 1: Build the picoclaw binary
-# ============================================================
-FROM golang:1.25-alpine AS builder
+# Production image for the PicoClaw gateway and web console.
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.4-alpine AS frontend
+
+WORKDIR /src/web/frontend
+
+COPY web/frontend/package.json web/frontend/bun.lock ./
+RUN bun install --frozen-lockfile
+COPY web/frontend/ ./
+RUN bun run build:backend
+
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.24 AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
 
 RUN apk add --no-cache git make
-
 WORKDIR /src
 
-# Cache dependencies
 COPY go.mod go.sum ./
 RUN go mod download
-
-# Copy source and build
 COPY . .
-RUN make build
+COPY --from=frontend /src/web/backend/dist web/backend/dist
 
-# ============================================================
-# Stage 2: Minimal runtime image
-# ============================================================
-FROM alpine:3.23
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH GO_BUILD_TAGS=goolm,stdjson,whatsapp_native make build && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -tags goolm,stdjson \
+      -ldflags "-s -w" \
+      -o build/picoclaw-launcher ./web/backend/
 
-RUN apk add --no-cache ca-certificates tzdata curl
+FROM oven/bun:1.4.4-alpine AS bun
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget -q --spider http://localhost:18790/health || exit 1
+FROM alpine:3.24.4
 
-# Copy binary and first-run entrypoint (same as release image).
+ARG UV_VERSION=0.13.7
+
+RUN apk add --no-cache \
+      bash \
+      ca-certificates \
+      curl \
+      git \
+      jq \
+      openssh-client \
+      python3 \
+      py3-pip \
+      tini \
+      tzdata && \
+    curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | env UV_INSTALL_DIR=/usr/local sh && \
+    ln -sf /usr/local/bin/uv /usr/local/bin/uvx && \
+    addgroup -S -g 10001 picoclaw && \
+    adduser -S -D -H -u 10001 -G picoclaw picoclaw && \
+    mkdir -p /data && \
+    chown -R picoclaw:picoclaw /data
+
 COPY --from=builder /src/build/picoclaw /usr/local/bin/picoclaw
-COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY --from=builder /src/build/picoclaw-launcher /usr/local/bin/picoclaw-launcher
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+COPY docker/entrypoint.sh /usr/local/bin/picoclaw-entrypoint
+RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx && \
+    chmod 0755 /usr/local/bin/picoclaw /usr/local/bin/picoclaw-launcher /usr/local/bin/picoclaw-entrypoint
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENV HOME=/data \
+    BUN_INSTALL=/data/.bun \
+    PIP_USER=1 \
+    PYTHONUSERBASE=/data/.local \
+    XDG_CACHE_HOME=/data/.cache \
+    PATH=/data/.bun/bin:/data/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+WORKDIR /data
+VOLUME ["/data"]
+USER 10001:10001
+
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/picoclaw-entrypoint"]
+CMD ["gateway"]

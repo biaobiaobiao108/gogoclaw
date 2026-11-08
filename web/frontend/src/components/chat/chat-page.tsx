@@ -30,8 +30,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
-  CHAT_IMAGE_ACCEPT,
   buildChatImageAttachments,
+  CHAT_IMAGE_ACCEPT,
   getTransferredFiles,
   hasFileTransfer,
 } from "@/features/chat/image-input"
@@ -39,9 +39,11 @@ import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
 import { usePicoChat } from "@/hooks/use-pico-chat"
 import { useSessionHistory } from "@/hooks/use-session-history"
-import type { AssistantDetailVisibility } from "@/store/chat"
-import type { ConnectionState } from "@/store/chat"
-import type { ChatAttachment } from "@/store/chat"
+import type {
+  AssistantDetailVisibility,
+  ChatAttachment,
+  ConnectionState,
+} from "@/store/chat"
 import {
   assistantDetailVisibilityAtom,
   shouldShowAssistantMessage,

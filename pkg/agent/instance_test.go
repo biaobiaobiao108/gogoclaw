@@ -690,12 +690,16 @@ func TestApplyBeforeLLMModelRewriteSwitchesProvider(t *testing.T) {
 
 func TestResolveRawModelCandidatePreservesSelectedTemplateIndex(t *testing.T) {
 	cfg := &config.Config{ModelList: []*config.ModelConfig{
-		{
-			ModelName: "template",
-			Provider:  "openai",
-			Model:     "gpt-4o",
-			APIKeys:   config.SimpleSecureStrings("sk-shared"),
-		},
+		func() *config.ModelConfig {
+			model := &config.ModelConfig{
+				ModelName: "template",
+				Provider:  "openai",
+				Model:     "gpt-4o",
+				APIKeys:   config.SimpleSecureStrings("sk-shared"),
+			}
+			model.SetEnabled(false)
+			return model
+		}(),
 		{
 			ModelName: "template",
 			Provider:  "openai",

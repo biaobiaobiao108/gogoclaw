@@ -30,7 +30,7 @@ func TestExpandHomeWithTilde(t *testing.T) {
 	require.NoError(t, err)
 
 	result := ExpandHome("~/path")
-	assert.Equal(t, home+"/path", result)
+	assert.Equal(t, filepath.Join(home, "path"), result)
 
 	result = ExpandHome("~")
 	assert.Equal(t, home, result)
@@ -38,12 +38,12 @@ func TestExpandHomeWithTilde(t *testing.T) {
 
 func TestResolveWorkspace(t *testing.T) {
 	result := ResolveWorkspace("/home/user/.picoclaw")
-	assert.Equal(t, "/home/user/.picoclaw/workspace", result)
+	assert.Equal(t, filepath.Join("/home/user/.picoclaw", "workspace"), result)
 }
 
 func TestRelPath(t *testing.T) {
 	result := RelPath("/home/user/.picoclaw/workspace/file.txt", "/home/user/.picoclaw")
-	assert.Equal(t, "workspace/file.txt", result)
+	assert.Equal(t, filepath.Join("workspace", "file.txt"), result)
 }
 
 func TestRelPathError(t *testing.T) {

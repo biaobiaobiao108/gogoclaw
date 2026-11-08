@@ -303,7 +303,7 @@ func dedupeModelNameList(names []string) []string {
 func modelConfigsByName(cfg *config.Config) map[string][]*config.ModelConfig {
 	models := make(map[string][]*config.ModelConfig, len(cfg.ModelList))
 	for _, model := range cfg.ModelList {
-		if model == nil {
+		if model == nil || !model.IsEnabled() {
 			continue
 		}
 		name := strings.TrimSpace(model.ModelName)
@@ -326,7 +326,7 @@ func modelConfigsByNameExceptIndex(
 	}
 	models := make([]*config.ModelConfig, 0, 1)
 	for i, model := range cfg.ModelList {
-		if i == exceptIndex || model == nil {
+		if i == exceptIndex || model == nil || !model.IsEnabled() {
 			continue
 		}
 		if strings.TrimSpace(model.ModelName) == modelName {
@@ -636,7 +636,7 @@ func (h *Handler) handleListModels(w http.ResponseWriter, r *http.Request) {
 			Streaming:           m.Streaming,
 			ExtraBody:           m.ExtraBody,
 			CustomHeaders:       m.CustomHeaders,
-			Enabled:             m.Enabled,
+			Enabled:             m.IsEnabled(),
 			Available:           modelStatuses[i].Available,
 			Status:              modelStatuses[i].Status,
 			IsDefault:           m.ModelName == defaultModel,
@@ -698,9 +698,19 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
 		return
 	}
+	var rawFields map[string]json.RawMessage
+	if err = json.Unmarshal(body, &rawFields); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
 
 	if mc.APIKey != "" {
 		mc.ModelConfig.SetAPIKey(mc.APIKey)
+	}
+	if _, ok := rawFields["enabled"]; ok {
+		mc.ModelConfig.SetEnabled(mc.ModelConfig.Enabled)
+	} else {
+		mc.ModelConfig.SetEnabled(true)
 	}
 
 	h.configMu.Lock()
@@ -814,6 +824,11 @@ func (h *Handler) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := rawFields["streaming"]; !ok {
 		mc.Streaming = cfg.ModelList[idx].Streaming
+	}
+	if _, ok := rawFields["enabled"]; !ok {
+		mc.ModelConfig.SetEnabled(cfg.ModelList[idx].IsEnabled())
+	} else {
+		mc.ModelConfig.SetEnabled(mc.ModelConfig.Enabled)
 	}
 	// Preserve the existing Provider when the caller omits it. This keeps the
 	// update API backward-compatible for clients that haven't started sending

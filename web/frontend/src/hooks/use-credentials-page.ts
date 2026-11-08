@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import {
-  type OAuthFlowState,
-  type OAuthProvider,
-  type OAuthProviderStatus,
   getOAuthFlow,
   getOAuthProviders,
   loginOAuth,
   logoutOAuth,
+  type OAuthFlowState,
+  type OAuthProvider,
+  type OAuthProviderStatus,
   pollOAuthFlow,
 } from "@/api/oauth"
 
@@ -143,8 +143,7 @@ export function useCredentialsPage() {
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       const data = event.data as
-        | { type?: string; flowId?: string; status?: string }
-        | undefined
+        { type?: string; flowId?: string; status?: string } | undefined
       if (!data || data.type !== "picoclaw-oauth-result" || !data.flowId) {
         return
       }

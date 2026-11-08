@@ -3,9 +3,9 @@ import { type ReactNode, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import {
+  Field as UiField,
   FieldDescription,
   FieldLabel,
-  Field as UiField,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/caarlos0/env/v11"
@@ -38,13 +39,13 @@ func TestSecurityPath(t *testing.T) {
 	}{
 		{
 			name:      "standard path",
-			configDir: "/home/user/.picoclaw/config.json",
-			want:      "/home/user/.picoclaw/.security.yml",
+			configDir: filepath.Join("home", "user", ".picoclaw", "config.json"),
+			want:      filepath.Join("home", "user", ".picoclaw", SecurityConfigFile),
 		},
 		{
 			name:      "nested path",
-			configDir: "/path/to/config/myconfig.json",
-			want:      "/path/to/config/.security.yml",
+			configDir: filepath.Join("path", "to", "config", "myconfig.json"),
+			want:      filepath.Join("path", "to", "config", SecurityConfigFile),
 		},
 	}
 
@@ -166,7 +167,11 @@ func TestSaveAndLoadSecurityConfig(t *testing.T) {
 		// Verify file was created with correct permissions
 		info, err := os.Stat(secPath)
 		require.NoError(t, err)
-		assert.Equal(t, os.FileMode(0o600), info.Mode())
+		if runtime.GOOS != "windows" {
+			assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+		} else {
+			assert.NotZero(t, info.Mode().Perm()&0o200, "file should remain owner-writable")
+		}
 
 		file, err := os.ReadFile(secPath)
 		assert.NoError(t, err)

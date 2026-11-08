@@ -9,8 +9,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"runtime"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -30,53 +28,9 @@ import (
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/status"
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/version"
 	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/updater"
 )
 
 var rootNoColor bool
-
-// initTermuxSSL detects Termux environment and sets SSL_CERT_FILE if not already set.
-// This fixes X509 certificate errors when running PicoClaw inside Termux or termux-chroot.
-// See: https://github.com/sipeed/picoclaw/issues/2944
-func initTermuxSSL() {
-	// Only applicable on Linux/Android
-	if runtime.GOOS != "linux" && runtime.GOOS != "android" {
-		return
-	}
-
-	// Skip if already set
-	if os.Getenv("SSL_CERT_FILE") != "" {
-		return
-	}
-
-	// Check for Termux prefix in PATH or HOME
-	home := os.Getenv("HOME")
-	path := os.Getenv("PATH")
-
-	isTermux := strings.Contains(home, "com.termux") ||
-		strings.Contains(path, "com.termux") ||
-		strings.Contains(home, "/data/data/com.termux")
-
-	if !isTermux {
-		return
-	}
-
-	// Check common CA bundle locations in Termux
-	caPaths := []string{
-		"$PREFIX/etc/tls/cert.pem",
-		os.Getenv("PREFIX") + "/etc/tls/cert.pem",
-		"/data/data/com.termux/files/usr/etc/tls/cert.pem",
-		"/usr/etc/tls/cert.pem",
-	}
-
-	for _, caPath := range caPaths {
-		expanded := os.ExpandEnv(caPath)
-		if _, err := os.Stat(expanded); err == nil {
-			os.Setenv("SSL_CERT_FILE", expanded)
-			return
-		}
-	}
-}
 
 func syncCliUIColor(root *cobra.Command) {
 	no, _ := root.PersistentFlags().GetBool("no-color")
@@ -139,7 +93,6 @@ picoclaw --no-color status`,
 		migrate.NewMigrateCommand(),
 		skills.NewSkillsCommand(),
 		model.NewModelCommand(),
-		updater.NewUpdateCommand("picoclaw"),
 		version.NewVersionCommand(),
 	)
 
@@ -168,9 +121,6 @@ const (
 )
 
 func main() {
-	// Initialize Termux SSL certificate detection before anything else
-	initTermuxSSL()
-
 	cliui.Init(earlyColorDisabled())
 
 	if earlyColorDisabled() {
@@ -189,7 +139,7 @@ func main() {
 			fmt.Println("Error loading time zone:", err)
 		} else {
 			fmt.Println("Time zone loaded successfully:", loc)
-			time.Local = loc //nolint:gosmopolitan // We intentionally set local timezone from TZ env
+			time.Local = loc // We intentionally set local timezone from TZ env
 		}
 	}
 

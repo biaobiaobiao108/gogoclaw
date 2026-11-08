@@ -1,6 +1,6 @@
-import { IconChevronRight } from "@tabler/icons-react"
 import {
   IconAtom,
+  IconChevronRight,
   IconChevronsDown,
   IconChevronsUp,
   IconKey,

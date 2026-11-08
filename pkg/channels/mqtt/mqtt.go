@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -51,7 +54,9 @@ func NewMQTTChannel(bc *config.Channel, cfg *config.MQTTSettings, b *bus.Message
 	mqttClientID := cfg.ClientID
 	if mqttClientID == "" {
 		var suffix [4]byte
-		_, _ = rand.Read(suffix[:])
+		if _, err := rand.Read(suffix[:]); err != nil {
+			return nil, fmt.Errorf("generate MQTT client ID: %w", err)
+		}
 		mqttClientID = fmt.Sprintf("picoclaw-mqtt-%s-%s", cfg.AgentID, hex.EncodeToString(suffix[:]))
 	}
 
@@ -80,7 +85,11 @@ func (c *MQTTChannel) Start(ctx context.Context) error {
 	opts.SetAutoReconnect(true)
 	opts.SetConnectRetry(true)
 	opts.SetConnectRetryInterval(5 * time.Second)
-	opts.SetTLSConfig(&tls.Config{InsecureSkipVerify: true}) //nolint:gosec
+	tlsConfig, err := c.tlsConfig()
+	if err != nil {
+		return err
+	}
+	opts.SetTLSConfig(tlsConfig)
 
 	if c.cfg.Username.String() != "" {
 		opts.SetUsername(c.cfg.Username.String())
@@ -124,6 +133,34 @@ func (c *MQTTChannel) Start(ctx context.Context) error {
 		"agent_id": c.cfg.AgentID,
 	})
 	return nil
+}
+
+func (c *MQTTChannel) tlsConfig() (*tls.Config, error) {
+	tlsConfig := &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: c.cfg.TLSInsecureSkipVerify, // Explicit development-only opt-in.
+	}
+	if brokerURL, err := url.Parse(c.cfg.Broker); err == nil {
+		tlsConfig.ServerName = brokerURL.Hostname()
+	}
+	if path := strings.TrimSpace(c.cfg.TLSCAFile); path != "" {
+		caPEM, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read MQTT CA file: %w", err)
+		}
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			pool = x509.NewCertPool()
+		}
+		if pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, fmt.Errorf("MQTT CA file contains no valid certificates")
+		}
+		tlsConfig.RootCAs = pool
+	}
+	return tlsConfig, nil
 }
 
 // topicPrefix returns the configured topic prefix, normalizing slashes.

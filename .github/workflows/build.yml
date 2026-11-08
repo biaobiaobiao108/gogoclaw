@@ -23,9 +23,22 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
-      - name: Build core binaries
-        run: make build-all
+      - name: Build development binaries
+        run: make build
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build production container images
+        run: >-
+          docker buildx build
+          --platform linux/amd64,linux/arm64
+          --output=type=oci,dest=/tmp/picoclaw-multiarch.tar
+          -f docker/Dockerfile .

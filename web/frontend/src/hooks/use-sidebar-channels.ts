@@ -20,9 +20,9 @@ import * as React from "react"
 
 import {
   type AppConfig,
-  type SupportedChannel,
   getAppConfig,
   getChannelsCatalog,
+  type SupportedChannel,
 } from "@/api/channels"
 import { getChannelDisplayName } from "@/components/channels/channel-display-name"
 import { gatewayAtom } from "@/store/gateway"

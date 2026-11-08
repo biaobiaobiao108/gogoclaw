@@ -1,21 +1,37 @@
 #!/bin/sh
-set -e
+set -eu
 
-# First-run: neither config nor workspace exists.
-# If config.json is already mounted but workspace is missing we skip onboard to
-# avoid the interactive "Overwrite? (y/n)" prompt hanging in a non-TTY container.
-if [ ! -d "${HOME}/.picoclaw/workspace" ] && [ ! -f "${HOME}/.picoclaw/config.json" ]; then
-    picoclaw onboard
-    echo ""
-    echo "First-run setup complete."
-    echo "Edit ${HOME}/.picoclaw/config.json (add your API key, etc.) then restart the container."
-    exit 0
+if [ "$#" -eq 0 ]; then
+    set -- gateway
 fi
 
-# Remove stale PID file from a previous container run.
-# After docker kill / OOM / crash the PID file may linger on the bind-mounted
-# volume and block the next gateway start (the recorded PID could collide with
-# an unrelated process inside the new container).
-rm -f "${HOME}/.picoclaw/.picoclaw.pid"
-
-exec picoclaw gateway "$@"
+case "$1" in
+    gateway)
+        shift
+        if [ ! -f "${HOME}/.picoclaw/config.json" ]; then
+            if [ "${PICOCLAW_BOOTSTRAP:-0}" = "1" ]; then
+                picoclaw onboard
+            fi
+            if [ ! -f "${HOME}/.picoclaw/config.json" ]; then
+                echo "error: ${HOME}/.picoclaw/config.json is missing." >&2
+                echo "Run 'docker compose -f docker/docker-compose.yml --profile gateway run --rm --entrypoint picoclaw picoclaw-gateway onboard' and restart." >&2
+                exit 78
+            fi
+        fi
+        rm -f "${HOME}/.picoclaw/.picoclaw.pid"
+        exec picoclaw gateway "$@"
+        ;;
+    picoclaw)
+        exec "$@"
+        ;;
+    picoclaw-launcher)
+        rm -f "${HOME}/.picoclaw/.picoclaw.pid"
+        exec "$@"
+        ;;
+    agent|auth|config|cron|mcp|migrate|model|onboard|skills|status|version)
+        exec picoclaw "$@"
+        ;;
+    *)
+        exec "$@"
+        ;;
+esac

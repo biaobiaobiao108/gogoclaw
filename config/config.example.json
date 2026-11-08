@@ -409,38 +409,38 @@
         },
         "filesystem": {
           "enabled": false,
-          "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+          "command": "bunx",
+          "args": ["--bun", "@modelcontextprotocol/server-filesystem", "/tmp"]
         },
         "github": {
           "enabled": false,
-          "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-github"],
+          "command": "bunx",
+          "args": ["--bun", "@modelcontextprotocol/server-github"],
           "env": {
             "GITHUB_PERSONAL_ACCESS_TOKEN": "YOUR_GITHUB_TOKEN"
           }
         },
         "brave-search": {
           "enabled": false,
-          "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+          "command": "bunx",
+          "args": ["--bun", "@modelcontextprotocol/server-brave-search"],
           "env": {
             "BRAVE_API_KEY": "YOUR_BRAVE_API_KEY"
           }
         },
         "postgres": {
           "enabled": false,
-          "command": "npx",
+          "command": "bunx",
           "args": [
-            "-y",
+            "--bun",
             "@modelcontextprotocol/server-postgres",
             "postgresql://user:password@localhost/dbname"
           ]
         },
         "slack": {
           "enabled": false,
-          "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-slack"],
+          "command": "bunx",
+          "args": ["--bun", "@modelcontextprotocol/server-slack"],
           "env": {
             "SLACK_BOT_TOKEN": "YOUR_SLACK_BOT_TOKEN",
             "SLACK_TEAM_ID": "YOUR_SLACK_TEAM_ID"

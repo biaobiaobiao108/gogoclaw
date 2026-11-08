@@ -20,8 +20,7 @@ type Handler struct {
 	serverAllowLocalhostBypass bool
 	serverTrustedProxyCIDRs    []string
 	debug                      bool
-	// Serializes model-related config writes. Other config endpoints still
-	// coordinate their own load-modify-save cycles.
+	// Serializes config load-modify-save cycles across API handlers.
 	configMu    sync.Mutex
 	oauthMu     sync.Mutex
 	oauthFlows  map[string]*oauthFlow
@@ -101,14 +100,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	h.registerSkillRoutes(mux)
 	h.registerToolRoutes(mux)
 
-	// OS startup / launch-at-login
-	h.registerStartupRoutes(mux)
-
 	// Launcher service parameters (port/public)
 	h.registerLauncherConfigRoutes(mux)
-
-	// Self-update endpoint (requires dashboard auth)
-	h.registerUpdateRoutes(mux)
 
 	// Runtime build/version metadata
 	h.registerVersionRoutes(mux)

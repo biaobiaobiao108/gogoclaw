@@ -736,6 +736,10 @@ type MQTTSettings struct {
 	ClientID    string       `json:"client_id,omitempty"    yaml:"-"                  env:"PICOCLAW_CHANNELS_MQTT_CLIENT_ID"`
 	KeepAlive   int          `json:"keep_alive,omitempty"   yaml:"-"                  env:"PICOCLAW_CHANNELS_MQTT_KEEP_ALIVE"`
 	QoS         int          `json:"qos,omitempty"          yaml:"-"                  env:"PICOCLAW_CHANNELS_MQTT_QOS"`
+	TLSCAFile   string       `json:"tls_ca_file,omitempty"  yaml:"-"                  env:"PICOCLAW_CHANNELS_MQTT_TLS_CA_FILE"`
+	// TLSInsecureSkipVerify disables certificate validation. Only use it for
+	// local development against a trusted test broker.
+	TLSInsecureSkipVerify bool `json:"tls_insecure_skip_verify,omitempty" yaml:"-" env:"PICOCLAW_CHANNELS_MQTT_TLS_INSECURE_SKIP_VERIFY"`
 }
 
 // SlackWebhookSettings configures the output-only Slack webhook channel.
@@ -810,10 +814,13 @@ type ModelConfig struct {
 
 	APIKeys SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty"` // API authentication keys (multiple keys for failover)
 
-	// Enabled indicates whether this model entry is active. When omitted in
-	// existing configs, the field is inferred during load: models with API keys
-	// or the reserved "local-model" name are auto-enabled.
-	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	// Enabled indicates whether this model entry is active. When omitted in an
+	// existing config, load treats the entry as enabled to preserve its previous
+	// behavior. New writes always persist the field so disabled stays disabled.
+	Enabled bool `json:"enabled" yaml:"enabled"`
+	// enabledExplicit distinguishes an omitted field, which is enabled for
+	// compatibility, from an explicit false.
+	enabledExplicit bool
 	// UserAgent is the user agent string to use for HTTP requests.
 	UserAgent string `json:"user_agent,omitempty" yaml:"-"`
 
@@ -833,6 +840,21 @@ func (c *ModelConfig) APIKey() string {
 // IsVirtual returns true if this model was generated from multi-key expansion.
 func (c *ModelConfig) IsVirtual() bool {
 	return c.isVirtual
+}
+
+// IsEnabled reports whether the model may be used for resolution. Historically
+// the enabled field was optional, so an unset programmatic value remains enabled.
+func (c *ModelConfig) IsEnabled() bool {
+	return c != nil && (c.Enabled || !c.enabledExplicit)
+}
+
+// SetEnabled records an explicit model enable/disable choice.
+func (c *ModelConfig) SetEnabled(enabled bool) {
+	if c == nil {
+		return
+	}
+	c.Enabled = enabled
+	c.enabledExplicit = true
 }
 
 // Validate checks if the ModelConfig has all required fields.
@@ -1251,7 +1273,7 @@ type MCPServerConfig struct {
 	// When nil, the global Discovery.Enabled setting applies.
 	// When explicitly set to true or false, it overrides the global setting for this server only.
 	Deferred *bool `json:"deferred,omitempty"`
-	// Command is the executable to run (e.g., "npx", "python", "/path/to/server")
+	// Command is the executable to run (e.g., "bunx", "python", "/path/to/server")
 	Command string `json:"command"`
 	// Args are the arguments to pass to the command
 	Args []string `json:"args,omitempty"`
@@ -1739,8 +1761,9 @@ func (c *Config) GetModelConfig(modelName string) (*ModelConfig, error) {
 func (c *Config) findMatches(modelName string) []*ModelConfig {
 	var matches []*ModelConfig
 	for i := range c.ModelList {
-		if c.ModelList[i].ModelName == modelName {
-			matches = append(matches, c.ModelList[i])
+		model := c.ModelList[i]
+		if model != nil && model.ModelName == modelName {
+			matches = append(matches, model)
 		}
 	}
 	return matches

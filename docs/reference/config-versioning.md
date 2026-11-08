@@ -26,6 +26,7 @@ PicoClaw uses a schema versioning system for `config.json` to ensure smooth upgr
   - Added comma-ok type assertions in channel configuration decoding to prevent potential panics
   - Improved error logging for Weixin channel configuration decoding
   - Enhanced security configuration documentation and examples
+  - Persisted missing model `enabled` values as `false` during migration to preserve the V2 inference behavior
   - **Auto-migration**: V2 configs are automatically migrated to V3 on load with no user action required
   - **Backup**: Before migration, the system creates a date-stamped backup (e.g., `config.json.20260413.bak`) in the same directory
   - **Downgrade risk**: Once migrated to V3, the config cannot be safely loaded by older V2-only versions. To downgrade, restore from the auto-created backup file.

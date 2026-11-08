@@ -3,10 +3,10 @@
 
 <h1>PicoClaw: 基于Go语言的超高效 AI 助手</h1>
 
-<h3>$10 硬件 · 10MB 内存 · 毫秒启动 · 皮皮虾，我们走！</h3>
+<h3>Linux 容器 · amd64 / arm64 · 皮皮虾，我们走！</h3>
   <p>
-    <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
-    <img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64%2C%20MIPS%2C%20RISC--V%2C%20LoongArch-blue" alt="Hardware">
+    <img src="https://img.shields.io/badge/Go-1.27.3+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
+    <img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64%2C%20RISC--V-blue" alt="Hardware">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
     <br>
     <a href="https://picoclaw.io"><img src="https://img.shields.io/badge/Website-picoclaw.io-blue?style=flat&logo=google-chrome&logoColor=white" alt="Website"></a>
@@ -18,7 +18,7 @@
     <a href="https://discord.gg/V4sAZ9XWpN"><img src="https://img.shields.io/badge/Discord-Community-4c60eb?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
   </p>
 
-**中文** | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt-br.md) | [Tiếng Việt](README.vi.md) | [Français](README.fr.md) | [Italiano](README.it.md) | [Bahasa Indonesia](README.id.md) | [Malay](README.ms.md) | [English](../../README.md)
+**中文** | [English](../../README.md)
 
 </div>
 
@@ -28,22 +28,7 @@
 
 🦐 **PicoClaw** 是一个受 [NanoBot](https://github.com/HKUDS/nanobot) 启发的超轻量级个人 AI 助手。它采用 **Go 语言** 从零重构，经历了一个"自举"过程——即由 AI Agent 自身驱动了整个架构迁移和代码优化。
 
-⚡️ **极致轻量**：可在 **10 美元** 的硬件上运行，内存占用 **<10MB**。这意味着比 OpenClaw 节省 99% 的内存，比 Mac mini 便宜 98%！
-
-<table align="center">
-<tr align="center">
-<td align="center" valign="top">
-<p align="center">
-<img src="../../assets/picoclaw_mem.gif" width="360" height="240">
-</p>
-</td>
-<td align="center" valign="top">
-<p align="center">
-<img src="../../assets/licheervnano.png" width="400" height="240">
-</p>
-</td>
-</tr>
-</table>
+⚡️ **容器优先**：生产镜像支持 64 位 x86 和 ARM Linux。原生二进制只用于开发与测试。
 
 > [!CAUTION]
 > **🚨 安全声明**
@@ -51,24 +36,12 @@
 > - **无加密货币 (NO CRYPTO):** PicoClaw **没有** 发行任何官方代币、Token 或虚拟货币。所有在 `pump.fun` 或其他交易平台上的相关声称均为 **诈骗**。
 > - **官方域名:** 唯一的官方网站是 **[picoclaw.io](https://picoclaw.io)**，公司官网是 **[sipeed.com](https://sipeed.com)**。
 > - **警惕:** 许多 `.ai/.org/.com/.net/...` 后缀的域名被第三方抢注，请勿轻信。
-> - **注意:** PicoClaw 正在初期的快速功能开发阶段，可能有尚未修复的网络安全问题，在 1.0 正式版发布前，请不要将其部署到生产环境中。
+> - **注意:** PicoClaw 正在初期的快速功能开发阶段。生产部署仅支持容器镜像，暴露到公网前请先阅读安全说明。
 > - **注意:** PicoClaw 最近合并了大量 PR，近期版本可能内存占用较大 (10~20MB)，我们将在功能较为收敛后进行资源占用优化。
 
 ## 📢 新闻
 
-2026-05-11 🛒 **LicheeRV-Claw 已上架淘宝！** 现在可以在 [淘宝](https://item.taobao.com/item.htm?abbucket=20&id=764939520376) 购买 LicheeRV-Claw，更方便地在小型 RISC-V 硬件上体验 PicoClaw。
-
-<p align="center">
-  <a href="https://item.taobao.com/item.htm?abbucket=20&id=764939520376">
-    <img src="../../assets/licheerv-claw.jpg" alt="LicheeRV-Claw on Taobao" width="520">
-  </a>
-</p>
-
-2026-03-31 📱 **Android 支持！** PicoClaw 现可在 Android 上运行！APK 下载地址：[picoclaw.io](https://picoclaw.io/download)
-
 2026-03-25 🚀 **v0.2.4 发布！** Agent 架构全面重构（SubTurn、Hook、Steering、EventBus）、微信/企业微信深度集成、安全体系升级（.security.yml、敏感数据过滤）、新增 Provider（AWS Bedrock、Azure、小米 MiMo），以及 35 项 Bug 修复。PicoClaw 已达 **26K ⭐**！
-
-2026-03-17 🚀 **v0.2.3 发布！** 系统托盘 UI（Windows & Linux）、子 Agent 状态查询 (`spawn_status`)、实验性 Gateway 热重载、Cron 安全门控，以及 2 项安全修复。PicoClaw 已达 **25K ⭐**！
 
 2026-03-09 🎉 **v0.2.1 — 史上最大更新！** MCP 协议支持、4 个新频道 (Matrix/IRC/WeCom/Discord Proxy)、3 个新 Provider (Kimi/Minimax/Avian)、视觉管线、JSONL 记忆存储、模型路由。
 
@@ -83,19 +56,14 @@
 
 2026-02-13 🎉 PicoClaw 4 天内突破 5000 Stars！项目路线图和开发者群组筹建中。
 
-2026-02-09 🎉 **PicoClaw 正式发布！** 仅用 1 天构建，将 AI Agent 带入 $10 硬件与 <10MB 内存的世界。🦐 皮皮虾，我们走！
-
 </details>
 
 ## ✨ 特性
 
-🪶 **超轻量级**: 核心功能内存占用 <10MB — 比 OpenClaw 小 99%。*
+🪶 **精简 Go 核心**: Agent 使用 Go 实现，自身不依赖 Node.js 或 Python 应用运行时；生产容量由容器宿主机提供。
 
-💰 **极低成本**: 高效到足以在 $10 的硬件上运行 — 比 Mac mini 便宜 98%。
 
-⚡️ **闪电启动**: 启动速度快 400 倍，即使在 0.6GHz 单核处理器上也能在 1 秒内启动。
-
-🌍 **真正可移植**: 跨 RISC-V、ARM、MIPS 和 x86 架构的单二进制文件，一键运行！
+🌍 **容器优先**: 生产镜像支持 x86-64 和 ARM64 Linux。
 
 🤖 **AI 自举**: 纯 Go 语言原生实现 — 95% 的核心代码由 Agent 生成，并经由"人机回环"微调。
 
@@ -105,26 +73,7 @@
 
 🧠 **智能路由**: 基于规则的模型路由 — 简单查询走轻量模型，节省 API 成本。
 
-_*近期版本因快速合并 PR 可能占用 10–20MB，资源优化已列入计划。启动速度对比基于 0.8GHz 单核实测（见下方对比表）。_
-
-<div align="center">
-
-|                                | OpenClaw      | NanoBot                  | **PicoClaw**                           |
-| ------------------------------ | ------------- | ------------------------ | -------------------------------------- |
-| **语言**                       | TypeScript    | Python                   | **Go**                                 |
-| **RAM**                        | >1GB          | >100MB                   | **< 10MB***                            |
-| **启动时间**</br>(0.8GHz core) | >500s         | >30s                     | **<1s**                                |
-| **成本**                       | Mac Mini $599 | 大多数 Linux 开发板 ~$50 | **任意 Linux 开发板**</br>**低至 $10** |
-
-<img src="../../assets/compare.jpg" alt="PicoClaw" width="512">
-
-</div>
-
-> 📋 **[硬件兼容列表](../guides/hardware-compatibility.zh.md)** — 查看所有已测试的板卡，从 $5 RISC-V 到树莓派到安卓手机。你的板卡没在列表中？欢迎提交 PR！
-
-<p align="center">
-<img src="../../assets/hardware-banner.jpg" alt="PicoClaw Hardware Compatibility" width="100%">
-</p>
+> 📋 **[硬件兼容列表](../guides/hardware-compatibility.zh.md)** — 查看可运行容器镜像的 Linux 主机。你的板卡没在列表中？欢迎提交 PR！
 
 ## 🦾 演示
 
@@ -148,241 +97,136 @@ _*近期版本因快速合并 PR 可能占用 10–20MB，资源优化已列入�
 </tr>
 </table>
 
-### 🐜 创新的低占用部署
+### 🐜 容器宿主机
 
-PicoClaw 几乎可以部署在任何 Linux 设备上！
+生产环境运行在支持 `amd64` 或 `arm64` 容器的 64 位 Linux 主机上。宿主机要求参见 [硬件兼容性列表](../guides/hardware-compatibility.zh.md)。
 
-- $9.9 [LicheeRV-Nano](https://item.taobao.com/item.htm?id=764939520376) E(网口) 或 W(WiFi6) 版本，用于极简家庭助手
-- $30~50 [NanoKVM](https://item.taobao.com/item.htm?id=811206560480)，或 $100 [NanoKVM-Pro](https://item.taobao.com/item.htm?id=994419942411)，用于自动化服务器运维
-- $50 [MaixCAM](https://item.taobao.com/item.htm?id=784724795837) 或 $100 [MaixCAM2](https://item.taobao.com/item.htm?id=1050380368975)，用于智能监控
+## 📦 生产部署（仅容器）
 
-<https://private-user-images.githubusercontent.com/83055338/547056448-e7b031ff-d6f5-4468-bcca-5726b6fecb5c.mp4>
+生产环境仅支持使用发布的 Linux 容器镜像。源码构建的原生二进制只用于开发和测试。
 
-🌟 更多部署案例敬请期待！
+### 环境要求
 
-## 📦 安装
+- Docker Engine 和 Docker Compose v2
+- 为 `/data` 使用持久化 Docker 卷
+- 如果 Web 控制台或 Webhook 需要暴露到本机以外，使用带 TLS 的反向代理
+- 能够访问模型 Provider 和聊天平台的外网
 
-### 从 picoclaw.io 下载（推荐）
-
-访问 **[picoclaw.io](https://picoclaw.io)** — 官网自动检测你的平台，提供一键下载，无需手动选择架构。
-
-### 下载预编译二进制文件
-
-也可以从 [GitHub Releases](https://github.com/sipeed/picoclaw/releases) 页面手动下载对应平台的二进制文件。
-
-### 从源码构建（开发用）
-
-前置要求：
-
-- Go 1.25+
-- Node.js 22+ 和 pnpm 10.33.0+（用于 Web UI / launcher 构建）
+### 使用 Web 控制台启动
 
 ```bash
 git clone https://github.com/sipeed/picoclaw.git
-
-cd picoclaw
-make deps
-
-# 安装前端依赖
-(cd web/frontend && pnpm install --frozen-lockfile)
-
-# 构建核心二进制文件
-make build
-
-# 构建 Web UI Launcher（WebUI 模式必需）
-make build-launcher
-
-# 为 Makefile 管理的所有平台构建核心二进制文件
-make build-all
-
-# 为 Raspberry Pi Zero 2 W 构建（32位: make build-linux-arm; 64位: make build-linux-arm64）
-make build-pi-zero
-
-# 构建并安装
-make install
-```
-
-**Raspberry Pi Zero 2 W:** 请使用与系统匹配的二进制文件：32 位 Raspberry Pi OS → `make build-linux-arm`；64 位 → `make build-linux-arm64`。或运行 `make build-pi-zero` 同时构建两者。
-
-## 🚀 快速开始
-
-### 🌐 WebUI Launcher（推荐桌面用户）
-
-WebUI Launcher 提供基于浏览器的配置与聊天界面，是最简单的上手方式——无需命令行知识。
-
-**方式一：双击启动（桌面）**
-
-从 [picoclaw.io](https://picoclaw.io) 下载后，双击 `picoclaw-launcher`（Windows 上为 `picoclaw-launcher.exe`），浏览器将自动打开 `http://localhost:18800`。
-
-**方式二：命令行**
-
-```bash
-picoclaw-launcher
-# 在浏览器中打开 http://localhost:18800
-```
-
-> [!TIP]
-> **远程访问 / Docker / 虚拟机：** 添加 `-public` 参数以监听所有网络接口：
-> ```bash
-> picoclaw-launcher -public
-> ```
-
-<p align="center">
-<img src="../../assets/launcher-webui.jpg" alt="WebUI Launcher" width="600">
-</p>
-
-**开始使用：**
-
-打开 WebUI，然后：**1)** 配置 Provider（填入 LLM API Key）-> **2)** 配置 Channel（如 Telegram）-> **3)** 启动 Gateway -> **4)** 开始聊天！
-
-详细 WebUI 文档请参阅 [docs.picoclaw.io](https://docs.picoclaw.io)。
-
-<details>
-<summary><b>Docker（备选方案）</b></summary>
-
-```bash
-# 1. 克隆本仓库
-git clone https://github.com/sipeed/picoclaw.git
 cd picoclaw
 
-# 2. 首次运行——自动生成 docker/data/config.json 后退出
-#    （仅在 config.json 和 workspace/ 均不存在时触发）
-docker compose -f docker/docker-compose.yml --profile launcher up
-# 容器打印 "First-run setup complete." 后停止。
-
-# 3. 填写 API Key
-vim docker/data/config.json
-
-# 4. 启动
-docker compose -f docker/docker-compose.yml --profile launcher up -d
-# 打开 http://localhost:18800
-```
-
-> **Docker / 虚拟机用户：** Gateway 默认监听 `127.0.0.1`。设置 `PICOCLAW_GATEWAY_HOST=0.0.0.0` 或使用 `-public` 参数以允许从宿主机访问。
-
-```bash
-# 查看日志
-docker compose -f docker/docker-compose.yml logs -f
-
-# 停止
-docker compose -f docker/docker-compose.yml --profile launcher down
-
-# 更新
-docker compose -f docker/docker-compose.yml pull
+docker compose -f docker/docker-compose.yml --profile launcher pull
 docker compose -f docker/docker-compose.yml --profile launcher up -d
 ```
 
-</details>
+打开 `http://127.0.0.1:18800`，创建控制台密码，然后配置模型、Channel 和工具。首次使用时 launcher 会生成初始配置，并在同一容器内管理 gateway 进程。
 
-<details>
-<summary><b>macOS — 首次启动安全警告</b></summary>
-
-macOS 可能会在首次启动时拦截 `picoclaw-launcher`，因为它从互联网下载，未经 Mac App Store 公证。
-
-**第一步：** 双击 `picoclaw-launcher`，会出现安全警告：
-
-<p align="center">
-<img src="../../assets/macos-gatekeeper-warning.jpg" alt="macOS Gatekeeper 警告" width="400">
-</p>
-
-> *"picoclaw-launcher" 无法打开 — Apple 无法验证 "picoclaw-launcher" 不含可能损害 Mac 或危及隐私的恶意软件。*
-
-**第二步：** 打开**系统设置** → **隐私与安全性** → 向下滚动找到**安全性**部分 → 点击**仍要打开** → 在弹窗中再次点击**打开**。
-
-<p align="center">
-<img src="../../assets/macos-gatekeeper-allow.jpg" alt="macOS 隐私与安全性 — 仍要打开" width="600">
-</p>
-
-完成这一次操作后，后续启动 `picoclaw-launcher` 将不再弹出警告。
-
-</details>
-
-<a id="-run-on-old-android-phones"></a>
-### 📱 Android
-
-让你十年前的旧手机焕发新生！将它变成你的 AI 助手。
-
-**方式一：APK 安装**
-
-预览：
-
-<table>
-  <tr>
-    <td><img src="../../assets/fui_main_page.jpg" width="200"></td>
-    <td><img src="../../assets/fui_web_page.jpg" width="200"></td>
-    <td><img src="../../assets/fui_log_page.jpg" width="200"></td>
-    <td><img src="../../assets/fui_setting_page.jpg" width="200"></td>
-  </tr>
-</table>
-
-从 [picoclaw.io](https://picoclaw.io/download/) 下载 APK 并直接安装，无需 Termux！
-
-**方式二：Termux**
-
-<details>
-<summary><b>Terminal Launcher（适用于资源受限环境）</b></summary>
-
-1. 安装 [Termux](https://github.com/termux/termux-app)（可从 [GitHub Releases](https://github.com/termux/termux-app/releases) 下载，或在 F-Droid / Google Play 中搜索）
-2. 执行以下命令：
+launcher 端口默认只绑定回环地址。不要直接暴露到公网；如需远程访问，应放在经过加固的 TLS 反向代理之后：
 
 ```bash
-# 从 Release 页面下载最新版本
-wget https://github.com/sipeed/picoclaw/releases/latest/download/picoclaw_Linux_arm64.tar.gz
-tar xzf picoclaw_Linux_arm64.tar.gz
-pkg install proot
-termux-chroot ./picoclaw onboard   # chroot 提供标准 Linux 文件系统布局
+# 仅在 TLS 反向代理或可信内网后方使用。
+PICOCLAW_LAUNCHER_BIND=0.0.0.0 \
+  docker compose -f docker/docker-compose.yml --profile launcher up -d
 ```
 
-然后跟随下面的"Terminal Launcher"章节继续配置。
+### 无头 Gateway
 
-<img src="../../assets/termux.jpg" alt="PicoClaw on Termux" width="512">
-
-对于只有 `picoclaw` 核心二进制文件的极简环境（无 Launcher UI），可通过命令行和 JSON 配置文件完成所有配置。
-
-**1. 初始化**
+先交互式生成初始配置：
 
 ```bash
-picoclaw onboard
+docker compose -f docker/docker-compose.yml --profile gateway pull
+docker compose -f docker/docker-compose.yml --profile gateway run --rm \
+  --entrypoint picoclaw picoclaw-gateway onboard
 ```
 
-此命令会创建 `~/.picoclaw/config.json` 和工作区目录。
+再启动 gateway：
 
-**2. 配置** (`~/.picoclaw/config.json`)
-
-```json
-{
-  "version": 3,
-  "agents": {
-    "defaults": {
-      "model_name": "gpt-5.4"
-    }
-  },
-  "model_list": [
-    {
-      "model_name": "gpt-5.4",
-      "model": "openai/gpt-5.4",
-      "api_keys": ["sk-your-api-key"]
-    }
-  ]
-}
+```bash
+docker compose -f docker/docker-compose.yml --profile gateway up -d
 ```
 
-> 完整配置模板请参阅仓库中的 `config/config.example.json`。
+需要接收 Webhook 的 Channel 使用 gateway 端口 `18790`。宿主机默认只绑定 `127.0.0.1`；只有反向代理或可信网络需要访问时才修改 `PICOCLAW_GATEWAY_BIND`。
 
-**3. 开始聊天**
+### 一次性 CLI 命令
 
 ```bash
 # 单次提问
-picoclaw agent -m "What is 2+2?"
+docker compose -f docker/docker-compose.yml --profile gateway run --rm \
+  --entrypoint picoclaw picoclaw-gateway agent -m "2+2 等于多少？"
 
-# 交互式对话模式
-picoclaw agent
-
-# 启动 Gateway 以接入聊天应用
-picoclaw gateway
+# 查看状态
+docker compose -f docker/docker-compose.yml --profile gateway run --rm \
+  --entrypoint picoclaw picoclaw-gateway status
 ```
 
-</details>
+### 数据、备份与更新
+
+应用状态保存在命名卷 `picoclaw-data` 中，并挂载到容器内 `/data`。其中包括 `/data/.picoclaw/config.json`、凭据、工作区、会话和日志。
+
+```bash
+# 备份数据卷
+docker run --rm \
+  -v picoclaw-data:/data:ro \
+  -v "${PWD}:/backup" \
+  alpine tar czf /backup/picoclaw-data.tgz -C /data .
+
+# 恢复到空数据卷（卷中不能已有状态）
+docker run --rm \
+  -v picoclaw-data:/data \
+  -v "${PWD}:/backup" \
+  alpine tar xzf /backup/picoclaw-data.tgz -C /data
+```
+
+更新时拉取新镜像并重建服务：
+
+```bash
+docker compose -f docker/docker-compose.yml --profile launcher pull
+docker compose -f docker/docker-compose.yml --profile launcher up -d
+```
+
+项目不再提供应用内自更新。
+
+### 容器安全边界
+
+生产镜像使用 UID/GID `10001` 运行，以 `tini` 作为 PID 1；配套 Compose 配置启用：
+
+- 只读根文件系统
+- 删除全部 Linux capabilities
+- `no-new-privileges`
+- 有大小限制的可写 `/tmp`
+- 默认仅绑定回环地址
+
+工作区路径检查用于防止误写，不是操作系统级沙箱。生产安全边界是容器本身；不要把 Docker socket 或不必要的宿主机目录挂载进去。
+
+### 开发构建
+
+本地构建仅用于开发和测试。依赖：
+
+- Go 1.27.3+
+- Bun 1.4.4+
+- Windows 上需要 PowerShell 7
+
+```bash
+make deps
+make build
+make build-launcher
+
+# 完整 launcher 开发流程
+cd web
+make dev
+```
+
+本地自动打开浏览器、`-public` 和直接运行 gateway 都是开发便利功能，不属于受支持的生产部署方式。
+
+需要在本机测试容器构建时，使用开发覆盖文件：
+
+```bash
+docker compose -f docker/docker-compose.yml \
+  -f docker/docker-compose.dev.yml --profile launcher up --build
+```
 
 ## 🔌 Providers (LLM)
 
@@ -545,8 +389,8 @@ PicoClaw 原生支持 [MCP](https://modelcontextprotocol.io/) — 连接任意 M
       "servers": {
         "filesystem": {
           "enabled": true,
-          "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+          "command": "bunx",
+          "args": ["--bun", "@modelcontextprotocol/server-filesystem", "/tmp"]
         }
       }
     }
@@ -607,7 +451,7 @@ PicoClaw 通过 `cron` 工具支持定时提醒和重复任务：
 | 🔀 [SubTurn](../architecture/subturn.md) | 子 Agent 协调、并发控制、生命周期管理 |
 | 🐛 [疑难解答](../operations/troubleshooting.zh.md) | 常见问题与解决方案 |
 | 🔧 [工具配置](../reference/tools_configuration.zh.md) | 工具启用/禁用、执行策略、MCP、Skills |
-| 📋 [硬件兼容列表](../guides/hardware-compatibility.zh.md) | 已测试板卡、最低要求 |
+| 📋 [硬件兼容列表](../guides/hardware-compatibility.zh.md) | 支持的容器平台与宿主机要求 |
 
 ## 🤝 贡献与路线图
 

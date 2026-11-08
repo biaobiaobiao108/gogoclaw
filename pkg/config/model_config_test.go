@@ -7,6 +7,8 @@ package config
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -41,6 +43,58 @@ func TestGetModelConfig_NotFound(t *testing.T) {
 	_, err := cfg.GetModelConfig("nonexistent")
 	if err == nil {
 		t.Fatal("GetModelConfig() expected error for nonexistent model")
+	}
+}
+
+func TestLoadConfig_ModelEnabledDefaultsTrueForCurrentVersion(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	data := `{
+		"version": 3,
+		"model_list": [
+			{"model_name": "implicit", "model": "openai/gpt-4o"}
+		]
+	}`
+	if err := os.WriteFile(configPath, []byte(data), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if len(cfg.ModelList) != 1 || !cfg.ModelList[0].IsEnabled() {
+		t.Fatalf("model should be enabled when enabled is omitted: %#v", cfg.ModelList)
+	}
+}
+
+func TestLoadConfig_ExplicitDisabledModelRemainsDisabled(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	data := `{
+		"version": 3,
+		"model_list": [
+			{"model_name": "disabled", "model": "openai/gpt-4o", "enabled": false}
+		]
+	}`
+	if err := os.WriteFile(configPath, []byte(data), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.ModelList[0].IsEnabled() {
+		t.Fatal("model with explicit enabled=false should be disabled")
+	}
+	if err := SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+	reloaded, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() after save error = %v", err)
+	}
+	if reloaded.ModelList[0].IsEnabled() {
+		t.Fatal("explicit enabled=false should survive save and reload")
 	}
 }
 

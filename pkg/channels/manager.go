@@ -1044,7 +1044,6 @@ func (m *Manager) getChannelConfigAndEnabled(channelName string) (*config.Channe
 	if err != nil {
 		return bc, false
 	}
-	//nolint:revive
 	switch settings := decoded.(type) {
 	case *config.WhatsAppSettings:
 		if channelType == config.ChannelWhatsApp {

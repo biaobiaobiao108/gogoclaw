@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -218,7 +217,6 @@ func TestLauncherAuthStoreUnavailableFailsClosed(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterLauncherAuthRoutes(mux, LauncherAuthRouteOpts{
 		SessionCookie: "session-cookie-value",
-		StoreError:    errors.New("open auth store"),
 	})
 
 	for _, tc := range []struct {

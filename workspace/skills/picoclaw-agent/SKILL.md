@@ -118,8 +118,8 @@ Skill loading priority is:
 ### MCP
 
 ```bash
-picoclaw mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem /tmp
-picoclaw mcp add --deferred github --env-file .env.github -- npx -y @modelcontextprotocol/server-github
+picoclaw mcp add filesystem -- bunx --bun @modelcontextprotocol/server-filesystem /tmp
+picoclaw mcp add --deferred github --env-file .env.github -- bunx --bun @modelcontextprotocol/server-github
 picoclaw mcp list
 picoclaw mcp list --status
 picoclaw mcp show github

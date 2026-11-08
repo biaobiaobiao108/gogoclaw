@@ -1,5 +1,3 @@
-//go:build !mipsle && !netbsd && !(freebsd && arm)
-
 package agent
 
 import (
@@ -21,6 +19,14 @@ type seahorseContextManager struct {
 	engine   *seahorse.Engine
 	sessions session.SessionStore // for startup bootstrap
 	al       *AgentLoop           // for resolving the agent that owns a session
+}
+
+// Close releases the SQLite engine and its background compaction workers.
+func (m *seahorseContextManager) Close() error {
+	if m == nil || m.engine == nil {
+		return nil
+	}
+	return m.engine.Close()
 }
 
 // newSeahorseContextManager creates a seahorse-backed ContextManager.

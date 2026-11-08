@@ -7,10 +7,10 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import {
+  getCatalogs,
   type ModelInfo,
   type ModelProviderOption,
   type ModelReferenceRename,
-  getCatalogs,
   setDefaultModel,
   updateModel,
 } from "@/api/models"
@@ -493,7 +493,7 @@ export function EditModelSheet({
                     <span>
                       {t(
                         modelValidation.messageKey,
-                        modelValidation.messageParams,
+                        modelValidation.messageParams ?? {},
                       )}
                     </span>
                     {modelValidation.fix && (

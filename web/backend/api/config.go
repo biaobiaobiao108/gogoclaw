@@ -82,6 +82,9 @@ func (h *Handler) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		cfg.Tools.Exec.AllowRemote = config.DefaultConfig().Tools.Exec.AllowRemote
 	}
 
+	h.configMu.Lock()
+	defer h.configMu.Unlock()
+
 	// Load existing config and copy security credentials before validation,
 	// so that security-managed fields (e.g. pico token) are available.
 	err = cfg.SecurityCopyFrom(h.configPath)
@@ -145,6 +148,9 @@ func (h *Handler) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
 		return
 	}
+
+	h.configMu.Lock()
+	defer h.configMu.Unlock()
 
 	// Load existing config and marshal to a map for merging
 	cfg, err := config.LoadConfig(h.configPath)
@@ -235,10 +241,14 @@ func (h *Handler) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 //
 //	POST /api/config/reset
 func (h *Handler) handleResetConfig(w http.ResponseWriter, r *http.Request) {
+	h.configMu.Lock()
+
 	if err := config.ResetToDefaults(h.configPath); err != nil {
+		h.configMu.Unlock()
 		http.Error(w, fmt.Sprintf("Failed to reset config: %v", err), http.StatusInternalServerError)
 		return
 	}
+	h.configMu.Unlock()
 
 	h.applyRuntimeLogLevel()
 	logger.Infof("configuration reset to factory defaults")

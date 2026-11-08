@@ -476,7 +476,7 @@ Use `mode = lines` when:
 #### Known Limitation: Child Processes From Build Tools
 
 The exec safety guard only inspects the command line PicoClaw launches directly. It does not recursively inspect child
-processes spawned by allowed developer tools such as `make`, `go run`, `cargo`, `npm run`, or custom build scripts.
+processes spawned by allowed developer tools such as `make`, `go run`, `cargo`, `bun run`, or custom build scripts.
 
 That means a top-level command can still compile or launch other binaries after it passes the initial guard check. In
 practice, treat build scripts, Makefiles, package scripts, and generated binaries as executable code that needs the same
@@ -644,7 +644,7 @@ This design also enables **multi-agent support** with flexible provider selectio
 - **Model fallbacks**: Configure primary and fallback models for resilience
 - **Load balancing**: Distribute requests across multiple endpoints or keys
 - **Centralized configuration**: Manage all providers in one place
-- **Model enable/disable**: Use the `enabled` field to temporarily disable a model without removing its configuration
+- **Model enable/disable**: Use `enabled: false` to temporarily disable a model without removing its configuration. Current-version configs treat an omitted field as enabled.
 
 #### 🔒 Security Configuration (Recommended)
 
@@ -780,7 +780,7 @@ For complete documentation, see [`../security/security_configuration.md`](../sec
 
 > **Security Note**: You can remove `api_keys` fields from your config and store them in `.security.yml` instead. See [Security Configuration](#-security-configuration-recommended) above for details.
 >
-> **Note**: The `enabled` field can be set to `false` to disable a model entry without removing it. When omitted, it defaults to `true` during migration for models that have API keys.
+> **Note**: Set `enabled: false` to disable a model entry without removing it. In the current config version, an omitted `enabled` field is treated as `true`. V1→V2 migration still infers the legacy state: models with API keys or the reserved `local-model` name are enabled, while other legacy entries are disabled.
 
 Resolution rules:
 

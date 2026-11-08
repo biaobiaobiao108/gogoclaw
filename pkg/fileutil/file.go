@@ -11,8 +11,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
+	"sync"
 )
+
+// Atomic writes are serialized in-process. Concurrent rename operations to the
+// same Windows target can fail with access-denied even when each temp file is
+// unique, and configuration writers rely on this helper being safe under load.
+var atomicWriteMu sync.Mutex
 
 // WriteFileAtomic atomically writes data to a file using a temp file + rename pattern.
 //
@@ -50,6 +55,9 @@ import (
 //	// Public readable file
 //	err := utils.WriteFileAtomic("public.txt", data, 0o644)
 func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
+	atomicWriteMu.Lock()
+	defer atomicWriteMu.Unlock()
+
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
@@ -57,11 +65,7 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 
 	// Create temp file in the same directory (ensures atomic rename works)
 	// Using a hidden prefix (.tmp-) to avoid issues with some tools
-	tmpFile, err := os.OpenFile(
-		filepath.Join(dir, fmt.Sprintf(".tmp-%d-%d", os.Getpid(), time.Now().UnixNano())),
-		os.O_WRONLY|os.O_CREATE|os.O_EXCL,
-		perm,
-	)
+	tmpFile, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
@@ -71,7 +75,7 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 
 	defer func() {
 		if cleanup {
-			tmpFile.Close()
+			_ = tmpFile.Close()
 			_ = os.Remove(tmpPath)
 		}
 	}()

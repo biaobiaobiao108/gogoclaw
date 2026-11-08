@@ -92,7 +92,7 @@ func listAvailableModels(cfg *config.Config) {
 		if model.ModelName == defaultModel {
 			marker = "> "
 		}
-		if !model.Enabled {
+		if !model.IsEnabled() {
 			continue
 		}
 		fmt.Printf("%s- %s (%s)\n", marker, model.ModelName, model.Model)
@@ -103,7 +103,7 @@ func setDefaultModel(configPath string, cfg *config.Config, modelName string) er
 	// Validate that the model exists in model_list
 	modelFound := false
 	for _, model := range cfg.ModelList {
-		if model.Enabled && model.ModelName == modelName {
+		if model.IsEnabled() && model.ModelName == modelName {
 			modelFound = true
 			break
 		}

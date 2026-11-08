@@ -60,7 +60,7 @@ func TestTranslateMessages_UserWithToolCallID(t *testing.T) {
 	if input[0].OfFunctionCallOutput == nil {
 		t.Fatal("expected FunctionCallOutput for user with ToolCallID")
 	}
-	if input[0].OfFunctionCallOutput.CallID != "call_1" {
+	if input[0].OfFunctionCallOutput.CallID.Value != "call_1" {
 		t.Errorf("CallID = %q, want %q", input[0].OfFunctionCallOutput.CallID, "call_1")
 	}
 }
@@ -139,7 +139,7 @@ func TestTranslateMessages_ToolMessage(t *testing.T) {
 	if input[0].OfFunctionCallOutput == nil {
 		t.Fatal("expected FunctionCallOutput")
 	}
-	if input[0].OfFunctionCallOutput.CallID != "call_99" {
+	if input[0].OfFunctionCallOutput.CallID.Value != "call_99" {
 		t.Errorf("CallID = %q, want %q", input[0].OfFunctionCallOutput.CallID, "call_99")
 	}
 }

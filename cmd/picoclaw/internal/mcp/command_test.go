@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -52,7 +53,7 @@ func TestMCPAddAddsGenericStdioServer(t *testing.T) {
 	output, err := executeCommand(cmd, []string{
 		"add",
 		"sqlite",
-		"npx",
+		"bunx",
 		"-y",
 		"@modelcontextprotocol/server-sqlite",
 		"--db",
@@ -68,7 +69,7 @@ func TestMCPAddAddsGenericStdioServer(t *testing.T) {
 	require.True(t, ok)
 	assert.True(t, server.Enabled)
 	assert.Equal(t, "stdio", server.Type)
-	assert.Equal(t, "npx", server.Command)
+	assert.Equal(t, "bunx", server.Command)
 	assert.Equal(t, []string{"-y", "@modelcontextprotocol/server-sqlite", "--db", "./mydb.db"}, server.Args)
 }
 
@@ -125,7 +126,7 @@ func TestMCPAddSupportsExplicitStdioCommandAfterSeparator(t *testing.T) {
 		"AIRTABLE_API_KEY=YOUR_KEY",
 		"airtable",
 		"--",
-		"npx",
+		"bunx",
 		"-y",
 		"airtable-mcp-server",
 	}, "")
@@ -134,7 +135,7 @@ func TestMCPAddSupportsExplicitStdioCommandAfterSeparator(t *testing.T) {
 	cfg := readMCPConfig(t, configPath)
 	server := cfg.Tools.MCP.Servers["airtable"]
 	assert.Equal(t, "stdio", server.Type)
-	assert.Equal(t, "npx", server.Command)
+	assert.Equal(t, "bunx", server.Command)
 	assert.Equal(t, []string{"-y", "airtable-mcp-server"}, server.Args)
 	assert.Equal(t, map[string]string{"AIRTABLE_API_KEY": "YOUR_KEY"}, server.Env)
 }
@@ -148,7 +149,7 @@ func TestMCPAddSupportsEnvFileForStdio(t *testing.T) {
 		"--env-file",
 		".env.mcp",
 		"filesystem",
-		"npx",
+		"bunx",
 		"-y",
 		"@modelcontextprotocol/server-filesystem",
 	}, "")
@@ -157,7 +158,7 @@ func TestMCPAddSupportsEnvFileForStdio(t *testing.T) {
 	cfg := readMCPConfig(t, configPath)
 	server := cfg.Tools.MCP.Servers["filesystem"]
 	assert.Equal(t, "stdio", server.Type)
-	assert.Equal(t, "npx", server.Command)
+	assert.Equal(t, "bunx", server.Command)
 	assert.Equal(t, []string{"-y", "@modelcontextprotocol/server-filesystem"}, server.Args)
 	assert.Equal(t, ".env.mcp", server.EnvFile)
 }
@@ -180,6 +181,9 @@ func TestMCPAddRejectsEnvFileForHTTP(t *testing.T) {
 }
 
 func TestMCPAddRejectsNonExecutableLocalCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose POSIX executable-permission bits")
+	}
 	setupMCPConfigEnv(t)
 
 	tmpDir := t.TempDir()
@@ -347,7 +351,7 @@ func TestMCPRemoveRemovesLastServerAndDisablesMCP(t *testing.T) {
 					"filesystem": {
 						Enabled: true,
 						Type:    "stdio",
-						Command: "npx",
+						Command: "bunx",
 					},
 				},
 			},
@@ -379,7 +383,7 @@ func TestMCPListPrintsTable(t *testing.T) {
 					"filesystem": {
 						Enabled: false,
 						Type:    "stdio",
-						Command: "npx",
+						Command: "bunx",
 						Args:    []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp"},
 					},
 				},
@@ -407,7 +411,7 @@ func TestMCPListWithStatusUsesProbe(t *testing.T) {
 					"filesystem": {
 						Enabled: true,
 						Type:    "stdio",
-						Command: "npx",
+						Command: "bunx",
 					},
 				},
 			},
@@ -419,7 +423,7 @@ func TestMCPListWithStatusUsesProbe(t *testing.T) {
 	serverProbe = func(_ context.Context, name string, server config.MCPServerConfig, workspacePath string) (probeResult, error) {
 		assert.Equal(t, "filesystem", name)
 		assert.Equal(t, readMCPConfig(t, configPath).WorkspacePath(), workspacePath)
-		assert.Equal(t, "npx", server.Command)
+		assert.Equal(t, "bunx", server.Command)
 		return probeResult{ToolCount: 3}, nil
 	}
 
@@ -475,7 +479,7 @@ func TestMCPTestUsesProbe(t *testing.T) {
 					"filesystem": {
 						Enabled: false,
 						Type:    "stdio",
-						Command: "npx",
+						Command: "bunx",
 					},
 				},
 			},
@@ -500,7 +504,7 @@ func TestMCPAddDeferredFlag(t *testing.T) {
 	configPath := setupMCPConfigEnv(t)
 
 	cmd := NewMCPCommand()
-	_, err := executeCommand(cmd, []string{"add", "--deferred", "myserver", "npx", "my-mcp"}, "")
+	_, err := executeCommand(cmd, []string{"add", "--deferred", "myserver", "bunx", "my-mcp"}, "")
 	require.NoError(t, err)
 
 	cfg := readMCPConfig(t, configPath)
@@ -513,7 +517,7 @@ func TestMCPAddNoDeferredFlag(t *testing.T) {
 	configPath := setupMCPConfigEnv(t)
 
 	cmd := NewMCPCommand()
-	_, err := executeCommand(cmd, []string{"add", "--no-deferred", "myserver", "npx", "my-mcp"}, "")
+	_, err := executeCommand(cmd, []string{"add", "--no-deferred", "myserver", "bunx", "my-mcp"}, "")
 	require.NoError(t, err)
 
 	cfg := readMCPConfig(t, configPath)
@@ -526,7 +530,7 @@ func TestMCPAddNoDeferredByDefault(t *testing.T) {
 	configPath := setupMCPConfigEnv(t)
 
 	cmd := NewMCPCommand()
-	_, err := executeCommand(cmd, []string{"add", "myserver", "npx", "my-mcp"}, "")
+	_, err := executeCommand(cmd, []string{"add", "myserver", "bunx", "my-mcp"}, "")
 	require.NoError(t, err)
 
 	cfg := readMCPConfig(t, configPath)
@@ -554,7 +558,7 @@ func TestMCPShowDisabledServer(t *testing.T) {
 					"myserver": {
 						Enabled: false,
 						Type:    "stdio",
-						Command: "npx",
+						Command: "bunx",
 					},
 				},
 			},
@@ -578,7 +582,7 @@ func TestMCPShowUsesProbe(t *testing.T) {
 					"myserver": {
 						Enabled: true,
 						Type:    "stdio",
-						Command: "npx",
+						Command: "bunx",
 					},
 				},
 			},

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -585,7 +586,7 @@ func TestSkillInstaller_DownloadFile(t *testing.T) {
 			return
 		}
 
-		if info.Mode().Perm() != 0o600 {
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 			t.Errorf("file permissions = %o, want %o", info.Mode().Perm(), 0o600)
 		}
 	})

@@ -64,7 +64,7 @@ func modelConfigResolutionKey(defaultProvider string, mc *config.ModelConfig) st
 		ModelName: mc.ModelName, Provider: provider, Model: modelID,
 		APIBase: mc.APIBase, Proxy: mc.Proxy, AuthMethod: mc.AuthMethod,
 		ConnectMode: mc.ConnectMode, Workspace: mc.Workspace, APIKeys: apiKeys,
-		Enabled: mc.Enabled, UserAgent: mc.UserAgent, RPM: mc.RPM,
+		Enabled: mc.IsEnabled(), UserAgent: mc.UserAgent, RPM: mc.RPM,
 		RequestTimeout: mc.RequestTimeout, MaxTokensField: mc.MaxTokensField,
 		ThinkingLevel: mc.ThinkingLevel, ToolSchemaTransform: mc.ToolSchemaTransform,
 		Streaming: mc.Streaming, ExtraBody: mc.ExtraBody, CustomHeaders: mc.CustomHeaders,
@@ -116,6 +116,9 @@ func candidateFromModelConfig(
 	if mc == nil {
 		return providers.FallbackCandidate{}, false
 	}
+	if !mc.IsEnabled() {
+		return providers.FallbackCandidate{}, false
+	}
 
 	protocol, modelID := modelProviderAndIDForResolution(defaultProvider, mc)
 	if strings.TrimSpace(modelID) == "" {
@@ -163,7 +166,7 @@ func modelConfigsResolveToSameEntry(
 	right *config.ModelConfig,
 	defaultProvider string,
 ) bool {
-	if left == nil || right == nil || left.IsVirtual() {
+	if left == nil || right == nil || left.IsVirtual() || !left.IsEnabled() {
 		return false
 	}
 	leftProvider, leftModel := modelProviderAndIDForResolution(defaultProvider, left)
@@ -172,7 +175,7 @@ func modelConfigsResolveToSameEntry(
 		providers.ModelKey(leftProvider, leftModel) == providers.ModelKey(rightProvider, rightModel) &&
 		left.APIBase == right.APIBase &&
 		left.APIKey() == right.APIKey() &&
-		left.Enabled == right.Enabled &&
+		left.IsEnabled() == right.IsEnabled() &&
 		left.AuthMethod == right.AuthMethod &&
 		left.ConnectMode == right.ConnectMode
 }

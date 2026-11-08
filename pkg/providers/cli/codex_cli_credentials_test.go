@@ -46,7 +46,7 @@ func TestReadCodexCliCredentials_Valid(t *testing.T) {
 // readCodexCliCredentialsErr calls ReadCodexCliCredentials and returns only the
 // error, for tests that only need to assert on failure.
 func readCodexCliCredentialsErr() error {
-	_, _, _, err := ReadCodexCliCredentials() //nolint:dogsled
+	_, _, _, err := ReadCodexCliCredentials()
 	return err
 }
 

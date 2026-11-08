@@ -5,13 +5,13 @@
 
 ---
 
-## 🚀 1. Core Optimization: Extreme Lightweight
+## 🚀 1. Core Optimization: Lean Containers
 
-*Our defining characteristic. We fight software bloat to ensure PicoClaw runs smoothly on the smallest embedded devices.*
+*Our defining characteristic. We keep the application process small while production runs in a Linux container.*
 
-* [**Memory Footprint Reduction**](https://github.com/sipeed/picoclaw/issues/346) 
-  * **Goal**: Run smoothly on 64MB RAM embedded boards (e.g., low-end RISC-V SBCs) with the core process consuming < 20MB.
-  * **Context**: RAM is expensive and scarce on edge devices. Memory optimization takes precedence over storage size.
+* [**Memory Footprint Reduction**](https://github.com/sipeed/picoclaw/issues/346)
+  * **Goal**: Keep the core gateway process below 20MB where practical and keep the production container usable on compact 64-bit Linux hosts.
+  * **Context**: Production capacity is determined by the container image and runtime, not by native binaries on bare embedded boards. The documented host baseline remains 512MB RAM.
   * **Action**: Analyze memory growth between releases, remove redundant dependencies, and optimize data structures.
 
 
@@ -65,7 +65,6 @@
 * **Operations**
   * [**MCP Support**](https://github.com/sipeed/picoclaw/issues/290): Native support for the **Model Context Protocol (MCP)**.
   * [**Browser Automation**](https://github.com/sipeed/picoclaw/issues/293): Headless browser control via CDP (Chrome DevTools Protocol) or ActionBook.
-  * [**Mobile Operation**](https://github.com/sipeed/picoclaw/issues/292): Android device control (similar to BotDrop).
 
 
 * **Multi-Agent Collaboration**
@@ -85,7 +84,7 @@
 
 
 * **Comprehensive Documentation**
-  * **Platform Guides**: Dedicated guides for Windows, macOS, Linux, and Android.
+  * **Platform Guides**: Container deployment plus local development on Windows, macOS, and Linux.
   * **Step-by-Step Tutorials**: "Babysitter-level" guides for configuring Providers and Channels.
   * **AI-Assisted Docs**: Using AI to auto-generate API references and code comments (with human verification to prevent hallucinations).
 
@@ -96,7 +95,7 @@
 *Born from Vibe Coding, we continue to use AI to accelerate development.*
 
 * **AI-Enhanced CI/CD**
-  * Integrate AI for automated Code Review, Linting, and PR Labeling.
+  * Integrate AI for automated code review and PR labeling.
   * **Bot Noise Reduction**: Optimize bot interactions to keep PR timelines clean.
   * **Issue Triage**: AI agents to analyze incoming issues and suggest preliminary fixes.
 

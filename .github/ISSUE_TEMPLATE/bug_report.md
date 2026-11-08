@@ -11,9 +11,9 @@ assignees: ''
 
 ##  Environment & Tools
 - **PicoClaw Version:** (e.g., v0.1.2 or commit hash)
-- **Go Version:** (e.g., go 1.22)
+- **Go Version:** (e.g., go 1.27.3)
 - **AI Model & Provider:** (e.g., GPT-4o via OpenAI / DeepSeek via SiliconFlow)
-- **Operating System:** (e.g., Ubuntu 22.04 / macOS / Android Termux)
+- **Environment:** (e.g., Linux container image / Windows or macOS development build)
 - **Channels:** (e.g., Discord, Telegram, Feishu, ...)
 
 ## 📸 Steps to Reproduce

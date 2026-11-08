@@ -5,7 +5,7 @@ import {
   loadSessionMessages,
   mergeHistoryMessages,
 } from "@/features/chat/history"
-import { type PicoMessage, handlePicoMessage } from "@/features/chat/protocol"
+import { handlePicoMessage, type PicoMessage } from "@/features/chat/protocol"
 import {
   clearStoredSessionId,
   generateSessionId,
@@ -18,7 +18,7 @@ import {
   getChatState,
   updateChatStore,
 } from "@/store/chat"
-import { type GatewayState, gatewayAtom } from "@/store/gateway"
+import { gatewayAtom, type GatewayState } from "@/store/gateway"
 
 const store = getDefaultStore()
 

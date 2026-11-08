@@ -35,7 +35,7 @@ We are committed to maintaining a welcoming and respectful community. Be kind, c
 
 For substantial new features, please open an issue first to discuss the design before writing code. This prevents wasted effort and ensures alignment with the project's direction.
 
-For documentation contributions, prefer the layout and naming conventions in [`docs/README.md`](docs/README.md). Run `make lint-docs` after adding or moving Markdown files to catch common consistency issues early.
+For documentation contributions, follow the layout and language rules in [`docs/README.md`](docs/README.md). Only English and Chinese documentation is maintained.
 
 ---
 
@@ -58,7 +58,8 @@ For documentation contributions, prefer the layout and naming conventions in [`d
 
 ### Prerequisites
 
-- Go 1.25 or later
+- Go 1.27.3 or later
+- Bun 1.4.4 or later for the Web console
 - `make`
 
 ### Build
@@ -66,7 +67,7 @@ For documentation contributions, prefer the layout and naming conventions in [`d
 ```bash
 make build       # Build binary (runs go generate first)
 make generate    # Run go generate only
-make check       # Full pre-commit check: deps + fmt + vet + test + docs consistency checks
+make check       # Full pre-commit check: dependencies, tests, and development builds
 ```
 
 ### Running Tests
@@ -80,16 +81,7 @@ go test -bench=. -benchmem -run='^$' ./...  # Run benchmarks
 
 Docker-backed integration suites are auto-discovered from [`integration/suites/`](integration/suites/). See [`integration/README.md`](integration/README.md) for the suite layout and the conventions used by CI.
 
-### Code Style
-
-```bash
-make fmt   # Format code
-make vet   # Static analysis
-make lint  # Full linter run
-make lint-docs  # Check common documentation layout and naming conventions
-```
-
-All CI checks must pass before a PR can be merged. Run `make check` locally before pushing to catch issues early, including the common docs consistency checks from `make lint-docs`.
+Use `gofmt` for Go files and keep TypeScript consistent with the existing style. Run `make check` locally before pushing.
 
 ---
 
@@ -215,7 +207,7 @@ Prefer small, reviewable PRs. A PR that changes 200 lines across 5 files is much
 
 A PR can only be merged when all of the following are satisfied:
 
-1. **CI passes** — All GitHub Actions workflows (lint, test, build) must be green.
+1. **CI passes** — All GitHub Actions workflows (test, security, build) must be green.
 2. **Reviewer approval** — At least one maintainer has approved the PR.
 3. **No unresolved review comments** — All review threads must be resolved.
 4. **PR template is complete** — Including AI disclosure and test environment.

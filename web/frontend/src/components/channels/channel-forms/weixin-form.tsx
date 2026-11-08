@@ -30,13 +30,7 @@ import {
 import { Input } from "@/components/ui/input"
 
 type BindingState =
-  | "idle"
-  | "loading"
-  | "waiting"
-  | "scaned"
-  | "confirmed"
-  | "expired"
-  | "error"
+  "idle" | "loading" | "waiting" | "scaned" | "confirmed" | "expired" | "error"
 
 interface WeixinFormProps {
   config: ChannelConfig

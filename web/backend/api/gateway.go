@@ -387,7 +387,6 @@ func (h *Handler) gatewayStartReady() (bool, string, error) {
 			defaultChainProvider(cfg),
 		); err != nil {
 			// Validation failures are readiness reasons, not handler errors.
-			//nolint:nilerr
 			return false, err.Error(), nil
 		}
 	}
@@ -604,7 +603,7 @@ func modelConfigsMatchingSignatureRef(
 	}
 	matches := make([]signatureModelConfigMatch, 0, 1)
 	for i, mc := range modelList {
-		if mc == nil || strings.TrimSpace(mc.ModelName) != raw {
+		if mc == nil || !mc.IsEnabled() || strings.TrimSpace(mc.ModelName) != raw {
 			continue
 		}
 		matches = append(matches, signatureModelConfigMatch{index: i, model: mc})
@@ -635,7 +634,7 @@ func modelConfigsMatchResolvedEntry(
 	right *config.ModelConfig,
 	defaultProvider string,
 ) bool {
-	if left == nil || right == nil || left.IsVirtual() {
+	if left == nil || right == nil || left.IsVirtual() || !left.IsEnabled() {
 		return false
 	}
 	leftProvider, leftModel := modelConfigProviderAndID(left, defaultProvider)
@@ -644,7 +643,7 @@ func modelConfigsMatchResolvedEntry(
 		providers.ModelKey(leftProvider, leftModel) == providers.ModelKey(rightProvider, rightModel) &&
 		left.APIBase == right.APIBase &&
 		left.APIKey() == right.APIKey() &&
-		left.Enabled == right.Enabled &&
+		left.IsEnabled() == right.IsEnabled() &&
 		left.AuthMethod == right.AuthMethod &&
 		left.ConnectMode == right.ConnectMode
 }

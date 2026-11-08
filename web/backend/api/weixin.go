@@ -206,8 +206,11 @@ func (h *Handler) handlePollWeixinFlow(w http.ResponseWriter, r *http.Request) {
 // saveWeixinBinding writes the token/account ID, enables the Weixin channel,
 // and best-effort restarts the gateway when it is currently running.
 func (h *Handler) saveWeixinBinding(token, accountID string) error {
+	h.configMu.Lock()
+
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
+		h.configMu.Unlock()
 		return fmt.Errorf("load config: %w", err)
 	}
 
@@ -223,6 +226,7 @@ func (h *Handler) saveWeixinBinding(token, accountID string) error {
 		logger.ErrorCF("weixin", "failed to decode weixin settings", map[string]any{
 			"error": err.Error(),
 		})
+		h.configMu.Unlock()
 		return fmt.Errorf("decode weixin settings: %w", err)
 	}
 	weixinCfg.Token = *config.NewSecureString(token)
@@ -231,8 +235,10 @@ func (h *Handler) saveWeixinBinding(token, accountID string) error {
 	}
 
 	if err := config.SaveConfig(h.configPath, cfg); err != nil {
+		h.configMu.Unlock()
 		return err
 	}
+	h.configMu.Unlock()
 
 	status := h.gatewayStatusData()
 	gatewayStatus, _ := status["gateway_status"].(string)

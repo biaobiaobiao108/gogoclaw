@@ -211,8 +211,11 @@ func (h *Handler) handlePollWecomFlow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) saveWecomBinding(botID, secret string) error {
+	h.configMu.Lock()
+
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
+		h.configMu.Unlock()
 		return fmt.Errorf("load config: %w", err)
 	}
 
@@ -231,8 +234,10 @@ func (h *Handler) saveWecomBinding(botID, secret string) error {
 		wecomCfg.WebSocketURL = wecomDefaultWebSocketURL
 	}
 	if err := config.SaveConfig(h.configPath, cfg); err != nil {
+		h.configMu.Unlock()
 		return err
 	}
+	h.configMu.Unlock()
 
 	status := h.gatewayStatusData()
 	gatewayStatus, _ := status["gateway_status"].(string)

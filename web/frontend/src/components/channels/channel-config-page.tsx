@@ -4,10 +4,10 @@ import { useTranslation } from "react-i18next"
 
 import {
   type ChannelConfig,
-  type SupportedChannel,
   getChannelConfig,
   getChannelsCatalog,
   patchAppConfig,
+  type SupportedChannel,
 } from "@/api/channels"
 import { type ArrayFieldFlusher } from "@/components/channels/channel-array-list-field"
 import {
@@ -15,10 +15,10 @@ import {
   serializeStringArrayForSubmit,
 } from "@/components/channels/channel-array-utils"
 import {
-  SECRET_FIELD_MAP,
   buildEditConfig,
   getFieldValueForValidation,
   isSecretField,
+  SECRET_FIELD_MAP,
 } from "@/components/channels/channel-config-fields"
 import { getChannelDisplayName } from "@/components/channels/channel-display-name"
 import { DiscordForm } from "@/components/channels/channel-forms/discord-form"

@@ -2,7 +2,7 @@ import { IconLoader2 } from "@tabler/icons-react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import { type ModelInfo, deleteModel } from "@/api/models"
+import { deleteModel, type ModelInfo } from "@/api/models"
 import {
   AlertDialog,
   AlertDialogAction,

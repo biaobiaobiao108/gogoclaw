@@ -1,7 +1,7 @@
 import {
+  createFileRoute,
   Navigate,
   Outlet,
-  createFileRoute,
   useRouterState,
 } from "@tanstack/react-router"
 

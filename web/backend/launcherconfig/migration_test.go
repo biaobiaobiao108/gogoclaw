@@ -38,7 +38,7 @@ func TestMigrateLegacyLauncherToken(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	store := NewPasswordStore(launcherPath, Default())
+	store := &stubMigrationPasswordStore{}
 	result, err := MigrateLegacyLauncherToken(context.Background(), store, launcherPath, cfg)
 	if err != nil {
 		t.Fatalf("MigrateLegacyLauncherToken() error = %v", err)
@@ -57,15 +57,8 @@ func TestMigrateLegacyLauncherToken(t *testing.T) {
 	if loaded.LegacyLauncherToken != "" {
 		t.Fatalf("legacy launcher token = %q, want empty", loaded.LegacyLauncherToken)
 	}
-	if loaded.DashboardPasswordHash == "" {
-		t.Fatal("dashboard password hash should be set after migration")
-	}
-	ok, err := store.VerifyPassword(context.Background(), "legacy-password")
-	if err != nil {
-		t.Fatalf("VerifyPassword() error = %v", err)
-	}
-	if !ok {
-		t.Fatal("VerifyPassword() = false, want true")
+	if store.password != "legacy-password" {
+		t.Fatalf("password = %q, want legacy-password", store.password)
 	}
 }
 
@@ -121,7 +114,7 @@ func TestMigrateLegacyLauncherTokenCleanupFailureIsNonFatal(t *testing.T) {
 
 func TestMigrateLegacyLauncherTokenNoopWithoutToken(t *testing.T) {
 	launcherPath := filepath.Join(t.TempDir(), FileName)
-	store := NewPasswordStore(launcherPath, Default())
+	store := &stubMigrationPasswordStore{}
 	result, err := MigrateLegacyLauncherToken(context.Background(), store, launcherPath, Default())
 	if err != nil {
 		t.Fatalf("MigrateLegacyLauncherToken() error = %v", err)

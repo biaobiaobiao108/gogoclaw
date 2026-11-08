@@ -7,9 +7,9 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import {
-  type ModelProviderOption,
   addModel,
   getCatalogs,
+  type ModelProviderOption,
   setDefaultModel,
 } from "@/api/models"
 import { ConfigChangeNotice } from "@/components/config-change-notice"
@@ -196,7 +196,7 @@ export function AddModelSheet({
     if (modelValidation?.level === "error") {
       errors.model = t(
         modelValidation.messageKey,
-        modelValidation.messageParams,
+        modelValidation.messageParams ?? {},
       )
     }
     setFieldErrors(errors)
@@ -514,7 +514,7 @@ export function AddModelSheet({
                     <span>
                       {t(
                         modelValidation.messageKey,
-                        modelValidation.messageParams,
+                        modelValidation.messageParams ?? {},
                       )}
                     </span>
                     {modelValidation.fix && (

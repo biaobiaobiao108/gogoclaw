@@ -1,12 +1,45 @@
-FROM alpine:3.21
+FROM oven/bun:1.4.4-alpine AS bun
+
+FROM alpine:3.24.4
 
 ARG TARGETPLATFORM
+ARG UV_VERSION=0.13.7
 
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache \
+      bash \
+      ca-certificates \
+      curl \
+      git \
+      jq \
+      openssh-client \
+      python3 \
+      py3-pip \
+      tini \
+      tzdata && \
+    curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | env UV_INSTALL_DIR=/usr/local sh && \
+    ln -sf /usr/local/bin/uv /usr/local/bin/uvx && \
+    addgroup -S -g 10001 picoclaw && \
+    adduser -S -D -H -u 10001 -G picoclaw picoclaw && \
+    mkdir -p /data && \
+    chown -R picoclaw:picoclaw /data
 
 COPY $TARGETPLATFORM/picoclaw /usr/local/bin/picoclaw
-COPY docker/entrypoint.sh /entrypoint.sh
+COPY $TARGETPLATFORM/picoclaw-launcher /usr/local/bin/picoclaw-launcher
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+COPY docker/entrypoint.sh /usr/local/bin/picoclaw-entrypoint
+RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx && \
+    chmod 0755 /usr/local/bin/picoclaw /usr/local/bin/picoclaw-launcher /usr/local/bin/picoclaw-entrypoint
 
-RUN chmod +x /entrypoint.sh
+ENV HOME=/data \
+    BUN_INSTALL=/data/.bun \
+    PIP_USER=1 \
+    PYTHONUSERBASE=/data/.local \
+    XDG_CACHE_HOME=/data/.cache \
+    PATH=/data/.bun/bin:/data/.local/bin:/usr/local/bin:/usr/bin:/bin
 
-ENTRYPOINT ["/entrypoint.sh"]
+WORKDIR /data
+VOLUME ["/data"]
+USER 10001:10001
+
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/picoclaw-entrypoint"]
+CMD ["gateway"]

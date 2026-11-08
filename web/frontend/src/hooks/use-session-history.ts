@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import { type SessionSummary, deleteSession, getSessions } from "@/api/sessions"
+import { deleteSession, getSessions, type SessionSummary } from "@/api/sessions"
 
 const LIMIT = 20
 

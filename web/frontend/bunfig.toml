@@ -1,0 +1,15 @@
+telemetry = false
+
+[install]
+exact = false
+lockfile = "bun.lock"
+
+[fmt]
+semi = false
+singleQuote = false
+trailingComma = "all"
+tabWidth = 2
+useTabs = false
+printWidth = 80
+sortImports = true
+sortTailwindcss = true

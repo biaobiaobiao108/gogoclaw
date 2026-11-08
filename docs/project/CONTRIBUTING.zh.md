@@ -56,7 +56,8 @@ PicoClaw 本身在很大程度上是借助 AI 辅助开发的——我们拥抱�
 
 ### 前置依赖
 
-- Go 1.25 或更高版本
+- Go 1.27.3 或更高版本
+- Web 控制台开发需要 Bun 1.4.4 或更高版本
 - `make`
 
 ### 构建
@@ -64,7 +65,7 @@ PicoClaw 本身在很大程度上是借助 AI 辅助开发的——我们拥抱�
 ```bash
 make build       # 构建二进制文件（会先执行 go generate）
 make generate    # 仅执行 go generate
-make check       # 完整的提交前检查：deps + fmt + vet + test
+make check       # 完整的提交前检查：依赖、测试和开发构建
 ```
 
 ### 运行测试
@@ -75,15 +76,7 @@ go test -run TestName -v ./pkg/session/      # 运行单个测试
 go test -bench=. -benchmem -run='^$' ./...  # 运行基准测试
 ```
 
-### 代码风格
-
-```bash
-make fmt   # 格式化代码
-make vet   # 静态分析
-make lint  # 完整的 lint 检查
-```
-
-所有 CI 检查通过后 PR 才能被合并。推送代码前请先在本地运行 `make check`，提前发现问题。
+Go 代码使用 `gofmt`，TypeScript 保持与现有代码一致。推送代码前请先在本地运行 `make check`。
 
 ---
 
@@ -209,7 +202,7 @@ PR 模板要求填写：
 
 PR 必须同时满足以下所有条件，才能被合并：
 
-1. **CI 全部通过** — 所有 GitHub Actions 工作流（lint、test、build）均为绿色。
+1. **CI 全部通过** — 所有 GitHub Actions 工作流（test、security、build）均为绿色。
 2. **获得审查者批准** — 至少一名维护者已批准该 PR。
 3. **无未解决的审查意见** — 所有审查讨论线程均已关闭。
 4. **PR 模板填写完整** — 包括 AI 披露和测试环境信息。

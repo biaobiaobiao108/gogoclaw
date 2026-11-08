@@ -2,7 +2,9 @@ package seahorse
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -519,7 +521,10 @@ func (s *Store) loadMessageParts(ctx context.Context, msgID int64) ([]MessagePar
 func (s *Store) CreateSummary(ctx context.Context, input CreateSummaryInput) (*Summary, error) {
 	// Generate summary ID
 	now := time.Now().UTC()
-	summaryID := generateSummaryID(input.Content, now)
+	summaryID, err := generateSummaryID()
+	if err != nil {
+		return nil, fmt.Errorf("generate summary id: %w", err)
+	}
 
 	var earliestAt, latestAt sql.NullString
 	if input.EarliestAt != nil {
@@ -1701,8 +1706,12 @@ func (s *Store) scanSummaries(rows *sql.Rows) ([]Summary, error) {
 	return summaries, nil
 }
 
-func generateSummaryID(content string, t time.Time) string {
-	return fmt.Sprintf("sum_%x", t.UnixNano())
+func generateSummaryID() (string, error) {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return "", err
+	}
+	return "sum_" + hex.EncodeToString(id[:]), nil
 }
 
 func isUniqueViolation(err error) bool {

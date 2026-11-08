@@ -2573,12 +2573,14 @@ func TestModelConfigsMatchingSignatureRef_BareUsesDefaultProvider(t *testing.T) 
 }
 
 func TestModelConfigsMatchingSignatureRefUsesResolverScore(t *testing.T) {
+	disabled := &config.ModelConfig{
+		ModelName: "disabled",
+		Provider:  "openrouter",
+		Model:     "target",
+	}
+	disabled.SetEnabled(false)
 	models := []*config.ModelConfig{
-		{
-			ModelName: "disabled",
-			Provider:  "openrouter",
-			Model:     "target",
-		},
+		disabled,
 		{
 			ModelName: "enabled",
 			Provider:  "openrouter",

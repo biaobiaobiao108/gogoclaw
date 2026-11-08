@@ -1242,7 +1242,7 @@ func TestFinish_ConcurrentCalls(t *testing.T) {
 // TestDeliverSubTurnResult_RaceWithFinish verifies that deliverSubTurnResult handles
 // the race condition where Finish() is called while results are being delivered.
 func TestDeliverSubTurnResult_RaceWithFinish(t *testing.T) {
-	al, _, _, _, cleanup := newTestAgentLoop(t) //nolint:dogsled
+	al, _, _, _, cleanup := newTestAgentLoop(t)
 	defer cleanup()
 
 	var mu sync.Mutex

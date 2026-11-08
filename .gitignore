@@ -56,7 +56,7 @@ dist/
 # Windows Application Icon/Resource
 *.syso
 .cache/
-web/frontend/.pnpm-store/
+web/frontend/.bun/
 _tmp_*
 web/frontend/_tmp_*
 

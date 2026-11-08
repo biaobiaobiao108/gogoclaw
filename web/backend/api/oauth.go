@@ -739,6 +739,9 @@ func (h *Handler) persistCredentialAndConfig(provider, authMethod string, cred *
 }
 
 func (h *Handler) syncProviderAuthMethod(provider, authMethod string) error {
+	h.configMu.Lock()
+	defer h.configMu.Unlock()
+
 	cfg, err := oauthLoadConfig(h.configPath)
 	if err != nil {
 		return err

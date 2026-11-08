@@ -9,12 +9,12 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
 import {
+  addModel,
   type CatalogEntry,
   type CatalogModel,
-  type ModelProviderOption,
-  addModel,
   deleteCatalog,
   getCatalogs,
+  type ModelProviderOption,
 } from "@/api/models"
 import { Button } from "@/components/ui/button"
 import {

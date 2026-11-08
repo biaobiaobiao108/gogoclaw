@@ -11,6 +11,12 @@ import (
 	"github.com/sipeed/picoclaw/pkg/logger"
 )
 
+const (
+	maxZipEntries          = 2048
+	maxZipFileSize         = 5 * 1024 * 1024
+	maxZipUncompressedSize = 50 * 1024 * 1024
+)
+
 // ExtractZipFile extracts a ZIP archive from disk to targetDir.
 // It reads entries one at a time from disk, keeping memory usage minimal.
 //
@@ -31,7 +37,11 @@ func ExtractZipFile(zipPath string, targetDir string) error {
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create target dir: %w", err)
 	}
+	if len(reader.File) > maxZipEntries {
+		return fmt.Errorf("zip contains too many entries: %d (max %d)", len(reader.File), maxZipEntries)
+	}
 
+	var totalWritten uint64
 	for _, f := range reader.File {
 		// Path traversal protection.
 		cleanName := filepath.Clean(f.Name)
@@ -67,8 +77,16 @@ func ExtractZipFile(zipPath string, targetDir string) error {
 			return err
 		}
 
-		if err := extractSingleFile(f, destPath); err != nil {
+		written, err := extractSingleFile(f, destPath)
+		if err != nil {
 			return err
+		}
+		totalWritten += written
+		if totalWritten > maxZipUncompressedSize {
+			return fmt.Errorf(
+				"zip uncompressed size exceeds limit (%d bytes)",
+				maxZipUncompressedSize,
+			)
 		}
 	}
 
@@ -76,23 +94,21 @@ func ExtractZipFile(zipPath string, targetDir string) error {
 }
 
 // extractSingleFile extracts one zip.File entry to destPath, with a size check.
-func extractSingleFile(f *zip.File, destPath string) error {
-	const maxFileSize = 5 * 1024 * 1024 // 5MB, adjust as appropriate
-
+func extractSingleFile(f *zip.File, destPath string) (uint64, error) {
 	// Check the uncompressed size from the header, if available.
-	if f.UncompressedSize64 > maxFileSize {
-		return fmt.Errorf("zip entry %q is too large (%d bytes)", f.Name, f.UncompressedSize64)
+	if f.UncompressedSize64 > maxZipFileSize {
+		return 0, fmt.Errorf("zip entry %q is too large (%d bytes)", f.Name, f.UncompressedSize64)
 	}
 
 	rc, err := f.Open()
 	if err != nil {
-		return fmt.Errorf("failed to open zip entry %q: %w", f.Name, err)
+		return 0, fmt.Errorf("failed to open zip entry %q: %w", f.Name, err)
 	}
 	defer rc.Close()
 
 	outFile, err := os.Create(destPath)
 	if err != nil {
-		return fmt.Errorf("failed to create file %q: %w", destPath, err)
+		return 0, fmt.Errorf("failed to create file %q: %w", destPath, err)
 	}
 	// We don't return the close error via return, since it's not a named error return.
 	// Instead, we log to stderr and remove the partially written file as defensive cleanup.
@@ -107,15 +123,15 @@ func extractSingleFile(f *zip.File, destPath string) error {
 	}()
 
 	// Streamed size check: prevent overruns and malicious/corrupt headers.
-	written, err := io.CopyN(outFile, rc, maxFileSize+1)
+	written, err := io.CopyN(outFile, rc, maxZipFileSize+1)
 	if err != nil && err != io.EOF {
 		_ = os.Remove(destPath)
-		return fmt.Errorf("failed to extract %q: %w", f.Name, err)
+		return 0, fmt.Errorf("failed to extract %q: %w", f.Name, err)
 	}
-	if written > maxFileSize {
+	if written > maxZipFileSize {
 		_ = os.Remove(destPath)
-		return fmt.Errorf("zip entry %q exceeds max size (%d bytes)", f.Name, written)
+		return 0, fmt.Errorf("zip entry %q exceeds max size (%d bytes)", f.Name, written)
 	}
 
-	return nil
+	return uint64(written), nil
 }

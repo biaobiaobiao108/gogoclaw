@@ -4,8 +4,8 @@ import { atomWithStorage } from "jotai/utils"
 import {
   ASSISTANT_DETAIL_VISIBILITY_STORAGE_KEY,
   type AssistantDetailVisibility,
-  DEFAULT_ASSISTANT_DETAIL_VISIBILITY,
   assistantDetailVisibilityStorage,
+  DEFAULT_ASSISTANT_DETAIL_VISIBILITY,
   shouldShowAssistantMessage,
 } from "@/features/chat/detail-visibility"
 import {
@@ -59,10 +59,7 @@ export interface ContextUsage {
 }
 
 export type ConnectionState =
-  | "disconnected"
-  | "connecting"
-  | "connected"
-  | "error"
+  "disconnected" | "connecting" | "connected" | "error"
 
 export interface ChatStoreState {
   messages: ChatMessage[]
