@@ -246,11 +246,11 @@ func (t *ExecTool) Parameters() map[string]any {
 				"description": "Data to write to stdin (required for write)",
 			},
 			"background": map[string]any{
-				"type":        "string",
+				"type":        "boolean",
 				"description": "Run in background immediately",
 			},
 			"pty": map[string]any{
-				"type":        "string",
+				"type":        "boolean",
 				"description": "Run in a pseudo-terminal (PTY) when available",
 			},
 			"cwd": map[string]any{
@@ -322,6 +322,14 @@ func (t *ExecTool) executeRun(ctx context.Context, args map[string]any) *ToolRes
 	}
 	isPty := getBoolArg("pty")
 	isBackground := getBoolArg("background")
+	runTimeout := t.timeout
+	if raw, ok := args["timeout"]; ok {
+		seconds, valid := numericArg(raw)
+		if !valid || seconds < 0 || seconds > 24*60*60 {
+			return ErrorResult("timeout must be between 0 and 86400 seconds")
+		}
+		runTimeout = time.Duration(seconds * float64(time.Second))
+	}
 
 	if isPty {
 		if runtime.GOOS == "windows" {
@@ -380,15 +388,31 @@ func (t *ExecTool) executeRun(ctx context.Context, args map[string]any) *ToolRes
 		return t.runBackground(ctx, command, cwd, isPty)
 	}
 
-	return t.runSync(ctx, command, cwd)
+	return t.runSync(ctx, command, cwd, runTimeout)
 }
 
-func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult {
+func numericArg(raw any) (float64, bool) {
+	switch value := raw.(type) {
+	case int:
+		return float64(value), true
+	case int64:
+		return float64(value), true
+	case float64:
+		return value, true
+	case json.Number:
+		n, err := value.Float64()
+		return n, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func (t *ExecTool) runSync(ctx context.Context, command, cwd string, timeout time.Duration) *ToolResult {
 	// timeout == 0 means no timeout
 	var cmdCtx context.Context
 	var cancel context.CancelFunc
-	if t.timeout > 0 {
-		cmdCtx, cancel = context.WithTimeout(ctx, t.timeout)
+	if timeout > 0 {
+		cmdCtx, cancel = context.WithTimeout(ctx, timeout)
 	} else {
 		cmdCtx, cancel = context.WithCancel(ctx)
 	}
@@ -453,7 +477,7 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 
 	if err != nil {
 		if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
-			msg := fmt.Sprintf("Command timed out after %v", t.timeout)
+			msg := fmt.Sprintf("Command timed out after %v", timeout)
 			if output != "" {
 				msg += "\n\nPartial output before timeout:\n" + output
 			}

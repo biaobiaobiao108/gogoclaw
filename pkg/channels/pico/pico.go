@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
+	"github.com/sipeed/picoclaw/pkg/approval"
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -106,13 +107,57 @@ type PicoChannel struct {
 	progress           *channels.ToolFeedbackAnimator
 	deleteMessageFn    func(context.Context, string, string) error
 	// broadcastFn lets tests intercept outbound broadcasts. nil → broadcastToSession.
-	broadcastFn func(chatID string, msg PicoMessage) error
-	turnStatus  func(chatID string, includeRecovery bool) map[string]any
+	broadcastFn      func(chatID string, msg PicoMessage) error
+	turnStatus       func(chatID string, includeRecovery bool) map[string]any
+	approvalHandler  func(context.Context, approval.Response) error
+	approvalMu       sync.Mutex
+	approvalSessions map[string]string
+	dedupMu          sync.Mutex
+	messageSeen      map[string]time.Time
 }
 
 // SetTurnStatusProvider supplies a session-scoped snapshot for connected clients.
 func (c *PicoChannel) SetTurnStatusProvider(provider func(string, bool) map[string]any) {
 	c.turnStatus = provider
+}
+
+func (c *PicoChannel) SetApprovalHandler(handler func(context.Context, approval.Response) error) {
+	c.approvalHandler = handler
+}
+
+func (c *PicoChannel) SendApprovalRequest(ctx context.Context, req approval.Request) error {
+	if c == nil {
+		return fmt.Errorf("pico channel is nil")
+	}
+	if strings.TrimSpace(req.ID) == "" || strings.TrimSpace(req.ChatID) == "" {
+		return fmt.Errorf("approval request is missing id or chat id")
+	}
+	sessionID := strings.TrimPrefix(req.ChatID, "pico:")
+	c.approvalMu.Lock()
+	if c.approvalSessions == nil {
+		c.approvalSessions = make(map[string]string)
+	}
+	c.approvalSessions[req.ID] = sessionID
+	c.approvalMu.Unlock()
+	if !req.ExpiresAt.IsZero() {
+		c.forgetApprovalSession(req.ID, sessionID, time.Until(req.ExpiresAt))
+	}
+
+	payload := map[string]any{
+		"approval_id": req.ID,
+		"tool":        req.Tool,
+		"arguments":   req.Arguments,
+		"status":      req.Status,
+		"risk":        req.RiskSummary,
+		"created_at":  req.CreatedAt.UnixMilli(),
+		"expires_at":  req.ExpiresAt.UnixMilli(),
+	}
+	msg := newMessage(TypeApprovalRequest, payload)
+	msg.ID = req.ID
+	if err := c.broadcast(req.ChatID, msg); err != nil {
+		return err
+	}
+	return ctx.Err()
 }
 
 // NewPicoChannel creates a new Pico Protocol channel.
@@ -152,6 +197,8 @@ func NewPicoChannel(
 		},
 		connections:        make(map[string]*picoConn),
 		sessionConnections: make(map[string]map[string]*picoConn),
+		messageSeen:        make(map[string]time.Time),
+		approvalSessions:   make(map[string]string),
 	}
 	ch.progress = channels.NewToolFeedbackAnimator(ch.EditMessage)
 	ch.deleteMessageFn = ch.DeleteMessage
@@ -1202,14 +1249,78 @@ func (c *PicoChannel) handleMessage(pc *picoConn, msg PicoMessage) {
 	case TypeMediaSend:
 		c.handleMessageSend(pc, msg)
 
+	case TypeApprovalRespond:
+		c.handleApprovalRespond(pc, msg)
+
 	default:
 		errMsg := newError("unknown_type", fmt.Sprintf("unknown message type: %s", msg.Type))
 		pc.writeJSON(errMsg)
 	}
 }
 
+func (c *PicoChannel) handleApprovalRespond(pc *picoConn, msg PicoMessage) {
+	approvalID, _ := msg.Payload["approval_id"].(string)
+	approvalID = strings.TrimSpace(approvalID)
+	if approvalID == "" {
+		approvalID = strings.TrimSpace(msg.ID)
+	}
+	if approvalID == "" || c.approvalHandler == nil {
+		pc.writeJSON(newErrorWithPayload("invalid_approval", "approval handler is unavailable", map[string]any{"request_id": approvalID}))
+		return
+	}
+
+	c.approvalMu.Lock()
+	sessionID, ok := c.approvalSessions[approvalID]
+	c.approvalMu.Unlock()
+	if !ok || sessionID != pc.sessionID {
+		pc.writeJSON(newErrorWithPayload("approval_not_found", "approval request not found", map[string]any{"request_id": approvalID}))
+		return
+	}
+	approve, _ := msg.Payload["approve"].(bool)
+	scope, _ := msg.Payload["scope"].(string)
+	reason, _ := msg.Payload["reason"].(string)
+	response := approval.Response{ID: approvalID, Approve: approve, Scope: approval.Scope(scope), Reason: reason}
+	if err := c.approvalHandler(c.ctx, response); err != nil {
+		pc.writeJSON(newErrorWithPayload("approval_failed", err.Error(), map[string]any{"request_id": approvalID}))
+		return
+	}
+	c.forgetApprovalSession(approvalID, sessionID, 10*time.Minute)
+	ack := newMessage(TypeApprovalAck, map[string]any{
+		"approval_id": approvalID,
+		"status":      "accepted",
+	})
+	ack.ID = approvalID
+	ack.SessionID = pc.sessionID
+	_ = pc.writeJSON(ack)
+	resolved := newMessage(TypeApprovalResolved, map[string]any{
+		"approval_id": approvalID,
+		"approved":    approve,
+		"scope":       scope,
+	})
+	resolved.ID = approvalID
+	_ = c.broadcast("pico:"+pc.sessionID, resolved)
+}
+
+func (c *PicoChannel) forgetApprovalSession(approvalID, sessionID string, after time.Duration) {
+	if after < 0 {
+		after = 0
+	}
+	time.AfterFunc(after, func() {
+		c.approvalMu.Lock()
+		if c.approvalSessions[approvalID] == sessionID {
+			delete(c.approvalSessions, approvalID)
+		}
+		c.approvalMu.Unlock()
+	})
+}
+
 // handleMessageSend processes an inbound message.send from a client.
 func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
+	dedupeKey := pc.sessionID + "\x00" + msg.ID
+	if msg.ID != "" && c.isDuplicateMessage(dedupeKey) {
+		c.writeMessageAck(pc, msg.ID, "duplicate")
+		return
+	}
 	content, _ := msg.Payload["content"].(string)
 	media, err := parseInlineImageMedia(msg.Payload)
 	if err != nil {
@@ -1267,7 +1378,47 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		Raw:       metadata,
 	}
 
-	c.HandleInboundContext(c.ctx, chatID, content, media, inboundCtx, sender)
+	if err := c.HandleInboundContext(c.ctx, chatID, content, media, inboundCtx, sender); err != nil {
+		errMsg := newErrorWithPayload("send_failed", err.Error(), map[string]any{"request_id": msg.ID})
+		_ = pc.writeJSON(errMsg)
+		return
+	}
+	if msg.ID != "" {
+		c.rememberMessage(dedupeKey)
+	}
+	c.writeMessageAck(pc, msg.ID, "accepted")
+}
+
+func (c *PicoChannel) writeMessageAck(pc *picoConn, requestID, status string) {
+	if requestID == "" || pc == nil || pc.conn == nil {
+		return
+	}
+	ack := newMessage(TypeMessageAck, map[string]any{
+		"request_id": requestID,
+		"status":     status,
+	})
+	ack.ID = requestID
+	ack.SessionID = pc.sessionID
+	_ = pc.writeJSON(ack)
+}
+
+func (c *PicoChannel) isDuplicateMessage(key string) bool {
+	c.dedupMu.Lock()
+	defer c.dedupMu.Unlock()
+	now := time.Now()
+	for existing, seenAt := range c.messageSeen {
+		if now.Sub(seenAt) > 10*time.Minute {
+			delete(c.messageSeen, existing)
+		}
+	}
+	_, ok := c.messageSeen[key]
+	return ok
+}
+
+func (c *PicoChannel) rememberMessage(key string) {
+	c.dedupMu.Lock()
+	c.messageSeen[key] = time.Now()
+	c.dedupMu.Unlock()
 }
 
 // truncate truncates a string to maxLen runes.

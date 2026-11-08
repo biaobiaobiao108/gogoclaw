@@ -39,6 +39,32 @@ export interface SessionDetail {
   summary: string
   created: string
   updated: string
+  turn?: SessionTurn
+  turn_history?: SessionTurn[]
+}
+
+export interface SessionTurn {
+  turn_id: string
+  status: string
+  iteration: number
+  plan?: { text: string; status: string }[]
+  activities?: {
+    id: string
+    kind: string
+    status: string
+    title: string
+    tool_call_id?: string
+    tool?: string
+    detail?: string
+    output?: string
+    duration_ms?: number
+    exit_code?: number
+    diff?: string
+    artifacts?: string[]
+    started_at: string
+    completed_at?: string
+  }[]
+  delivery?: { status?: string }
 }
 
 export async function getSessions(

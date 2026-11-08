@@ -21,12 +21,14 @@ type Handler struct {
 	serverTrustedProxyCIDRs    []string
 	debug                      bool
 	// Serializes config load-modify-save cycles across API handlers.
-	configMu    sync.Mutex
-	oauthMu     sync.Mutex
-	oauthFlows  map[string]*oauthFlow
-	oauthState  map[string]string
-	weixinMu    sync.Mutex
-	weixinFlows map[string]*weixinFlow
+	configMu         sync.Mutex
+	oauthMu          sync.Mutex
+	oauthFlows       map[string]*oauthFlow
+	oauthState       map[string]string
+	weixinMu         sync.Mutex
+	weixinFlows      map[string]*weixinFlow
+	sessionListMu    sync.Mutex
+	sessionListCache map[string]cachedSessionListItem
 }
 
 // NewHandler creates an instance of the API handler.
@@ -38,6 +40,7 @@ func NewHandler(configPath string) *Handler {
 		oauthFlows:                 make(map[string]*oauthFlow),
 		oauthState:                 make(map[string]string),
 		weixinFlows:                make(map[string]*weixinFlow),
+		sessionListCache:           make(map[string]cachedSessionListItem),
 	}
 }
 

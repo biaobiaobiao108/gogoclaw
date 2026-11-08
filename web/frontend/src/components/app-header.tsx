@@ -100,12 +100,16 @@ export function AppHeader() {
   return (
     <header className="bg-background/80 supports-backdrop-filter:bg-background/60 border-border/40 sticky top-0 z-50 flex h-11 shrink-0 items-center justify-between border-b px-3 backdrop-blur-md">
       <div className="flex items-center gap-3">
-        <SidebarTrigger className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded-md sm:hidden [&>svg]:size-4">
+        <SidebarTrigger
+          className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded-md sm:hidden [&>svg]:size-4"
+          aria-label={t("header.toggleSidebar")}
+        >
           <IconMenu2 />
         </SidebarTrigger>
         <div className="hidden w-28 shrink-0 items-center sm:flex">
           <Link
-            to="/"
+            to="/chat"
+            aria-label={t("header.home")}
             className="opacity-90 transition-opacity hover:opacity-100"
           >
             <img className="h-5 w-auto" src="/logo_with_text.png" alt="Logo" />
@@ -285,7 +289,12 @@ export function AppHeader() {
           data-tour="docs-button"
           asChild
         >
-          <a href="https://docs.picoclaw.io" target="_blank" rel="noreferrer">
+          <a
+            href="https://docs.picoclaw.io"
+            target="_blank"
+            rel="noreferrer"
+            aria-label={t("header.docs")}
+          >
             <IconBook className="size-4" />
           </a>
         </Button>
@@ -297,6 +306,7 @@ export function AppHeader() {
               variant="ghost"
               size="icon"
               className="text-muted-foreground hover:text-foreground size-8 rounded-md"
+              aria-label={t("header.language")}
             >
               <IconLanguage className="size-4" />
             </Button>
@@ -317,6 +327,11 @@ export function AppHeader() {
           size="icon"
           className="text-muted-foreground hover:text-foreground size-8 rounded-md"
           onClick={toggleTheme}
+          aria-label={t(
+            theme === "dark"
+              ? "header.theme.switchToLight"
+              : "header.theme.switchToDark",
+          )}
         >
           {theme === "dark" ? (
             <IconSun className="size-4" />

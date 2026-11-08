@@ -25,7 +25,7 @@ export function ChatEmptyState({
   if (!hasAvailableModels) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <div className="mb-4 flex size-12 items-center justify-center rounded-lg border border-amber-500/20 bg-amber-500/10 text-amber-500">
+        <div className="border-warning/20 bg-warning/10 text-warning mb-4 flex size-12 items-center justify-center rounded-lg border">
           <IconRobotOff className="size-6" />
         </div>
         <h2 className="text-foreground text-base font-semibold tracking-tight">
@@ -49,7 +49,7 @@ export function ChatEmptyState({
   if (!defaultModelName) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <div className="mb-4 flex size-12 items-center justify-center rounded-lg border border-amber-500/20 bg-amber-500/10 text-amber-500">
+        <div className="border-warning/20 bg-warning/10 text-warning mb-4 flex size-12 items-center justify-center rounded-lg border">
           <IconStar className="size-6" />
         </div>
         <h2 className="text-foreground text-base font-semibold tracking-tight">

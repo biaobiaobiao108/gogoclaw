@@ -37,6 +37,8 @@ export interface ChatToolCall {
 }
 
 export type AssistantMessageKind = "normal" | "thought" | "tool_calls"
+export type MessageDeliveryStatus =
+  "sending" | "accepted" | "duplicate" | "failed"
 
 export interface ChatMessage {
   id: string
@@ -47,6 +49,7 @@ export interface ChatMessage {
   modelName?: string
   attachments?: ChatAttachment[]
   toolCalls?: ChatToolCall[]
+  deliveryStatus?: MessageDeliveryStatus
 }
 
 export interface ContextUsage {
@@ -56,6 +59,47 @@ export interface ContextUsage {
   compress_at_tokens: number
   summarize_at_tokens?: number
   used_percent: number
+}
+
+export interface ChatActivity {
+  id: string
+  kind: string
+  status: string
+  title: string
+  toolCallId?: string
+  tool?: string
+  detail?: string
+  output?: string
+  durationMs?: number
+  exitCode?: number
+  diff?: string
+  artifacts?: string[]
+  startedAt: string
+  completedAt?: string
+}
+
+export interface ChatPlanStep {
+  text: string
+  status: string
+}
+
+export interface ChatTurnHistory {
+  turnId: string
+  status: string
+  iteration: number
+  plan: ChatPlanStep[]
+  activities: ChatActivity[]
+}
+
+export interface ChatApproval {
+  id: string
+  tool: string
+  arguments?: Record<string, unknown>
+  status?: string
+  risk?: string
+  createdAt?: number
+  expiresAt?: number
+  isResponding?: boolean
 }
 
 export type ConnectionState =
@@ -71,9 +115,14 @@ export interface ChatStoreState {
     iteration: number
     plan?: { text: string; status: string }[]
   }
+  recentActivities?: ChatActivity[]
+  recentPlan?: ChatPlanStep[]
+  turnHistory?: ChatTurnHistory[]
+  pendingApproval?: ChatApproval
   interrupted?: boolean
   activeSessionId: string
   hasHydratedActiveSession: boolean
+  isHistoryLoading: boolean
   contextUsage?: ContextUsage
 }
 
@@ -85,6 +134,7 @@ const DEFAULT_CHAT_STATE: ChatStoreState = {
   isTyping: false,
   activeSessionId: getInitialActiveSessionId(),
   hasHydratedActiveSession: false,
+  isHistoryLoading: false,
 }
 
 export const chatAtom = atom<ChatStoreState>(DEFAULT_CHAT_STATE)

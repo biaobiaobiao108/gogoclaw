@@ -2,15 +2,11 @@ import { getDefaultStore } from "jotai"
 import { toast } from "sonner"
 
 import {
-  loadSessionMessages,
+  loadSessionHistory,
   mergeHistoryMessages,
 } from "@/features/chat/history"
 import { handlePicoMessage, type PicoMessage } from "@/features/chat/protocol"
-import {
-  clearStoredSessionId,
-  generateSessionId,
-  readStoredSessionId,
-} from "@/features/chat/state"
+import { generateSessionId, readStoredSessionId } from "@/features/chat/state"
 import { invalidateSocket, isCurrentSocket } from "@/features/chat/websocket"
 import i18n from "@/i18n"
 import {
@@ -109,6 +105,7 @@ function disconnectChatInternal({
     connectionState: "disconnected",
     isTyping: false,
     activeTurn: undefined,
+    pendingApproval: undefined,
     interrupted: false,
   })
 }
@@ -191,8 +188,8 @@ export async function connectChat() {
       reconnectAttempts = 0
       // Reconcile messages produced while the socket was disconnected.
       if (reconnected)
-        void loadSessionMessages(sessionId)
-          .then((historyMessages) => {
+        void loadSessionHistory(sessionId)
+          .then((history) => {
             if (
               !isCurrentSocket({
                 socket,
@@ -206,7 +203,10 @@ export async function connectChat() {
               return
             }
             updateChatStore((prev) => ({
-              messages: mergeHistoryMessages(historyMessages, prev.messages),
+              messages: mergeHistoryMessages(history.messages, prev.messages),
+              recentActivities: history.activities,
+              recentPlan: history.plan,
+              turnHistory: history.turnHistory,
             }))
           })
           .catch((error) => {
@@ -320,8 +320,9 @@ export async function hydrateActiveSession() {
     return
   }
 
-  hydratePromise = loadSessionMessages(storedSessionId)
-    .then((historyMessages) => {
+  updateChatStore({ isHistoryLoading: true })
+  hydratePromise = loadSessionHistory(storedSessionId)
+    .then((history) => {
       const currentState = getChatState()
       if (currentState.activeSessionId !== storedSessionId) {
         return
@@ -330,18 +331,26 @@ export async function hydrateActiveSession() {
       if (currentState.messages.length > 0) {
         updateChatStore({
           messages: mergeHistoryMessages(
-            historyMessages,
+            history.messages,
             currentState.messages,
           ),
+          recentActivities: history.activities,
+          recentPlan: history.plan,
+          turnHistory: history.turnHistory,
           hasHydratedActiveSession: true,
+          isHistoryLoading: false,
         })
         return
       }
 
       updateChatStore({
-        messages: historyMessages,
+        messages: history.messages,
+        recentActivities: history.activities,
+        recentPlan: history.plan,
+        turnHistory: history.turnHistory,
         isTyping: false,
         hasHydratedActiveSession: true,
+        isHistoryLoading: false,
       })
     })
     .catch((error) => {
@@ -357,11 +366,12 @@ export async function hydrateActiveSession() {
         return
       }
 
-      clearStoredSessionId()
+      toast.error(i18n.t("chat.historyOpenFailed"))
       updateChatStore({
         messages: [],
         isTyping: false,
         hasHydratedActiveSession: true,
+        isHistoryLoading: false,
       })
     })
     .finally(() => {
@@ -407,6 +417,7 @@ export function sendChatMessage({
         attachments:
           normalizedAttachments.length > 0 ? normalizedAttachments : undefined,
         timestamp: Date.now(),
+        deliveryStatus: "sending",
       },
     ],
     isTyping: true,
@@ -437,20 +448,68 @@ export function sendChatMessage({
   }
 }
 
+export function respondToApproval({
+  approve,
+  scope = "once",
+}: {
+  approve: boolean
+  scope?: "once" | "session"
+}) {
+  const pendingApproval = getChatState().pendingApproval
+  if (
+    !pendingApproval ||
+    pendingApproval.isResponding ||
+    !wsRef ||
+    wsRef.readyState !== WebSocket.OPEN
+  ) {
+    return false
+  }
+
+  updateChatStore({
+    pendingApproval: { ...pendingApproval, isResponding: true },
+  })
+  try {
+    wsRef.send(
+      JSON.stringify({
+        type: "approval.respond",
+        id: pendingApproval.id,
+        payload: {
+          approval_id: pendingApproval.id,
+          approve,
+          scope: approve ? scope : "once",
+        },
+      }),
+    )
+    return true
+  } catch (error) {
+    console.error("Failed to respond to approval:", error)
+    updateChatStore({
+      pendingApproval: { ...pendingApproval, isResponding: false },
+    })
+    toast.error(i18n.t("chat.approvalSendFailed"))
+    return false
+  }
+}
+
 export async function switchChatSession(sessionId: string) {
   if (sessionId === activeSessionIdRef) {
     return
   }
 
   try {
-    const historyMessages = await loadSessionMessages(sessionId)
+    updateChatStore({ isHistoryLoading: true })
+    const history = await loadSessionHistory(sessionId)
 
     disconnectChatInternal({ clearDesiredConnection: false })
     setActiveSessionId(sessionId)
     updateChatStore({
-      messages: historyMessages,
+      messages: history.messages,
+      recentActivities: history.activities,
+      recentPlan: history.plan,
+      turnHistory: history.turnHistory,
       isTyping: false,
       hasHydratedActiveSession: true,
+      isHistoryLoading: false,
       contextUsage: undefined,
     })
 
@@ -459,6 +518,7 @@ export async function switchChatSession(sessionId: string) {
       await connectChat()
     }
   } catch (error) {
+    updateChatStore({ isHistoryLoading: false })
     console.error("Failed to load session history:", error)
     toast.error(i18n.t("chat.historyOpenFailed"))
   }
@@ -475,6 +535,8 @@ export async function newChatSession() {
     messages: [],
     isTyping: false,
     hasHydratedActiveSession: true,
+    isHistoryLoading: false,
+    turnHistory: undefined,
     contextUsage: undefined,
   })
 

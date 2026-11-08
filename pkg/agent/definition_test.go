@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,6 +125,45 @@ func TestLoadAgentDefinitionLoadsWorkspaceUserMarkdown(t *testing.T) {
 	}
 	if !strings.Contains(definition.User.Content, "Workspace preferences") {
 		t.Fatalf("expected workspace USER.md content, got %q", definition.User.Content)
+	}
+}
+
+func TestLoadAgentDefinitionIncludesNestedWorkspaceInstructions(t *testing.T) {
+	tmpDir := setupWorkspace(t, map[string]string{
+		"AGENT.md":                   "# Agent\nRoot agent.",
+		"packages/api/AGENTS.md":     "# API instructions\nUse the API contract.",
+		"node_modules/pkg/AGENTS.md": "# Dependency\nIgnore this file.",
+		"dist/AGENTS.md":             "# Build output\nIgnore this file too.",
+	})
+	defer cleanupWorkspace(t, tmpDir)
+
+	definition := NewContextBuilder(tmpDir).LoadAgentDefinition()
+	if len(definition.Instructions) != 1 {
+		t.Fatalf("instructions = %+v, want one nested AGENTS.md", definition.Instructions)
+	}
+	if definition.Instructions[0].RelativePath != "packages/api/AGENTS.md" {
+		t.Fatalf("relative path = %q, want packages/api/AGENTS.md", definition.Instructions[0].RelativePath)
+	}
+	bootstrap := NewContextBuilder(tmpDir).LoadBootstrapFiles()
+	if !strings.Contains(bootstrap, "## packages/api/AGENTS.md") || !strings.Contains(bootstrap, "Use the API contract") {
+		t.Fatalf("bootstrap did not include nested instructions: %q", bootstrap)
+	}
+	if strings.Contains(bootstrap, "Ignore this file") {
+		t.Fatalf("bootstrap included ignored directory instructions: %q", bootstrap)
+	}
+}
+
+func TestLoadDirectoryInstructionsCapsFileCount(t *testing.T) {
+	files := map[string]string{"AGENT.md": "# Agent\nRoot agent."}
+	for i := 0; i < 35; i++ {
+		files[fmt.Sprintf("pkg-%02d/AGENTS.md", i)] = fmt.Sprintf("# Instructions %d", i)
+	}
+	tmpDir := setupWorkspace(t, files)
+	defer cleanupWorkspace(t, tmpDir)
+
+	instructions := loadDirectoryInstructions(tmpDir, filepath.Join(tmpDir, "AGENT.md"))
+	if len(instructions) != 32 {
+		t.Fatalf("instructions count = %d, want 32", len(instructions))
 	}
 }
 

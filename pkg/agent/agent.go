@@ -45,6 +45,7 @@ type AgentLoop struct {
 	runtimeEventLogger *runtimeEventLogger
 	runtimeEventLogSub runtimeevents.Subscription
 	hooks              *HookManager
+	humanApprovals     *humanApprovalManager
 
 	// Runtime state
 	running        atomic.Bool
@@ -151,6 +152,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 	if err := al.ensureMCPInitialized(ctx); err != nil {
 		return err
 	}
+	go al.retryPendingDelivery(ctx)
 
 	idleTicker := time.NewTicker(100 * time.Millisecond)
 	defer idleTicker.Stop()
@@ -212,6 +214,13 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 							"chat_id":     msg.ChatID,
 							"session_key": sessionKey,
 						})
+					al.PublishResponseIfNeeded(
+						ctx,
+						msg.Channel,
+						msg.ChatID,
+						sessionKey,
+						"消息未加入队列：当前会话待处理消息已满。请等待当前任务结束后重试。",
+					)
 				}
 				continue
 			}
@@ -621,7 +630,9 @@ func (al *AgentLoop) runAgentLoop(
 			msg.Context.Raw["model_name"] = modelName
 		}
 		markFinalOutbound(&msg)
-		al.bus.PublishOutbound(ctx, msg)
+		if pubErr := al.bus.PublishOutbound(ctx, msg); pubErr != nil {
+			return "", fmt.Errorf("publish final response: %w", pubErr)
+		}
 	}
 
 	if result.finalContent != "" {

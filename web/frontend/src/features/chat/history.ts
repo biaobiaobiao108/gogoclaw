@@ -4,7 +4,13 @@ import {
   parseToolCallsValue,
   toolCallsSignature,
 } from "@/features/chat/tool-calls"
-import type { ChatAttachment, ChatMessage } from "@/store/chat"
+import type {
+  ChatActivity,
+  ChatAttachment,
+  ChatMessage,
+  ChatPlanStep,
+  ChatTurnHistory,
+} from "@/store/chat"
 
 function toChatAttachments({
   media,
@@ -42,8 +48,17 @@ function toChatAttachments({
 export async function loadSessionMessages(
   sessionId: string,
 ): Promise<ChatMessage[]> {
+  return (await loadSessionHistory(sessionId)).messages
+}
+
+export async function loadSessionHistory(sessionId: string): Promise<{
+  messages: ChatMessage[]
+  activities: ChatActivity[]
+  plan: ChatPlanStep[]
+  turnHistory: ChatTurnHistory[]
+}> {
   const detail = await getSessionHistory(sessionId)
-  return detail.messages.map((message, index) => ({
+  const messages = detail.messages.map((message, index) => ({
     id: `hist-${index}-${Date.now()}`,
     role: message.role,
     content: message.content,
@@ -59,6 +74,59 @@ export async function loadSessionMessages(
     }),
     timestamp: message.created_at ?? detail.updated,
   }))
+
+  const toActivities = (
+    activities:
+      | {
+          id: string
+          kind: string
+          status: string
+          title: string
+          tool_call_id?: string
+          tool?: string
+          detail?: string
+          output?: string
+          duration_ms?: number
+          exit_code?: number
+          diff?: string
+          artifacts?: string[]
+          started_at: string
+          completed_at?: string
+        }[]
+      | undefined,
+  ) =>
+    (activities ?? []).map((activity) => ({
+      id: activity.id,
+      kind: activity.kind,
+      status: activity.status,
+      title: activity.title,
+      toolCallId: activity.tool_call_id,
+      tool: activity.tool,
+      detail: activity.detail,
+      output: activity.output,
+      durationMs: activity.duration_ms,
+      exitCode: activity.exit_code,
+      diff: activity.diff,
+      artifacts: activity.artifacts,
+      startedAt: activity.started_at,
+      completedAt: activity.completed_at,
+    }))
+
+  const turn = detail.turn
+  return {
+    messages,
+    plan: turn?.plan ?? [],
+    activities: toActivities(turn?.activities),
+    turnHistory: (detail.turn_history ?? [])
+      .filter((item) => item.turn_id)
+      .map((item) => ({
+        turnId: item.turn_id,
+        status: item.status,
+        iteration: item.iteration,
+        plan: item.plan ?? [],
+        activities: toActivities(item.activities),
+      })),
+  }
 }
 
 function normalizeMessageTimestamp(timestamp: number | string): string {

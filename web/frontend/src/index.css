@@ -34,6 +34,8 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -49,6 +51,10 @@
 
 :root {
   --radius: 0.5rem;
+  --motion-press: 70ms;
+  --motion-state: 140ms;
+  --motion-release: 420ms;
+  --motion-spring: cubic-bezier(0.18, 0.89, 0.32, 1.28);
   --background: oklch(0.985 0.002 90);
   --foreground: oklch(0.18 0.008 260);
   --card: oklch(1 0 0);
@@ -64,6 +70,8 @@
   --accent: oklch(0.68 0.16 215);
   --accent-foreground: oklch(0.985 0.002 90);
   --destructive: oklch(0.62 0.22 25);
+  --success: oklch(0.52 0.14 145);
+  --warning: oklch(0.58 0.14 75);
   --border: oklch(0.91 0.004 260);
   --input: oklch(0.91 0.004 260);
   --ring: oklch(0.68 0.16 215);
@@ -93,6 +101,8 @@
   --accent: oklch(0.68 0.16 215);
   --accent-foreground: oklch(0.985 0.002 90);
   --destructive: oklch(0.65 0.20 25);
+  --success: oklch(0.72 0.16 145);
+  --warning: oklch(0.78 0.15 75);
   --border: oklch(0.26 0.008 260);
   --input: oklch(0.26 0.008 260);
   --ring: oklch(0.68 0.16 215);
@@ -133,6 +143,77 @@
 
   ::-webkit-scrollbar-thumb:hover {
     background: var(--muted-foreground);
+  }
+}
+
+button:not(:disabled),
+a[href],
+summary,
+[role="button"]:not([aria-disabled="true"]) {
+  transition-property:
+    opacity, color, background-color, border-color, box-shadow, filter,
+    transform;
+  transition-duration:
+    var(--motion-state), var(--motion-state), var(--motion-state),
+    var(--motion-state), var(--motion-state), var(--motion-state),
+    var(--motion-release);
+  transition-timing-function:
+    ease-out, ease-out, ease-out, ease-out, ease-out, ease-out,
+    var(--motion-spring);
+}
+
+button:not(:disabled):active,
+a[href]:active,
+summary:active,
+[role="button"]:not([aria-disabled="true"]):active {
+  transform: translateY(1px) scale(0.98);
+  filter: brightness(0.96);
+  transition-duration:
+    var(--motion-state), var(--motion-state), var(--motion-state),
+    var(--motion-state), var(--motion-state), var(--motion-state),
+    var(--motion-press);
+}
+
+summary {
+  border-radius: var(--radius-sm);
+}
+
+summary:hover {
+  color: var(--foreground);
+  background-color: color-mix(in oklab, var(--muted) 55%, transparent);
+}
+
+:where(summary, [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+textarea {
+  transition:
+    color var(--motion-state) ease-out,
+    background-color var(--motion-state) ease-out,
+    border-color var(--motion-state) ease-out,
+    box-shadow var(--motion-state) ease-out,
+    opacity var(--motion-state) ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button:not(:disabled),
+  a[href],
+  summary,
+  [role="button"]:not([aria-disabled="true"]) {
+    transition-duration: 1ms;
+  }
+
+  button:not(:disabled):active,
+  a[href]:active,
+  summary:active,
+  [role="button"]:not([aria-disabled="true"]):active {
+    transform: none;
+  }
+
+  textarea {
+    transition-duration: 1ms;
   }
 }
 

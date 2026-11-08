@@ -132,7 +132,7 @@ export function MessageCodeBlock({
             title={copyLabel}
           >
             {isCopied ? (
-              <IconCheck className="size-3.5 text-emerald-500" />
+              <IconCheck className="text-success size-3.5" />
             ) : (
               <IconCopy className="size-3.5" />
             )}

@@ -8,11 +8,16 @@ import (
 // Protocol message types.
 const (
 	// TypeMessageSend is sent from client to server.
-	TypeMessageSend   = "message.send"
-	TypeMediaSend     = "media.send"
-	TypePing          = "ping"
-	TypeTurnStatusGet = "turn.status.get"
-	TypeTurnStatus    = "turn.status"
+	TypeMessageSend      = "message.send"
+	TypeMediaSend        = "media.send"
+	TypePing             = "ping"
+	TypeTurnStatusGet    = "turn.status.get"
+	TypeTurnStatus       = "turn.status"
+	TypeMessageAck       = "message.ack"
+	TypeApprovalRespond  = "approval.respond"
+	TypeApprovalRequest  = "approval.request"
+	TypeApprovalAck      = "approval.ack"
+	TypeApprovalResolved = "approval.resolved"
 
 	// TypeMessageCreate is sent from server to client.
 	TypeMessageCreate = "message.create"

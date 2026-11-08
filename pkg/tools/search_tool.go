@@ -190,8 +190,9 @@ func (r *ToolRegistry) SearchRegex(pattern string, maxSearchResults int) ([]Tool
 		if !entry.IsCore {
 			// Directly call interface methods! No reflection/unmarshalling needed.
 			desc := entry.Tool.Description()
+			schema, _ := json.Marshal(entry.Tool.Parameters())
 
-			if regex.MatchString(name) || regex.MatchString(desc) {
+			if regex.MatchString(name) || regex.MatchString(desc) || regex.MatchString(string(schema)) {
 				results = append(results, ToolSearchResult{
 					Name:        name,
 					Description: desc,
@@ -236,6 +237,7 @@ func formatDiscoveryResponse(registry *ToolRegistry, results []ToolSearchResult,
 type searchDoc struct {
 	Name        string
 	Description string
+	Schema      string
 }
 
 // bm25CachedEngine wraps a BM25Engine with its corpus snapshot.
@@ -247,7 +249,7 @@ type bm25CachedEngine struct {
 func snapshotToSearchDocs(snap HiddenToolSnapshot) []searchDoc {
 	docs := make([]searchDoc, len(snap.Docs))
 	for i, d := range snap.Docs {
-		docs[i] = searchDoc{Name: d.Name, Description: d.Description}
+		docs[i] = searchDoc{Name: d.Name, Description: d.Description, Schema: d.Schema}
 	}
 	return docs
 }
@@ -257,7 +259,7 @@ func buildBM25Engine(docs []searchDoc) *utils.BM25Engine[searchDoc] {
 	return utils.NewBM25Engine(
 		docs,
 		func(doc searchDoc) string {
-			return doc.Name + " " + doc.Description
+			return doc.Name + " " + doc.Description + " " + doc.Schema
 		},
 	)
 }

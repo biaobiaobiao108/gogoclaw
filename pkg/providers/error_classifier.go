@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/sipeed/picoclaw/pkg/providers/common"
 )
@@ -237,6 +238,15 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 	}
 
 	return nil
+}
+
+// RetryAfter returns a provider-advertised retry delay when available.
+func RetryAfter(err error) time.Duration {
+	var httpErr *common.HTTPError
+	if errors.As(err, &httpErr) && httpErr != nil {
+		return httpErr.RetryAfter
+	}
+	return 0
 }
 
 // classifyByErrorType maps concrete transport-layer error types to a retryable

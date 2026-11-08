@@ -1,7 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router"
-
-import { ChatPage } from "@/components/chat/chat-page"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 
 export const Route = createFileRoute("/")({
-  component: ChatPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/chat", replace: true })
+  },
 })

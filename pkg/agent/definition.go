@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -62,10 +63,17 @@ type UserDefinition struct {
 
 // AgentContextDefinition captures the workspace agent definition in a runtime-friendly shape.
 type AgentContextDefinition struct {
-	Source AgentDefinitionSource  `json:"source,omitempty"`
-	Agent  *AgentPromptDefinition `json:"agent,omitempty"`
-	Soul   *SoulDefinition        `json:"soul,omitempty"`
-	User   *UserDefinition        `json:"user,omitempty"`
+	Source       AgentDefinitionSource   `json:"source,omitempty"`
+	Agent        *AgentPromptDefinition  `json:"agent,omitempty"`
+	Soul         *SoulDefinition         `json:"soul,omitempty"`
+	User         *UserDefinition         `json:"user,omitempty"`
+	Instructions []InstructionDefinition `json:"instructions,omitempty"`
+}
+
+type InstructionDefinition struct {
+	Path         string `json:"path"`
+	RelativePath string `json:"relative_path"`
+	Content      string `json:"content"`
 }
 
 // LoadAgentDefinition parses the workspace agent bootstrap files.
@@ -92,6 +100,7 @@ func loadAgentDefinition(workspace string) AgentContextDefinition {
 				Content: string(content),
 			}
 		}
+		definition.Instructions = loadDirectoryInstructions(workspace, agentPath)
 		return definition
 	}
 
@@ -104,6 +113,7 @@ func loadAgentDefinition(workspace string) AgentContextDefinition {
 			Body: string(content),
 		}
 	}
+	definition.Instructions = loadDirectoryInstructions(workspace, legacyPath)
 
 	defaultSoulPath := filepath.Join(workspace, "SOUL.md")
 	if definition.Source != "" || fileExists(defaultSoulPath) {
@@ -118,6 +128,42 @@ func loadAgentDefinition(workspace string) AgentContextDefinition {
 	return definition
 }
 
+func loadDirectoryInstructions(workspace, primaryPath string) []InstructionDefinition {
+	const (
+		maxFiles = 32
+		maxBytes = 256 * 1024
+	)
+	var instructions []InstructionDefinition
+	var total int
+	cleanPrimary := filepath.Clean(primaryPath)
+	_ = filepath.WalkDir(workspace, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", "node_modules", "dist", "bin", ".workbuddy":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.Name() != "AGENTS.md" || filepath.Clean(path) == cleanPrimary || len(instructions) >= maxFiles {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil || total+len(data) > maxBytes {
+			return nil
+		}
+		total += len(data)
+		relative, _ := filepath.Rel(workspace, path)
+		instructions = append(instructions, InstructionDefinition{
+			Path: path, RelativePath: filepath.ToSlash(relative), Content: string(data),
+		})
+		return nil
+	})
+	return instructions
+}
+
 func (definition AgentContextDefinition) trackedPaths(workspace string) []string {
 	paths := []string{
 		filepath.Join(workspace, string(AgentDefinitionSourceAgent)),
@@ -129,6 +175,9 @@ func (definition AgentContextDefinition) trackedPaths(workspace string) []string
 			filepath.Join(workspace, string(AgentDefinitionSourceAgents)),
 			filepath.Join(workspace, "IDENTITY.md"),
 		)
+	}
+	for _, instruction := range definition.Instructions {
+		paths = append(paths, instruction.Path)
 	}
 	return uniquePaths(paths)
 }

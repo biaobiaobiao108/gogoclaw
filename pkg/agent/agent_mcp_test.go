@@ -91,6 +91,74 @@ func TestMCPRuntimeResetClearsState(t *testing.T) {
 	}
 }
 
+func TestSyncMCPToolsForServerAddsAndRemovesChangedTools(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+	al.cfg.Tools.MCP = config.MCPConfig{
+		Servers: map[string]config.MCPServerConfig{
+			"fixture": {Enabled: true},
+		},
+	}
+	manager := mcp.NewManager()
+
+	initial := []*sdkmcp.Tool{
+		{Name: "echo", Description: "Echo"},
+		{Name: "remove_me", Description: "Old tool"},
+	}
+	if got := al.syncMCPToolsForServer(context.Background(), manager, "fixture", initial); got != 2 {
+		t.Fatalf("initial registrations = %d, want 2", got)
+	}
+	if !agent.Tools.HasRegistered("mcp_fixture_echo") || !agent.Tools.HasRegistered("mcp_fixture_remove_me") {
+		t.Fatal("initial MCP tools were not registered")
+	}
+
+	updated := []*sdkmcp.Tool{
+		{Name: "echo", Description: "Echo v2"},
+		{Name: "new_tool", Description: "New tool"},
+	}
+	if got := al.syncMCPToolsForServer(context.Background(), manager, "fixture", updated); got != 2 {
+		t.Fatalf("updated registrations = %d, want 2", got)
+	}
+	if !agent.Tools.HasRegistered("mcp_fixture_echo") || !agent.Tools.HasRegistered("mcp_fixture_new_tool") {
+		t.Fatal("updated MCP tools were not registered")
+	}
+	if agent.Tools.HasRegistered("mcp_fixture_remove_me") {
+		t.Fatal("removed MCP tool is still registered")
+	}
+}
+
+func TestSyncMCPToolsForServerHonorsAllowlistAndDeferredMode(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+	al.cfg.Tools.MCP = config.MCPConfig{
+		Discovery: config.ToolDiscoveryConfig{Enabled: true},
+		Servers: map[string]config.MCPServerConfig{
+			"fixture": {Enabled: true},
+		},
+	}
+	manager := mcp.NewManager()
+	serverTools := []*sdkmcp.Tool{{Name: "echo", Description: "Echo"}}
+
+	agent.MCPServerAllowlist = map[string]struct{}{"other": {}}
+	if got := al.syncMCPToolsForServer(context.Background(), manager, "fixture", serverTools); got != 0 {
+		t.Fatalf("blocked registrations = %d, want 0", got)
+	}
+	if agent.Tools.HasRegistered("mcp_fixture_echo") {
+		t.Fatal("MCP tool was registered despite the server allowlist")
+	}
+
+	agent.MCPServerAllowlist = nil
+	if got := al.syncMCPToolsForServer(context.Background(), manager, "fixture", serverTools); got != 1 {
+		t.Fatalf("allowed registrations = %d, want 1", got)
+	}
+	if !agent.Tools.HasRegistered("mcp_fixture_echo") {
+		t.Fatal("deferred MCP tool was not indexed")
+	}
+	if _, callable := agent.Tools.Get("mcp_fixture_echo"); callable {
+		t.Fatal("deferred MCP tool should not be directly callable before discovery")
+	}
+}
+
 func TestReloadProviderAndConfig_ResetsMCPRuntime(t *testing.T) {
 	al, cfg, _, _, cleanup := newTestAgentLoop(t)
 	defer cleanup()

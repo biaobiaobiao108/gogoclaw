@@ -103,7 +103,7 @@ export function ChatComposer({
       <div className="mx-auto flex w-full max-w-4xl flex-col">
         <div
           className={cn(
-            "bg-card/90 supports-backdrop-filter:bg-card/75 border-border/80 focus-within:border-primary/50 relative flex w-full flex-col rounded-xl border shadow-xs backdrop-blur-sm transition-all",
+            "bg-card/90 supports-backdrop-filter:bg-card/75 border-border/80 focus-within:border-primary/50 relative flex w-full flex-col rounded-xl border shadow-xs backdrop-blur-sm transition-[background-color,border-color,box-shadow] duration-[var(--motion-state)] ease-out",
             isDragActive &&
               "border-accent/80 bg-accent/5 ring-accent/20 ring-2",
           )}
@@ -136,7 +136,7 @@ export function ChatComposer({
                   <button
                     type="button"
                     onClick={() => onRemoveAttachment(index)}
-                    className="bg-background/90 text-foreground hover:bg-background absolute top-1 right-1 inline-flex size-4 items-center justify-center rounded-full border shadow-xs"
+                    className="bg-background/90 text-foreground hover:bg-background focus-visible:ring-ring absolute top-1 right-1 inline-flex size-6 items-center justify-center rounded-full border shadow-xs focus-visible:ring-2 focus-visible:outline-none"
                     aria-label={t("chat.removeImage")}
                   >
                     <IconX className="size-2.5" />
@@ -211,7 +211,7 @@ export function ChatComposer({
                   type="button"
                   size="icon"
                   className={cn(
-                    "size-7 rounded-md transition-all",
+                    "size-7 rounded-md transition-[color,background-color,transform] duration-[var(--motion-state)] ease-out active:duration-[var(--motion-press)]",
                     canSend
                       ? "bg-primary text-primary-foreground hover:bg-primary/90"
                       : "bg-muted text-muted-foreground/40",

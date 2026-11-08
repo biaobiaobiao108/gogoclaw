@@ -737,7 +737,6 @@ The current hook system is best suited for:
 It is not yet well suited for:
 
 - External hooks actively sending channel messages
-- Suspending a turn and waiting for human approval replies
 - Full inbound/outbound message interception across the whole platform
 
-If you want a real human approval workflow, use hooks as the approval entry point and keep the state machine plus channel interaction in a separate `ApprovalManager`.
+For configured high-risk tools, the built-in `tools.approval` flow suspends the turn and waits for a human decision in the Pico web console. `ToolApprover` hooks can still return `requires_human: true` to hand a specific call to that flow. Approval requests, decisions, and timeouts are persisted in the turn checkpoint. If the process restarts while approval is pending, the turn is treated as interrupted; PicoClaw does not silently retry the affected tool.

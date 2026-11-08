@@ -3,6 +3,9 @@ package tools
 import (
 	"fmt"
 	"math"
+	"reflect"
+	"regexp"
+	"unicode/utf8"
 )
 
 // validateToolArgs validates args against a JSON Schema-like map.
@@ -96,6 +99,12 @@ func allowsAdditional(schema map[string]any) bool {
 
 // checkType validates that val matches the JSON Schema type declared in propSchema.
 func checkType(key string, val any, propSchema map[string]any) error {
+	if err := checkOneOf(key, val, propSchema); err != nil {
+		return err
+	}
+	if constant, ok := propSchema["const"]; ok && !reflect.DeepEqual(val, constant) {
+		return fmt.Errorf("property %q: expected constant %v", key, constant)
+	}
 	typeRaw, ok := propSchema["type"]
 	if !ok {
 		return nil // no type constraint
@@ -107,8 +116,12 @@ func checkType(key string, val any, propSchema map[string]any) error {
 
 	switch typeName {
 	case "string":
-		if _, ok := val.(string); !ok {
+		text, ok := val.(string)
+		if !ok {
 			return fmt.Errorf("property %q: expected string, got %T", key, val)
+		}
+		if err := checkStringConstraints(key, text, propSchema); err != nil {
+			return err
 		}
 	case "integer":
 		switch v := val.(type) {
@@ -116,17 +129,26 @@ func checkType(key string, val any, propSchema map[string]any) error {
 			if v != math.Trunc(v) {
 				return fmt.Errorf("property %q: expected integer, got float64 with fractional part", key)
 			}
+			if err := checkNumericRange(key, v, propSchema); err != nil {
+				return err
+			}
 		case int:
-			// ok
+			if err := checkNumericRange(key, float64(v), propSchema); err != nil {
+				return err
+			}
 		case int64:
-			// ok
+			if err := checkNumericRange(key, float64(v), propSchema); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("property %q: expected integer, got %T", key, val)
 		}
 	case "number":
-		switch val.(type) {
+		switch number := val.(type) {
 		case float64, int, int64:
-			// ok
+			if err := checkNumericRange(key, numberAsFloat(number), propSchema); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("property %q: expected number, got %T", key, val)
 		}
@@ -157,6 +179,78 @@ func checkType(key string, val any, propSchema map[string]any) error {
 	}
 
 	return nil
+}
+
+func checkNumericRange(key string, value float64, schema map[string]any) error {
+	if minimum, ok := numberAsFloatOK(schema["minimum"]); ok && value < minimum {
+		return fmt.Errorf("property %q: value %v is below minimum %v", key, value, minimum)
+	}
+	if maximum, ok := numberAsFloatOK(schema["maximum"]); ok && value > maximum {
+		return fmt.Errorf("property %q: value %v is above maximum %v", key, value, maximum)
+	}
+	return nil
+}
+
+func checkOneOf(key string, val any, schema map[string]any) error {
+	for _, field := range []string{"anyOf", "oneOf"} {
+		raw, ok := schema[field]
+		if !ok {
+			continue
+		}
+		alternatives, ok := raw.([]any)
+		if !ok {
+			continue
+		}
+		matched := 0
+		for _, alternative := range alternatives {
+			candidate, ok := alternative.(map[string]any)
+			if ok && checkType(key, val, candidate) == nil {
+				matched++
+			}
+		}
+		if matched == 0 || (field == "oneOf" && matched != 1) {
+			return fmt.Errorf("property %q: value does not match %s", key, field)
+		}
+	}
+	return nil
+}
+
+func checkStringConstraints(key, value string, schema map[string]any) error {
+	length := utf8.RuneCountInString(value)
+	if minimum, ok := numberAsFloatOK(schema["minLength"]); ok && length < int(minimum) {
+		return fmt.Errorf("property %q: shorter than minLength %v", key, minimum)
+	}
+	if maximum, ok := numberAsFloatOK(schema["maxLength"]); ok && length > int(maximum) {
+		return fmt.Errorf("property %q: longer than maxLength %v", key, maximum)
+	}
+	if pattern, ok := schema["pattern"].(string); ok && pattern != "" {
+		compiled, err := regexp.Compile(pattern)
+		if err != nil {
+			return fmt.Errorf("property %q: schema pattern is invalid", key)
+		}
+		if !compiled.MatchString(value) {
+			return fmt.Errorf("property %q: does not match pattern", key)
+		}
+	}
+	return nil
+}
+
+func numberAsFloat(value any) float64 {
+	number, _ := numberAsFloatOK(value)
+	return number
+}
+
+func numberAsFloatOK(value any) (float64, bool) {
+	switch number := value.(type) {
+	case float64:
+		return number, true
+	case int:
+		return float64(number), true
+	case int64:
+		return float64(number), true
+	default:
+		return 0, false
+	}
 }
 
 // checkArrayItems validates each element of arr against the "items" sub-schema.

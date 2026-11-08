@@ -737,7 +737,6 @@ if __name__ == "__main__":
 当前还不适合直接承载这些需求：
 
 - 外部 hook 主动发 channel 消息
-- 挂起 turn 并等待人工审批回复
 - inbound/outbound 全链路消息拦截
 
-如果你要做人审流转，推荐把 hook 作为审批入口，把审批状态机和 channel 交互放到独立的 `ApprovalManager`。
+对于配置中的高危工具，内置 `tools.approval` 流程会挂起当前 turn，并在 Pico Web 控制台等待人工决定。`ToolApprover` hook 也可以返回 `requires_human: true`，把某一次调用交给该流程。审批请求、决定和超时都会写入 turn checkpoint。如果进程在审批期间重启，该 turn 会被视为已中断；PicoClaw 不会静默重试受影响的工具。

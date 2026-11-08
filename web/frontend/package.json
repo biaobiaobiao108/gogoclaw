@@ -6,8 +6,8 @@
   "packageManager": "bun@1.4.4",
   "scripts": {
     "dev": "bun --bun vite",
-    "build": "bun --bun tsc -b && bun --bun vite build",
-    "build:backend": "bun --bun tsc -b && bun --bun vite build --outDir ../backend/dist --emptyOutDir && bun ./scripts/ensure-backend-gitkeep.ts",
+    "build": "bun --bun vite build && bun --bun tsc -b",
+    "build:backend": "bun --bun vite build --outDir ../backend/dist --emptyOutDir && bun --bun tsc -b && bun ./scripts/ensure-backend-gitkeep.ts",
     "preview": "bun --bun vite preview",
     "test": "bun test",
     "fmt": "bun fmt",

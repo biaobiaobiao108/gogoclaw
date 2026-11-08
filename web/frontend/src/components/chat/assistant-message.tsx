@@ -85,8 +85,8 @@ export function AssistantMessage({
             )}
             {formattedTimestamp && (
               <>
-                <span className="text-muted-foreground/40">•</span>
-                <span className="text-muted-foreground/50">
+                <span className="text-muted-foreground/60">/</span>
+                <span className="text-muted-foreground">
                   {formattedTimestamp}
                 </span>
               </>
@@ -97,13 +97,13 @@ export function AssistantMessage({
             <Button
               variant="ghost"
               size="icon"
-              className="text-muted-foreground hover:text-foreground h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
+              className="text-muted-foreground hover:text-foreground h-6 w-6 opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
               onClick={() => void copy(content)}
               aria-label={copyMessageLabel}
               title={copyMessageLabel}
             >
               {isCopied ? (
-                <IconCheck className="h-3.5 w-3.5 text-emerald-500" />
+                <IconCheck className="text-success h-3.5 w-3.5" />
               ) : (
                 <IconCopy className="h-3.5 w-3.5" />
               )}
@@ -167,7 +167,7 @@ export function AssistantMessage({
                   >
                     {toolName && (
                       <div className="text-foreground/80 flex items-center gap-1.5 font-mono text-xs">
-                        <span className="font-bold text-emerald-500">❯</span>
+                        <span className="text-success font-bold">❯</span>
                         <span className="font-semibold">{toolName}</span>
                       </div>
                     )}

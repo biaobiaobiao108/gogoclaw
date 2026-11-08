@@ -462,14 +462,20 @@ toolLoop:
 			}
 		}
 
+		humanApprovalRequired := al.cfg.Tools.Approval.Requires(toolName)
+		humanApprovalReason := ""
 		if al.hooks != nil {
 			approval := al.hooks.ApproveTool(turnCtx, &ToolApprovalRequest{
-				Meta:      ts.eventMeta("runTurn", "turn.tool.approve"),
-				Context:   cloneTurnContext(ts.turnCtx),
-				Tool:      toolName,
-				Arguments: toolArgs,
+				Meta:       ts.eventMeta("runTurn", "turn.tool.approve"),
+				Context:    cloneTurnContext(ts.turnCtx),
+				Tool:       toolName,
+				ToolCallID: tc.ID,
+				Arguments:  toolArgs,
 			})
-			if !approval.Approved {
+			if approval.RequiresHuman {
+				humanApprovalRequired = true
+				humanApprovalReason = approval.Reason
+			} else if !approval.Approved {
 				exec.allResponsesHandled = false
 				denyContent := hookDeniedToolContent("Tool execution denied by approval hook", approval.Reason)
 				al.emitEvent(
@@ -485,6 +491,32 @@ toolLoop:
 					Content:    denyContent,
 					ToolCallID: tc.ID,
 				}
+				messages = append(messages, deniedMsg)
+				if !ts.opts.NoHistory {
+					if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, deniedMsg); err != nil {
+						exec.executionErr = fmt.Errorf("write denied tool result: %w", err)
+						return ToolControlBreak
+					}
+					ts.recordPersistedMessage(deniedMsg)
+				}
+				continue
+			}
+		}
+		if humanApprovalRequired {
+			decision, err := al.requestHumanApproval(turnCtx, ts, toolName, tc.ID, toolArgs, humanApprovalReason)
+			if err != nil {
+				exec.executionErr = fmt.Errorf("wait for human approval: %w", err)
+				return ToolControlBreak
+			}
+			if !decision.Approved {
+				exec.allResponsesHandled = false
+				denyContent := hookDeniedToolContent("Tool execution denied by human approval", decision.Reason)
+				al.emitEvent(
+					runtimeevents.KindAgentToolExecSkipped,
+					ts.eventMeta("runTurn", "turn.tool.skipped"),
+					ToolExecSkippedPayload{Tool: toolName, Reason: denyContent},
+				)
+				deniedMsg := providers.Message{Role: "tool", Content: denyContent, ToolCallID: tc.ID}
 				messages = append(messages, deniedMsg)
 				if !ts.opts.NoHistory {
 					if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, deniedMsg); err != nil {
@@ -519,6 +551,9 @@ toolLoop:
 				Tool:      toolName,
 				Arguments: cloneEventArguments(toolArgs),
 			},
+		)
+		activityID := ts.startTurnActivity(
+			"tool", toolName, toolCallIDFromCall(tc), toolName, al.cfg.FilterSensitiveData(argsPreview),
 		)
 
 		if shouldPublishToolFeedback(al.cfg, ts) && ts.channel != "pico" {
@@ -758,6 +793,18 @@ toolLoop:
 			toolErrorSummary(toolResult),
 			inferSkillNamesFromToolCall(ts, toolName, toolArgs),
 		)
+		ts.finishTurnActivity(activityID, func(activity *session.TurnActivity) {
+			activity.Status = "completed"
+			if toolResult.IsError {
+				activity.Status = "failed"
+			}
+			filteredForLLM := al.cfg.FilterSensitiveData(toolResult.ForLLM)
+			filteredForUser := al.cfg.FilterSensitiveData(toolResult.ForUser)
+			activity.Output = boundedActivityOutput(filteredForLLM, filteredForUser)
+			activity.Diff = activityDiffPreview(filteredForUser)
+			activity.ExitCode = activityExitCode(toolResult.ForLLM)
+			activity.Artifacts = append([]string(nil), toolResult.ArtifactTags...)
+		})
 		messages = append(messages, toolResultMsg)
 		if !ts.opts.NoHistory {
 			if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, toolResultMsg); err != nil {

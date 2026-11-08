@@ -130,6 +130,20 @@ func (p *Pipeline) CallLLM(
 			return ControlBreak, nil
 		}
 	}
+	var contextErr error
+	exec.callMessages, exec.currentTurnStart, contextErr = validatePostHookContext(
+		turnCtx,
+		exec.activeProvider,
+		exec.activeModel,
+		exec.callMessages,
+		exec.currentTurnStart,
+		ts.agent.ContextWindow,
+		ts.agent.MaxTokens,
+		exec.providerToolDefs,
+	)
+	if contextErr != nil {
+		return ControlBreak, contextErr
+	}
 	exec.useNativeSearch = webSearchEnabled && al.cfg.Tools.Web.PreferNative &&
 		func() bool {
 			if ns, ok := exec.activeProvider.(providers.NativeSearchCapable); ok {
@@ -175,7 +189,7 @@ func (p *Pipeline) CallLLM(
 			"tools_count":       len(exec.providerToolDefs),
 			"max_tokens":        ts.agent.MaxTokens,
 			"temperature":       ts.agent.Temperature,
-			"system_prompt_len": len(exec.callMessages[0].Content),
+			"system_prompt_len": firstMessageContentLen(exec.callMessages),
 		})
 	logger.DebugCF("agent", "Full LLM request",
 		map[string]any{
@@ -337,7 +351,9 @@ func (p *Pipeline) CallLLM(
 
 		errMsg := strings.ToLower(err.Error())
 		retryReason, isTransientError := transientLLMRetryReason(err)
-		isContextError := !isTransientError && (strings.Contains(errMsg, "context_length_exceeded") ||
+		classified := providers.ClassifyError(err, exec.activeModel, exec.llmModelName)
+		isContextError := !isTransientError && ((classified != nil && classified.Reason == providers.FailoverContextOverflow) ||
+			strings.Contains(errMsg, "context_length_exceeded") ||
 			strings.Contains(errMsg, "context window") ||
 			strings.Contains(errMsg, "context_window") ||
 			strings.Contains(errMsg, "maximum context length") ||
@@ -350,6 +366,9 @@ func (p *Pipeline) CallLLM(
 
 		if isTransientError && retry < maxRetries {
 			backoff := time.Duration(retry+1) * time.Duration(backoffSecs) * time.Second
+			if retryAfter := providers.RetryAfter(err); retryAfter > backoff {
+				backoff = retryAfter
+			}
 			al.emitEvent(
 				runtimeevents.KindAgentLLMRetry,
 				ts.eventMeta("runTurn", "turn.llm.retry"),
@@ -729,6 +748,57 @@ func (p *Pipeline) CallLLM(
 	}
 
 	return ControlToolLoop, nil
+}
+
+func firstMessageContentLen(messages []providers.Message) int {
+	if len(messages) == 0 {
+		return 0
+	}
+	return len(messages[0].Content)
+}
+
+func validatePostHookContext(
+	ctx context.Context,
+	provider providers.LLMProvider,
+	model string,
+	messages []providers.Message,
+	currentTurnStart, contextWindow, maxTokens int,
+	toolDefs []providers.ToolDefinition,
+) ([]providers.Message, int, error) {
+	if len(messages) == 0 {
+		return nil, currentTurnStart, fmt.Errorf("LLM hook removed all messages from the request")
+	}
+	if !isOverContextBudget(contextWindow, messages, toolDefs, maxTokens) {
+		return messages, currentTurnStart, nil
+	}
+
+	trimmed, nextStart, fit := fitActiveTurn(
+		messages,
+		currentTurnStart,
+		contextWindow,
+		toolDefs,
+		maxTokens,
+	)
+	if !fit {
+		compacted, err := compactActiveTurn(
+			ctx,
+			provider,
+			model,
+			trimmed,
+			nextStart,
+			contextWindow,
+			maxTokens,
+			toolDefs,
+		)
+		if err != nil {
+			return nil, currentTurnStart, fmt.Errorf("LLM hook expanded context beyond budget: %w", err)
+		}
+		trimmed = compacted
+	}
+	if isOverContextBudget(contextWindow, trimmed, toolDefs, maxTokens) {
+		return nil, currentTurnStart, fmt.Errorf("LLM hook expanded context beyond the model budget")
+	}
+	return trimmed, nextStart, nil
 }
 
 func restoreToolDefinition(

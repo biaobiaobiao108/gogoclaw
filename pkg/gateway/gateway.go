@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/agent"
+	"github.com/sipeed/picoclaw/pkg/approval"
 	"github.com/sipeed/picoclaw/pkg/audio/asr"
 	"github.com/sipeed/picoclaw/pkg/audio/tts"
 	"github.com/sipeed/picoclaw/pkg/bus"
@@ -469,8 +470,19 @@ func setupAndStartServices(
 					}
 					return result
 				}
-				return map[string]any{"active": true, "turn_id": turn.TurnID, "phase": turn.Phase, "iteration": turn.Iteration, "plan": turn.Plan}
+				result := map[string]any{"active": true, "turn_id": turn.TurnID, "phase": turn.Phase, "iteration": turn.Iteration, "plan": turn.Plan}
+				if pending := agentLoop.PendingApprovalByConversation(config.ChannelPico, chatID); pending != nil {
+					result["approval"] = pending
+				}
+				return result
 			})
+		}
+		if approvalChannel, ok := channel.(interface {
+			SetApprovalHandler(func(context.Context, approval.Response) error)
+			SendApprovalRequest(context.Context, approval.Request) error
+		}); ok {
+			approvalChannel.SetApprovalHandler(agentLoop.RespondApproval)
+			agentLoop.SetApprovalNotifier(approvalChannel.SendApprovalRequest)
 		}
 	}
 	agentLoop.SetMediaStore(runningServices.MediaStore)

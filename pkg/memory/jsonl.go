@@ -23,6 +23,8 @@ import (
 )
 
 const (
+	maxStoredTurnHistory = 50
+
 	// numLockShards is the fixed number of mutexes used to serialize
 	// per-session access. Using a sharded array instead of a map keeps
 	// memory bounded regardless of how many sessions are created over
@@ -74,6 +76,9 @@ func (s *JSONLStore) SetTurn(_ context.Context, key string, turn json.RawMessage
 		}
 		if old.TurnID != "" && old.TurnID != next.TurnID {
 			meta.TurnHistory = append(meta.TurnHistory, cloneRawJSON(meta.Turn))
+			if overflow := len(meta.TurnHistory) - maxStoredTurnHistory; overflow > 0 {
+				meta.TurnHistory = append([]json.RawMessage(nil), meta.TurnHistory[overflow:]...)
+			}
 		}
 	}
 	meta.Turn = cloneRawJSON(turn)

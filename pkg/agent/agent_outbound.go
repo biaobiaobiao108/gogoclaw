@@ -6,12 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/session"
 	"github.com/sipeed/picoclaw/pkg/tools"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
@@ -20,7 +22,11 @@ func (al *AgentLoop) maybePublishError(ctx context.Context, channel, chatID, ses
 	if errors.Is(err, context.Canceled) {
 		return false
 	}
-	al.PublishResponseIfNeeded(ctx, channel, chatID, sessionKey, formatProcessingError(err))
+	if pubErr := al.PublishResponseIfNeededChecked(ctx, channel, chatID, sessionKey, formatProcessingError(err)); pubErr != nil {
+		logger.ErrorCF("agent", "Failed to publish processing error", map[string]any{
+			"channel": channel, "chat_id": chatID, "error": pubErr.Error(),
+		})
+	}
 	return true
 }
 
@@ -36,12 +42,20 @@ func (al *AgentLoop) publishResponseOrError(
 		}
 		response = ""
 	}
-	al.PublishResponseIfNeeded(ctx, channel, chatID, sessionKey, response)
+	if pubErr := al.PublishResponseIfNeededChecked(ctx, channel, chatID, sessionKey, response); pubErr != nil {
+		logger.ErrorCF("agent", "Failed to deliver response", map[string]any{
+			"channel": channel, "chat_id": chatID, "session_key": sessionKey, "error": pubErr.Error(),
+		})
+	}
 }
 
 func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatID, sessionKey, response string) {
+	_ = al.PublishResponseIfNeededChecked(ctx, channel, chatID, sessionKey, response)
+}
+
+func (al *AgentLoop) PublishResponseIfNeededChecked(ctx context.Context, channel, chatID, sessionKey, response string) error {
 	if response == "" {
-		return
+		return nil
 	}
 
 	alreadySentToSameChat := false
@@ -70,25 +84,26 @@ func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatI
 			"Skipped outbound (message tool already sent to same chat)",
 			map[string]any{"channel": channel, "chat_id": chatID},
 		)
-		return
+		return al.setTurnDelivery(sessionKey, session.TurnDelivery{
+			ID: fmt.Sprintf("delivery-%d", time.Now().UnixNano()), Status: deliveryStatusDeliveredTool,
+			Channel: channel, ChatID: chatID,
+		})
 	}
 
-	msg := bus.OutboundMessage{
-		Context:    bus.NewOutboundContext(channel, chatID, ""),
-		SessionKey: sessionKey,
-		Content:    response,
-	}
+	var usage *bus.ContextUsage
 	if sessionKey != "" {
-		msg.ContextUsage = computeContextUsage(al.agentForSession(sessionKey), sessionKey)
+		usage = computeContextUsage(al.agentForSession(sessionKey), sessionKey)
 	}
-	markFinalOutbound(&msg)
-	al.bus.PublishOutbound(ctx, msg)
+	if err := al.publishTrackedResponse(ctx, channel, chatID, sessionKey, response, usage); err != nil {
+		return err
+	}
 	logger.InfoCF("agent", "Published outbound response",
 		map[string]any{
 			"channel":     channel,
 			"chat_id":     chatID,
 			"content_len": len(response),
 		})
+	return nil
 }
 
 func (al *AgentLoop) targetReasoningChannelID(channelName string) (chatID string) {

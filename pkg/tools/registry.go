@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -117,6 +118,19 @@ func (r *ToolRegistry) RegisterHidden(tool Tool) {
 	logger.DebugCF("tools", "Registered hidden tool", map[string]any{"name": name})
 }
 
+// Unregister removes a dynamically registered tool. It is used when an MCP
+// server publishes a changed tool list and a previously registered tool is gone.
+func (r *ToolRegistry) Unregister(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.tools[name]; !ok {
+		return false
+	}
+	delete(r.tools, name)
+	r.version.Add(1)
+	return true
+}
+
 // SetMediaStore injects a MediaStore into all registered tools that can
 // consume it, and remembers it for future registrations.
 func (r *ToolRegistry) SetMediaStore(store media.MediaStore) {
@@ -203,6 +217,7 @@ type HiddenToolSnapshot struct {
 type HiddenToolDoc struct {
 	Name        string
 	Description string
+	Schema      string
 }
 
 // SnapshotHiddenTools returns all non-core tools and the current registry
@@ -214,9 +229,11 @@ func (r *ToolRegistry) SnapshotHiddenTools() HiddenToolSnapshot {
 	docs := make([]HiddenToolDoc, 0, len(r.tools))
 	for name, entry := range r.tools {
 		if !entry.IsCore {
+			schema, _ := json.Marshal(entry.Tool.Parameters())
 			docs = append(docs, HiddenToolDoc{
 				Name:        name,
 				Description: entry.Tool.Description(),
+				Schema:      string(schema),
 			})
 		}
 	}

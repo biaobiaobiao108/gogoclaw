@@ -46,8 +46,9 @@ func (d HookDecision) normalizedAction() HookAction {
 }
 
 type ApprovalDecision struct {
-	Approved bool   `json:"approved"`
-	Reason   string `json:"reason,omitempty"`
+	Approved      bool   `json:"approved"`
+	RequiresHuman bool   `json:"requires_human,omitempty"`
+	Reason        string `json:"reason,omitempty"`
 }
 
 type HookSource uint8
@@ -154,10 +155,11 @@ func (r *ToolCallHookRequest) Clone() *ToolCallHookRequest {
 }
 
 type ToolApprovalRequest struct {
-	Meta      HookMeta       `json:"meta"`
-	Context   *TurnContext   `json:"context,omitempty"`
-	Tool      string         `json:"tool"`
-	Arguments map[string]any `json:"arguments,omitempty"`
+	Meta       HookMeta       `json:"meta"`
+	Context    *TurnContext   `json:"context,omitempty"`
+	Tool       string         `json:"tool"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
+	Arguments  map[string]any `json:"arguments,omitempty"`
 }
 
 func (r *ToolApprovalRequest) Clone() *ToolApprovalRequest {

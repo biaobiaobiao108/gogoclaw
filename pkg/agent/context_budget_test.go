@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -1051,5 +1052,47 @@ func TestTrimHistoryToFitContextWindow_ClearsSingleOversizedTurn(t *testing.T) {
 	}
 	if len(messages) != 0 {
 		t.Fatalf("messages len = %d, want 0", len(messages))
+	}
+}
+
+func TestValidatePostHookContextRejectsEmptyMessages(t *testing.T) {
+	_, _, err := validatePostHookContext(
+		context.Background(),
+		&sequenceProvider{},
+		"test-model",
+		nil,
+		0,
+		8192,
+		1024,
+		nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "removed all messages") {
+		t.Fatalf("validatePostHookContext() error = %v, want empty-message error", err)
+	}
+}
+
+func TestValidatePostHookContextReportsCompactionFailure(t *testing.T) {
+	messages := []providers.Message{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: "small request"},
+		{Role: "assistant", Content: strings.Repeat("oversized hook payload ", 1000)},
+	}
+	provider := &sequenceProvider{errors: []error{errors.New("summary unavailable")}}
+
+	_, _, err := validatePostHookContext(
+		context.Background(),
+		provider,
+		"test-model",
+		messages,
+		1,
+		800,
+		100,
+		nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "expanded context beyond budget") {
+		t.Fatalf("validatePostHookContext() error = %v, want explicit compaction failure", err)
+	}
+	if provider.callCount != 1 {
+		t.Fatalf("provider call count = %d, want one compaction attempt", provider.callCount)
 	}
 }

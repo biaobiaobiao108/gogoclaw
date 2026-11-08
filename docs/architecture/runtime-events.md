@@ -97,6 +97,8 @@ The table below lists the current runtime event kinds, when they are emitted, an
 | `agent.tool.exec_start` | Before the agent executes a tool call. | `tool`, `args_count`; full arguments are not logged by default |
 | `agent.tool.exec_end` | After a tool call completes, including successful results, tool errors, and async results. | `tool`, `duration_ms`, `for_llm_len`, `for_user_len`, `is_error`, `async` |
 | `agent.tool.exec_skipped` | A tool call is skipped because the tool is unavailable, arguments are invalid, or turn control logic requires skipping it. | `tool`, `reason` |
+| `agent.approval.requested` | A configured tool or hook requires a human decision before execution. | `approval_id`, `tool`, `tool_call_id`, `status` |
+| `agent.approval.resolved` | A human approval request is approved, denied, expired, or canceled. | `approval_id`, `tool`, `tool_call_id`, `status`, `scope`, `reason` |
 | `agent.steering.injected` | Queued steering messages are injected into the next LLM context. | `count`, `total_content_len` |
 | `agent.follow_up.queued` | An async tool result is queued back into the inbound/follow-up flow. | `source_tool`, `content_len` |
 | `agent.interrupt.received` | A turn accepts steering, graceful interrupt, or hard-abort input. | `interrupt_kind`, `role`, `content_len`, `queue_depth`, `hint_len` |
@@ -149,6 +151,7 @@ The table below lists the current runtime event kinds, when they are emitted, an
 | `mcp.server.connected` | An MCP server connects and its tool list has been initialized. | `server`, `type`, `url`, `command`, `tool_count` |
 | `mcp.server.failed` | An MCP server connection fails, or the manager is closed before connecting. | `server`, `type`, `url`, `command`, `error`; severity is `error` |
 | `mcp.tool.discovered` | A tool from an MCP server is discovered and registered. | `server`, `type`, `url`, `command`, `tool` |
+| `mcp.tool.list_changed` | The server publishes a changed tool list and the manager refreshes its cached tools. | `server`, `type`, `url`, `command`, `tool_count` |
 | `mcp.tool.call.start` | The MCP tool wrapper starts a remote tool call. | `server`, `tool`; when emitted inside an agent turn, scope includes turn/chat information |
 | `mcp.tool.call.end` | The MCP tool wrapper finishes a remote tool call, including failures. | `server`, `tool`, `duration_ms`, `is_error`, `error` |
 

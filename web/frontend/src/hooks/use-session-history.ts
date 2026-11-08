@@ -20,7 +20,9 @@ export function useSessionHistory({
   const [offset, setOffset] = useState(0)
   const [hasMore, setHasMore] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  const [deleteError, setDeleteError] = useState(false)
 
   const loadSessions = useCallback(
     async (reset = true) => {
@@ -28,6 +30,8 @@ export function useSessionHistory({
         const currentOffset = reset ? 0 : offset
         if (reset) {
           setLoadError(false)
+          setIsLoading(true)
+          setDeleteError(false)
           setHasMore(true)
           setOffset(0)
         }
@@ -57,6 +61,7 @@ export function useSessionHistory({
           setHasMore(false)
         }
       } finally {
+        setIsLoading(false)
         setIsLoadingMore(false)
       }
     },
@@ -88,6 +93,7 @@ export function useSessionHistory({
   const handleDeleteSession = useCallback(
     async (id: string) => {
       try {
+        setDeleteError(false)
         const deletedLoadedSession = sessions.some(
           (session) => session.id === id,
         )
@@ -101,6 +107,7 @@ export function useSessionHistory({
         }
       } catch (err) {
         console.error("Failed to delete session:", err)
+        setDeleteError(true)
       }
     },
     [activeSessionId, onDeletedActiveSession, sessions],
@@ -110,6 +117,8 @@ export function useSessionHistory({
     sessions,
     hasMore,
     loadError,
+    isLoading,
+    deleteError,
     loadErrorMessage: t("chat.historyLoadFailed"),
     observerRef,
     loadSessions,

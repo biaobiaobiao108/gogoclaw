@@ -278,6 +278,91 @@ func TestValidateToolArgs(t *testing.T) {
 			schema: map[string]any{},
 			args:   map[string]any{"foo": "bar"},
 		},
+		{
+			name: "anyOf accepts matching alternative",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"value": map[string]any{"anyOf": []any{
+						map[string]any{"type": "string", "minLength": float64(3)},
+						map[string]any{"type": "integer"},
+					}},
+				},
+			},
+			args: map[string]any{"value": "abc"},
+		},
+		{
+			name: "oneOf rejects multiple matches",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"value": map[string]any{"oneOf": []any{
+						map[string]any{"type": "string"},
+						map[string]any{"minLength": float64(0)},
+					}},
+				},
+			},
+			args:    map[string]any{"value": "abc"},
+			wantErr: "does not match oneOf",
+		},
+		{
+			name: "const rejects different value",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"mode": map[string]any{"const": "strict"},
+				},
+			},
+			args:    map[string]any{"mode": "loose"},
+			wantErr: "expected constant strict",
+		},
+		{
+			name: "string length and pattern constraints pass",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"slug": map[string]any{
+						"type":      "string",
+						"minLength": float64(3),
+						"maxLength": float64(12),
+						"pattern":   "^[a-z-]+$",
+					},
+				},
+			},
+			args: map[string]any{"slug": "pico-claw"},
+		},
+		{
+			name: "string maxLength counts unicode characters",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"title": map[string]any{"type": "string", "maxLength": float64(2)},
+				},
+			},
+			args: map[string]any{"title": "皮皮"},
+		},
+		{
+			name: "numeric minimum rejects value below range",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"count": map[string]any{"type": "integer", "minimum": float64(1), "maximum": float64(10)},
+				},
+			},
+			args:    map[string]any{"count": float64(0)},
+			wantErr: "below minimum",
+		},
+		{
+			name: "numeric maximum rejects value above range",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"ratio": map[string]any{"type": "number", "maximum": float64(1)},
+				},
+			},
+			args:    map[string]any{"ratio": 1.5},
+			wantErr: "above maximum",
+		},
 	}
 
 	for _, tc := range tests {

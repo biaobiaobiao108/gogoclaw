@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -379,6 +380,7 @@ type HTTPError struct {
 	ContentType string
 	APIBase     string
 	IsHTML      bool
+	RetryAfter  time.Duration
 }
 
 func (e *HTTPError) Error() string {
@@ -416,7 +418,24 @@ func HandleErrorResponse(resp *http.Response, apiBase string) error {
 		BodyPreview: ResponsePreview(body, 128),
 		ContentType: contentType,
 		APIBase:     apiBase,
+		RetryAfter:  parseRetryAfter(resp.Header.Get("Retry-After")),
 	}
+}
+
+func parseRetryAfter(raw string) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(raw); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if when, err := http.ParseTime(raw); err == nil {
+		if delay := time.Until(when); delay > 0 {
+			return delay
+		}
+	}
+	return 0
 }
 
 // ReadAndParseResponse peeks at the response body to detect HTML errors,

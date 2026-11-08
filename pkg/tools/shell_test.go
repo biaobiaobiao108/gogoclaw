@@ -1000,6 +1000,19 @@ func TestShellTool_Background_ReturnsImmediately(t *testing.T) {
 	require.Contains(t, result.ForLLM, "sessionId")
 }
 
+func TestShellTool_BooleanFlagsDeclaredAsBoolean(t *testing.T) {
+	tool, err := NewExecTool("", false)
+	require.NoError(t, err)
+
+	properties := tool.Parameters()["properties"].(map[string]any)
+	for _, name := range []string{"background", "pty"} {
+		property := properties[name].(map[string]any)
+		if property["type"] != "boolean" {
+			t.Fatalf("%s schema type = %v, want boolean", name, property["type"])
+		}
+	}
+}
+
 func TestShellTool_List_Empty(t *testing.T) {
 	tool, err := NewExecTool("", false)
 	require.NoError(t, err)

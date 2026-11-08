@@ -3,15 +3,54 @@ package session
 import (
 	"time"
 
+	"github.com/sipeed/picoclaw/pkg/approval"
+
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
 
 type TurnCheckpoint struct {
-	TurnID    string                `json:"turn_id"`
-	Status    string                `json:"status"`
-	Iteration int                   `json:"iteration"`
-	Tool      string                `json:"tool,omitempty"`
-	Events    []TurnCheckpointEvent `json:"events,omitempty"`
+	TurnID     string                `json:"turn_id"`
+	Status     string                `json:"status"`
+	Iteration  int                   `json:"iteration"`
+	Tool       string                `json:"tool,omitempty"`
+	StartedAt  time.Time             `json:"started_at,omitempty"`
+	UpdatedAt  time.Time             `json:"updated_at,omitempty"`
+	Plan       []TurnPlanStep        `json:"plan,omitempty"`
+	Activities []TurnActivity        `json:"activities,omitempty"`
+	Approval   *approval.Request     `json:"approval,omitempty"`
+	Delivery   *TurnDelivery         `json:"delivery,omitempty"`
+	Events     []TurnCheckpointEvent `json:"events,omitempty"`
+}
+
+// TurnActivity is the durable user-facing execution timeline for a turn.
+// It intentionally stores bounded summaries rather than full tool payloads.
+type TurnActivity struct {
+	ID          string     `json:"id"`
+	Kind        string     `json:"kind"`
+	Status      string     `json:"status"`
+	Title       string     `json:"title"`
+	ToolCallID  string     `json:"tool_call_id,omitempty"`
+	Tool        string     `json:"tool,omitempty"`
+	Detail      string     `json:"detail,omitempty"`
+	Output      string     `json:"output,omitempty"`
+	DurationMS  int64      `json:"duration_ms,omitempty"`
+	ExitCode    *int       `json:"exit_code,omitempty"`
+	Diff        string     `json:"diff,omitempty"`
+	Artifacts   []string   `json:"artifacts,omitempty"`
+	StartedAt   time.Time  `json:"started_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+}
+
+type TurnDelivery struct {
+	ID        string    `json:"id"`
+	Status    string    `json:"status"`
+	Channel   string    `json:"channel,omitempty"`
+	ChatID    string    `json:"chat_id,omitempty"`
+	Content   string    `json:"content,omitempty"`
+	Attempts  int       `json:"attempts,omitempty"`
+	LastError string    `json:"last_error,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type TurnCheckpointEvent struct {

@@ -12,6 +12,8 @@ import (
 	"github.com/sipeed/picoclaw/pkg/providers/messageutil"
 )
 
+const maxStoredTurnHistory = 50
+
 type Session struct {
 	Key         string              `json:"key"`
 	Messages    []providers.Message `json:"messages"`
@@ -27,6 +29,9 @@ func (sm *SessionManager) SetTurnCheckpoint(key string, checkpoint TurnCheckpoin
 	sm.mu.Lock()
 	if previous := sm.sessions[key].Turn; previous.TurnID != "" && previous.TurnID != checkpoint.TurnID {
 		sm.sessions[key].TurnHistory = append(sm.sessions[key].TurnHistory, previous)
+		if overflow := len(sm.sessions[key].TurnHistory) - maxStoredTurnHistory; overflow > 0 {
+			sm.sessions[key].TurnHistory = append([]TurnCheckpoint(nil), sm.sessions[key].TurnHistory[overflow:]...)
+		}
 	}
 	sm.sessions[key].Turn = checkpoint
 	sm.mu.Unlock()

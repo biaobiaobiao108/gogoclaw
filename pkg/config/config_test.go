@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -936,6 +937,48 @@ func TestDefaultConfig_MaxTokens(t *testing.T) {
 
 	if cfg.Agents.Defaults.MaxTokens == 0 {
 		t.Error("MaxTokens should not be zero")
+	}
+}
+
+func TestLoadConfig_DefaultMaxTokensMustBeLessThanContextWindow(t *testing.T) {
+	tests := []struct {
+		name          string
+		maxTokens     int
+		contextWindow int
+		wantErr       bool
+	}{
+		{name: "valid", maxTokens: 4096, contextWindow: 8192},
+		{name: "equal", maxTokens: 4096, contextWindow: 4096, wantErr: true},
+		{name: "greater", maxTokens: 8192, contextWindow: 4096, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			configPath := filepath.Join(t.TempDir(), "config.json")
+			raw := fmt.Sprintf(`{
+				"version": 3,
+				"agents": {
+					"defaults": {
+						"max_tokens": %d,
+						"context_window": %d
+					}
+				}
+			}`, test.maxTokens, test.contextWindow)
+			if err := os.WriteFile(configPath, []byte(raw), 0o644); err != nil {
+				t.Fatalf("WriteFile(configPath): %v", err)
+			}
+
+			_, err := LoadConfig(configPath)
+			if test.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "must be less than context_window") {
+					t.Fatalf("LoadConfig() error = %v, want max_tokens validation error", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadConfig() error: %v", err)
+			}
+		})
 	}
 }
 

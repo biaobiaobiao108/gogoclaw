@@ -83,9 +83,13 @@
     "history": "History",
     "noHistory": "No chat history yet",
     "historyLoadFailed": "Failed to load chat history",
+    "loadingHistory": "Loading chat history",
     "historyOpenFailed": "Failed to open this chat history",
     "loadingMore": "Loading more...",
     "deleteSession": "Delete session",
+    "deleteSessionTitle": "Delete this session?",
+    "deleteSessionDescription": "The conversation “{{title}}” will be permanently deleted.",
+    "deleteSessionFailed": "Failed to delete the session. Try again.",
     "messagesCount": "{{count}} messages",
     "noModel": "Select model",
     "inputDisabled": {
@@ -93,9 +97,34 @@
       "noModel": "No default model configured. Go to Models page to set one."
     },
     "sendMessage": "Send message",
+    "deliverySending": "sending",
+    "deliveryFailed": "send failed",
     "stopTask": "Stop task",
     "taskRunning": "Task running · step {{iteration}}",
     "taskPlan": "Task plan",
+    "approvalRequired": "Tool {{tool}} needs approval before it can continue",
+    "approvalTitle": "Tool approval required",
+    "approvalRiskFallback": "This tool may change the workspace or external state.",
+    "approvalArguments": "Call arguments",
+    "approvalOnce": "Approve once",
+    "approvalSession": "Approve matching calls this session",
+    "approvalDeny": "Deny",
+    "approvalSending": "Submitting…",
+    "approvalSendFailed": "Could not submit the approval decision. Try again.",
+    "activityTimeline": "Execution log",
+    "turnHistory": "Earlier turns",
+    "turnLabel": "Iteration {{iteration}}",
+    "approvalRiskExec": "Runs a command in the current host workspace and may modify files or cause external side effects.",
+    "approvalRiskFiles": "Changes or creates files in the workspace.",
+    "approvalRiskAgent": "Starts another agent or background process with tool access.",
+    "approvalRiskSkill": "Downloads and installs executable instructions into the workspace.",
+    "activityStatus": {
+      "pending": "pending",
+      "running": "running",
+      "completed": "completed",
+      "failed": "failed"
+    },
+    "loadingConversation": "Loading conversation",
     "planStatus": {
       "pending": "Pending",
       "in_progress": "In progress",
@@ -106,6 +135,7 @@
     "continuePrompt": "Continue the interrupted task. Check the current state before repeating any action whose result is unknown.",
     "composeHint": "Press Enter to send, Shift + Enter for a new line",
     "contextTitle": "Context",
+    "contextUsageLabel": "Context usage {{percent}}%",
     "contextDetail": "View Details",
     "contextCompressAt": "Compress at",
     "contextSummarizeAt": "Summarize at",
@@ -132,6 +162,14 @@
     }
   },
   "header": {
+    "home": "PicoClaw console",
+    "docs": "Open documentation",
+    "language": "Change language",
+    "toggleSidebar": "Toggle sidebar",
+    "theme": {
+      "switchToLight": "Switch to light theme",
+      "switchToDark": "Switch to dark theme"
+    },
     "logout": {
       "tooltip": "Sign out",
       "confirm": "Sign out",

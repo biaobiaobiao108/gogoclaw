@@ -97,6 +97,8 @@ PICOCLAW_EVENTS_LOGGING_INCLUDE_PAYLOAD=false
 | `agent.tool.exec_start` | agent 准备执行一个工具调用前 | `tool`, `args_count`; 默认不打印完整参数 |
 | `agent.tool.exec_end` | 工具调用完成后，包括成功、工具错误和 async 结果 | `tool`, `duration_ms`, `for_llm_len`, `for_user_len`, `is_error`, `async` |
 | `agent.tool.exec_skipped` | 工具调用被跳过时，例如工具不可用、参数无效或 turn 控制逻辑要求跳过 | `tool`, `reason` |
+| `agent.approval.requested` | 配置的工具或 hook 在执行前需要人工决定时 | `approval_id`, `tool`, `tool_call_id`, `status` |
+| `agent.approval.resolved` | 人工审批被批准、拒绝、超时或取消时 | `approval_id`, `tool`, `tool_call_id`, `status`, `scope`, `reason` |
 | `agent.steering.injected` | queued steering message 被注入下一轮 LLM 上下文时 | `count`, `total_content_len` |
 | `agent.follow_up.queued` | async 工具结果被重新排入 inbound/follow-up 流程时 | `source_tool`, `content_len` |
 | `agent.interrupt.received` | turn 接受 steering、graceful interrupt 或 hard abort 指令时 | `interrupt_kind`, `role`, `content_len`, `queue_depth`, `hint_len` |
@@ -149,6 +151,7 @@ PICOCLAW_EVENTS_LOGGING_INCLUDE_PAYLOAD=false
 | `mcp.server.connected` | MCP server 连接成功并完成工具列表初始化后 | `server`, `type`, `url`, `command`, `tool_count` |
 | `mcp.server.failed` | MCP server 连接失败，或 manager 已关闭导致无法连接时 | `server`, `type`, `url`, `command`, `error`; severity 为 `error` |
 | `mcp.tool.discovered` | MCP server 的某个工具被发现并注册时 | `server`, `type`, `url`, `command`, `tool` |
+| `mcp.tool.list_changed` | MCP server 通知工具列表变化，manager 完成缓存刷新时 | `server`, `type`, `url`, `command`, `tool_count` |
 | `mcp.tool.call.start` | MCP tool wrapper 开始执行一次远端工具调用前 | `server`, `tool`; 如果在 agent turn 内触发，scope 会带上对应 turn/chat 信息 |
 | `mcp.tool.call.end` | MCP tool wrapper 完成一次远端工具调用后，包括失败结果 | `server`, `tool`, `duration_ms`, `is_error`, `error` |
 

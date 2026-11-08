@@ -15,11 +15,81 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/sipeed/picoclaw/pkg/approval"
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/media"
 )
+
+func TestApprovalRequestAndResponseRoundTrip(t *testing.T) {
+	ch := newTestPicoChannel(t)
+	conn, received, cleanup := newTestPicoWebSocket(t)
+	defer cleanup()
+	pc := &picoConn{id: "approval-conn", conn: conn, sessionID: "approval-session"}
+	ch.addConnForTest(pc)
+
+	responded := make(chan approval.Response, 1)
+	ch.SetApprovalHandler(func(_ context.Context, response approval.Response) error {
+		responded <- response
+		return nil
+	})
+	if err := ch.SendApprovalRequest(context.Background(), approval.Request{
+		ID: "approval-1", ChatID: "pico:approval-session", Tool: "exec",
+		Arguments: map[string]any{"command": "go test ./..."},
+		Status:    approval.StatusPending, RiskSummary: "Runs a command",
+	}); err != nil {
+		t.Fatalf("SendApprovalRequest() error = %v", err)
+	}
+	request := mustReceivePicoMessage(t, received)
+	if request.Type != TypeApprovalRequest || request.Payload["approval_id"] != "approval-1" {
+		t.Fatalf("approval request = %+v", request)
+	}
+
+	ch.handleApprovalRespond(pc, PicoMessage{
+		Type: TypeApprovalRespond,
+		Payload: map[string]any{
+			"approval_id": "approval-1",
+			"approve":     true,
+			"scope":       "session",
+		},
+	})
+	select {
+	case response := <-responded:
+		if !response.Approve || response.Scope != approval.ScopeSession {
+			t.Fatalf("approval response = %+v", response)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("approval handler was not called")
+	}
+	ack := mustReceivePicoMessage(t, received)
+	if ack.Type != TypeApprovalAck {
+		t.Fatalf("approval ack type = %q", ack.Type)
+	}
+	resolved := mustReceivePicoMessage(t, received)
+	if resolved.Type != TypeApprovalResolved {
+		t.Fatalf("approval resolved type = %q", resolved.Type)
+	}
+}
+
+func TestApprovalSessionMappingExpires(t *testing.T) {
+	ch := newTestPicoChannel(t)
+	ch.approvalSessions["approval-expiring"] = "session-1"
+
+	ch.forgetApprovalSession("approval-expiring", "session-1", 20*time.Millisecond)
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		ch.approvalMu.Lock()
+		_, exists := ch.approvalSessions["approval-expiring"]
+		ch.approvalMu.Unlock()
+		if !exists {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("expired approval session mapping was not removed")
+}
 
 func newTestPicoChannel(t *testing.T) *PicoChannel {
 	t.Helper()

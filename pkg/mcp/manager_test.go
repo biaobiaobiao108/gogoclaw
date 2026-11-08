@@ -277,6 +277,7 @@ func TestConnectServerPublishesRuntimeEvents(t *testing.T) {
 		_ context.Context,
 		name string,
 		cfg config.MCPServerConfig,
+		_ func(context.Context, string, *sdkmcp.ClientSession),
 	) (*ServerConnection, error) {
 		if name == "bad" {
 			return nil, fmt.Errorf("connect failed")
@@ -465,7 +466,7 @@ func TestConnectServer_StreamableHTTPRequestResponseMode(t *testing.T) {
 				Headers: map[string]string{
 					"Authorization": "Bearer test-token",
 				},
-			})
+			}, nil)
 			if err != nil {
 				t.Fatalf("connectServer(%q) error = %v", transportType, err)
 			}
@@ -565,7 +566,7 @@ func TestCallTool_ReconnectsWhenHTTPServerLosesSession(t *testing.T) {
 	}
 
 	connectCalls := 0
-	connectServerFunc = func(ctx context.Context, name string, cfg config.MCPServerConfig) (*ServerConnection, error) {
+	connectServerFunc = func(ctx context.Context, name string, cfg config.MCPServerConfig, _ func(context.Context, string, *sdkmcp.ClientSession)) (*ServerConnection, error) {
 		connectCalls++
 		if connectCalls == 1 {
 			return freshConn, nil

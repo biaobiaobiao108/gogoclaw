@@ -5,6 +5,7 @@ exact = false
 lockfile = "bun.lock"
 
 [fmt]
+ignorePatterns = ["/src/routeTree.gen.ts"]
 semi = false
 singleQuote = false
 trailingComma = "all"

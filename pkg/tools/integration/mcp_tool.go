@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -449,7 +450,7 @@ func (t *MCPTool) persistLargeTextArtifact(text string) *ToolResult {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return t.largeTextArtifactFallback(text, err)
 	}
-	// TODO: Add lifecycle cleanup/retention for MCP artifact files.
+	pruneMCPArtifacts(dir)
 
 	pattern := fmt.Sprintf(
 		"%s_%s_*.txt",
@@ -477,6 +478,45 @@ func (t *MCPTool) persistLargeTextArtifact(text string) *ToolResult {
 			size,
 		),
 		ArtifactTags: []string{"[file:" + path + "]"},
+	}
+}
+
+func pruneMCPArtifacts(dir string) {
+	const (
+		maxFiles = 100
+		maxAge   = 7 * 24 * time.Hour
+	)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	type artifact struct {
+		path    string
+		modTime time.Time
+	}
+	items := make([]artifact, 0, len(entries))
+	now := time.Now()
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if now.Sub(info.ModTime()) > maxAge {
+			_ = os.Remove(path)
+			continue
+		}
+		items = append(items, artifact{path: path, modTime: info.ModTime()})
+	}
+	if len(items) <= maxFiles {
+		return
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].modTime.Before(items[j].modTime) })
+	for _, item := range items[:len(items)-maxFiles] {
+		_ = os.Remove(item.path)
 	}
 }
 

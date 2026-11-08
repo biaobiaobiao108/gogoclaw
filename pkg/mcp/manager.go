@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -128,11 +129,12 @@ type ServerConnection struct {
 
 // Manager manages multiple MCP server connections
 type Manager struct {
-	servers       map[string]*ServerConnection
-	runtimeEvents runtimeevents.Bus
-	mu            sync.RWMutex
-	closed        atomic.Bool    // changed from bool to atomic.Bool to avoid TOCTOU race
-	wg            sync.WaitGroup // tracks in-flight CallTool calls
+	servers         map[string]*ServerConnection
+	runtimeEvents   runtimeevents.Bus
+	toolListChanged func(context.Context, string, []*mcp.Tool)
+	mu              sync.RWMutex
+	closed          atomic.Bool    // changed from bool to atomic.Bool to avoid TOCTOU race
+	wg              sync.WaitGroup // tracks in-flight CallTool calls
 }
 
 var connectServerFunc = connectServer
@@ -144,6 +146,15 @@ type ManagerOption func(*Manager)
 func WithRuntimeEvents(eventBus runtimeevents.Bus) ManagerOption {
 	return func(m *Manager) {
 		m.runtimeEvents = eventBus
+	}
+}
+
+// WithToolListChanged registers a callback for servers that advertise dynamic
+// tool lists. The callback receives a stable copy after the manager refreshes
+// the server's cached tools.
+func WithToolListChanged(handler func(context.Context, string, []*mcp.Tool)) ManagerOption {
+	return func(m *Manager) {
+		m.toolListChanged = handler
 	}
 }
 
@@ -294,7 +305,7 @@ func (m *Manager) ConnectServer(
 	cfg config.MCPServerConfig,
 ) error {
 	m.publishServerEvent(runtimeevents.KindMCPServerConnecting, name, cfg, 0, nil)
-	conn, err := connectServerFunc(ctx, name, cfg)
+	conn, err := connectServerFunc(ctx, name, cfg, m.handleToolListChanged)
 	if err != nil {
 		m.publishServerEvent(runtimeevents.KindMCPServerFailed, name, cfg, 0, err)
 		return err
@@ -325,6 +336,7 @@ func connectServer(
 	ctx context.Context,
 	name string,
 	cfg config.MCPServerConfig,
+	onToolsChanged func(context.Context, string, *mcp.ClientSession),
 ) (*ServerConnection, error) {
 	logger.InfoCF("mcp", "Connecting to MCP server",
 		map[string]any{
@@ -337,7 +349,14 @@ func connectServer(
 	client := mcp.NewClient(&mcp.Implementation{
 		Name:    "picoclaw",
 		Version: "1.0.0",
-	}, nil)
+	}, &mcp.ClientOptions{
+		ToolListChangedHandler: func(handlerCtx context.Context, req *mcp.ToolListChangedRequest) {
+			session, ok := req.GetSession().(*mcp.ClientSession)
+			if ok && onToolsChanged != nil {
+				onToolsChanged(handlerCtx, name, session)
+			}
+		},
+	})
 
 	// Create transport based on configuration
 	// Auto-detect transport type if not explicitly specified
@@ -503,6 +522,59 @@ func (m *Manager) GetServer(name string) (*ServerConnection, bool) {
 	return conn, ok
 }
 
+func (m *Manager) handleToolListChanged(ctx context.Context, serverName string, session *mcp.ClientSession) {
+	if m == nil || session == nil || m.closed.Load() {
+		return
+	}
+	go func() {
+		refreshCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		m.refreshServerTools(refreshCtx, serverName, session)
+	}()
+}
+
+func (m *Manager) refreshServerTools(ctx context.Context, serverName string, session *mcp.ClientSession) {
+	m.mu.RLock()
+	if m.closed.Load() {
+		m.mu.RUnlock()
+		return
+	}
+	conn, ok := m.servers[serverName]
+	if !ok || conn.Session != session {
+		m.mu.RUnlock()
+		return
+	}
+	m.wg.Add(1)
+	m.mu.RUnlock()
+	defer m.wg.Done()
+
+	tools, err := listServerTools(ctx, serverName, session, session.InitializeResult())
+	if err != nil {
+		m.publishServerEvent(runtimeevents.KindMCPServerFailed, serverName, conn.Config, 0, err)
+		return
+	}
+
+	m.mu.Lock()
+	current, ok := m.servers[serverName]
+	if !ok || current != conn || current.Session != session || m.closed.Load() {
+		m.mu.Unlock()
+		return
+	}
+	conn.Tools = tools
+	handler := m.toolListChanged
+	m.mu.Unlock()
+
+	m.publishServerEvent(runtimeevents.KindMCPToolListChanged, serverName, conn.Config, len(tools), nil)
+	for _, tool := range tools {
+		if tool != nil {
+			m.publishToolDiscovered(serverName, conn.Config, tool.Name)
+		}
+	}
+	if handler != nil {
+		handler(ctx, serverName, append([]*mcp.Tool(nil), tools...))
+	}
+}
+
 // CallTool calls a tool on a specific server
 func (m *Manager) CallTool(
 	ctx context.Context,
@@ -631,7 +703,7 @@ func (m *Manager) reconnectServer(
 		return currentConn, nil
 	}
 
-	freshConn, err := connectServerFunc(ctx, serverName, staleConn.Config)
+	freshConn, err := connectServerFunc(ctx, serverName, staleConn.Config, m.handleToolListChanged)
 	if err != nil {
 		return nil, err
 	}

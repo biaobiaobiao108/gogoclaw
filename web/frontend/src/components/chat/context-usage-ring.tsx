@@ -90,8 +90,18 @@ export function ContextUsageRing({
     >
       <button
         type="button"
+        aria-label={t("chat.contextUsageLabel", { percent })}
+        aria-expanded={intent}
+        aria-controls="context-usage-popover"
+        onClick={() => setIntent((value) => !value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault()
+            setIntent(false)
+          }
+        }}
         onTouchStart={handleTouchStart}
-        className="relative flex h-6 w-6 cursor-pointer items-center justify-center transition-opacity hover:opacity-70"
+        className="focus-visible:ring-ring relative flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition-opacity hover:opacity-70 focus-visible:ring-2 focus-visible:outline-none"
       >
         <svg className="h-6 w-6 -rotate-90" viewBox="0 0 20 20">
           <circle
@@ -121,7 +131,13 @@ export function ContextUsageRing({
 
       {visible && (
         <div
-          className={`bg-popover text-popover-foreground absolute right-0 bottom-full z-50 mb-3 w-[220px] rounded-xl border p-4 shadow-lg transition-all duration-150 ${
+          id="context-usage-popover"
+          role="dialog"
+          aria-label={t("chat.contextTitle")}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setIntent(false)
+          }}
+          className={`bg-popover text-popover-foreground absolute right-0 bottom-full z-50 mb-3 w-[220px] rounded-lg border p-4 shadow-xs transition-[opacity,transform] duration-150 ease-out motion-reduce:transform-none motion-reduce:transition-none ${
             animated
               ? "scale-100 opacity-100"
               : "pointer-events-none scale-95 opacity-0"
@@ -140,7 +156,7 @@ export function ContextUsageRing({
           </div>
           <div className="bg-muted mt-1.5 h-1.5 w-full overflow-hidden rounded-full">
             <div
-              className="h-full rounded-full bg-violet-500 transition-all"
+              className="bg-accent h-full rounded-full transition-[width] duration-150 ease-out motion-reduce:transition-none"
               style={{ width: `${barPercent}%` }}
             />
           </div>
@@ -179,7 +195,7 @@ export function ContextUsageRing({
             type="button"
             onClick={handleDetail}
             disabled={cooldown}
-            className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-violet-600 transition-opacity hover:opacity-70 disabled:opacity-40 dark:text-violet-400"
+            className="text-accent focus-visible:ring-ring mt-3 inline-flex items-center gap-1 rounded-sm text-xs font-medium transition-opacity hover:opacity-70 focus-visible:ring-2 focus-visible:outline-none disabled:opacity-40"
           >
             {t("chat.contextDetail")}
             <IconArrowRight className="h-3 w-3" />

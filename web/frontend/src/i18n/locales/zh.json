@@ -83,9 +83,13 @@
     "history": "历史记录",
     "noHistory": "暂无对话历史",
     "historyLoadFailed": "加载历史记录失败",
+    "loadingHistory": "正在加载历史记录",
     "historyOpenFailed": "打开该历史会话失败",
     "loadingMore": "加载更多...",
     "deleteSession": "删除会话",
+    "deleteSessionTitle": "删除这个会话？",
+    "deleteSessionDescription": "“{{title}}”的对话记录将被永久删除。",
+    "deleteSessionFailed": "删除会话失败，请重试。",
     "messagesCount": "{{count}} 条消息",
     "noModel": "选择模型",
     "inputDisabled": {
@@ -93,9 +97,34 @@
       "noModel": "未设置默认模型，请前往模型页面进行配置。"
     },
     "sendMessage": "发送消息",
+    "deliverySending": "发送中",
+    "deliveryFailed": "发送失败",
     "stopTask": "停止任务",
     "taskRunning": "任务执行中 · 第 {{iteration}} 步",
     "taskPlan": "任务计划",
+    "approvalRequired": "工具 {{tool}} 需要批准后才能继续",
+    "approvalTitle": "需要批准工具调用",
+    "approvalRiskFallback": "该工具可能修改工作区或外部状态。",
+    "approvalArguments": "调用参数",
+    "approvalOnce": "批准一次",
+    "approvalSession": "本会话批准相同调用",
+    "approvalDeny": "拒绝",
+    "approvalSending": "正在提交…",
+    "approvalSendFailed": "提交审批结果失败，请重试。",
+    "activityTimeline": "执行记录",
+    "turnHistory": "历史回合",
+    "turnLabel": "迭代 {{iteration}}",
+    "approvalRiskExec": "在主机的当前工作区中运行命令，可能修改文件或产生外部副作用。",
+    "approvalRiskFiles": "修改或创建工作区中的文件。",
+    "approvalRiskAgent": "启动另一个具有工具访问权限的代理或后台进程。",
+    "approvalRiskSkill": "下载并把可执行指令安装到工作区。",
+    "activityStatus": {
+      "pending": "待处理",
+      "running": "进行中",
+      "completed": "已完成",
+      "failed": "失败"
+    },
+    "loadingConversation": "正在加载对话记录",
     "planStatus": {
       "pending": "待处理",
       "in_progress": "进行中",
@@ -106,6 +135,7 @@
     "continuePrompt": "继续之前中断的任务。对于结果未知的操作，先检查当前状态，再决定是否重试。",
     "composeHint": "按 Enter 发送，Shift + Enter 换行",
     "contextTitle": "上下文",
+    "contextUsageLabel": "上下文使用率 {{percent}}%",
     "contextDetail": "查看详情",
     "contextCompressAt": "压缩阈值",
     "contextSummarizeAt": "摘要阈值",
@@ -132,6 +162,14 @@
     }
   },
   "header": {
+    "home": "PicoClaw 控制台",
+    "docs": "查看文档",
+    "language": "切换语言",
+    "toggleSidebar": "切换侧栏",
+    "theme": {
+      "switchToLight": "切换到浅色主题",
+      "switchToDark": "切换到深色主题"
+    },
     "logout": {
       "tooltip": "退出登录",
       "confirm": "退出登录",

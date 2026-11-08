@@ -1140,6 +1140,7 @@ type ToolsConfig struct {
 	// Default: 8
 	FilterMinLength int                `json:"filter_min_length" yaml:"-"                env:"PICOCLAW_TOOLS_FILTER_MIN_LENGTH"`
 	Web             WebToolsConfig     `json:"web"               yaml:"web,omitempty"`
+	Approval        ApprovalConfig     `json:"approval"           yaml:"approval,omitempty"`
 	Cron            CronToolsConfig    `json:"cron"              yaml:"-"`
 	Exec            ExecConfig         `json:"exec"              yaml:"-"`
 	Skills          SkillsToolsConfig  `json:"skills"            yaml:"skills,omitempty"`
@@ -1163,6 +1164,43 @@ type ToolsConfig struct {
 	Subagent        ToolConfig         `json:"subagent"          yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SUBAGENT_"`
 	WebFetch        ToolConfig         `json:"web_fetch"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_WEB_FETCH_"`
 	WriteFile       ToolConfig         `json:"write_file"        yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_WRITE_FILE_"`
+}
+
+// ApprovalConfig controls which tools pause for a human decision.
+// Approval is opt-in so existing headless deployments keep their behavior.
+type ApprovalConfig struct {
+	Enabled        bool     `json:"enabled,omitempty"`
+	Tools          []string `json:"tools,omitempty"`
+	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`
+}
+
+func (c ApprovalConfig) Requires(tool string) bool {
+	if !c.Enabled {
+		return false
+	}
+	tool = strings.TrimSpace(tool)
+	tools := c.Tools
+	if len(tools) == 0 {
+		tools = []string{"exec", "write_file", "edit_file", "append_file", "spawn", "subagent", "install_skill"}
+	}
+	for _, candidate := range tools {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if candidate == "*" || candidate == tool {
+			return true
+		}
+	}
+	return false
+}
+
+func (c ApprovalConfig) Timeout() time.Duration {
+	seconds := c.TimeoutSeconds
+	if seconds <= 0 {
+		seconds = 30 * 60
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 // IsFilterSensitiveDataEnabled returns true if sensitive data filtering is enabled
@@ -1547,6 +1585,11 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if err = cfg.ValidateTurnProfile(); err != nil {
 		return nil, err
+	}
+	if cfg.Agents.Defaults.ContextWindow > 0 &&
+		cfg.Agents.Defaults.MaxTokens >= cfg.Agents.Defaults.ContextWindow {
+		return nil, fmt.Errorf("agents.defaults.max_tokens (%d) must be less than context_window (%d)",
+			cfg.Agents.Defaults.MaxTokens, cfg.Agents.Defaults.ContextWindow)
 	}
 	cfg.Gateway.Host, err = resolveGatewayHostFromEnv(gatewayHostBeforeEnv)
 	if err != nil {

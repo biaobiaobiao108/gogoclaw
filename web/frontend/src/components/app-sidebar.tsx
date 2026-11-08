@@ -95,7 +95,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         items: [
           {
             title: "navigation.chat",
-            url: "/",
+            url: "/chat",
             icon: IconMessageCircle,
             translateTitle: true,
           },
@@ -254,7 +254,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           </Collapsible>
         ))}
       </SidebarContent>
-      <SidebarRail />
+      <SidebarRail
+        aria-label={t("header.toggleSidebar")}
+        title={t("header.toggleSidebar")}
+      />
     </Sidebar>
   )
 }

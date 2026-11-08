@@ -18,6 +18,9 @@ PicoClaw 的工具配置位于 `config.json` 的 `tools` 字段中。
     "exec": {
       ...
     },
+    "approval": {
+      ...
+    },
     "cron": {
       ...
     },
@@ -38,6 +41,32 @@ PicoClaw 的工具配置位于 `config.json` 的 `tools` 字段中。
 |--------|------|--------|------|
 | `filter_sensitive_data` | bool | `true` | 启用/禁用过滤 |
 | `filter_min_length` | int | `8` | 触发过滤的最小内容长度 |
+
+## 人工审批
+
+人工审批会把指定工具调用暂停，直到用户在 Pico Web 控制台作出决定。该功能默认关闭，避免无界面的部署突然被阻塞。
+
+| 配置项 | 类型 | 默认值 | 描述 |
+|--------|------|--------|------|
+| `enabled` | bool | `false` | 对匹配的工具调用等待人工决定 |
+| `tools` | string[] | 内置高危工具列表 | 精确匹配的工具名；使用 `["*"]` 可审批所有工具 |
+| `timeout_seconds` | int | `1800` | 等待多久后拒绝该调用 |
+
+默认工具列表为 `exec`、`write_file`、`edit_file`、`append_file`、`spawn`、`subagent` 和 `install_skill`。每次请求可以批准一次、在本次会话中批准完全相同的工具参数，或拒绝调用。请求和决定会写入 turn checkpoint，并发布 `agent.approval.*` runtime event。
+
+```json
+{
+  "tools": {
+    "approval": {
+      "enabled": true,
+      "tools": ["exec", "write_file"],
+      "timeout_seconds": 1800
+    }
+  }
+}
+```
+
+如果没有连接审批界面，调用会立即被拒绝，而不会一直等待。审批期间进程重启会让该 turn 进入中断状态，受影响的工具不会被自动重放。
 
 ## Web 工具
 
@@ -265,6 +294,8 @@ LLM 不会加载所有工具，而是获得一个轻量级搜索工具（使用 
 
 > **注意：** 如果 `discovery.enabled` 为 `true`，你**必须**启用至少一个搜索引擎（`use_bm25` 或 `use_regex`），
 > 否则应用程序将无法启动。
+
+声明支持工具列表变化的 MCP server 会在运行时自动刷新。PicoClaw 按 server 和 agent allowlist 对新增、移除的工具做差分注册；被移除的工具会立即从提示词、搜索和执行入口中消失，无需重启网关。
 
 ### 单服务器配置
 

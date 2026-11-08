@@ -18,14 +18,15 @@
   - Light: `oklch(0.985 0.002 90)`
   - Dark: `oklch(0.145 0.005 260)`
 - **Surface (组件面板与工作区)**:
-  - Light: `oklch(1 0 0)` / 边框 `oklch(0.91 0.002 260)`
+  - Light: `oklch(1 0 0)` / 边框 `oklch(0.91 0.004 260)`
   - Dark: `oklch(0.185 0.008 260)` / 边框 `oklch(0.26 0.008 260)`
 - **Accent (功能重点强调)**:
   - Cyan-Amber 工业精密色：`oklch(0.68 0.16 215)`
 - **状态语义色 (Semantic Status)**:
-  - 正常 / 在线 (Online): `oklch(0.70 0.18 145)` [翠绿]
-  - 警告 / 重启中 (Warning): `oklch(0.75 0.16 75)` [琥珀金]
-  - 离线 / 错误 (Error/Destructive): `oklch(0.62 0.22 25)` [朱红]
+  - 正常 / 在线 (Online): Light `oklch(0.52 0.14 145)` / Dark `oklch(0.72 0.16 145)` [翠绿]
+  - 警告 / 重启中 (Warning): Light `oklch(0.58 0.14 75)` / Dark `oklch(0.78 0.15 75)` [琥珀金]
+  - 离线 / 错误 (Error/Destructive): Light `oklch(0.62 0.22 25)` / Dark `oklch(0.65 0.20 25)` [朱红]
+  - CSS 角色：`success` / `warning` / `destructive`，组件不得直接使用 Tailwind 调色板值表达状态。
 
 ## 4. 几何轮廓与圆角 (Radii & Geometry)
 - **面板容器**：统一 `rounded-lg` (8px)。
@@ -41,3 +42,9 @@
   - H2 区块分组标题：`text-xs font-semibold uppercase tracking-wider text-muted-foreground`
   - Body 正文与表单：`text-sm leading-relaxed`
   - Meta 辅助信息：`text-xs text-muted-foreground`
+
+## 6. 动效 (Motion)
+- **按压反馈**：`70ms`，控件下移 1px 并缩放至 `0.98`。
+- **释放回弹**：`420ms`，使用轻微过冲的弹簧曲线回到静止状态。
+- **状态过渡**：`140ms ease-out`，用于颜色、边框、透明度与滤镜；禁止为布局属性添加动画。
+- **减少动态**：`prefers-reduced-motion` 下保留状态变化，过渡缩短至 `1ms`。

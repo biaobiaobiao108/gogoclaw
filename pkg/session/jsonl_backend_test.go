@@ -2,6 +2,7 @@ package session_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -119,6 +120,42 @@ func TestTurnCheckpointPersistsAcrossReopen(t *testing.T) {
 	meta, err = store.GetSessionMeta(context.Background(), "session")
 	if err != nil || len(meta.Turn) != 0 || len(meta.TurnHistory) != 0 {
 		t.Fatalf("turn history not cleared: %+v, err = %v", meta, err)
+	}
+}
+
+func TestTurnHistoryIsBounded(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	backend := session.NewJSONLBackend(store)
+	const wantHistory = 50
+
+	for i := 0; i < wantHistory+5; i++ {
+		if err := backend.SetTurnCheckpoint("session", session.TurnCheckpoint{
+			TurnID: fmt.Sprintf("turn-%d", i),
+			Status: "completed",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	meta, err := store.GetSessionMeta(context.Background(), "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(meta.TurnHistory) != wantHistory {
+		t.Fatalf("turn history length = %d, want %d", len(meta.TurnHistory), wantHistory)
+	}
+	var first struct {
+		TurnID string `json:"turn_id"`
+	}
+	if err := json.Unmarshal(meta.TurnHistory[0], &first); err != nil {
+		t.Fatal(err)
+	}
+	if first.TurnID != "turn-4" {
+		t.Fatalf("oldest retained turn = %q, want turn-4", first.TurnID)
 	}
 }
 

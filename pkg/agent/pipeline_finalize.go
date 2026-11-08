@@ -92,8 +92,14 @@ func (p *Pipeline) Finalize(
 			modelName: exec.llmModelName,
 		})
 		msg.ContextUsage = contextUsage
-		markFinalOutbound(&msg)
-		_ = al.bus.PublishOutbound(turnCtx, msg)
+		if err := al.publishTrackedOutbound(turnCtx, ts.sessionKey, msg); err != nil {
+			ts.setPhase(TurnPhaseCompleted)
+			return turnResult{
+				finalContent: finalContent,
+				status:       TurnEndStatusError,
+				followUps:    append([]bus.InboundMessage(nil), ts.followUps...),
+			}, err
+		}
 	}
 	if streamErr != nil && isConfiguredStreamingVisibleError(streamErr) {
 		ts.setPhase(TurnPhaseCompleted)

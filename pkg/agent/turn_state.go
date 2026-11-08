@@ -207,6 +207,8 @@ type turnState struct {
 	skillContextTrace []SkillContextSnapshot
 	toolKinds         []string
 	toolExecutions    []ToolExecutionRecord
+	activities        []session.TurnActivity
+	activitySeq       int
 	plan              []planStep
 	lastFailedCall    string
 	repeatedFailures  int
@@ -558,6 +560,53 @@ func (ts *turnState) toolExecutionsSnapshot() []ToolExecutionRecord {
 			ErrorSummary: exec.ErrorSummary,
 			SkillNames:   append([]string(nil), exec.SkillNames...),
 		})
+	}
+	return out
+}
+
+func (ts *turnState) startTurnActivity(kind, title, toolCallID, tool, detail string) string {
+	if ts == nil {
+		return ""
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.activitySeq++
+	id := fmt.Sprintf("%s-activity-%d", ts.turnID, ts.activitySeq)
+	ts.activities = append(ts.activities, session.TurnActivity{
+		ID: id, Kind: kind, Status: "running", Title: title,
+		ToolCallID: toolCallID, Tool: tool, Detail: detail, StartedAt: time.Now().UTC(),
+	})
+	return id
+}
+
+func (ts *turnState) finishTurnActivity(id string, update func(*session.TurnActivity)) {
+	if ts == nil || id == "" {
+		return
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	for i := range ts.activities {
+		if ts.activities[i].ID != id {
+			continue
+		}
+		update(&ts.activities[i])
+		now := time.Now().UTC()
+		ts.activities[i].CompletedAt = &now
+		ts.activities[i].DurationMS = now.Sub(ts.activities[i].StartedAt).Milliseconds()
+		return
+	}
+}
+
+func (ts *turnState) activitiesSnapshot() []session.TurnActivity {
+	if ts == nil {
+		return nil
+	}
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	out := make([]session.TurnActivity, 0, len(ts.activities))
+	for _, activity := range ts.activities {
+		activity.Artifacts = append([]string(nil), activity.Artifacts...)
+		out = append(out, activity)
 	}
 	return out
 }

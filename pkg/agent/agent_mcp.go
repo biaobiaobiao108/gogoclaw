@@ -9,7 +9,10 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -18,10 +21,12 @@ import (
 )
 
 type mcpRuntime struct {
-	initOnce sync.Once
-	mu       sync.Mutex
-	manager  *mcp.Manager
-	initErr  error
+	initOnce       sync.Once
+	mu             sync.Mutex
+	manager        *mcp.Manager
+	initErr        error
+	registrationMu sync.Mutex
+	registered     map[string]map[string]map[string]struct{}
 }
 
 func (r *mcpRuntime) reset() *mcp.Manager {
@@ -31,6 +36,9 @@ func (r *mcpRuntime) reset() *mcp.Manager {
 	r.initErr = nil
 	r.initOnce = sync.Once{}
 	r.mu.Unlock()
+	r.registrationMu.Lock()
+	r.registered = nil
+	r.registrationMu.Unlock()
 	return manager
 }
 
@@ -107,7 +115,10 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 	}
 
 	al.mcp.initOnce.Do(func() {
-		mcpManager := mcp.NewManager(mcp.WithRuntimeEvents(al.runtimeEvents))
+		mcpManager := mcp.NewManager(
+			mcp.WithRuntimeEvents(al.runtimeEvents),
+			mcp.WithToolListChanged(al.handleMCPToolListChanged),
+		)
 
 		defaultAgent := al.registry.GetDefaultAgent()
 		workspacePath := al.cfg.WorkspacePath()
@@ -139,70 +150,7 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 
 		for serverName, conn := range servers {
 			uniqueTools += len(conn.Tools)
-
-			// Determine whether this server's tools should be deferred (hidden).
-			// Per-server "deferred" field takes precedence over the global Discovery.Enabled.
-			serverCfg := mcpCfg.Servers[serverName]
-			registerAsHidden := serverIsDeferred(al.cfg.Tools.MCP.Discovery.Enabled, serverCfg)
-			registeredToolsByAgent := make(map[string]map[string]struct{}, len(agentIDs))
-
-			for _, tool := range conn.Tools {
-				for _, agentID := range agentIDs {
-					agent, ok := al.registry.GetAgent(agentID)
-					if !ok {
-						continue
-					}
-					if !agent.AllowsMCPServer(serverName) {
-						logger.DebugCF("agent", "Skipped MCP tool registration by agent mcpServers allowlist",
-							map[string]any{
-								"agent_id": agentID,
-								"server":   serverName,
-								"tool":     tool.Name,
-							})
-						continue
-					}
-
-					mcpTool := tools.NewMCPTool(mcpManager, serverName, tool)
-					toolName := mcpTool.Name()
-					mcpTool.SetWorkspace(agent.Workspace)
-					mcpTool.SetMaxInlineTextRunes(al.cfg.Tools.MCP.GetMaxInlineTextChars())
-					mcpTool.SetEventPublisher(al.runtimeEvents)
-
-					if registerAsHidden {
-						agent.Tools.RegisterHidden(mcpTool)
-					} else {
-						agent.Tools.Register(mcpTool)
-					}
-					if !toolRegistryIncludes(agent.Tools, toolName) {
-						continue
-					}
-
-					recordRegisteredMCPTool(registeredToolsByAgent, agentID, toolName)
-					totalRegistrations++
-					logger.DebugCF("agent", "Registered MCP tool",
-						map[string]any{
-							"agent_id": agentID,
-							"server":   serverName,
-							"tool":     tool.Name,
-							"name":     toolName,
-							"deferred": registerAsHidden,
-						})
-				}
-			}
-
-			for _, agentID := range agentIDs {
-				agent, ok := al.registry.GetAgent(agentID)
-				if !ok {
-					continue
-				}
-				registerMCPServerPromptContributor(
-					agentID,
-					agent,
-					serverName,
-					len(registeredToolsByAgent[agentID]),
-					registerAsHidden,
-				)
-			}
+			totalRegistrations += al.syncMCPToolsForServer(ctx, mcpManager, serverName, conn.Tools)
 		}
 		logger.InfoCF("agent", "MCP tools registered successfully",
 			map[string]any{
@@ -267,6 +215,90 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 	})
 
 	return al.mcp.getInitErr()
+}
+
+func (al *AgentLoop) handleMCPToolListChanged(ctx context.Context, serverName string, tools []*sdkmcp.Tool) {
+	if al == nil {
+		return
+	}
+	registrations := al.syncMCPToolsForServer(ctx, al.mcp.getManager(), serverName, tools)
+	logger.InfoCF("agent", "Refreshed MCP tools after server list change", map[string]any{
+		"server": serverName, "tools": len(tools), "registrations": registrations,
+	})
+}
+
+func (al *AgentLoop) syncMCPToolsForServer(
+	_ context.Context,
+	mcpManager *mcp.Manager,
+	serverName string,
+	serverTools []*sdkmcp.Tool,
+) int {
+	if al == nil || al.registry == nil || strings.TrimSpace(serverName) == "" {
+		return 0
+	}
+	if mcpManager == nil {
+		return 0
+	}
+	serverCfg := al.cfg.Tools.MCP.Servers[serverName]
+	registerAsHidden := serverIsDeferred(al.cfg.Tools.MCP.Discovery.Enabled, serverCfg)
+	toolsByName := make(map[string]*sdkmcp.Tool, len(serverTools))
+	for _, tool := range serverTools {
+		if tool != nil {
+			toolsByName[tools.NewMCPTool(mcpManager, serverName, tool).Name()] = tool
+		}
+	}
+
+	al.mcp.registrationMu.Lock()
+	defer al.mcp.registrationMu.Unlock()
+	if al.mcp.registered == nil {
+		al.mcp.registered = make(map[string]map[string]map[string]struct{})
+	}
+
+	totalRegistrations := 0
+	for _, agentID := range al.registry.ListAgentIDs() {
+		agent, ok := al.registry.GetAgent(agentID)
+		if !ok {
+			continue
+		}
+		previous := al.mcp.registered[agentID][serverName]
+		if !agent.AllowsMCPServer(serverName) {
+			for toolName := range previous {
+				agent.Tools.Unregister(toolName)
+			}
+			if al.mcp.registered[agentID] != nil {
+				delete(al.mcp.registered[agentID], serverName)
+			}
+			continue
+		}
+
+		for toolName := range previous {
+			if _, stillPresent := toolsByName[toolName]; !stillPresent {
+				agent.Tools.Unregister(toolName)
+			}
+		}
+		registeredNames := make(map[string]struct{}, len(toolsByName))
+		for toolName, tool := range toolsByName {
+			mcpTool := tools.NewMCPTool(mcpManager, serverName, tool)
+			mcpTool.SetWorkspace(agent.Workspace)
+			mcpTool.SetMaxInlineTextRunes(al.cfg.Tools.MCP.GetMaxInlineTextChars())
+			mcpTool.SetEventPublisher(al.runtimeEvents)
+			if registerAsHidden {
+				agent.Tools.RegisterHidden(mcpTool)
+			} else {
+				agent.Tools.Register(mcpTool)
+			}
+			if toolRegistryIncludes(agent.Tools, toolName) {
+				registeredNames[toolName] = struct{}{}
+			}
+		}
+		if al.mcp.registered[agentID] == nil {
+			al.mcp.registered[agentID] = make(map[string]map[string]struct{})
+		}
+		al.mcp.registered[agentID][serverName] = registeredNames
+		totalRegistrations += len(registeredNames)
+		registerMCPServerPromptContributor(agentID, agent, serverName, len(registeredNames), registerAsHidden)
+	}
+	return totalRegistrations
 }
 
 func registerMCPServerPromptContributor(

@@ -46,3 +46,102 @@ describe("turn status", () => {
     expect(getChatState().interrupted).toBe(true)
   })
 })
+
+describe("approval messages", () => {
+  test("tracks and clears the pending approval for the current session", () => {
+    updateChatStore({ pendingApproval: undefined })
+    handlePicoMessage(
+      {
+        type: "approval.request",
+        session_id: "current",
+        payload: {
+          approval_id: "approval-1",
+          tool: "exec",
+          arguments: { command: "go test ./..." },
+          risk: "Runs a command",
+        },
+      },
+      "current",
+    )
+    expect(getChatState().pendingApproval).toMatchObject({
+      id: "approval-1",
+      tool: "exec",
+      risk: "Runs a command",
+    })
+
+    handlePicoMessage(
+      {
+        type: "approval.resolved",
+        session_id: "current",
+        payload: { approval_id: "approval-1", approved: true },
+      },
+      "current",
+    )
+    expect(getChatState().pendingApproval).toBeUndefined()
+  })
+
+  test("restores approval metadata from a turn status snapshot", () => {
+    updateChatStore({ pendingApproval: undefined })
+    handlePicoMessage(
+      {
+        type: "turn.status",
+        session_id: "current",
+        payload: {
+          active: true,
+          turn_id: "turn-approval",
+          phase: "awaiting_approval",
+          iteration: 3,
+          approval: {
+            id: "approval-reconnect",
+            tool: "write_file",
+            risk_summary: "Changes files in the workspace.",
+            created_at: "2026-11-08T08:00:00Z",
+            expires_at: "2026-11-08T08:30:00Z",
+          },
+        },
+      },
+      "current",
+    )
+    expect(getChatState().pendingApproval).toMatchObject({
+      id: "approval-reconnect",
+      tool: "write_file",
+      risk: "Changes files in the workspace.",
+      createdAt: Date.parse("2026-11-08T08:00:00Z"),
+      expiresAt: Date.parse("2026-11-08T08:30:00Z"),
+    })
+
+    handlePicoMessage(
+      {
+        type: "turn.status",
+        session_id: "current",
+        payload: { active: false },
+      },
+      "current",
+    )
+    expect(getChatState().pendingApproval).toBeUndefined()
+  })
+
+  test("clears the submitting state when approval submission fails", () => {
+    updateChatStore({
+      isTyping: true,
+      pendingApproval: {
+        id: "approval-failed",
+        tool: "exec",
+        isResponding: true,
+      },
+    })
+    handlePicoMessage(
+      {
+        type: "error",
+        session_id: "current",
+        payload: {
+          request_id: "approval-failed",
+          message: "approval request not found",
+        },
+      },
+      "current",
+    )
+    expect(getChatState().pendingApproval?.isResponding).toBe(false)
+    expect(getChatState().isTyping).toBe(true)
+  })
+})

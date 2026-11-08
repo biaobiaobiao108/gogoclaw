@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -29,11 +30,13 @@ func (h *Handler) registerSessionRoutes(mux *http.ServeMux) {
 
 // sessionFile mirrors the on-disk session JSON structure from pkg/session.
 type sessionFile struct {
-	Key      string              `json:"key"`
-	Messages []providers.Message `json:"messages"`
-	Summary  string              `json:"summary,omitempty"`
-	Created  time.Time           `json:"created"`
-	Updated  time.Time           `json:"updated"`
+	Key         string                   `json:"key"`
+	Messages    []providers.Message      `json:"messages"`
+	Summary     string                   `json:"summary,omitempty"`
+	Created     time.Time                `json:"created"`
+	Updated     time.Time                `json:"updated"`
+	Turn        session.TurnCheckpoint   `json:"turn,omitempty"`
+	TurnHistory []session.TurnCheckpoint `json:"turn_history,omitempty"`
 }
 
 // sessionListItem is a lightweight summary returned by GET /api/sessions.
@@ -44,6 +47,11 @@ type sessionListItem struct {
 	MessageCount int    `json:"message_count"`
 	Created      string `json:"created"`
 	Updated      string `json:"updated"`
+}
+
+type cachedSessionListItem struct {
+	item  sessionListItem
+	stamp string
 }
 
 type sessionChatMessage struct {
@@ -198,12 +206,36 @@ func (h *Handler) readJSONLSession(dir, sessionKey string) (sessionFile, error) 
 	}
 
 	return sessionFile{
-		Key:      meta.Key,
-		Messages: messages,
-		Summary:  meta.Summary,
-		Created:  created,
-		Updated:  updated,
+		Key:         meta.Key,
+		Messages:    messages,
+		Summary:     meta.Summary,
+		Created:     created,
+		Updated:     updated,
+		Turn:        decodeTurnCheckpoint(meta.Turn),
+		TurnHistory: decodeTurnCheckpointHistory(meta.TurnHistory),
 	}, nil
+}
+
+func decodeTurnCheckpoint(raw json.RawMessage) session.TurnCheckpoint {
+	var checkpoint session.TurnCheckpoint
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &checkpoint)
+	}
+	return checkpoint
+}
+
+func decodeTurnCheckpointHistory(raw []json.RawMessage) []session.TurnCheckpoint {
+	if len(raw) == 0 {
+		return nil
+	}
+	items := make([]session.TurnCheckpoint, 0, len(raw))
+	for _, item := range raw {
+		checkpoint := decodeTurnCheckpoint(item)
+		if checkpoint.TurnID != "" {
+			items = append(items, checkpoint)
+		}
+	}
+	return items
 }
 
 type picoJSONLSessionRef struct {
@@ -826,6 +858,7 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := os.ReadDir(dir); err != nil {
 		// Directory doesn't exist yet = no sessions
+		h.pruneSessionListCache(nil)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]sessionListItem{})
 		return
@@ -833,15 +866,26 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 
 	items := []sessionListItem{}
 	seen := make(map[string]struct{})
+	validCacheKeys := make(map[string]struct{})
 
 	if refs, findErr := h.findPicoJSONLSessions(dir); findErr == nil {
 		for _, ref := range refs {
+			base := filepath.Join(dir, sanitizeSessionKey(ref.Key))
+			cacheKey := "jsonl:" + filepath.Clean(dir) + ":" + ref.ID
+			validCacheKeys[cacheKey] = struct{}{}
+			if item, ok := h.cachedSessionListItem(cacheKey, base+".jsonl", base+".meta.json"); ok {
+				seen[ref.ID] = struct{}{}
+				items = append(items, item)
+				continue
+			}
 			sess, loadErr := h.readJSONLSession(dir, ref.Key)
 			if loadErr != nil || isEmptySession(sess) {
 				continue
 			}
 			seen[ref.ID] = struct{}{}
-			items = append(items, buildSessionListItem(ref.ID, sess, toolFeedbackMaxArgsLength))
+			item := buildSessionListItem(ref.ID, sess, toolFeedbackMaxArgsLength)
+			h.storeCachedSessionListItem(cacheKey, item, base+".jsonl", base+".meta.json")
+			items = append(items, item)
 		}
 	}
 
@@ -850,14 +894,24 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			if _, exists := seen[ref.ID]; exists {
 				continue
 			}
+			cacheKey := "legacy:" + filepath.Clean(dir) + ":" + ref.ID
+			validCacheKeys[cacheKey] = struct{}{}
+			if item, ok := h.cachedSessionListItem(cacheKey, ref.Path); ok {
+				seen[ref.ID] = struct{}{}
+				items = append(items, item)
+				continue
+			}
 			sess, loadErr := h.readLegacySession(ref.Path)
 			if loadErr != nil || isEmptySession(sess) {
 				continue
 			}
 			seen[ref.ID] = struct{}{}
-			items = append(items, buildSessionListItem(ref.ID, sess, toolFeedbackMaxArgsLength))
+			item := buildSessionListItem(ref.ID, sess, toolFeedbackMaxArgsLength)
+			h.storeCachedSessionListItem(cacheKey, item, ref.Path)
+			items = append(items, item)
 		}
 	}
+	h.pruneSessionListCache(validCacheKeys)
 
 	// Sort by updated descending (most recent first)
 	sort.Slice(items, func(i, j int) bool {
@@ -947,11 +1001,13 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"id":       sessionID,
-		"messages": messages,
-		"summary":  sess.Summary,
-		"created":  sess.Created.Format(time.RFC3339),
-		"updated":  sess.Updated.Format(time.RFC3339),
+		"id":           sessionID,
+		"messages":     messages,
+		"summary":      sess.Summary,
+		"created":      sess.Created.Format(time.RFC3339),
+		"updated":      sess.Updated.Format(time.RFC3339),
+		"turn":         sess.Turn,
+		"turn_history": sess.TurnHistory,
 	})
 }
 
@@ -1003,4 +1059,51 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func sessionFilesStamp(paths ...string) (string, bool) {
+	var builder strings.Builder
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			return "", false
+		}
+		fmt.Fprintf(&builder, "%s:%d:%d;", path, info.Size(), info.ModTime().UnixNano())
+	}
+	return builder.String(), true
+}
+
+func (h *Handler) cachedSessionListItem(key string, paths ...string) (sessionListItem, bool) {
+	stamp, ok := sessionFilesStamp(paths...)
+	if !ok {
+		return sessionListItem{}, false
+	}
+	h.sessionListMu.Lock()
+	defer h.sessionListMu.Unlock()
+	entry, ok := h.sessionListCache[key]
+	if !ok || entry.stamp != stamp {
+		delete(h.sessionListCache, key)
+		return sessionListItem{}, false
+	}
+	return entry.item, true
+}
+
+func (h *Handler) storeCachedSessionListItem(key string, item sessionListItem, paths ...string) {
+	stamp, ok := sessionFilesStamp(paths...)
+	if !ok {
+		return
+	}
+	h.sessionListMu.Lock()
+	h.sessionListCache[key] = cachedSessionListItem{item: item, stamp: stamp}
+	h.sessionListMu.Unlock()
+}
+
+func (h *Handler) pruneSessionListCache(valid map[string]struct{}) {
+	h.sessionListMu.Lock()
+	defer h.sessionListMu.Unlock()
+	for key := range h.sessionListCache {
+		if _, ok := valid[key]; !ok {
+			delete(h.sessionListCache, key)
+		}
+	}
 }

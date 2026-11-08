@@ -26,6 +26,10 @@ const (
 	KindAgentToolExecEnd Kind = "agent.tool.exec_end"
 	// KindAgentToolExecSkipped is emitted when a tool call is skipped.
 	KindAgentToolExecSkipped Kind = "agent.tool.exec_skipped"
+	// KindAgentApprovalRequested is emitted when a tool needs a human decision.
+	KindAgentApprovalRequested Kind = "agent.approval.requested"
+	// KindAgentApprovalResolved is emitted when a human approval request settles.
+	KindAgentApprovalResolved Kind = "agent.approval.resolved"
 
 	// KindAgentSteeringInjected is emitted when steering is injected into context.
 	KindAgentSteeringInjected Kind = "agent.steering.injected"
@@ -99,6 +103,8 @@ const (
 	KindMCPServerFailed Kind = "mcp.server.failed"
 	// KindMCPToolDiscovered is emitted when an MCP tool is discovered.
 	KindMCPToolDiscovered Kind = "mcp.tool.discovered"
+	// KindMCPToolListChanged is emitted when a server's tool list changes.
+	KindMCPToolListChanged Kind = "mcp.tool.list_changed"
 	// KindMCPToolCallStart is emitted when an MCP tool call starts.
 	KindMCPToolCallStart Kind = "mcp.tool.call.start"
 	// KindMCPToolCallEnd is emitted when an MCP tool call ends.
@@ -117,6 +123,8 @@ var knownKinds = []Kind{
 	KindAgentToolExecStart,
 	KindAgentToolExecEnd,
 	KindAgentToolExecSkipped,
+	KindAgentApprovalRequested,
+	KindAgentApprovalResolved,
 	KindAgentSteeringInjected,
 	KindAgentFollowUpQueued,
 	KindAgentInterruptReceived,
@@ -150,6 +158,7 @@ var knownKinds = []Kind{
 	KindMCPServerConnecting,
 	KindMCPServerFailed,
 	KindMCPToolDiscovered,
+	KindMCPToolListChanged,
 	KindMCPToolCallStart,
 	KindMCPToolCallEnd,
 }

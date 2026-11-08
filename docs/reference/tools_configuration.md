@@ -16,6 +16,9 @@ PicoClaw's tools configuration is located in the `tools` field of `config.json`.
     "exec": {
       ...
     },
+    "approval": {
+      ...
+    },
     "cron": {
       ...
     },
@@ -36,6 +39,32 @@ See [Sensitive Data Filtering](../security/sensitive_data_filtering.md) for full
 |--------|------|---------|-------------|
 | `filter_sensitive_data` | bool | `true` | Enable/disable filtering |
 | `filter_min_length` | int | `8` | Minimum content length to trigger filtering |
+
+## Human Approval
+
+Human approval pauses selected tool calls until a decision is received in the Pico web console. It is disabled by default so headless deployments keep their existing behavior.
+
+| Config | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | bool | `false` | Pause matching tool calls for a human decision |
+| `tools` | string[] | built-in high-risk list | Exact tool names to gate; use `["*"]` to gate every tool |
+| `timeout_seconds` | int | `1800` | How long to wait before denying the call |
+
+The default tool list is `exec`, `write_file`, `edit_file`, `append_file`, `spawn`, `subagent`, and `install_skill`. Each request supports approving once, approving the exact same tool and arguments for the current session, or denying the call. Requests and decisions are stored in the turn checkpoint and published as `agent.approval.*` runtime events.
+
+```json
+{
+  "tools": {
+    "approval": {
+      "enabled": true,
+      "tools": ["exec", "write_file"],
+      "timeout_seconds": 1800
+    }
+  }
+}
+```
+
+If no approval interface is connected, the call is denied immediately instead of waiting forever. A process restart during approval leaves the turn interrupted; the affected tool is not automatically replayed.
 
 ## Web Tools
 
@@ -364,6 +393,8 @@ and injected into the context for a configured number of turns (`ttl`).
 
 > **Note:** If `discovery.enabled` is `true`, you MUST enable at least one search engine (`use_bm25` or `use_regex`),
 > otherwise the application will fail to start.
+
+MCP servers that advertise tool-list changes are refreshed at runtime. PicoClaw reconciles additions and removals per server and per agent allowlist, so removed tools disappear from prompts, search, and execution without restarting the gateway.
 
 ### Per-Server Config
 

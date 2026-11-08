@@ -337,7 +337,17 @@ func (ts *turnState) saveTurnCheckpoint(status, tool string) error {
 	if err != nil {
 		return err
 	}
-	checkpoint := session.TurnCheckpoint{TurnID: ts.turnID, Status: status, Iteration: ts.currentIteration(), Tool: tool}
+	checkpoint := session.TurnCheckpoint{
+		TurnID: ts.turnID, Status: status, Iteration: ts.currentIteration(), Tool: tool,
+		StartedAt: ts.startedAt.UTC(), UpdatedAt: time.Now().UTC(),
+		Activities: ts.activitiesSnapshot(),
+	}
+	if previous.Delivery != nil {
+		checkpoint.Delivery = previous.Delivery
+	}
+	if previous.Approval != nil {
+		checkpoint.Approval = previous.Approval
+	}
 	if previous.TurnID == ts.turnID && !(status == "running" && checkpoint.Iteration == 0) {
 		checkpoint.Events = append(checkpoint.Events, previous.Events...)
 		if status == "failed" || status == "interrupted" {
@@ -348,6 +358,7 @@ func (ts *turnState) saveTurnCheckpoint(status, tool string) error {
 	for _, step := range ts.snapshot().Plan {
 		plan = append(plan, session.TurnPlanStep{Text: step.Text, Status: step.Status})
 	}
+	checkpoint.Plan = plan
 	checkpoint.Events = append(checkpoint.Events, session.TurnCheckpointEvent{Status: status, Iteration: checkpoint.Iteration, Tool: checkpoint.Tool, At: time.Now().UTC(), Plan: plan})
 	return store.SetTurnCheckpoint(ts.sessionKey, checkpoint)
 }

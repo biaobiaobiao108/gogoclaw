@@ -84,7 +84,7 @@ func compactActiveTurn(ctx context.Context, provider providers.LLMProvider, mode
 	}
 	out = append(out, retainedMedia...)
 	if isOverContextBudget(window, out, defs, maxTokens) {
-		return messages, nil
+		return nil, fmt.Errorf("compacted active turn still exceeds context budget")
 	}
 	return out, nil
 }

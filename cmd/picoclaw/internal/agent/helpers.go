@@ -6,14 +6,18 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/ergochat/readline"
 
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
 	"github.com/sipeed/picoclaw/pkg/agent"
 	"github.com/sipeed/picoclaw/pkg/bus"
+	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
@@ -76,7 +80,7 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 
 	if message != "" {
 		ctx := context.Background()
-		response, err := agentLoop.ProcessDirect(ctx, message, sessionKey)
+		response, err := processDirectWithActivity(ctx, agentLoop, message, sessionKey)
 		if err != nil {
 			return fmt.Errorf("error processing message: %w", err)
 		}
@@ -130,7 +134,7 @@ func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 		}
 
 		ctx := context.Background()
-		response, err := agentLoop.ProcessDirect(ctx, input, sessionKey)
+		response, err := processDirectWithActivity(ctx, agentLoop, input, sessionKey)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue
@@ -165,12 +169,91 @@ func simpleInteractiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 		}
 
 		ctx := context.Background()
-		response, err := agentLoop.ProcessDirect(ctx, input, sessionKey)
+		response, err := processDirectWithActivity(ctx, agentLoop, input, sessionKey)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue
 		}
 
 		fmt.Printf("\n%s %s\n\n", internal.Logo, response)
+	}
+}
+
+func processDirectWithActivity(
+	ctx context.Context,
+	agentLoop *agent.AgentLoop,
+	message, sessionKey string,
+) (string, error) {
+	eventCtx, cancelEvents := context.WithCancel(ctx)
+	defer cancelEvents()
+
+	var wg sync.WaitGroup
+	if events := agentLoop.RuntimeEvents(); events != nil {
+		sub, ch, err := events.OfKind(
+			runtimeevents.KindAgentToolExecStart,
+			runtimeevents.KindAgentToolExecEnd,
+			runtimeevents.KindAgentContextCompress,
+			runtimeevents.KindAgentLLMRetry,
+		).SubscribeChan(eventCtx, runtimeevents.SubscribeOptions{Name: "cli-activity", Buffer: 32})
+		if err == nil {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer sub.Close()
+				for {
+					select {
+					case <-eventCtx.Done():
+						return
+					case evt, ok := <-ch:
+						if !ok {
+							return
+						}
+						printActivityEvent(evt)
+					}
+				}
+			}()
+		}
+	}
+
+	interrupts := make(chan os.Signal, 2)
+	signal.Notify(interrupts, os.Interrupt)
+	defer signal.Stop(interrupts)
+	stopSignals := make(chan struct{})
+	go func() {
+		select {
+		case <-interrupts:
+			fmt.Print("\nStopping task… (Ctrl+C again to force)\n")
+			if err := agentLoop.HardAbort(sessionKey); err != nil {
+				fmt.Printf("Stop failed: %v\n", err)
+			}
+		case <-stopSignals:
+		}
+		select {
+		case <-interrupts:
+		case <-stopSignals:
+		}
+	}()
+
+	response, err := agentLoop.ProcessDirect(ctx, message, sessionKey)
+	close(stopSignals)
+	cancelEvents()
+	wg.Wait()
+	return response, err
+}
+
+func printActivityEvent(evt runtimeevents.Event) {
+	switch payload := evt.Payload.(type) {
+	case agent.ToolExecStartPayload:
+		fmt.Printf("\r\x1b[2K  → %s\n", payload.Tool)
+	case agent.ToolExecEndPayload:
+		status := "✓"
+		if payload.IsError {
+			status = "×"
+		}
+		fmt.Printf("  %s %s · %s\n", status, payload.Tool, payload.Duration.Round(time.Millisecond))
+	case agent.ContextCompressPayload:
+		fmt.Printf("  ↻ context compacted · %d messages kept\n", payload.RemainingMessages)
+	case agent.LLMRetryPayload:
+		fmt.Printf("  ↻ retrying model · %s\n", payload.Reason)
 	}
 }

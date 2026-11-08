@@ -97,6 +97,7 @@ func NewAgentLoop(
 	al.providerFactory = providers.CreateProviderFromConfig
 	al.hooks = NewHookManager(al.runtimeEvents.Channel())
 	configureHookManagerFromConfig(al.hooks, cfg)
+	al.humanApprovals = newHumanApprovalManager(cfg.Tools.Approval.Timeout())
 	al.contextManager = al.resolveContextManager()
 
 	// Register shared tools to all agents (now that al is created)

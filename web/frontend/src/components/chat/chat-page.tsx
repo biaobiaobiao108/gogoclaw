@@ -9,6 +9,8 @@ import {
 } from "react"
 import { useTranslation } from "react-i18next"
 
+import { ActivityTimeline } from "@/components/chat/activity-timeline"
+import { ApprovalPanel } from "@/components/chat/approval-panel"
 import { AssistantMessage } from "@/components/chat/assistant-message"
 import {
   ChatComposer,
@@ -92,12 +94,18 @@ export function ChatPage() {
     connectionState,
     isTyping,
     activeTurn,
+    recentActivities,
+    recentPlan,
+    turnHistory,
+    pendingApproval,
     interrupted,
     activeSessionId,
     contextUsage,
     sendMessage,
+    respondToApproval,
     switchSession,
     newChat,
+    isHistoryLoading,
   } = usePicoChat()
 
   const { state: gwState } = useGateway()
@@ -125,6 +133,8 @@ export function ChatPage() {
     hasMore,
     loadError,
     loadErrorMessage,
+    isLoading: isLoadingHistory,
+    deleteError,
     observerRef,
     loadSessions,
     handleDeleteSession,
@@ -151,6 +161,20 @@ export function ChatPage() {
       syncScrollState(scrollRef.current)
     }
   }, [messages, isTyping, isAtBottom])
+
+  useEffect(() => {
+    const preventFileNavigation = (event: globalThis.DragEvent) => {
+      if (Array.from(event.dataTransfer?.types ?? []).includes("Files")) {
+        event.preventDefault()
+      }
+    }
+    window.addEventListener("dragover", preventFileNavigation)
+    window.addEventListener("drop", preventFileNavigation)
+    return () => {
+      window.removeEventListener("dragover", preventFileNavigation)
+      window.removeEventListener("drop", preventFileNavigation)
+    }
+  }, [])
 
   const handleSend = () => {
     if ((!input.trim() && attachments.length === 0) || !canInput) return
@@ -296,6 +320,7 @@ export function ChatPage() {
           size="sm"
           onClick={newChat}
           className="h-8 gap-1.5 px-2.5 text-xs font-medium"
+          aria-label={t("chat.newChat")}
         >
           <IconPlus className="size-3.5" />
           <span className="hidden sm:inline">{t("chat.newChat")}</span>
@@ -307,6 +332,8 @@ export function ChatPage() {
           hasMore={hasMore}
           loadError={loadError}
           loadErrorMessage={loadErrorMessage}
+          isLoading={isLoadingHistory}
+          deleteError={deleteError}
           observerRef={observerRef}
           onOpenChange={(open) => {
             if (open) {
@@ -325,7 +352,21 @@ export function ChatPage() {
         className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-8 lg:px-24 xl:px-48"
       >
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 pb-6">
-          {messages.length === 0 && !isTyping && (
+          {isHistoryLoading && (
+            <div className="space-y-3" aria-busy="true">
+              <span className="sr-only">{t("chat.loadingConversation")}</span>
+              {[72, 88, 56].map((width) => (
+                <div
+                  key={width}
+                  className="bg-muted/50 h-4 animate-pulse rounded motion-reduce:animate-none"
+                  style={{ width: `${width}%` }}
+                  aria-hidden="true"
+                />
+              ))}
+            </div>
+          )}
+
+          {!isHistoryLoading && messages.length === 0 && !isTyping && (
             <ChatEmptyState
               hasAvailableModels={hasAvailableModels}
               defaultModelName={defaultModelName}
@@ -349,12 +390,21 @@ export function ChatPage() {
                   content={msg.content}
                   attachments={msg.attachments}
                   timestamp={msg.timestamp}
+                  deliveryStatus={msg.deliveryStatus}
                 />
               )}
             </div>
           ))}
 
           {isTyping && <TypingIndicator />}
+
+          {!isHistoryLoading && !activeTurn && (
+            <ActivityTimeline
+              plan={recentPlan}
+              activities={recentActivities}
+              history={turnHistory}
+            />
+          )}
         </div>
       </div>
 
@@ -410,6 +460,12 @@ export function ChatPage() {
             {t("chat.continueTask")}
           </Button>
         </div>
+      )}
+      {pendingApproval && (
+        <ApprovalPanel
+          approval={pendingApproval}
+          onRespond={respondToApproval}
+        />
       )}
       <ChatComposer
         input={input}
