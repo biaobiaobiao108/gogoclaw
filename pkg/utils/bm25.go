@@ -107,6 +107,7 @@ type BM25Result[T any] struct {
 // Complexity: O(|Q|×avgPostingLen + candidates × log k) per search after the
 // one-time indexing work performed by NewBM25Engine.
 func (e *BM25Engine[T]) Search(query string, topK int) []BM25Result[T] {
+	topK = min(topK, len(e.corpus))
 	if topK <= 0 {
 		return []BM25Result[T]{}
 	}

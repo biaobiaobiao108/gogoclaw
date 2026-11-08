@@ -188,13 +188,6 @@ func DefaultConfig() *Config {
 				ToolConfig: ToolConfig{
 					Enabled: false,
 				},
-				Discovery: ToolDiscoveryConfig{
-					Enabled:          false,
-					TTL:              5,
-					MaxSearchResults: 5,
-					UseBM25:          true,
-					UseRegex:         false,
-				},
 				MaxInlineTextChars: DefaultMCPMaxInlineTextChars,
 				Servers:            map[string]MCPServerConfig{},
 			},

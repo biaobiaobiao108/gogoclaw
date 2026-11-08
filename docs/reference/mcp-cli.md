@@ -119,10 +119,8 @@ Supported flags:
 | `--header`, `-H` | Add an HTTP header in `Name: Value` or `Name=Value` format. Repeatable. |
 | `--transport`, `-t` | Transport type: `stdio` (default), `http` / `streamable-http`, or `sse`. |
 | `--force`, `-f` | Overwrite an existing server entry without confirmation. |
-| `--deferred` | Mark the server as deferred: tools are hidden and discoverable on demand. |
-| `--no-deferred` | Mark the server as non-deferred: tools are always loaded into context. |
 
-When neither `--deferred` nor `--no-deferred` is passed, the `deferred` field is omitted from the stored config and the global `discovery.enabled` value applies at runtime.
+All enabled servers use automatic tool discovery.
 
 Supported forms:
 
@@ -169,23 +167,6 @@ This stores:
 }
 ```
 
-Adding the same server with `--deferred` stores the extra field:
-
-```bash
-gogoclaw mcp add --deferred sqlite bunx --bun @modelcontextprotocol/server-sqlite --db ./mydb.db
-```
-
-```json
-{
-  "sqlite": {
-    "enabled": true,
-    "type": "stdio",
-    "command": "bunx",
-    "args": ["--bun", "@modelcontextprotocol/server-sqlite", "--db", "./mydb.db"],
-    "deferred": true
-  }
-}
-```
 
 ### Add Command Rules
 
@@ -254,7 +235,6 @@ Output fields:
 | `Type` | Effective transport: `stdio`, `http`, or `sse` |
 | `Command` / `Target` | Stored command line for stdio servers, or URL for remote servers |
 | `Status` | `enabled` / `disabled` by default; with `--status`: `ok (N tools)` or `error` |
-| `Deferred` | `deferred` if the per-server override is `true`; `eager` if `false`; omitted if not set |
 
 Notes:
 
@@ -273,7 +253,7 @@ gogoclaw mcp show <name> --timeout 15s
 
 This connects to the named server and prints:
 
-- server metadata: name, transport type, target, enabled state, deferred override, env var names, env file, header names
+- server metadata: name, transport type, target, enabled state, env var names, env file, header names
 - every tool the server exposes, with its name, description, and parameters (name, type, required/optional, description)
 
 On wide terminals the output is a styled box matching the `mcp list` look. On narrow terminals or non-TTY stdout, plain text is printed instead.
@@ -346,7 +326,7 @@ If `$EDITOR` is not set, the command fails with an explicit error.
 
 For common cases:
 
-1. Add the server with `gogoclaw mcp add` (include `--deferred` if you want tools hidden by default).
+1. Add the server with `gogoclaw mcp add`.
 2. Verify connectivity and inspect the exposed tools with `gogoclaw mcp show <name>`.
 3. Check all servers at a glance with `gogoclaw mcp list --status`.
 4. Start GoGoClaw normally so the configured MCP server is loaded by the host.

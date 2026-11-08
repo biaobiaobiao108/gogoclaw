@@ -45,7 +45,6 @@ const mcpConfigSchemaJSON = `{
           "type": "object",
           "properties": {
             "enabled": { "type": "boolean" },
-            "discovery": { "type": "object", "additionalProperties": true },
             "max_inline_text_chars": { "type": "integer" },
             "servers": {
               "type": "object",
@@ -53,7 +52,6 @@ const mcpConfigSchemaJSON = `{
                 "type": "object",
                 "properties": {
                   "enabled": { "type": "boolean" },
-                  "deferred": { "type": "boolean" },
                   "command": { "type": "string" },
                   "args": {
                     "type": "array",

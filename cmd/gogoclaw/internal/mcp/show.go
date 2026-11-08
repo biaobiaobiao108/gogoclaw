@@ -159,7 +159,7 @@ func newShowCommand() *cobra.Command {
 				return fmt.Errorf("MCP server %q not found", name)
 			}
 
-			serverInfo := buildServerInfo(name, server, cfg.Tools.MCP.Discovery.Enabled)
+			serverInfo := buildServerInfo(name, server)
 
 			if !server.Enabled {
 				cliui.PrintMCPShow(cmd.OutOrStdout(), serverInfo, nil, true)
@@ -202,12 +202,9 @@ func newShowCommand() *cobra.Command {
 	return cmd
 }
 
-func buildServerInfo(name string, server config.MCPServerConfig, discoveryEnabled bool) cliui.MCPShowServer {
-	effectiveDeferred := discoveryEnabled
-	deferredExplicit := server.Deferred != nil
-	if deferredExplicit {
-		effectiveDeferred = *server.Deferred
-	}
+func buildServerInfo(name string, server config.MCPServerConfig) cliui.MCPShowServer {
+	effectiveDeferred := true
+	deferredExplicit := true
 	info := cliui.MCPShowServer{
 		Name:              name,
 		Type:              inferTransportType(server),

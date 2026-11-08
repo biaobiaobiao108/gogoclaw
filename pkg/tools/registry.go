@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -229,11 +228,10 @@ func (r *ToolRegistry) SnapshotHiddenTools() HiddenToolSnapshot {
 	docs := make([]HiddenToolDoc, 0, len(r.tools))
 	for name, entry := range r.tools {
 		if !entry.IsCore {
-			schema, _ := json.Marshal(entry.Tool.Parameters())
 			docs = append(docs, HiddenToolDoc{
 				Name:        name,
 				Description: entry.Tool.Description(),
-				Schema:      string(schema),
+				Schema:      toolSearchSchemaText(entry.Tool.Parameters()),
 			})
 		}
 	}
@@ -251,7 +249,7 @@ func (r *ToolRegistry) Get(name string) (Tool, bool) {
 		return nil, false
 	}
 	// Hidden tools with expired TTL are not callable.
-	if !entry.IsCore && entry.TTL <= 0 {
+	if !entry.IsCore && entry.TTL == 0 {
 		return nil, false
 	}
 	return entry.Tool, true
@@ -400,7 +398,7 @@ func (r *ToolRegistry) GetDefinitions() []map[string]any {
 	for _, name := range sorted {
 		entry := r.tools[name]
 
-		if !entry.IsCore && entry.TTL <= 0 {
+		if !entry.IsCore && entry.TTL == 0 {
 			continue
 		}
 
@@ -420,7 +418,7 @@ func (r *ToolRegistry) ToProviderDefs() []providers.ToolDefinition {
 	for _, name := range sorted {
 		entry := r.tools[name]
 
-		if !entry.IsCore && entry.TTL <= 0 {
+		if !entry.IsCore && entry.TTL == 0 {
 			continue
 		}
 
@@ -505,8 +503,6 @@ func (r *ToolRegistry) Clone() *ToolRegistry {
 		switch t := tool.(type) {
 		case *BM25SearchTool:
 			tool = NewBM25SearchTool(clone, t.ttl, t.maxSearchResults)
-		case *RegexSearchTool:
-			tool = NewRegexSearchTool(clone, t.ttl, t.maxSearchResults)
 		}
 		clone.tools[name] = &ToolEntry{
 			Tool:   tool,
@@ -535,7 +531,7 @@ func (r *ToolRegistry) GetSummaries() []string {
 	for _, name := range sorted {
 		entry := r.tools[name]
 
-		if !entry.IsCore && entry.TTL <= 0 {
+		if !entry.IsCore && entry.TTL == 0 {
 			continue
 		}
 
@@ -559,7 +555,7 @@ func (r *ToolRegistry) GetAll() []Tool {
 		entry := r.tools[name]
 
 		// Include core tools and non-core tools with active TTL
-		if entry.IsCore || entry.TTL > 0 {
+		if entry.IsCore || entry.TTL != 0 {
 			tools = append(tools, entry.Tool)
 		}
 	}

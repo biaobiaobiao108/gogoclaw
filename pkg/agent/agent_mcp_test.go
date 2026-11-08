@@ -39,27 +39,27 @@ func (p *mcpResultCaptureProvider) Chat(ctx context.Context, messages []provider
 
 func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "fixture", Version: "1"}, nil)
-	sdkmcp.AddTool(server, &sdkmcp.Tool{Name: "echo", Description: "Echo a message"},
+	sdkmcp.AddTool(server, &sdkmcp.Tool{Name: "search_notes", Description: "按关键词搜索笔记"},
 		func(_ context.Context, _ *sdkmcp.CallToolRequest, args map[string]any) (*sdkmcp.CallToolResult, any, error) {
-			message, _ := args["message"].(string)
+			message, _ := args["query"].(string)
 			return &sdkmcp.CallToolResult{
 				Content:           []sdkmcp.Content{&sdkmcp.TextContent{Text: message}},
 				StructuredContent: map[string]any{"id": "note-123", "version": 7},
 			}, nil, nil
 		})
+	toolName := agenttools.NewMCPTool(nil, "象映笔记", &sdkmcp.Tool{Name: "search_notes"}).Name()
 	httpServer := httptest.NewServer(sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server }, &sdkmcp.StreamableHTTPOptions{JSONResponse: true}))
 	defer httpServer.Close()
 	provider := &mcpResultCaptureProvider{sequenceProvider: sequenceProvider{responses: []*providers.LLMResponse{
-		{ToolCalls: []providers.ToolCall{{ID: "search", Name: agenttools.BM25SearchToolName, Arguments: map[string]any{"query": "echo message"}}}},
-		{ToolCalls: []providers.ToolCall{{ID: "echo", Name: "mcp_fixture_echo", Arguments: map[string]any{"message": "hello mcp"}}}},
+		{ToolCalls: []providers.ToolCall{{ID: "search", Name: agenttools.BM25SearchToolName, Arguments: map[string]any{"query": "search notes"}}}},
+		{ToolCalls: []providers.ToolCall{{ID: "echo", Name: toolName, Arguments: map[string]any{"query": "常熟阿诺"}}}},
 		{Content: "done"},
 	}}}
 	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
 	defer cleanup()
 	al.cfg.Tools.MCP = config.MCPConfig{
 		ToolConfig: config.ToolConfig{Enabled: true},
-		Discovery:  config.ToolDiscoveryConfig{Enabled: true, UseBM25: true, TTL: 1},
-		Servers:    map[string]config.MCPServerConfig{"fixture": {Enabled: true, Type: "streamable-http", URL: httpServer.URL}},
+		Servers:    map[string]config.MCPServerConfig{"象映笔记": {Enabled: true, Type: "streamable-http", URL: httpServer.URL}},
 	}
 	if err := al.ensureMCPInitialized(context.Background()); err != nil {
 		t.Fatal(err)
@@ -69,19 +69,19 @@ func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	records := ts.toolExecutionsSnapshot()
-	if len(records) != 2 || records[1].Name != "mcp_fixture_echo" || !records[1].Success {
+	if len(records) != 2 || records[1].Name != toolName || !records[1].Success {
 		t.Fatalf("MCP tool did not execute: %+v", records)
 	}
 	found := false
 	for _, msg := range agent.Sessions.GetHistory(ts.sessionKey) {
-		if msg.ToolCallID == "echo" && strings.Contains(msg.Content, "hello mcp") {
+		if msg.ToolCallID == "echo" && strings.Contains(msg.Content, "常熟阿诺") {
 			found = true
 		}
 	}
 	if !found {
 		t.Fatal("MCP response was not saved in the conversation")
 	}
-	if !strings.Contains(provider.result, `"id":"note-123"`) || !strings.Contains(provider.result, `"version":7`) || !strings.Contains(provider.result, "hello mcp") {
+	if !strings.Contains(provider.result, `"id":"note-123"`) || !strings.Contains(provider.result, `"version":7`) || !strings.Contains(provider.result, "常熟阿诺") {
 		t.Fatalf("model did not receive text and structured MCP data: %q", provider.result)
 	}
 }
@@ -151,7 +151,6 @@ func TestSyncMCPToolsForServerHonorsAllowlistAndDeferredMode(t *testing.T) {
 	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
 	defer cleanup()
 	al.cfg.Tools.MCP = config.MCPConfig{
-		Discovery: config.ToolDiscoveryConfig{Enabled: true},
 		Servers: map[string]config.MCPServerConfig{
 			"fixture": {Enabled: true},
 		},
@@ -208,66 +207,6 @@ func TestReloadProviderAndConfig_ResetsMCPRuntime(t *testing.T) {
 	al.mcp.initOnce.Do(func() { reran = true })
 	if !reran {
 		t.Fatal("expected MCP initOnce to be reset after reload")
-	}
-}
-
-func TestServerIsDeferred(t *testing.T) {
-	tests := []struct {
-		name             string
-		discoveryEnabled bool
-		serverDeferred   *bool
-		want             bool
-	}{
-		// --- global false always wins: per-server deferred is ignored ---
-		{
-			name:             "global false: per-server deferred=true is ignored",
-			discoveryEnabled: false,
-			serverDeferred:   boolPtr(true),
-			want:             false,
-		},
-		{
-			name:             "global false: per-server deferred=false stays false",
-			discoveryEnabled: false,
-			serverDeferred:   boolPtr(false),
-			want:             false,
-		},
-		// --- global true: per-server override applies ---
-		{
-			name:             "global true: per-server deferred=false opts out",
-			discoveryEnabled: true,
-			serverDeferred:   boolPtr(false),
-			want:             false,
-		},
-		{
-			name:             "global true: per-server deferred=true stays true",
-			discoveryEnabled: true,
-			serverDeferred:   boolPtr(true),
-			want:             true,
-		},
-		// --- no per-server override: fall back to global ---
-		{
-			name:             "no per-server field, global discovery enabled",
-			discoveryEnabled: true,
-			serverDeferred:   nil,
-			want:             true,
-		},
-		{
-			name:             "no per-server field, global discovery disabled",
-			discoveryEnabled: false,
-			serverDeferred:   nil,
-			want:             false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			serverCfg := config.MCPServerConfig{Deferred: tt.serverDeferred}
-			got := serverIsDeferred(tt.discoveryEnabled, serverCfg)
-			if got != tt.want {
-				t.Errorf("serverIsDeferred(discoveryEnabled=%v, deferred=%v) = %v, want %v",
-					tt.discoveryEnabled, tt.serverDeferred, got, tt.want)
-			}
-		})
 	}
 }
 
@@ -337,19 +276,13 @@ func TestFilterMCPConfigServersCaseInsensitivePreservesOriginalKeys(t *testing.T
 }
 
 func TestAgentHasDiscoverableMCPServers(t *testing.T) {
-	deferredFalse := false
 	cfg := &config.Config{
 		Tools: config.ToolsConfig{
 			MCP: config.MCPConfig{
 				ToolConfig: config.ToolConfig{Enabled: true},
-				Discovery: config.ToolDiscoveryConfig{
-					Enabled:  true,
-					UseBM25:  true,
-					UseRegex: false,
-				},
 				Servers: map[string]config.MCPServerConfig{
 					"github":     {Enabled: true},
-					"filesystem": {Enabled: true, Deferred: &deferredFalse},
+					"filesystem": {Enabled: true},
 				},
 			},
 		},
@@ -377,11 +310,11 @@ func TestAgentHasDiscoverableMCPServers(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "selected server opted out of discovery",
+			name: "selected server uses automatic discovery",
 			allowed: map[string]struct{}{
 				"filesystem": {},
 			},
-			want: false,
+			want: true,
 		},
 		{
 			name: "unknown allowlist server matches nothing",

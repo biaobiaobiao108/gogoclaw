@@ -198,7 +198,6 @@ export function ConfigPage() {
       id: `mcp-${Date.now()}-${nextIndex}`,
       name: "",
       enabled: true,
-      deferredOverride: null,
       type: "stdio",
       url: "",
       command: "",
@@ -292,17 +291,6 @@ export function ConfigPage() {
           throw new Error("Session scope is required.")
         }
 
-        if (
-          form.mcpEnabled &&
-          form.mcpDiscoveryEnabled &&
-          !form.mcpDiscoveryUseBM25 &&
-          !form.mcpDiscoveryUseRegex
-        ) {
-          throw new Error(
-            "MCP discovery requires at least one search method (BM25 or regex).",
-          )
-        }
-
         const maxTokens = parseIntField(form.maxTokens, "Max tokens", {
           min: 1,
         })
@@ -350,28 +338,6 @@ export function ConfigPage() {
           "Evolution minimum success ratio",
           { min: 0.01, max: 1 },
         )
-        const mcpDiscoveryValidationEnabled =
-          form.mcpEnabled && form.mcpDiscoveryEnabled
-        const mcpDiscoveryPatch: Record<string, unknown> = {
-          enabled: form.mcpDiscoveryEnabled,
-          use_bm25: form.mcpDiscoveryUseBM25,
-          use_regex: form.mcpDiscoveryUseRegex,
-        }
-
-        if (mcpDiscoveryValidationEnabled) {
-          mcpDiscoveryPatch.ttl = parseIntField(
-            form.mcpDiscoveryTTL,
-            "MCP discovery ttl",
-            {
-              min: 1,
-            },
-          )
-          mcpDiscoveryPatch.max_search_results = parseIntField(
-            form.mcpDiscoveryMaxSearchResults,
-            "MCP discovery max search results",
-            { min: 1 },
-          )
-        }
         const execConfigPatch: Record<string, unknown> = {
           enabled: form.execEnabled,
         }
@@ -432,7 +398,6 @@ export function ConfigPage() {
           )
 
           const upsertServerEntries = normalizedServers.map((server) => {
-            const deferredPatch = { deferred: server.deferredOverride }
             const baselineServer = baselineServersByName.get(server.name)
             const shouldValidateServer = server.enabled
 
@@ -467,7 +432,6 @@ export function ConfigPage() {
               return [
                 server.name,
                 {
-                  ...deferredPatch,
                   enabled: server.enabled,
                   type: server.type,
                   url: server.url,
@@ -502,7 +466,6 @@ export function ConfigPage() {
             return [
               server.name,
               {
-                ...deferredPatch,
                 enabled: server.enabled,
                 type: "stdio",
                 command: server.command,
@@ -592,7 +555,6 @@ export function ConfigPage() {
             exec: execConfigPatch,
             mcp: {
               enabled: form.mcpEnabled,
-              discovery: mcpDiscoveryPatch,
               servers: mcpServersPatch,
             },
           },

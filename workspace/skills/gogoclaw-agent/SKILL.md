@@ -119,7 +119,7 @@ Skill loading priority is:
 
 ```bash
 gogoclaw mcp add filesystem -- bunx --bun @modelcontextprotocol/server-filesystem /tmp
-gogoclaw mcp add --deferred github --env-file .env.github -- bunx --bun @modelcontextprotocol/server-github
+gogoclaw mcp add github --env-file .env.github -- bunx --bun @modelcontextprotocol/server-github
 gogoclaw mcp list
 gogoclaw mcp list --status
 gogoclaw mcp show github
@@ -231,7 +231,7 @@ Important activation rules:
 | Scheduling | `cron` | Scheduled jobs, reminders, recurring tasks, and command jobs |
 | Skills registry | `find_skills`, `install_skill` | Search and install skills from configured registries |
 | MCP | `mcp_<server>_<tool>` | Tools contributed by connected MCP servers |
-| MCP discovery | `tool_search_tool_bm25`, `tool_search_tool_regex` | Discover deferred hidden MCP tools on demand |
+| MCP discovery | `tool_search` | Discover deferred hidden MCP tools on demand |
 | Hardware | `i2c`, `spi`, `serial` | Hardware access for supported devices and boards |
 | Messaging | `message`, `reaction` | Send outbound messages and reactions through channel integrations |
 | Media | `send_file`, `load_image`, `send_tts` | Send files, load local images into context, generate TTS output |
@@ -680,7 +680,6 @@ GoGoClaw supports always-loaded and deferred MCP tools.
 
 Use:
 
-- `--deferred` when tools should stay hidden until explicitly discovered
 - `gogoclaw mcp show <name>` to inspect active tools
 - `/list mcp` and `/show mcp <server>` from chat channels when debugging live agents
 

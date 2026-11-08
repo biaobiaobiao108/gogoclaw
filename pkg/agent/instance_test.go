@@ -1216,11 +1216,6 @@ mcpServers: []
 		Tools: config.ToolsConfig{
 			MCP: config.MCPConfig{
 				ToolConfig: config.ToolConfig{Enabled: true},
-				Discovery: config.ToolDiscoveryConfig{
-					Enabled:  true,
-					UseBM25:  true,
-					UseRegex: false,
-				},
 				Servers: map[string]config.MCPServerConfig{
 					"github": {Enabled: true},
 				},
@@ -1262,11 +1257,6 @@ mcpServers: [github]
 		Tools: config.ToolsConfig{
 			MCP: config.MCPConfig{
 				ToolConfig: config.ToolConfig{Enabled: true},
-				Discovery: config.ToolDiscoveryConfig{
-					Enabled:  true,
-					UseBM25:  true,
-					UseRegex: false,
-				},
 				Servers: map[string]config.MCPServerConfig{
 					"github": {Enabled: true},
 				},

@@ -268,34 +268,13 @@ Cron 工具用于调度周期性任务。
 
 MCP 工具支持与外部 Model Context Protocol 服务器集成。
 
-### 工具发现（延迟加载）
+### 自动工具发现
 
-当连接多个 MCP 服务器时，同时暴露数百个工具可能会耗尽 LLM 的上下文窗口并增加 API 成本。**Discovery** 功能通过默认*隐藏* MCP 工具来解决此问题。
+启用的 MCP 服务统一按需加载工具。模型通过 `tool_search` 搜索工具元数据，默认最多返回 8 项，可通过 `limit` 调整。命中的工具在当前任务内保持可用；每个任务独立，不会影响其他会话。
 
-LLM 不会加载所有工具，而是获得一个轻量级搜索工具（使用 BM25 关键词匹配或正则表达式）。当 LLM 需要特定功能时，它会搜索隐藏的工具库。匹配的工具随后被临时"解锁"并注入上下文中，持续配置的轮数（`ttl`）。
+工具名中的下划线会拆开用于搜索。例如模型先用 `search notes` 查找工具，再把“常熟阿诺”传给笔记搜索工具。用户无需切换语言。
 
-### 全局配置
-
-| 配置项      | 类型   | 默认值 | 描述                                 |
-|-------------|--------|--------|--------------------------------------|
-| `enabled`   | bool   | false  | 全局启用 MCP 集成                    |
-| `discovery` | object | `{}`   | 工具发现配置（见下文）               |
-| `servers`   | object | `{}`   | 服务器名称到服务器配置的映射         |
-
-### Discovery 配置（`discovery`）
-
-| 配置项               | 类型 | 默认值 | 描述                                                                                                          |
-|----------------------|------|--------|---------------------------------------------------------------------------------------------------------------|
-| `enabled`            | bool | false  | 如果为 true，MCP 工具将被隐藏并按需通过搜索加载。如果为 false，所有工具都会被加载                             |
-| `ttl`                | int  | 5      | 已发现工具保持解锁状态的对话轮数                                                                              |
-| `max_search_results` | int  | 5      | 每次搜索查询返回的最大工具数                                                                                  |
-| `use_bm25`           | bool | true   | 启用自然语言/关键词搜索工具（`tool_search_tool_bm25`）。**警告**：比正则搜索消耗更多资源                       |
-| `use_regex`          | bool | false  | 启用正则模式搜索工具（`tool_search_tool_regex`）                                                              |
-
-> **注意：** 如果 `discovery.enabled` 为 `true`，你**必须**启用至少一个搜索引擎（`use_bm25` 或 `use_regex`），
-> 否则应用程序将无法启动。
-
-声明支持工具列表变化的 MCP server 会在运行时自动刷新。GoGoClaw 按 server 和 agent allowlist 对新增、移除的工具做差分注册；被移除的工具会立即从提示词、搜索和执行入口中消失，无需重启网关。
+不再配置 `discovery`、搜索引擎、TTL 或每个服务的 `deferred` 覆盖。`enabled` 只控制是否启用 MCP 或连接某个服务。
 
 ### 单服务器配置
 
@@ -365,63 +344,7 @@ LLM 不会加载所有工具，而是获得一个轻量级搜索工具（使用 
 }
 ```
 
-#### 3) 启用工具发现的大规模 MCP 设置
 
-*在此示例中，LLM 只会看到 `tool_search_tool_bm25`。它将仅在用户请求时动态搜索并解锁 Github 或 Postgres 工具。*
-
-```json
-{
-  "tools": {
-    "mcp": {
-      "enabled": true,
-      "discovery": {
-        "enabled": true,
-        "ttl": 5,
-        "max_search_results": 5,
-        "use_bm25": true,
-        "use_regex": false
-      },
-      "servers": {
-        "github": {
-          "enabled": true,
-          "command": "bunx",
-          "args": [
-            "--bun",
-            "@modelcontextprotocol/server-github"
-          ],
-          "env": {
-            "GITHUB_PERSONAL_ACCESS_TOKEN": "YOUR_GITHUB_TOKEN"
-          }
-        },
-        "postgres": {
-          "enabled": true,
-          "command": "bunx",
-          "args": [
-            "--bun",
-            "@modelcontextprotocol/server-postgres",
-            "postgresql://user:password@localhost/dbname"
-          ]
-        },
-        "slack": {
-          "enabled": true,
-          "type": "slack",
-          "command": "bunx",
-          "args": [
-            "--bun",
-            "@modelcontextprotocol/server-slack"
-          ],
-          "env": {
-            "SLACK_BOT_TOKEN": "YOUR_SLACK_BOT_TOKEN",
-            "SLACK_TEAM_ID": "YOUR_SLACK_TEAM_ID"
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-<a id="skills-tool"></a>
 ## Skills 工具
 
 Skills 工具配置通过 ClawHub 等注册表进行技能发现和安装。

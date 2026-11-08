@@ -8,10 +8,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 )
 
-type toolDiscoveryPromptContributor struct {
-	useBM25  bool
-	useRegex bool
-}
+type toolDiscoveryPromptContributor struct{}
 
 func (c toolDiscoveryPromptContributor) PromptSource() PromptSourceDescriptor {
 	return PromptSourceDescriptor{
@@ -30,12 +27,10 @@ func (c toolDiscoveryPromptContributor) ContributePrompt(
 	if req.SuppressToolUseRule {
 		return nil, nil
 	}
-	useBM25 := c.useBM25 && promptAllowsTool(req, tools.BM25SearchToolName)
-	useRegex := c.useRegex && promptAllowsTool(req, tools.RegexSearchToolName)
-	if !useBM25 && !useRegex {
+	if !promptAllowsTool(req, tools.BM25SearchToolName) {
 		return nil, nil
 	}
-	content := formatToolDiscoveryRule(useBM25, useRegex)
+	content := formatToolDiscoveryRule()
 	if strings.TrimSpace(content) == "" {
 		return nil, nil
 	}

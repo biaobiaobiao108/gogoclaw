@@ -50,55 +50,61 @@ func setupPopulatedRegistry() *ToolRegistry {
 	return reg
 }
 
-func TestRegexSearchTool_Execute(t *testing.T) {
-	reg := setupPopulatedRegistry()
-	tool := NewRegexSearchTool(reg, 5, 10)
-	ctx := context.Background()
+func TestToolSearchLoadsEnglishNamesForTask(t *testing.T) {
+	parent := NewToolRegistry()
+	parent.RegisterHidden(&mockSearchableTool{name: "mcp_unnamed_list_notebooks_ab12", desc: "[MCP:象映笔记] 列出所有笔记本"})
+	parent.Register(NewToolSearchTool(parent))
+	first, second := parent.Clone(), parent.Clone()
+	result := first.Execute(context.Background(), "tool_search", map[string]any{"query": "list notebooks", "limit": float64(1)})
+	if result.IsError || !strings.Contains(result.ForLLM, "list_notebooks") {
+		t.Fatalf("discovery failed: %+v", result)
+	}
+	for i := 0; i < 20; i++ {
+		first.TickTTL()
+	}
+	if _, ok := first.Get("mcp_unnamed_list_notebooks_ab12"); !ok {
+		t.Fatal("tool disappeared during task")
+	}
+	for _, registry := range []*ToolRegistry{parent, second} {
+		if _, ok := registry.Get("mcp_unnamed_list_notebooks_ab12"); ok {
+			t.Fatal("discovery leaked between tasks")
+		}
+	}
+}
 
-	t.Run("Empty Pattern Error", func(t *testing.T) {
-		res := tool.Execute(ctx, map[string]any{})
-		if !res.IsError || !strings.Contains(res.ForLLM, "Missing or invalid 'pattern'") {
-			t.Errorf("Expected missing pattern error, got: %v", res.ForLLM)
+func TestToolSearchLimit(t *testing.T) {
+	registry := NewToolRegistry()
+	for i := 0; i < 12; i++ {
+		registry.RegisterHidden(&mockSearchableTool{name: fmt.Sprintf("mcp_search_notes_%d", i), desc: "Search notes"})
+	}
+	tool := NewToolSearchTool(registry)
+	for _, tc := range []struct {
+		limit any
+		count int
+	}{{nil, 8}, {float64(2), 2}, {1000000, 12}} {
+		args := map[string]any{"query": "search notes"}
+		if tc.limit != nil {
+			args["limit"] = tc.limit
 		}
-	})
+		result := tool.Execute(context.Background(), args)
+		if result.IsError || !strings.Contains(result.ForLLM, fmt.Sprintf("Found %d tools:", tc.count)) {
+			t.Fatalf("limit %v: %+v", tc.limit, result)
+		}
+	}
+	for _, limit := range []any{nil, 0, -1, 1.5, "2"} {
+		if result := tool.Execute(context.Background(), map[string]any{"query": "search notes", "limit": limit}); !result.IsError {
+			t.Fatalf("accepted invalid limit %v", limit)
+		}
+	}
+}
 
-	t.Run("Invalid Regex Syntax", func(t *testing.T) {
-		res := tool.Execute(ctx, map[string]any{"pattern": "[unclosed"})
-		if !res.IsError || !strings.Contains(res.ForLLM, "Invalid regex pattern syntax") {
-			t.Errorf("Expected regex syntax error, got: %v", res.ForLLM)
-		}
-	})
-
-	t.Run("No Match Found", func(t *testing.T) {
-		res := tool.Execute(ctx, map[string]any{"pattern": "alien"})
-		if res.IsError || !strings.Contains(res.ForLLM, "No tools found matching") {
-			t.Errorf("Expected 'no tools found' message, got: %v", res.ForLLM)
-		}
-	})
-
-	t.Run("Successful Match & Promotion", func(t *testing.T) {
-		res := tool.Execute(ctx, map[string]any{"pattern": "system"})
-
-		if res.IsError {
-			t.Fatalf("Unexpected error: %v", res.ForLLM)
-		}
-		if !strings.Contains(res.ForLLM, "SUCCESS: These tools have been temporarily UNLOCKED") {
-			t.Errorf("Expected success string, got: %v", res.ForLLM)
-		}
-		if !strings.Contains(res.ForLLM, "mcp_read_file") {
-			t.Errorf("Expected 'mcp_read_file' in results")
-		}
-
-		// Verify that the TTL has been updated for the tools found
-		reg.mu.RLock()
-		defer reg.mu.RUnlock()
-		if reg.tools["mcp_read_file"].TTL != 5 {
-			t.Errorf("Expected TTL of 'mcp_read_file' to be promoted to 5, got %d", reg.tools["mcp_read_file"].TTL)
-		}
-		if reg.tools["mcp_fetch_net"].TTL != 0 {
-			t.Errorf("Expected 'mcp_fetch_net' to NOT be promoted (TTL=0)")
-		}
-	})
+func TestToolSearchSchemaMetadata(t *testing.T) {
+	docs := snapshotToSearchDocs(HiddenToolSnapshot{Docs: []HiddenToolDoc{{Name: "mcp_query", Schema: toolSearchSchemaText(map[string]any{
+		"type": "object", "properties": map[string]any{"notebook_id": map[string]any{"description": "Destination notebook identifier"}},
+	})}}})
+	if results := buildBM25Engine(docs).Search("notebook identifier", 1); len(results) != 1 {
+		t.Fatal("parameter names/descriptions were not indexed")
+	}
 }
 
 func TestBM25SearchTool_Execute(t *testing.T) {
@@ -138,104 +144,12 @@ func TestBM25SearchTool_Execute(t *testing.T) {
 	})
 }
 
-func TestDiscoveryInClonedRegistriesIsIsolated(t *testing.T) {
-	for _, bm25 := range []bool{true, false} {
-		name := "regex"
-		if bm25 {
-			name = "bm25"
-		}
-		t.Run(name, func(t *testing.T) {
-			parent := setupPopulatedRegistry()
-			searchName := RegexSearchToolName
-			args := map[string]any{"pattern": "mcp_read_file"}
-			parent.Register(NewRegexSearchTool(parent, 1, 5))
-			if bm25 {
-				searchName = BM25SearchToolName
-				args = map[string]any{"query": "read contents file"}
-				parent.Register(NewBM25SearchTool(parent, 1, 5))
-			}
-			first, second := parent.Clone(), parent.Clone()
-			result := first.Execute(context.Background(), searchName, args)
-			if result.IsError || !strings.Contains(result.ForLLM, "mcp_read_file") {
-				t.Fatalf("discovery failed: %+v", result)
-			}
-			if result := first.Execute(context.Background(), "mcp_read_file", nil); result.IsError {
-				t.Fatalf("discovered tool could not execute: %+v", result)
-			}
-			for _, registry := range []*ToolRegistry{parent, second} {
-				if _, ok := registry.Get("mcp_read_file"); ok {
-					t.Fatal("discovery leaked into another registry")
-				}
-			}
-		})
-	}
-}
-
-func TestRegexSearchTool_PatternTooLong(t *testing.T) {
-	reg := setupPopulatedRegistry()
-	tool := NewRegexSearchTool(reg, 5, 10)
-	ctx := context.Background()
-
-	longPattern := strings.Repeat("a", MaxRegexPatternLength+1)
-	res := tool.Execute(ctx, map[string]any{"pattern": longPattern})
-	if !res.IsError || !strings.Contains(res.ForLLM, "Pattern too long") {
-		t.Errorf("Expected pattern too long error, got: %v", res.ForLLM)
-	}
-}
-
-func TestSearchRegex_ZeroMaxResults(t *testing.T) {
-	reg := setupPopulatedRegistry()
-
-	res, err := reg.SearchRegex("mcp", 0)
-	if err != nil {
-		t.Fatalf("SearchRegex failed: %v", err)
-	}
-	if len(res) != 0 {
-		t.Errorf("Expected 0 results with maxSearchResults=0, got %d", len(res))
-	}
-}
-
 func TestSearchBM25_ZeroMaxResults(t *testing.T) {
 	reg := setupPopulatedRegistry()
 
 	res := reg.SearchBM25("read file", 0)
 	if len(res) != 0 {
 		t.Errorf("Expected 0 results with maxSearchResults=0, got %d", len(res))
-	}
-}
-
-func TestSearchRegex_DeterministicOrder(t *testing.T) {
-	reg := NewToolRegistry()
-	for i := 0; i < 20; i++ {
-		reg.RegisterHidden(&mockSearchableTool{
-			name: fmt.Sprintf("tool_%02d", i),
-			desc: "searchable tool",
-		})
-	}
-
-	// Run the same search multiple times and verify order is stable
-	var firstRun []string
-	for attempt := 0; attempt < 10; attempt++ {
-		res, err := reg.SearchRegex("searchable", 20)
-		if err != nil {
-			t.Fatalf("SearchRegex failed: %v", err)
-		}
-
-		names := make([]string, len(res))
-		for i, r := range res {
-			names[i] = r.Name
-		}
-
-		if attempt == 0 {
-			firstRun = names
-		} else {
-			for i, name := range names {
-				if name != firstRun[i] {
-					t.Fatalf("Non-deterministic order at attempt %d, index %d: got %q, want %q",
-						attempt, i, name, firstRun[i])
-				}
-			}
-		}
 	}
 }
 
@@ -250,24 +164,6 @@ func TestToolRegistry_SearchLimitsAndCoreFiltering(t *testing.T) {
 			desc: "this has a match",
 		})
 	}
-
-	t.Run("Regex limits and core filtering", func(t *testing.T) {
-		// Search with Regex and a limit of maxSearchResults = 4
-		res, err := reg.SearchRegex("match", 4)
-		if err != nil {
-			t.Fatalf("SearchRegex failed: %v", err)
-		}
-
-		if len(res) != 4 {
-			t.Errorf("Expected exactly 4 results due to limit, got %d", len(res))
-		}
-
-		for _, r := range res {
-			if r.Name == "core_match" {
-				t.Errorf("SearchRegex returned a Core tool, which should be excluded")
-			}
-		}
-	})
 
 	t.Run("BM25 limits and core filtering", func(t *testing.T) {
 		// Search with BM25 and a limit of maxSearchResults = 3

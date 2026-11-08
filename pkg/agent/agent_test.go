@@ -3488,8 +3488,6 @@ func TestProcessMessage_MCPCommandsHandledWithoutLLMCall(t *testing.T) {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tmpDir)
-
-	deferred := true
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
@@ -3505,11 +3503,9 @@ func TestProcessMessage_MCPCommandsHandledWithoutLLMCall(t *testing.T) {
 		Tools: config.ToolsConfig{
 			MCP: config.MCPConfig{
 				ToolConfig: config.ToolConfig{Enabled: true},
-				Discovery:  config.ToolDiscoveryConfig{Enabled: true},
 				Servers: map[string]config.MCPServerConfig{
 					"github": {
-						Enabled:  true,
-						Deferred: &deferred,
+						Enabled: true,
 					},
 				},
 			},

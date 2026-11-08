@@ -500,44 +500,6 @@ func TestMCPTestUsesProbe(t *testing.T) {
 	assert.Contains(t, output, `MCP server "filesystem" reachable (2 tools)`)
 }
 
-func TestMCPAddDeferredFlag(t *testing.T) {
-	configPath := setupMCPConfigEnv(t)
-
-	cmd := NewMCPCommand()
-	_, err := executeCommand(cmd, []string{"add", "--deferred", "myserver", "bunx", "my-mcp"}, "")
-	require.NoError(t, err)
-
-	cfg := readMCPConfig(t, configPath)
-	server := cfg.Tools.MCP.Servers["myserver"]
-	require.NotNil(t, server.Deferred)
-	assert.True(t, *server.Deferred)
-}
-
-func TestMCPAddNoDeferredFlag(t *testing.T) {
-	configPath := setupMCPConfigEnv(t)
-
-	cmd := NewMCPCommand()
-	_, err := executeCommand(cmd, []string{"add", "--no-deferred", "myserver", "bunx", "my-mcp"}, "")
-	require.NoError(t, err)
-
-	cfg := readMCPConfig(t, configPath)
-	server := cfg.Tools.MCP.Servers["myserver"]
-	require.NotNil(t, server.Deferred)
-	assert.False(t, *server.Deferred)
-}
-
-func TestMCPAddNoDeferredByDefault(t *testing.T) {
-	configPath := setupMCPConfigEnv(t)
-
-	cmd := NewMCPCommand()
-	_, err := executeCommand(cmd, []string{"add", "myserver", "bunx", "my-mcp"}, "")
-	require.NoError(t, err)
-
-	cfg := readMCPConfig(t, configPath)
-	server := cfg.Tools.MCP.Servers["myserver"]
-	assert.Nil(t, server.Deferred)
-}
-
 func TestMCPShowNotFound(t *testing.T) {
 	configPath := setupMCPConfigEnv(t)
 	writeMCPConfig(t, configPath, nil)

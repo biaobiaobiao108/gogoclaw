@@ -135,14 +135,10 @@ func TestToolRegistry_AllowlistStillAllowsDiscoveryTools(t *testing.T) {
 	r.SetAllowlist([]string{"mcp_github_search"})
 
 	r.Register(newMockTool(BM25SearchToolName, "discover hidden tools"))
-	r.Register(newMockTool(RegexSearchToolName, "discover hidden tools via regex"))
 	r.Register(newMockTool("blocked_tool", "blocked"))
 
 	if _, ok := r.Get(BM25SearchToolName); !ok {
 		t.Fatal("expected BM25 discovery tool to bypass allowlist filtering")
-	}
-	if _, ok := r.Get(RegexSearchToolName); !ok {
-		t.Fatal("expected regex discovery tool to bypass allowlist filtering")
 	}
 	if _, ok := r.Get("blocked_tool"); ok {
 		t.Fatal("blocked_tool should not be registered")

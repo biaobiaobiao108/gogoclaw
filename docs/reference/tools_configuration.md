@@ -355,8 +355,8 @@ The MCP tool enables integration with external Model Context Protocol servers.
 
 If you prefer not to edit JSON manually, GoGoClaw also provides an MCP configuration manager CLI:
 
-- `gogoclaw mcp add` — add or update a server (supports `--deferred` / `--no-deferred`)
-- `gogoclaw mcp list` — list all configured servers with status and deferred state
+- `gogoclaw mcp add` — add or update a server
+- `gogoclaw mcp list` — list all configured servers with status
 - `gogoclaw mcp show <name>` — show full details and the tool list for one server
 - `gogoclaw mcp test <name>` — connectivity check for one server
 - `gogoclaw mcp remove <name>` — remove a server entry
@@ -364,44 +364,19 @@ If you prefer not to edit JSON manually, GoGoClaw also provides an MCP configura
 
 These commands manage the same `tools.mcp.servers` section documented below. See [MCP Server CLI](mcp-cli.md) for command syntax, examples, and behavior details.
 
-### Tool Discovery (Lazy Loading)
+### Automatic Tool Discovery
 
-When connecting to multiple MCP servers, exposing hundreds of tools simultaneously can exhaust the LLM's context window
-and increase API costs. The **Discovery** feature solves this by keeping MCP tools *hidden* by default.
+Enabled MCP servers expose tools on demand through `tool_search`. The default limit is 8; the model can supply `limit`. Selected tools remain available for the current task and are isolated from other tasks.
 
-Instead of loading all tools, the LLM is provided with a lightweight search tool (using BM25 keyword matching or Regex).
-When the LLM needs a specific capability, it searches the hidden library. Matching tools are then temporarily "unlocked"
-and injected into the context for a configured number of turns (`ttl`).
+Search indexes original and underscore-separated tool names, descriptions, and parameter metadata. The model can search for `search notes`, then pass the user's original query to the discovered tool.
 
-### Global Config
-
-| Config      | Type   | Default | Description                                  |
-|-------------|--------|---------|----------------------------------------------|
-| `enabled`   | bool   | false   | Enable MCP integration globally              |
-| `discovery` | object | `{}`    | Configuration for Tool Discovery (see below) |
-| `servers`   | object | `{}`    | Map of server name to server config          |
-
-### Discovery Config (`discovery`)
-
-| Config               | Type | Default | Description                                                                                                                       |
-|----------------------|------|---------|-----------------------------------------------------------------------------------------------------------------------------------|
-| `enabled`            | bool | false   | Global default: if `true`, all MCP tools are hidden and loaded on-demand via search; if `false`, all tools are loaded into context. Individual servers can override this with the per-server `deferred` field. |
-| `ttl`                | int  | 5       | Number of conversational turns a discovered tool remains unlocked                                                                 |
-| `max_search_results` | int  | 5       | Maximum number of tools returned per search query                                                                                 |
-| `use_bm25`           | bool | true    | Enable the natural language/keyword search tool (`tool_search_tool_bm25`). **Warning**: consumes more resources than regex search |
-| `use_regex`          | bool | false   | Enable the regex pattern search tool (`tool_search_tool_regex`)                                                                   |
-
-> **Note:** If `discovery.enabled` is `true`, you MUST enable at least one search engine (`use_bm25` or `use_regex`),
-> otherwise the application will fail to start.
-
-MCP servers that advertise tool-list changes are refreshed at runtime. GoGoClaw reconciles additions and removals per server and per agent allowlist, so removed tools disappear from prompts, search, and execution without restarting the gateway.
+There are no discovery, search-engine, TTL, or per-server deferred overrides. `enabled` only controls whether MCP or an individual server connects. Tool-list changes refresh the catalog and search index automatically.
 
 ### Per-Server Config
 
 | Config     | Type    | Required | Description                                                                                                                                                     |
 |------------|---------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `enabled`  | bool    | yes      | Enable this MCP server                                                                                                                                          |
-| `deferred` | bool    | no       | Override deferred mode for this server only. `true` = tools are hidden and discoverable via search; `false` = tools are always visible in context. When omitted, the global `discovery.enabled` value applies. |
 | `type`     | string  | no       | Transport type: `stdio`, `sse`, `http`                                                                                                                          |
 | `command`  | string  | stdio    | Executable command for stdio transport                                                                                                                          |
 | `args`     | array   | no       | Command arguments for stdio transport                                                                                                                           |
@@ -465,106 +440,6 @@ MCP servers that advertise tool-list changes are refreshed at runtime. GoGoClaw 
 }
 ```
 
-#### 3) Massive MCP setup with Tool Discovery enabled
-
-*In this example, the LLM will only see the `tool_search_tool_bm25`. It will search and unlock Github or Postgres tools
-dynamically only when requested by the user.*
-
-```json
-{
-  "tools": {
-    "mcp": {
-      "enabled": true,
-      "discovery": {
-        "enabled": true,
-        "ttl": 5,
-        "max_search_results": 5,
-        "use_bm25": true,
-        "use_regex": false
-      },
-      "servers": {
-        "github": {
-          "enabled": true,
-          "command": "bunx",
-          "args": [
-            "--bun",
-            "@modelcontextprotocol/server-github"
-          ],
-          "env": {
-            "GITHUB_PERSONAL_ACCESS_TOKEN": "YOUR_GITHUB_TOKEN"
-          }
-        },
-        "postgres": {
-          "enabled": true,
-          "command": "bunx",
-          "args": [
-            "--bun",
-            "@modelcontextprotocol/server-postgres",
-            "postgresql://user:password@localhost/dbname"
-          ]
-        },
-        "slack": {
-          "enabled": true,
-          "type": "slack",
-          "command": "bunx",
-          "args": [
-            "--bun",
-            "@modelcontextprotocol/server-slack"
-          ],
-          "env": {
-            "SLACK_BOT_TOKEN": "YOUR_SLACK_BOT_TOKEN",
-            "SLACK_TEAM_ID": "YOUR_SLACK_TEAM_ID"
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-#### 4) Mixed setup: per-server deferred override
-
-*Discovery is enabled globally, but `filesystem` is pinned as always-visible while `context7` follows the global
-default (deferred). `aws` explicitly opts in to deferred mode even though it is the same as the global default.*
-
-```json
-{
-  "tools": {
-    "mcp": {
-      "enabled": true,
-      "discovery": {
-        "enabled": true,
-        "ttl": 5,
-        "max_search_results": 5,
-        "use_bm25": true
-      },
-      "servers": {
-        "filesystem": {
-          "enabled": true,
-          "command": "bunx",
-          "args": ["--bun", "@modelcontextprotocol/server-filesystem", "/workspace"],
-          "deferred": false
-        },
-        "context7": {
-          "enabled": true,
-          "command": "bunx",
-          "args": ["--bun", "@upstash/context7-mcp"]
-        },
-        "aws": {
-          "enabled": true,
-          "command": "bunx",
-          "args": ["--bun", "aws-mcp-server"],
-          "deferred": true
-        }
-      }
-    }
-  }
-}
-```
-
-> **Tip:** `deferred` on a per-server basis is independent of `discovery.enabled`. You can keep
-> `discovery.enabled: false` globally (all tools visible by default) and still mark individual
-> high-volume servers as `"deferred": true` to avoid polluting the context with their tools.
 
 ## Skills Tool
 

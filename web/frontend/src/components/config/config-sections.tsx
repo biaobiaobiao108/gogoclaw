@@ -554,79 +554,6 @@ export function MCPSection({
 
       {form.mcpEnabled && (
         <>
-          <SwitchCardField
-            label={t("pages.config.mcp_discovery_enabled")}
-            hint={t("pages.config.mcp_discovery_enabled_hint")}
-            layout="setting-row"
-            checked={form.mcpDiscoveryEnabled}
-            onCheckedChange={(checked) =>
-              onFieldChange("mcpDiscoveryEnabled", checked)
-            }
-          />
-
-          {form.mcpDiscoveryEnabled && (
-            <>
-              <Field
-                label={t("pages.config.mcp_discovery_ttl")}
-                hint={t("pages.config.mcp_discovery_ttl_hint")}
-                layout="setting-row"
-              >
-                <Input
-                  type="number"
-                  min={1}
-                  value={form.mcpDiscoveryTTL}
-                  onChange={(e) =>
-                    onFieldChange("mcpDiscoveryTTL", e.target.value)
-                  }
-                />
-              </Field>
-
-              <Field
-                label={t("pages.config.mcp_discovery_max_results")}
-                hint={t("pages.config.mcp_discovery_max_results_hint")}
-                layout="setting-row"
-              >
-                <Input
-                  type="number"
-                  min={1}
-                  value={form.mcpDiscoveryMaxSearchResults}
-                  onChange={(e) =>
-                    onFieldChange(
-                      "mcpDiscoveryMaxSearchResults",
-                      e.target.value,
-                    )
-                  }
-                />
-              </Field>
-
-              <SwitchCardField
-                label={t("pages.config.mcp_discovery_use_bm25")}
-                hint={t("pages.config.mcp_discovery_use_bm25_hint")}
-                layout="setting-row"
-                checked={form.mcpDiscoveryUseBM25}
-                disabled={
-                  form.mcpDiscoveryUseBM25 && !form.mcpDiscoveryUseRegex
-                }
-                onCheckedChange={(checked) =>
-                  onFieldChange("mcpDiscoveryUseBM25", checked)
-                }
-              />
-
-              <SwitchCardField
-                label={t("pages.config.mcp_discovery_use_regex")}
-                hint={t("pages.config.mcp_discovery_use_regex_hint")}
-                layout="setting-row"
-                checked={form.mcpDiscoveryUseRegex}
-                disabled={
-                  form.mcpDiscoveryUseRegex && !form.mcpDiscoveryUseBM25
-                }
-                onCheckedChange={(checked) =>
-                  onFieldChange("mcpDiscoveryUseRegex", checked)
-                }
-              />
-            </>
-          )}
-
           <Field
             label={t("pages.config.mcp_servers")}
             hint={t("pages.config.mcp_servers_hint")}
@@ -696,44 +623,6 @@ export function MCPSection({
                         onServerFieldChange(server.id, "enabled", checked)
                       }
                     />
-
-                    <Select
-                      value={
-                        server.deferredOverride === null
-                          ? "inherit"
-                          : server.deferredOverride
-                            ? "deferred"
-                            : "eager"
-                      }
-                      onValueChange={(value) =>
-                        onServerFieldChange(
-                          server.id,
-                          "deferredOverride",
-                          value === "inherit" ? null : value === "deferred",
-                        )
-                      }
-                    >
-                      <SelectTrigger
-                        aria-label={t("pages.config.mcp_server_discovery_mode")}
-                      >
-                        <SelectValue
-                          placeholder={t(
-                            "pages.config.mcp_server_discovery_mode",
-                          )}
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="inherit">
-                          {t("pages.config.mcp_server_discovery_mode_inherit")}
-                        </SelectItem>
-                        <SelectItem value="deferred">
-                          {t("pages.config.mcp_server_discovery_mode_deferred")}
-                        </SelectItem>
-                        <SelectItem value="eager">
-                          {t("pages.config.mcp_server_discovery_mode_eager")}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
                   </div>
 
                   {server.type !== "stdio" ? (

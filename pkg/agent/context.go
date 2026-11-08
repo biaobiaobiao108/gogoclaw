@@ -48,12 +48,9 @@ type ContextBuilder struct {
 	skillFilesAtCache map[string]time.Time
 }
 
-func (cb *ContextBuilder) WithToolDiscovery(useBM25, useRegex bool) *ContextBuilder {
-	if useBM25 || useRegex {
-		if err := cb.RegisterPromptContributor(toolDiscoveryPromptContributor{
-			useBM25:  useBM25,
-			useRegex: useRegex,
-		}); err != nil {
+func (cb *ContextBuilder) WithToolDiscovery(enabled bool) *ContextBuilder {
+	if enabled {
+		if err := cb.RegisterPromptContributor(toolDiscoveryPromptContributor{}); err != nil {
 			logger.WarnCF(
 				"agent",
 				"Failed to register tool discovery prompt contributor",
@@ -202,23 +199,8 @@ Skills: skills/{skill-name}/SKILL.md
 	)
 }
 
-func formatToolDiscoveryRule(useBM25, useRegex bool) string {
-	if !useBM25 && !useRegex {
-		return ""
-	}
-
-	var toolNames []string
-	if useBM25 {
-		toolNames = append(toolNames, `"tool_search_tool_bm25"`)
-	}
-	if useRegex {
-		toolNames = append(toolNames, `"tool_search_tool_regex"`)
-	}
-
-	return fmt.Sprintf(
-		`5. **Tool Discovery** - Your visible tools are limited to save memory, but a vast hidden library exists. If you lack the right tool for a task, BEFORE giving up, you MUST search using the %s tool. Do not refuse a request unless the search returns nothing. Found tools will temporarily unlock for your next turn.`,
-		strings.Join(toolNames, " or "),
-	)
+func formatToolDiscoveryRule() string {
+	return "5. **Tool Discovery** - MCP tools are loaded on demand. Use tool_search to find the action you need before assuming a capability is unavailable. Search using English tool identifiers and action words (for example, search notes), then pass the user’s original query to the discovered tool. Discovered tools remain available for this task. Use tool_search rather than MCP resource listing tools to discover tools."
 }
 
 func (cb *ContextBuilder) BuildSystemPrompt() string {

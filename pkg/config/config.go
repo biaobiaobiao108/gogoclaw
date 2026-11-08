@@ -744,14 +744,6 @@ func (c *ModelConfig) SetAPIKey(value string) {
 	}
 }
 
-type ToolDiscoveryConfig struct {
-	Enabled          bool `json:"enabled"            env:"GOGOCLAW_TOOLS_DISCOVERY_ENABLED"`
-	TTL              int  `json:"ttl"                env:"GOGOCLAW_TOOLS_DISCOVERY_TTL"`
-	MaxSearchResults int  `json:"max_search_results" env:"GOGOCLAW_MAX_SEARCH_RESULTS"`
-	UseBM25          bool `json:"use_bm25"           env:"GOGOCLAW_TOOLS_DISCOVERY_USE_BM25"`
-	UseRegex         bool `json:"use_regex"          env:"GOGOCLAW_TOOLS_DISCOVERY_USE_REGEX"`
-}
-
 type ToolConfig struct {
 	Enabled bool `json:"enabled" yaml:"-" env:"ENABLED"`
 }
@@ -1157,10 +1149,6 @@ func (c *SkillRegistryConfig) DecodeParam(target any) error {
 type MCPServerConfig struct {
 	// Enabled indicates whether this MCP server is active
 	Enabled bool `json:"enabled"`
-	// Deferred controls whether this server's tools are registered as hidden (deferred/discovery mode).
-	// When nil, the global Discovery.Enabled setting applies.
-	// When explicitly set to true or false, it overrides the global setting for this server only.
-	Deferred *bool `json:"deferred,omitempty"`
 	// Command is the executable to run (e.g., "bunx", "python", "/path/to/server")
 	Command string `json:"command"`
 	// Args are the arguments to pass to the command
@@ -1184,7 +1172,6 @@ type MCPServerConfig struct {
 // MCPConfig defines configuration for all MCP servers
 type MCPConfig struct {
 	ToolConfig `                    envPrefix:"GOGOCLAW_TOOLS_MCP_"`
-	Discovery  ToolDiscoveryConfig `                                json:"discovery"`
 	// MaxInlineTextChars controls how much MCP text stays inline before it is saved as an artifact.
 	MaxInlineTextChars int `json:"max_inline_text_chars,omitempty" env:"GOGOCLAW_TOOLS_MCP_MAX_INLINE_TEXT_CHARS"`
 	// Servers is a map of server name to server configuration

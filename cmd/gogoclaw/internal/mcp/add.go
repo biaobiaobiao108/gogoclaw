@@ -16,7 +16,6 @@ type addOptions struct {
 	Headers   []string
 	Transport string
 	Force     bool
-	Deferred  *bool // nil = not set, true = deferred, false = not deferred
 }
 
 func newAddCommand() *cobra.Command {
@@ -76,8 +75,6 @@ func newAddCommand() *cobra.Command {
 	flags.StringArrayP("header", "H", nil, "HTTP header in 'Name: Value' or 'Name=Value' format (repeatable)")
 	flags.StringP("transport", "t", "stdio", "Transport type: stdio, http / streamable-http, or sse")
 	flags.BoolP("force", "f", false, "Overwrite an existing server without prompting")
-	flags.Bool("deferred", false, "Mark server as deferred (tools hidden until explicitly activated)")
-	flags.Bool("no-deferred", false, "Mark server as non-deferred (tools always active)")
 
 	return cmd
 }
@@ -101,12 +98,6 @@ func parseAddArgs(args []string) (addOptions, string, string, []string, bool, er
 			i = len(args)
 		case arg == "--force" || arg == "-f":
 			opts.Force = true
-		case arg == "--deferred":
-			t := true
-			opts.Deferred = &t
-		case arg == "--no-deferred":
-			f := false
-			opts.Deferred = &f
 		case arg == "--transport" || arg == "-t":
 			if i+1 >= len(args) {
 				return addOptions{}, "", "", nil, false, fmt.Errorf("missing value for %s", arg)
@@ -193,9 +184,8 @@ func buildServerConfig(target string, args []string, opts addOptions) (config.MC
 	}
 
 	server := config.MCPServerConfig{
-		Enabled:  true,
-		Type:     transport,
-		Deferred: opts.Deferred,
+		Enabled: true,
+		Type:    transport,
 	}
 
 	switch transport {

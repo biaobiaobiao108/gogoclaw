@@ -160,54 +160,10 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 				"agent_count":         agentCount,
 			})
 
-		// Initializes Discovery Tools only if enabled by configuration
-		if al.cfg.Tools.MCP.Enabled && al.cfg.Tools.MCP.Discovery.Enabled {
-			useBM25 := al.cfg.Tools.MCP.Discovery.UseBM25
-			useRegex := al.cfg.Tools.MCP.Discovery.UseRegex
-
-			// Fail fast: If discovery is enabled but no search method is turned on
-			if !useBM25 && !useRegex {
-				al.mcp.setInitErr(fmt.Errorf(
-					"tool discovery is enabled but neither 'use_bm25' nor 'use_regex' is set to true in the configuration",
-				))
-				if closeErr := mcpManager.Close(); closeErr != nil {
-					logger.ErrorCF("agent", "Failed to close MCP manager",
-						map[string]any{
-							"error": closeErr.Error(),
-						})
-				}
-				return
-			}
-
-			ttl := al.cfg.Tools.MCP.Discovery.TTL
-			if ttl <= 0 {
-				ttl = 5 // Default value
-			}
-
-			maxSearchResults := al.cfg.Tools.MCP.Discovery.MaxSearchResults
-			if maxSearchResults <= 0 {
-				maxSearchResults = 5 // Default value
-			}
-
-			logger.InfoCF("agent", "Initializing tool discovery", map[string]any{
-				"bm25": useBM25, "regex": useRegex, "ttl": ttl, "max_results": maxSearchResults,
-			})
-
-			for _, agentID := range agentIDs {
-				agent, ok := al.registry.GetAgent(agentID)
-				if !ok {
-					continue
-				}
-				if !agentHasDiscoverableMCPServers(al.cfg, agent.MCPServerAllowlist) {
-					continue
-				}
-
-				if useRegex {
-					agent.Tools.Register(tools.NewRegexSearchTool(agent.Tools, ttl, maxSearchResults))
-				}
-				if useBM25 {
-					agent.Tools.Register(tools.NewBM25SearchTool(agent.Tools, ttl, maxSearchResults))
-				}
+		for _, agentID := range agentIDs {
+			agent, ok := al.registry.GetAgent(agentID)
+			if ok && agentHasDiscoverableMCPServers(al.cfg, agent.MCPServerAllowlist) {
+				agent.Tools.Register(tools.NewToolSearchTool(agent.Tools))
 			}
 		}
 
@@ -239,8 +195,7 @@ func (al *AgentLoop) syncMCPToolsForServer(
 	if mcpManager == nil {
 		return 0
 	}
-	serverCfg := al.cfg.Tools.MCP.Servers[serverName]
-	registerAsHidden := serverIsDeferred(al.cfg.Tools.MCP.Discovery.Enabled, serverCfg)
+	registerAsHidden := true
 	toolsByName := make(map[string]*sdkmcp.Tool, len(serverTools))
 	for _, tool := range serverTools {
 		if tool != nil {
@@ -370,31 +325,16 @@ func filterMCPConfigServers(
 }
 
 func agentHasDiscoverableMCPServers(cfg *config.Config, allowed map[string]struct{}) bool {
-	if cfg == nil || !cfg.Tools.MCP.Enabled || !cfg.Tools.MCP.Discovery.Enabled {
+	if cfg == nil || !cfg.Tools.MCP.Enabled {
 		return false
 	}
 
 	filtered := filterMCPConfigServers(cfg.Tools.MCP, allowed)
 	for _, serverCfg := range filtered.Servers {
-		if serverCfg.Enabled && serverIsDeferred(cfg.Tools.MCP.Discovery.Enabled, serverCfg) {
+		if serverCfg.Enabled {
 			return true
 		}
 	}
 
 	return false
-}
-
-// serverIsDeferred reports whether an MCP server's tools should be registered
-// as hidden (deferred/discovery mode).
-//
-// The per-server Deferred field takes precedence over the global discoveryEnabled
-// default. When Deferred is nil, discoveryEnabled is used as the fallback.
-func serverIsDeferred(discoveryEnabled bool, serverCfg config.MCPServerConfig) bool {
-	if !discoveryEnabled {
-		return false
-	}
-	if serverCfg.Deferred != nil {
-		return *serverCfg.Deferred
-	}
-	return true
 }

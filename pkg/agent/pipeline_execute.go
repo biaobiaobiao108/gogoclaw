@@ -1000,7 +1000,7 @@ toolLoop:
 	// when its configured lifetime is one iteration.
 	discovered := false
 	for _, tc := range normalizedToolCalls {
-		if tc.Name == tools.BM25SearchToolName || tc.Name == tools.RegexSearchToolName {
+		if tc.Name == tools.BM25SearchToolName {
 			discovered = true
 			break
 		}

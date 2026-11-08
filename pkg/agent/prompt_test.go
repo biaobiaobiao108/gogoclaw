@@ -198,11 +198,11 @@ func TestBuildMessagesFromPrompt_AttachesInternalPromptMetadata(t *testing.T) {
 
 func TestContextBuilder_CollectsToolDiscoveryContributor(t *testing.T) {
 	t.Setenv("GOGOCLAW_BUILTIN_SKILLS", t.TempDir())
-	cb := NewContextBuilder(t.TempDir()).WithToolDiscovery(true, false)
+	cb := NewContextBuilder(t.TempDir()).WithToolDiscovery(true)
 
 	messages := cb.BuildMessagesFromPrompt(PromptBuildRequest{CurrentMessage: "hello"})
 	system := messages[0]
-	if !strings.Contains(system.Content, "tool_search_tool_bm25") {
+	if !strings.Contains(system.Content, "tool_search") {
 		t.Fatalf("system prompt missing tool discovery rule: %q", system.Content)
 	}
 
@@ -225,14 +225,14 @@ func TestContextBuilder_CollectsToolDiscoveryContributor(t *testing.T) {
 
 func TestContextBuilder_SuppressesToolDiscoveryContributorWhenToolsUnavailable(t *testing.T) {
 	t.Setenv("GOGOCLAW_BUILTIN_SKILLS", t.TempDir())
-	cb := NewContextBuilder(t.TempDir()).WithToolDiscovery(true, false)
+	cb := NewContextBuilder(t.TempDir()).WithToolDiscovery(true)
 
 	messages := cb.BuildMessagesFromPrompt(PromptBuildRequest{
 		CurrentMessage:      "hello",
 		SuppressToolUseRule: true,
 	})
 	system := messages[0]
-	if strings.Contains(system.Content, "tool_search_tool_bm25") {
+	if strings.Contains(system.Content, "tool_search") {
 		t.Fatalf("system prompt includes tool discovery despite tools being unavailable: %q", system.Content)
 	}
 	for _, part := range system.SystemParts {
@@ -387,7 +387,7 @@ func TestContextBuilder_SuppressesAgentDiscoveryContributorWhenToolsUnavailable(
 func TestContextBuilder_CustomToolAllowListSuppressesUnallowedToolContributors(t *testing.T) {
 	t.Setenv("GOGOCLAW_BUILTIN_SKILLS", t.TempDir())
 	cb := NewContextBuilder(t.TempDir()).
-		WithToolDiscovery(true, true).
+		WithToolDiscovery(true).
 		WithAgentDiscovery(
 			"main",
 			func(agentID string) []AgentDescriptor {
@@ -413,8 +413,7 @@ func TestContextBuilder_CustomToolAllowListSuppressesUnallowedToolContributors(t
 	})
 	system := messages[0]
 	blockedSnippets := []string{
-		"tool_search_tool_bm25",
-		"tool_search_tool_regex",
+		"tool_search",
 		"MCP server `GitHub Server` is connected",
 		"Agent Discovery",
 		"calling spawn",
