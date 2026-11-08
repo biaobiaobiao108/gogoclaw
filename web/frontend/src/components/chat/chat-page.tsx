@@ -1,5 +1,4 @@
 import { IconPlus } from "@tabler/icons-react"
-import { useAtom } from "jotai"
 import {
   type ChangeEvent,
   type ClipboardEvent,
@@ -23,13 +22,6 @@ import { UserMessage } from "@/components/chat/user-message"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
   buildChatImageAttachments,
   CHAT_IMAGE_ACCEPT,
   getTransferredFiles,
@@ -39,15 +31,7 @@ import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
 import { usePicoChat } from "@/hooks/use-pico-chat"
 import { useSessionHistory } from "@/hooks/use-session-history"
-import type {
-  AssistantDetailVisibility,
-  ChatAttachment,
-  ConnectionState,
-} from "@/store/chat"
-import {
-  assistantDetailVisibilityAtom,
-  shouldShowAssistantMessage,
-} from "@/store/chat"
+import type { ChatAttachment, ConnectionState } from "@/store/chat"
 import type { GatewayState } from "@/store/gateway"
 
 function resolveChatInputDisabledReason({
@@ -102,22 +86,6 @@ export function ChatPage() {
   const [input, setInput] = useState("")
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [isDragActive, setIsDragActive] = useState(false)
-  const [assistantDetailVisibility, setAssistantDetailVisibility] = useAtom(
-    assistantDetailVisibilityAtom,
-  )
-
-  const assistantDetailVisibilityOptions: Array<{
-    value: AssistantDetailVisibility
-    label: string
-  }> = [
-    { value: "none", label: t("chat.assistantDetailVisibility.none") },
-    { value: "thought", label: t("chat.assistantDetailVisibility.thought") },
-    {
-      value: "tool_calls",
-      label: t("chat.assistantDetailVisibility.toolCalls"),
-    },
-    { value: "all", label: t("chat.assistantDetailVisibility.all") },
-  ]
 
   const {
     messages,
@@ -321,37 +289,6 @@ export function ChatPage() {
           )
         }
       >
-        <div className="border-border/60 bg-card hidden items-center gap-2 rounded-md border px-2.5 py-1 sm:flex">
-          <span className="text-muted-foreground font-mono text-xs">
-            {t("chat.showAssistantDetails")}
-          </span>
-          <Select
-            value={assistantDetailVisibility}
-            onValueChange={(value) =>
-              setAssistantDetailVisibility(value as AssistantDetailVisibility)
-            }
-          >
-            <SelectTrigger
-              size="sm"
-              aria-label={t("chat.showAssistantDetails")}
-              className="text-foreground hover:text-foreground h-7 min-w-[90px] border-0 bg-transparent text-xs shadow-none focus-visible:ring-0"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent align="end">
-              {assistantDetailVisibilityOptions.map((option) => (
-                <SelectItem
-                  key={option.value}
-                  value={option.value}
-                  className="text-xs"
-                >
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
         <Button
           variant="outline"
           size="sm"
@@ -394,34 +331,26 @@ export function ChatPage() {
             />
           )}
 
-          {messages.map((msg) => {
-            if (
-              !shouldShowAssistantMessage(assistantDetailVisibility, msg.kind)
-            ) {
-              return null
-            }
-
-            return (
-              <div key={msg.id} className="flex w-full">
-                {msg.role === "assistant" ? (
-                  <AssistantMessage
-                    content={msg.content}
-                    attachments={msg.attachments}
-                    kind={msg.kind}
-                    modelName={msg.modelName}
-                    toolCalls={msg.toolCalls}
-                    timestamp={msg.timestamp}
-                  />
-                ) : (
-                  <UserMessage
-                    content={msg.content}
-                    attachments={msg.attachments}
-                    timestamp={msg.timestamp}
-                  />
-                )}
-              </div>
-            )
-          })}
+          {messages.map((msg) => (
+            <div key={msg.id} className="flex w-full">
+              {msg.role === "assistant" ? (
+                <AssistantMessage
+                  content={msg.content}
+                  attachments={msg.attachments}
+                  kind={msg.kind}
+                  modelName={msg.modelName}
+                  toolCalls={msg.toolCalls}
+                  timestamp={msg.timestamp}
+                />
+              ) : (
+                <UserMessage
+                  content={msg.content}
+                  attachments={msg.attachments}
+                  timestamp={msg.timestamp}
+                />
+              )}
+            </div>
+          ))}
 
           {isTyping && <TypingIndicator />}
         </div>
