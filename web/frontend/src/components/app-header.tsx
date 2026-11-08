@@ -98,26 +98,43 @@ export function AppHeader() {
   }
 
   return (
-    <header className="bg-background/95 supports-backdrop-filter:bg-background/60 border-b-border/50 sticky top-0 z-50 flex h-14 shrink-0 items-center justify-between border-b px-4 backdrop-blur">
-      <div className="flex items-center gap-2">
-        <SidebarTrigger className="text-muted-foreground hover:bg-accent hover:text-foreground flex h-9 w-9 items-center justify-center rounded-lg sm:hidden [&>svg]:size-5">
+    <header className="bg-background/90 supports-backdrop-filter:bg-background/70 border-border/60 sticky top-0 z-50 flex h-14 shrink-0 items-center justify-between border-b px-4 backdrop-blur-md">
+      <div className="flex items-center gap-3">
+        <SidebarTrigger className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded-md sm:hidden [&>svg]:size-4">
           <IconMenu2 />
         </SidebarTrigger>
-        <div className="hidden w-36 shrink-0 items-center sm:flex">
-          <Link to="/">
-            <img className="w-full" src="/logo_with_text.png" alt="Logo" />
+        <div className="hidden w-32 shrink-0 items-center sm:flex">
+          <Link
+            to="/"
+            className="opacity-90 transition-opacity hover:opacity-100"
+          >
+            <img className="h-6 w-auto" src="/logo_with_text.png" alt="Logo" />
           </Link>
         </div>
       </div>
 
-      {/* Center prominent connection status */}
+      {/* Precision status indicator */}
       <div className="pointer-events-none absolute left-1/2 hidden h-full -translate-x-1/2 items-center justify-center lg:flex">
         {showNotConnectedHint && (
-          <div className="text-muted-foreground flex items-center gap-2 rounded-full border border-dashed px-4 py-1.5 text-xs shadow-sm backdrop-blur-md">
-            <span className="bg-destructive/50 relative flex size-2 shrink-0 items-center justify-center rounded-full">
+          <div className="bg-card/80 text-muted-foreground border-border/80 flex items-center gap-2 rounded-full border px-3 py-1 text-xs shadow-xs">
+            <span className="relative flex size-2 shrink-0 items-center justify-center">
               <span className="bg-destructive absolute inline-flex size-full animate-ping rounded-full opacity-75"></span>
+              <span className="bg-destructive relative inline-flex size-1.5 rounded-full"></span>
             </span>
-            {t("chat.notConnected")}
+            <span className="font-mono text-[11px] tracking-tight">
+              {t("chat.notConnected")}
+            </span>
+          </div>
+        )}
+        {isRunning && (
+          <div className="text-muted-foreground flex items-center gap-2 text-xs">
+            <span className="relative flex size-2 shrink-0 items-center justify-center">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-60"></span>
+              <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500"></span>
+            </span>
+            <span className="text-foreground/80 font-mono text-[11px] font-medium tracking-tight">
+              ONLINE
+            </span>
           </div>
         )}
       </div>
@@ -161,19 +178,19 @@ export function AppHeader() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="text-muted-foreground flex items-center gap-1 text-sm font-medium md:gap-2">
+      <div className="text-muted-foreground flex items-center gap-1 text-sm md:gap-1.5">
         {restartRequired && (
-          <Tooltip delayDuration={700}>
+          <Tooltip delayDuration={300}>
             <TooltipTrigger asChild>
               <Button
                 variant="secondary"
                 size="icon-sm"
-                className="bg-amber-500/15 text-amber-700 hover:bg-amber-500/25 hover:text-amber-800 dark:text-amber-300 dark:hover:bg-amber-500/25"
+                className="h-8 w-8 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
                 onClick={handleGatewayRestart}
                 disabled={gwLoading || isRestarting || isStopping || !canStart}
                 aria-label={t("header.gateway.action.restart")}
               >
-                <IconRefresh className="size-4" />
+                <IconRefresh className="size-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>
@@ -182,20 +199,20 @@ export function AppHeader() {
           </Tooltip>
         )}
 
-        {/* Gateway Start/Stop */}
+        {/* Gateway Start/Stop Button */}
         {isRunning ? (
-          <Tooltip delayDuration={700}>
+          <Tooltip delayDuration={300}>
             <TooltipTrigger asChild>
               <Button
-                variant="destructive"
+                variant="outline"
                 size="icon-sm"
-                className="size-8"
+                className="h-8 w-8 border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400"
                 data-tour="gateway-button"
                 onClick={handleGatewayToggle}
                 disabled={gwLoading}
                 aria-label={t("header.gateway.action.stop")}
               >
-                <IconPower className="h-4 w-4 opacity-80" />
+                <IconPower className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>
@@ -204,10 +221,9 @@ export function AppHeader() {
           </Tooltip>
         ) : (
           <Tooltip
-            delayDuration={gwError || (!canStart && startReason) ? 0 : 700}
+            delayDuration={gwError || (!canStart && startReason) ? 0 : 300}
           >
             <TooltipTrigger asChild>
-              {/* Wrap in span so the tooltip still fires when the button is disabled */}
               <span
                 className={
                   !canStart && startReason ? "cursor-not-allowed" : undefined
@@ -222,11 +238,11 @@ export function AppHeader() {
                   }
                   size="sm"
                   data-tour="gateway-button"
-                  className={`h-8 gap-2 px-3 ${
+                  className={`h-8 gap-1.5 px-2.5 text-xs font-medium ${
                     isStopped
-                      ? "bg-green-500 text-white hover:bg-green-600"
+                      ? "bg-primary text-primary-foreground hover:bg-primary/90"
                       : ""
-                  } ${!canStart ? "pointer-events-none" : ""}`}
+                  } ${!canStart ? "pointer-events-none opacity-50" : ""}`}
                   onClick={handleGatewayToggle}
                   disabled={
                     gwLoading ||
@@ -237,11 +253,11 @@ export function AppHeader() {
                   }
                 >
                   {gwLoading || isStarting || isRestarting || isStopping ? (
-                    <IconLoader2 className="h-4 w-4 animate-spin opacity-70" />
+                    <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
-                    <IconPlayerPlay className="h-4 w-4 opacity-80" />
+                    <IconPlayerPlay className="h-3.5 w-3.5" />
                   )}
-                  <span className="text-xs font-semibold">
+                  <span>
                     {isStopping
                       ? t("header.gateway.status.stopping")
                       : isRestarting
@@ -259,29 +275,30 @@ export function AppHeader() {
           </Tooltip>
         )}
 
-        <Separator
-          className="mx-4 my-2 hidden md:block"
-          orientation="vertical"
-        />
+        <Separator className="mx-1 h-4" orientation="vertical" />
 
         {/* Docs Link */}
         <Button
           variant="ghost"
           size="icon"
-          className="size-8"
+          className="text-muted-foreground hover:text-foreground size-8 rounded-md"
           data-tour="docs-button"
           asChild
         >
           <a href="https://docs.picoclaw.io" target="_blank" rel="noreferrer">
-            <IconBook className="size-4.5" />
+            <IconBook className="size-4" />
           </a>
         </Button>
 
         {/* Language Switcher */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="size-8">
-              <IconLanguage className="size-4.5" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground size-8 rounded-md"
+            >
+              <IconLanguage className="size-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -298,29 +315,29 @@ export function AppHeader() {
         <Button
           variant="ghost"
           size="icon"
-          className="size-8"
+          className="text-muted-foreground hover:text-foreground size-8 rounded-md"
           onClick={toggleTheme}
         >
           {theme === "dark" ? (
-            <IconSun className="size-4.5" />
+            <IconSun className="size-4" />
           ) : (
-            <IconMoon className="size-4.5" />
+            <IconMoon className="size-4" />
           )}
         </Button>
 
-        <Separator className="mx-2 my-2" orientation="vertical" />
+        <Separator className="mx-1 h-4" orientation="vertical" />
 
         {/* Logout */}
-        <Tooltip delayDuration={700}>
+        <Tooltip delayDuration={300}>
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className="size-8"
+              className="text-muted-foreground hover:text-destructive size-8 rounded-md"
               onClick={() => setShowLogoutDialog(true)}
               aria-label={t("header.logout.tooltip")}
             >
-              <IconLogout className="size-4.5" />
+              <IconLogout className="size-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>{t("header.logout.tooltip")}</TooltipContent>

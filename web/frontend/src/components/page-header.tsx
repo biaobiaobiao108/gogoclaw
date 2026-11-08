@@ -20,17 +20,17 @@ export function PageHeader({
   return (
     <div
       className={cn(
-        "z-40 flex h-14 shrink-0 items-center justify-between px-6 pt-2",
+        "border-border/50 bg-background/80 z-30 flex h-14 shrink-0 items-center justify-between border-b px-6 backdrop-blur-xs",
         className,
       )}
     >
-      <div className="flex items-center gap-4">
-        <SidebarTrigger className="border-border/60 bg-background text-muted-foreground hover:bg-accent hover:text-foreground hidden h-9 w-9 rounded-lg border sm:flex [&>svg]:size-5">
+      <div className="flex items-center gap-3">
+        <SidebarTrigger className="border-border/60 bg-card text-muted-foreground hover:bg-muted hover:text-foreground hidden h-8 w-8 rounded-md border sm:flex [&>svg]:size-4">
           <IconMenu2 />
         </SidebarTrigger>
-        <h2 className="text-foreground/90 text-xl font-medium tracking-tight">
+        <h1 className="text-foreground text-base font-semibold tracking-tight">
           {title}
-        </h2>
+        </h1>
         {titleExtra}
       </div>
       {children && <div className="flex items-center gap-2">{children}</div>}

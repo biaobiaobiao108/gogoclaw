@@ -37,33 +37,32 @@ export function ProviderSection({
   const [open, setOpen] = useState(true)
 
   return (
-    <section className="my-8">
+    <section className="space-y-3">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="mb-3 grid w-full grid-cols-[1fr_auto_1fr_auto] items-center gap-2 px-1 py-1.5 text-left"
+        className="border-border/60 hover:border-border flex w-full items-center justify-between border-b pb-2 text-left transition-colors"
         aria-expanded={open}
       >
-        <div className="border-border/40 border-t" />
-        <span className="text-foreground/80 text-center text-xs font-semibold tracking-wide uppercase">
-          <span className="bg-background inline-flex items-center gap-1.5 px-2">
-            <ProviderIcon provider={provider} />
+        <div className="flex items-center gap-2">
+          <ProviderIcon provider={provider} />
+          <span className="text-foreground text-xs font-semibold tracking-wider uppercase">
             {provider.label}
           </span>
-        </span>
-        <div className="border-border/40 border-t" />
-        <span className="flex justify-end">
-          <IconChevronDown
-            className={[
-              "text-muted-foreground size-4 transition-transform",
-              open ? "rotate-180" : "",
-            ].join(" ")}
-          />
-        </span>
+          <span className="text-muted-foreground font-mono text-[11px]">
+            ({models.length})
+          </span>
+        </div>
+        <IconChevronDown
+          className={[
+            "text-muted-foreground size-4 transition-transform duration-200",
+            open ? "rotate-180" : "",
+          ].join(" ")}
+        />
       </button>
 
       {open && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
           {models.map((model) => (
             <ModelCard
               key={model.index}

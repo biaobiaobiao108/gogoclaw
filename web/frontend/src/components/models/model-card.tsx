@@ -87,52 +87,54 @@ export function ModelCard({
   return (
     <div
       className={[
-        "group/card hover:bg-muted/30 relative flex w-full max-w-[36rem] flex-col gap-3 justify-self-start rounded-xl border p-4 transition-colors hover:shadow-xs",
-        model.available
-          ? "border-border/60 bg-card"
-          : "border-border/50 bg-card/60",
+        "group/card relative flex w-full flex-col justify-between gap-2.5 rounded-lg border p-3.5 transition-all",
+        isDefault
+          ? "border-primary/40 bg-card shadow-xs"
+          : model.available
+            ? "border-border/70 bg-card hover:border-border hover:bg-muted/15"
+            : "border-border/40 bg-card/50 opacity-75",
       ].join(" ")}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span
             className={[
-              "mt-0.5 h-2 w-2 shrink-0 rounded-full",
+              "size-2 shrink-0 rounded-full",
               isDefault
-                ? "bg-green-400 shadow-[0_0_0_2px_rgba(74,222,128,0.35)]"
+                ? "bg-emerald-500 shadow-[0_0_0_2px_rgba(16,185,129,0.25)]"
                 : status === "available"
-                  ? "bg-green-500"
+                  ? "bg-emerald-500/80"
                   : status === "unreachable"
                     ? "bg-amber-500"
-                    : "bg-muted-foreground/25",
+                    : "bg-muted-foreground/30",
             ].join(" ")}
             title={statusLabel}
           />
-          <span className="text-foreground truncate text-sm font-semibold">
+          <span className="text-foreground truncate text-sm font-medium tracking-tight">
             {model.model_name}
           </span>
           {isDefault && (
-            <span className="bg-primary/10 text-primary shrink-0 rounded px-1.5 py-0.5 text-[10px] leading-none font-medium">
-              {t("models.badge.default")}
+            <span className="bg-primary/10 text-primary shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] leading-none font-semibold">
+              DEFAULT
             </span>
           )}
           {model.is_virtual && (
-            <span className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-[10px] leading-none font-medium">
-              {t("models.badge.virtual")}
+            <span className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] leading-none font-medium">
+              VIRTUAL
             </span>
           )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-0.5 opacity-90 transition-opacity group-hover/card:opacity-100">
           {isDefault ? (
             <span
-              className="text-primary p-1"
+              className="p-1 text-amber-500"
               title={t("models.badge.default")}
             >
               <IconStarFilled className="size-3.5" />
             </span>
           ) : (
-            <Tooltip delayDuration={!canSetDefault ? 0 : 700}>
+            <Tooltip delayDuration={!canSetDefault ? 0 : 300}>
               <TooltipTrigger asChild>
                 <span
                   className={!canSetDefault ? "cursor-not-allowed" : undefined}
@@ -140,15 +142,14 @@ export function ModelCard({
                   role={!canSetDefault ? "button" : undefined}
                   aria-disabled={!canSetDefault ? true : undefined}
                   aria-label={!canSetDefault ? setDefaultLabel : undefined}
-                  title={!canSetDefault ? setDefaultLabel : undefined}
                 >
                   <Button
                     variant="ghost"
                     size="icon-sm"
+                    className="text-muted-foreground h-7 w-7 hover:text-amber-500"
                     onClick={() => onSetDefault(model)}
                     disabled={!canSetDefault}
                     aria-label={setDefaultLabel}
-                    title={setDefaultLabel}
                   >
                     <IconStar className="size-3.5" />
                   </Button>
@@ -161,14 +162,14 @@ export function ModelCard({
           <Button
             variant="ghost"
             size="icon-sm"
+            className="text-muted-foreground hover:text-foreground h-7 w-7"
             onClick={() => onEdit(model)}
             aria-label={editLabel}
-            title={editLabel}
           >
             <IconEdit className="size-3.5" />
           </Button>
 
-          <Tooltip delayDuration={canUseInFallback ? 700 : 0}>
+          <Tooltip delayDuration={canUseInFallback ? 300 : 0}>
             <TooltipTrigger asChild>
               <span
                 className={!canUseInFallback ? "cursor-not-allowed" : undefined}
@@ -176,15 +177,14 @@ export function ModelCard({
                 role={!canUseInFallback ? "button" : undefined}
                 aria-disabled={!canUseInFallback ? true : undefined}
                 aria-label={!canUseInFallback ? toggleFallbackLabel : undefined}
-                title={!canUseInFallback ? toggleFallbackLabel : undefined}
               >
                 <Button
                   variant="ghost"
                   size="icon-sm"
+                  className="text-muted-foreground hover:text-foreground h-7 w-7"
                   onClick={() => onToggleFallback(model)}
                   disabled={!canUseInFallback}
                   aria-label={toggleFallbackLabel}
-                  title={toggleFallbackLabel}
                 >
                   <IconArrowAutofitDown
                     className={[
@@ -198,7 +198,7 @@ export function ModelCard({
             <TooltipContent>{toggleFallbackDisabledReason}</TooltipContent>
           </Tooltip>
 
-          <Tooltip delayDuration={deleteDisabled ? 0 : 700}>
+          <Tooltip delayDuration={deleteDisabled ? 0 : 300}>
             <TooltipTrigger asChild>
               <span
                 className={deleteDisabled ? "cursor-not-allowed" : undefined}
@@ -206,7 +206,6 @@ export function ModelCard({
                 role={deleteDisabled ? "button" : undefined}
                 aria-disabled={deleteDisabled ? true : undefined}
                 aria-label={deleteDisabled ? deleteLabel : undefined}
-                title={deleteDisabled ? deleteLabel : undefined}
               >
                 <Button
                   variant="ghost"
@@ -214,8 +213,7 @@ export function ModelCard({
                   onClick={() => onDelete(model)}
                   disabled={deleteDisabled}
                   aria-label={deleteLabel}
-                  title={deleteLabel}
-                  className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-7 w-7"
                 >
                   <IconTrash className="size-3.5" />
                 </Button>
@@ -226,25 +224,26 @@ export function ModelCard({
         </div>
       </div>
 
-      <p className="text-muted-foreground truncate font-mono text-xs leading-snug">
-        {model.model}
-      </p>
-
-      <div className="flex items-center gap-2">
-        {isOAuth ? (
-          <span className="text-muted-foreground bg-muted rounded px-1.5 py-0.5 text-[10px] font-medium">
-            OAuth
-          </span>
-        ) : status === "available" && model.api_key ? (
-          <span className="text-muted-foreground/70 flex items-center gap-1 font-mono text-[11px]">
-            <IconKey className="size-3" />
-            {model.api_key}
-          </span>
-        ) : (
-          <span className="text-muted-foreground/50 text-[11px]">
-            {statusLabel}
-          </span>
-        )}
+      <div className="border-border/40 flex items-center justify-between gap-2 border-t pt-2 text-xs">
+        <p className="text-muted-foreground truncate font-mono text-[11px]">
+          {model.model}
+        </p>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {isOAuth ? (
+            <span className="text-muted-foreground bg-muted rounded px-1.5 py-0.5 font-mono text-[10px] font-medium">
+              OAUTH
+            </span>
+          ) : status === "available" && model.api_key ? (
+            <span className="text-muted-foreground/70 flex items-center gap-1 font-mono text-[10px]">
+              <IconKey className="size-3" />
+              {model.api_key}
+            </span>
+          ) : (
+            <span className="text-muted-foreground/50 text-[10px]">
+              {statusLabel}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   )

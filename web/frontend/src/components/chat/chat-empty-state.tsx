@@ -24,17 +24,22 @@ export function ChatEmptyState({
 
   if (!hasAvailableModels) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 opacity-70">
-        <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500">
-          <IconRobotOff className="h-8 w-8" />
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <div className="mb-4 flex size-12 items-center justify-center rounded-lg border border-amber-500/20 bg-amber-500/10 text-amber-500">
+          <IconRobotOff className="size-6" />
         </div>
-        <h3 className="mb-2 text-xl font-medium">
+        <h2 className="text-foreground text-base font-semibold tracking-tight">
           {t("chat.empty.noConfiguredModel")}
-        </h3>
-        <p className="text-muted-foreground mb-4 text-center text-sm">
+        </h2>
+        <p className="text-muted-foreground mt-1 max-w-sm text-xs leading-relaxed">
           {t("chat.empty.noConfiguredModelDescription")}
         </p>
-        <Button asChild variant="outline" size="sm" className="px-4">
+        <Button
+          asChild
+          variant="outline"
+          size="sm"
+          className="mt-4 h-8 px-3 text-xs"
+        >
           <Link to="/models">{t("chat.empty.goToModels")}</Link>
         </Button>
       </div>
@@ -43,14 +48,14 @@ export function ChatEmptyState({
 
   if (!defaultModelName) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 opacity-70">
-        <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500">
-          <IconStar className="h-8 w-8" />
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <div className="mb-4 flex size-12 items-center justify-center rounded-lg border border-amber-500/20 bg-amber-500/10 text-amber-500">
+          <IconStar className="size-6" />
         </div>
-        <h3 className="mb-2 text-xl font-medium">
+        <h2 className="text-foreground text-base font-semibold tracking-tight">
           {t("chat.empty.noSelectedModel")}
-        </h3>
-        <p className="text-muted-foreground mb-4 text-center text-sm">
+        </h2>
+        <p className="text-muted-foreground mt-1 max-w-sm text-xs leading-relaxed">
           {t("chat.empty.noSelectedModelDescription")}
         </p>
       </div>
@@ -59,14 +64,14 @@ export function ChatEmptyState({
 
   if (!isConnected) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 opacity-70">
-        <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500">
-          <IconPlugConnectedX className="h-8 w-8" />
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <div className="border-border bg-muted/30 text-muted-foreground mb-4 flex size-12 items-center justify-center rounded-lg border">
+          <IconPlugConnectedX className="size-6" />
         </div>
-        <h3 className="mb-2 text-xl font-medium">
+        <h2 className="text-foreground text-base font-semibold tracking-tight">
           {t("chat.empty.notRunning")}
-        </h3>
-        <p className="text-muted-foreground mb-4 text-center text-sm">
+        </h2>
+        <p className="text-muted-foreground mt-1 max-w-sm text-xs leading-relaxed">
           {t("chat.empty.notRunningDescription")}
         </p>
       </div>
@@ -74,12 +79,14 @@ export function ChatEmptyState({
   }
 
   return (
-    <div className="flex flex-col items-center justify-center py-20 opacity-70">
-      <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-500/10 text-violet-500">
-        <IconRobot className="h-8 w-8" />
+    <div className="flex flex-col items-center justify-center py-24 text-center">
+      <div className="border-border bg-muted/40 text-foreground mb-4 flex size-12 items-center justify-center rounded-lg border">
+        <IconRobot className="size-6 opacity-80" />
       </div>
-      <h3 className="mb-2 text-xl font-medium">{t("chat.welcome")}</h3>
-      <p className="text-muted-foreground text-center text-sm">
+      <h2 className="text-foreground text-base font-semibold tracking-tight">
+        {t("chat.welcome")}
+      </h2>
+      <p className="text-muted-foreground mt-1 max-w-sm text-xs leading-relaxed">
         {t("chat.welcomeDesc")}
       </p>
     </div>
