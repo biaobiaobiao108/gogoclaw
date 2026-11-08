@@ -167,6 +167,8 @@ cd web
 make dev
 ```
 
+On Windows, double-click `build\Start-GoGoClaw.cmd` to open the local Web console. `build\gogoclaw.exe` is the command-line binary; double-clicking it without a command only prints help and exits.
+
 Local browser launch, `-public`, and direct gateway runs are development conveniences. They are not supported production deployment methods.
 
 To test the container build locally, use the development override:

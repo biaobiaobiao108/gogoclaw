@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -61,6 +62,43 @@ func TestLauncherBrowserLaunchSuffix(t *testing.T) {
 	}
 	if got := launcherBrowserLaunchSuffix(false, nil); got != "" {
 		t.Fatalf("empty suffix = %q, want empty", got)
+	}
+}
+
+func TestExistingLauncherDashboardURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/auth/status" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"authenticated":false,"initialized":true}`))
+	}))
+	defer server.Close()
+
+	host, port, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
+	if err != nil {
+		t.Fatalf("SplitHostPort() error = %v", err)
+	}
+	got, ok := existingLauncherDashboardURL(host, port)
+	if !ok || got != server.URL {
+		t.Fatalf("existingLauncherDashboardURL() = %q, %t; want %q, true", got, ok, server.URL)
+	}
+}
+
+func TestExistingLauncherDashboardURLRejectsForeignService(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("not gogoclaw"))
+	}))
+	defer server.Close()
+
+	host, port, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
+	if err != nil {
+		t.Fatalf("SplitHostPort() error = %v", err)
+	}
+	if got, ok := existingLauncherDashboardURL(host, port); ok {
+		t.Fatalf("existingLauncherDashboardURL() = %q, true; want false", got)
 	}
 }
 

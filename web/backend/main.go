@@ -13,9 +13,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -107,16 +109,59 @@ func resolveLauncherHostInput(flagHost string, explicitFlag bool, envHost string
 }
 
 func openLauncherListeners(hostInput string, public bool, port string) (netbind.OpenResult, error) {
+	plan, err := buildLauncherPlan(hostInput, public)
+	if err != nil {
+		return netbind.OpenResult{}, err
+	}
+	return netbind.OpenPlan(plan, port)
+}
+
+func buildLauncherPlan(hostInput string, public bool) (netbind.Plan, error) {
 	defaultMode := netbind.DefaultLoopback
 	if strings.TrimSpace(hostInput) == "" && public {
 		defaultMode = netbind.DefaultAny
 	}
 
-	plan, err := netbind.BuildPlan(hostInput, defaultMode)
-	if err != nil {
-		return netbind.OpenResult{}, err
+	return netbind.BuildPlan(hostInput, defaultMode)
+}
+
+type launcherAuthStatus struct {
+	Authenticated *bool `json:"authenticated"`
+	Initialized   *bool `json:"initialized"`
+}
+
+func existingLauncherDashboardURL(probeHost, port string) (string, bool) {
+	baseURL := "http://" + net.JoinHostPort(probeHost, port)
+	client := &http.Client{
+		Timeout: time.Second,
+		Transport: &http.Transport{
+			Proxy: nil,
+		},
 	}
-	return netbind.OpenPlan(plan, port)
+
+	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/auth/status", nil)
+	if err != nil {
+		return "", false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK ||
+		!strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "application/json") {
+		return "", false
+	}
+
+	var status launcherAuthStatus
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1024)).Decode(&status); err != nil {
+		return "", false
+	}
+	if status.Authenticated == nil || status.Initialized == nil {
+		return "", false
+	}
+	return baseURL, true
 }
 
 func appendUniqueHost(hosts []string, seen map[string]struct{}, host string) []string {
@@ -541,7 +586,25 @@ func main() {
 
 	openResult, err := openLauncherListeners(hostInput, effectivePublic, effectivePort)
 	if err != nil {
-		logger.Fatalf("Failed to open launcher listener(s): %v", err)
+		if plan, planErr := buildLauncherPlan(hostInput, effectivePublic); planErr == nil {
+			if dashboardURL, ok := existingLauncherDashboardURL(plan.ProbeHost, effectivePort); ok {
+				logger.InfoC("web", fmt.Sprintf("%s dashboard is already running at %s", appName, dashboardURL))
+				browserLaunchURL = dashboardURL
+				if !*noBrowser {
+					if browserErr := openBrowser(); browserErr != nil {
+						logger.Errorf("Warning: Failed to open the existing dashboard: %v", browserErr)
+					}
+				} else {
+					fmt.Printf("  Dashboard already running: %s\n", dashboardURL)
+				}
+				return
+			}
+		}
+		logger.Fatalf(
+			"Failed to open launcher listener(s): %v. Port %s may already be in use; stop the other process or start with -port <port>.",
+			err,
+			effectivePort,
+		)
 	}
 	listeners := openResult.Listeners
 

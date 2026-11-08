@@ -167,6 +167,8 @@ cd web
 make dev
 ```
 
+Windows 上双击 `build\Start-GoGoClaw.cmd` 即可打开本机 Web 控制台。`build\gogoclaw.exe` 是命令行程序；不带命令直接双击时只会显示帮助并退出。
+
 本地自动打开浏览器、`-public` 和直接运行 gateway 都是开发便利功能，不属于受支持的生产部署方式。
 
 需要在本机测试容器构建时，使用开发覆盖文件：

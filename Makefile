@@ -164,6 +164,7 @@ ifeq ($(OS),Windows_NT)
 	@$(POWERSHELL) "New-Item -ItemType Directory -Force -Path '$(BUILD_DIR)' | Out-Null"
 	@$(MAKE) -C web build PLATFORM="$(PLATFORM)" ARCH="$(ARCH)" EXT="$(EXT)" OUTPUT="$(CURDIR)/$(BUILD_DIR)/gogoclaw-launcher-$(PLATFORM)-$(ARCH)$(EXT)" GO_BUILD_TAGS="$(GO_BUILD_TAGS)"
 	@$(POWERSHELL) "Copy-Item -LiteralPath '$(BUILD_DIR)/gogoclaw-launcher-$(PLATFORM)-$(ARCH)$(EXT)' -Destination '$(BUILD_DIR)/gogoclaw-launcher$(EXT)' -Force"
+	@$(POWERSHELL) "Copy-Item -LiteralPath '$(CURDIR)/scripts/windows/Start-GoGoClaw.cmd' -Destination '$(CURDIR)/$(BUILD_DIR)/Start-GoGoClaw.cmd' -Force"
 else
 	@mkdir -p $(BUILD_DIR)
 	@GOOS=$(PLATFORM) GOARCH=$(ARCH) $(MAKE) -C web build \
