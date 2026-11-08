@@ -87,7 +87,7 @@ export function ModelCard({
   return (
     <div
       className={[
-        "group/card relative flex w-full flex-col justify-between gap-2.5 rounded-lg border p-3.5 transition-all",
+        "group/card relative flex w-full flex-col justify-between gap-2.5 rounded-lg border p-3.5 transition-[color,background-color,border-color,opacity,box-shadow] duration-[var(--motion-state)] ease-out",
         isDefault
           ? "border-primary/40 bg-card shadow-xs"
           : model.available
@@ -101,16 +101,19 @@ export function ModelCard({
             className={[
               "size-2 shrink-0 rounded-full",
               isDefault
-                ? "bg-emerald-500 shadow-[0_0_0_2px_rgba(16,185,129,0.25)]"
+                ? "bg-success ring-2 ring-success/20"
                 : status === "available"
-                  ? "bg-emerald-500/80"
+                  ? "bg-success/80"
                   : status === "unreachable"
-                    ? "bg-amber-500"
+                    ? "bg-warning"
                     : "bg-muted-foreground/30",
             ].join(" ")}
             title={statusLabel}
           />
-          <span className="text-foreground truncate text-sm font-medium tracking-tight">
+          <span
+            className="text-foreground truncate text-sm font-medium tracking-tight"
+            title={model.model_name}
+          >
             {model.model_name}
           </span>
           {isDefault && (
@@ -128,7 +131,7 @@ export function ModelCard({
         <div className="flex shrink-0 items-center gap-0.5 opacity-90 transition-opacity group-hover/card:opacity-100">
           {isDefault ? (
             <span
-              className="p-1 text-amber-500"
+              className="text-warning p-1"
               title={t("models.badge.default")}
             >
               <IconStarFilled className="size-3.5" />
@@ -136,24 +139,16 @@ export function ModelCard({
           ) : (
             <Tooltip delayDuration={!canSetDefault ? 0 : 300}>
               <TooltipTrigger asChild>
-                <span
-                  className={!canSetDefault ? "cursor-not-allowed" : undefined}
-                  tabIndex={!canSetDefault ? 0 : undefined}
-                  role={!canSetDefault ? "button" : undefined}
-                  aria-disabled={!canSetDefault ? true : undefined}
-                  aria-label={!canSetDefault ? setDefaultLabel : undefined}
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground hover:text-warning h-7 w-7 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+                  onClick={() => canSetDefault && onSetDefault(model)}
+                  aria-disabled={!canSetDefault}
+                  aria-label={setDefaultLabel}
                 >
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="text-muted-foreground h-7 w-7 hover:text-amber-500"
-                    onClick={() => onSetDefault(model)}
-                    disabled={!canSetDefault}
-                    aria-label={setDefaultLabel}
-                  >
-                    <IconStar className="size-3.5" />
-                  </Button>
-                </span>
+                  <IconStar className="size-3.5" />
+                </Button>
               </TooltipTrigger>
               <TooltipContent>{setDefaultDisabledReason}</TooltipContent>
             </Tooltip>
@@ -171,53 +166,37 @@ export function ModelCard({
 
           <Tooltip delayDuration={canUseInFallback ? 300 : 0}>
             <TooltipTrigger asChild>
-              <span
-                className={!canUseInFallback ? "cursor-not-allowed" : undefined}
-                tabIndex={!canUseInFallback ? 0 : undefined}
-                role={!canUseInFallback ? "button" : undefined}
-                aria-disabled={!canUseInFallback ? true : undefined}
-                aria-label={!canUseInFallback ? toggleFallbackLabel : undefined}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground h-7 w-7 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+                onClick={() => canUseInFallback && onToggleFallback(model)}
+                aria-disabled={!canUseInFallback}
+                aria-label={toggleFallbackLabel}
               >
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-muted-foreground hover:text-foreground h-7 w-7"
-                  onClick={() => onToggleFallback(model)}
-                  disabled={!canUseInFallback}
-                  aria-label={toggleFallbackLabel}
-                >
-                  <IconArrowAutofitDown
-                    className={[
-                      "size-3.5",
-                      inFallbackChain ? "text-primary" : "",
-                    ].join(" ")}
-                  />
-                </Button>
-              </span>
+                <IconArrowAutofitDown
+                  className={[
+                    "size-3.5",
+                    inFallbackChain ? "text-primary" : "",
+                  ].join(" ")}
+                />
+              </Button>
             </TooltipTrigger>
             <TooltipContent>{toggleFallbackDisabledReason}</TooltipContent>
           </Tooltip>
 
           <Tooltip delayDuration={deleteDisabled ? 0 : 300}>
             <TooltipTrigger asChild>
-              <span
-                className={deleteDisabled ? "cursor-not-allowed" : undefined}
-                tabIndex={deleteDisabled ? 0 : undefined}
-                role={deleteDisabled ? "button" : undefined}
-                aria-disabled={deleteDisabled ? true : undefined}
-                aria-label={deleteDisabled ? deleteLabel : undefined}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => !deleteDisabled && onDelete(model)}
+                aria-disabled={deleteDisabled}
+                aria-label={deleteLabel}
+                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-7 w-7 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
               >
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => onDelete(model)}
-                  disabled={deleteDisabled}
-                  aria-label={deleteLabel}
-                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-7 w-7"
-                >
-                  <IconTrash className="size-3.5" />
-                </Button>
-              </span>
+                <IconTrash className="size-3.5" />
+              </Button>
             </TooltipTrigger>
             <TooltipContent>{deleteDisabledReason}</TooltipContent>
           </Tooltip>

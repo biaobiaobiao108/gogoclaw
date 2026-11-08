@@ -14,31 +14,31 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/agent"
-	"github.com/sipeed/picoclaw/pkg/approval"
-	"github.com/sipeed/picoclaw/pkg/audio/asr"
-	"github.com/sipeed/picoclaw/pkg/audio/tts"
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	_ "github.com/sipeed/picoclaw/pkg/channels/discord"
-	_ "github.com/sipeed/picoclaw/pkg/channels/feishu"
-	_ "github.com/sipeed/picoclaw/pkg/channels/pico"
-	_ "github.com/sipeed/picoclaw/pkg/channels/qq"
-	_ "github.com/sipeed/picoclaw/pkg/channels/telegram"
-	_ "github.com/sipeed/picoclaw/pkg/channels/weixin"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/cron"
-	"github.com/sipeed/picoclaw/pkg/devices"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/health"
-	"github.com/sipeed/picoclaw/pkg/heartbeat"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/media"
-	"github.com/sipeed/picoclaw/pkg/netbind"
-	"github.com/sipeed/picoclaw/pkg/pid"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/state"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/agent"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/approval"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/audio/asr"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/audio/tts"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
+	_ "github.com/biaobiaobiao108/gogoclaw/pkg/channels/discord"
+	_ "github.com/biaobiaobiao108/gogoclaw/pkg/channels/feishu"
+	_ "github.com/biaobiaobiao108/gogoclaw/pkg/channels/pico"
+	_ "github.com/biaobiaobiao108/gogoclaw/pkg/channels/qq"
+	_ "github.com/biaobiaobiao108/gogoclaw/pkg/channels/telegram"
+	_ "github.com/biaobiaobiao108/gogoclaw/pkg/channels/weixin"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/cron"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/devices"
+	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/health"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/heartbeat"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/netbind"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/pid"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/state"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 )
 
 const (
@@ -460,6 +460,9 @@ func setupAndStartServices(
 				turn := agentLoop.GetActiveTurnByConversation(config.ChannelPico, chatID)
 				if turn == nil {
 					result := map[string]any{"active": false}
+					if pending := agentLoop.PendingApprovalByConversation(config.ChannelPico, chatID); pending != nil {
+						result["approval"] = pending
+					}
 					if includeRecovery {
 						interrupted, err := agentLoop.ConversationInterrupted(config.ChannelPico, chatID, "pico-user")
 						if err != nil {
@@ -480,9 +483,11 @@ func setupAndStartServices(
 		if approvalChannel, ok := channel.(interface {
 			SetApprovalHandler(func(context.Context, approval.Response) error)
 			SendApprovalRequest(context.Context, approval.Request) error
+			SetDeliveryAckHandler(func(context.Context, string, string, string) error)
 		}); ok {
 			approvalChannel.SetApprovalHandler(agentLoop.RespondApproval)
 			agentLoop.SetApprovalNotifier(approvalChannel.SendApprovalRequest)
+			approvalChannel.SetDeliveryAckHandler(agentLoop.AcknowledgeDelivery)
 		}
 	}
 	agentLoop.SetMediaStore(runningServices.MediaStore)

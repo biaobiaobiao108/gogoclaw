@@ -334,10 +334,9 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
       i18n.language ??
       ""
     ).toLowerCase()
-    const base = language.startsWith("zh")
-      ? "https://docs.picoclaw.io/zh-Hans/docs/channels"
-      : "https://docs.picoclaw.io/docs/channels"
-    return `${base}/${getChannelDocSlug(channel.name)}`
+    const slug = getChannelDocSlug(channel.name)
+    const file = language.startsWith("zh") ? "README.zh.md" : "README.md"
+    return `https://github.com/biaobiaobiao108/gogoclaw/blob/main/docs/channels/${slug}/${file}`
   }, [channel, i18n.language, i18n.resolvedLanguage])
 
   const channelDisplayName = useMemo(() => {
@@ -564,7 +563,11 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
                 <p className="text-sm font-medium">
                   {t("channels.page.enableLabel")}
                 </p>
-                <Switch checked={enabled} onCheckedChange={setEnabled} />
+                <Switch
+                  checked={enabled}
+                  onCheckedChange={setEnabled}
+                  aria-label={t("channels.page.enableLabel")}
+                />
               </div>
             }
 

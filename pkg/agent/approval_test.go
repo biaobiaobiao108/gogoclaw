@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/approval"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/approval"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
 
 func TestHumanApprovalManagerApproveOnceAndSessionGrant(t *testing.T) {
@@ -115,5 +116,55 @@ func TestHumanApprovalManagerFailsWhenRequestCannotBeDelivered(t *testing.T) {
 	}
 	if decision.Approved || decision.Reason != "failed to deliver approval request" {
 		t.Fatalf("decision = %+v, want delivery denial", decision)
+	}
+}
+
+func TestRespondPersistedApprovalMakesInterruptedTurnResumable(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+
+	store, ok := agent.Sessions.(session.TurnCheckpointStore)
+	if !ok {
+		t.Fatal("test session store does not support turn checkpoints")
+	}
+	sessionKey := "agent:default:cli:persisted-approval"
+	checkpoint := session.TurnCheckpoint{
+		TurnID: sessionKey,
+		Status: "awaiting_approval",
+		Approval: &approval.Request{
+			ID:         "approval-persisted",
+			SessionKey: sessionKey,
+			Tool:       "exec",
+			Status:     approval.StatusPending,
+		},
+	}
+	if err := store.SetTurnCheckpoint(sessionKey, checkpoint); err != nil {
+		t.Fatalf("SetTurnCheckpoint() error = %v", err)
+	}
+
+	if err := al.RespondApproval(context.Background(), approval.Response{
+		ID:      checkpoint.Approval.ID,
+		Approve: true,
+		Scope:   approval.ScopeSession,
+	}); err != nil {
+		t.Fatalf("RespondApproval() error = %v", err)
+	}
+
+	resolved, err := store.GetTurnCheckpoint(sessionKey)
+	if err != nil {
+		t.Fatalf("GetTurnCheckpoint() error = %v", err)
+	}
+	if resolved.Status != "ready_to_resume" || resolved.Approval == nil ||
+		resolved.Approval.Status != approval.StatusApproved ||
+		resolved.Approval.Scope != approval.ScopeSession {
+		t.Fatalf("resolved checkpoint = %+v", resolved)
+	}
+
+	response, err := al.ResumeSession(context.Background(), sessionKey)
+	if err != nil {
+		t.Fatalf("ResumeSession() error = %v", err)
+	}
+	if response != "Hello! How can I help you today?" {
+		t.Fatalf("ResumeSession() response = %q", response)
 	}
 }

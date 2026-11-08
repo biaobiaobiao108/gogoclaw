@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
 func TestRuntimeEventLoggerFiltering(t *testing.T) {

@@ -1,8 +1,8 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// GoGoClaw - Ultra-lightweight personal AI agent
 // Inspired by and based on nanobot: https://github.com/HKUDS/nanobot
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 GoGoClaw contributors
 
 package agent
 
@@ -15,20 +15,20 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/agent/interfaces"
-	"github.com/sipeed/picoclaw/pkg/audio/asr"
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/commands"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/constants"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/media"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/routing"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/state"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/agent/interfaces"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/audio/asr"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/commands"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/constants"
+	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/routing"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/state"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
 
 type AgentLoop struct {
@@ -67,8 +67,9 @@ type AgentLoop struct {
 	workerSem chan struct{}
 
 	// activeTurnStates tracks active turns per session to prevent duplicates.
-	activeTurnStates sync.Map
-	subTurnCounter   atomic.Int64
+	activeTurnStates  sync.Map
+	subTurnCounter    atomic.Int64
+	deliveryLocations sync.Map
 
 	turnSeq atomic.Uint64
 
@@ -152,7 +153,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 	if err := al.ensureMCPInitialized(ctx); err != nil {
 		return err
 	}
-	go al.retryPendingDelivery(ctx)
+	go al.runDeliveryOutbox(ctx)
 
 	idleTicker := time.NewTicker(100 * time.Millisecond)
 	defer idleTicker.Stop()
@@ -630,8 +631,8 @@ func (al *AgentLoop) runAgentLoop(
 			msg.Context.Raw["model_name"] = modelName
 		}
 		markFinalOutbound(&msg)
-		if pubErr := al.bus.PublishOutbound(ctx, msg); pubErr != nil {
-			return "", fmt.Errorf("publish final response: %w", pubErr)
+		if pubErr := al.publishTrackedOutbound(ctx, opts.Dispatch.SessionKey, msg); pubErr != nil {
+			return "", pubErr
 		}
 	}
 

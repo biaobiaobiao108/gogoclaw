@@ -507,8 +507,8 @@ export function AddModelSheet({
                       modelValidation.level === "error"
                         ? "text-destructive"
                         : modelValidation.level === "warning"
-                          ? "text-yellow-600 dark:text-yellow-500"
-                          : "text-green-600 dark:text-green-500"
+                          ? "text-warning"
+                          : "text-success"
                     }`}
                   >
                     <span>

@@ -13,7 +13,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 )
 
 func init() {

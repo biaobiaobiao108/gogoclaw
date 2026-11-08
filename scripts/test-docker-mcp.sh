@@ -5,7 +5,7 @@ set -e
 
 COMPOSE_FILE="docker/docker-compose.yml"
 DEV_COMPOSE_FILE="docker/docker-compose.dev.yml"
-SERVICE="picoclaw-agent"
+SERVICE="gogoclaw-agent"
 
 echo "🧪 Testing MCP tools in the production container image..."
 echo ""
@@ -42,5 +42,5 @@ echo ""
 echo "🎉 All MCP tools are working correctly!"
 echo ""
 echo "Next steps:"
-echo "  1. Configure MCP servers in /data/.picoclaw/config.json"
+echo "  1. Configure MCP servers in /data/.gogoclaw/config.json"
 echo "  2. Run: docker compose -f $COMPOSE_FILE -f $DEV_COMPOSE_FILE --profile gateway up --build"

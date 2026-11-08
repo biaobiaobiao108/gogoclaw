@@ -76,7 +76,7 @@ export function LogsPanel({
   }, [logs])
 
   return (
-    <div className="relative flex-1 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-100">
+    <div className="border-code-muted/20 bg-code-surface text-code-foreground relative flex-1 overflow-hidden rounded-lg border">
       <ScrollArea ref={scrollAreaRef} className="h-full">
         <div
           ref={contentRef}
@@ -90,7 +90,9 @@ export function LogsPanel({
             0
           </span>
           {logs.length === 0 ? (
-            <div className="text-zinc-500 italic">{t("pages.logs.empty")}</div>
+            <div className="text-code-muted italic">
+              {t("pages.logs.empty")}
+            </div>
           ) : (
             logs.map((log, index) => (
               <AnsiLogLine key={index} line={log} wrapColumns={wrapColumns} />

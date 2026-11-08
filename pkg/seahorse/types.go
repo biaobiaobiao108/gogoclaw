@@ -3,8 +3,8 @@ package seahorse
 import (
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/tokenizer"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/tokenizer"
 )
 
 // SummaryKind distinguishes leaf summaries (from raw messages) vs condensed

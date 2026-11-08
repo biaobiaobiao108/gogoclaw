@@ -1,4 +1,4 @@
-.PHONY: dev dev-frontend dev-backend build build-frontend build-dev-picoclaw test clean
+.PHONY: dev dev-frontend dev-backend build build-frontend build-dev-gogoclaw test clean
 
 # Go variables
 GO?=go
@@ -18,13 +18,13 @@ export GOTOOLCHAIN
 # Build variables
 BUILD_DIR=build
 EXT=
-OUTPUT?=$(BUILD_DIR)/picoclaw-launcher$(EXT)
+OUTPUT?=$(BUILD_DIR)/gogoclaw-launcher$(EXT)
 FRONTEND_DIR=frontend
-FRONTEND_INSTALL_STAMP=$(FRONTEND_DIR)/node_modules/.picoclaw-install-stamp
+FRONTEND_INSTALL_STAMP=$(FRONTEND_DIR)/node_modules/.gogoclaw-install-stamp
 BACKEND_DIR=backend
 BACKEND_DIST=$(BACKEND_DIR)/dist
-PICOCLAW_BINARY_NAME=picoclaw
-PICOCLAW_BINARY?=$(abspath ../build/$(PICOCLAW_BINARY_NAME))
+GOGOCLAW_BINARY_NAME=gogoclaw
+GOGOCLAW_BINARY?=$(abspath ../build/$(GOGOCLAW_BINARY_NAME))
 
 ifeq ($(OS),Windows_NT)
 	POWERSHELL?=pwsh -NoProfile -Command
@@ -47,7 +47,7 @@ VERSION?=$(if $(VERSION_RAW),$(VERSION_RAW),dev)
 GIT_COMMIT=$(if $(GIT_COMMIT_RAW),$(GIT_COMMIT_RAW),dev)
 BUILD_TIME=$(if $(BUILD_TIME_RAW),$(BUILD_TIME_RAW),dev)
 GO_VERSION=$(if $(GO_VERSION_RAW),$(GO_VERSION_RAW),unknown)
-CONFIG_PKG=github.com/sipeed/picoclaw/pkg/config
+CONFIG_PKG=github.com/biaobiaobiao108/gogoclaw/pkg/config
 LDFLAGS=-X $(CONFIG_PKG).Version=$(VERSION) -X $(CONFIG_PKG).GitCommit=$(GIT_COMMIT) -X $(CONFIG_PKG).BuildTime=$(BUILD_TIME) -X $(CONFIG_PKG).GoVersion=$(GO_VERSION) -s -w
 
 
@@ -95,7 +95,7 @@ else ifeq ($(UNAME_S),Windows)
 		ARCH=$(UNAME_M)
 	endif
 	EXT=.exe
-	PICOCLAW_BINARY_NAME=picoclaw.exe
+	GOGOCLAW_BINARY_NAME=gogoclaw.exe
 else
 	PLATFORM=$(UNAME_S)
 	ARCH=$(UNAME_M)
@@ -106,7 +106,7 @@ $(error Unsupported architecture "$(ARCH)"; only amd64 and arm64 are supported)
 endif
 
 # Run both frontend and backend dev servers
-dev: build-dev-picoclaw
+dev: build-dev-gogoclaw
 	@if [ ! -f "$(BACKEND_DIST)/index.html" ]; then \
 		echo "Embedded frontend not found, building..."; \
 		$(MAKE) build-frontend; \
@@ -120,7 +120,7 @@ dev-frontend:
 
 # Start backend dev server
 dev-backend:
-	cd $(BACKEND_DIR) && PICOCLAW_BINARY="$(PICOCLAW_BINARY)" ${WEB_GO} run -ldflags "$(LDFLAGS)" . $(BACKEND_ARGS)
+	cd $(BACKEND_DIR) && GOGOCLAW_BINARY="$(GOGOCLAW_BINARY)" ${WEB_GO} run -ldflags "$(LDFLAGS)" . $(BACKEND_ARGS)
 
 # Build frontend and embed into Go binary
 build: build-frontend
@@ -148,14 +148,14 @@ endif
 	@echo "Building frontend..."
 	@cd $(FRONTEND_DIR) && $(BUN) run build:backend
 
-build-dev-picoclaw:
-	@echo "Building picoclaw for launcher development..."
+build-dev-gogoclaw:
+	@echo "Building gogoclaw for launcher development..."
 ifeq ($(OS),Windows_NT)
-	@$(POWERSHELL) "New-Item -ItemType Directory -Force -Path (Split-Path -Parent '$(PICOCLAW_BINARY)') | Out-Null"
+	@$(POWERSHELL) "New-Item -ItemType Directory -Force -Path (Split-Path -Parent '$(GOGOCLAW_BINARY)') | Out-Null"
 else
-	@mkdir -p "$$(dirname "$(PICOCLAW_BINARY)")"
+	@mkdir -p "$$(dirname "$(GOGOCLAW_BINARY)")"
 endif
-	@$(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o "$(PICOCLAW_BINARY)" ../cmd/picoclaw
+	@$(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o "$(GOGOCLAW_BINARY)" ../cmd/gogoclaw
 
 # Run all tests
 test:

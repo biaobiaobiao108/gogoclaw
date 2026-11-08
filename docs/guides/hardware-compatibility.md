@@ -1,6 +1,6 @@
-# PicoClaw Container Host Compatibility
+# GoGoClaw Container Host Compatibility
 
-Production PicoClaw runs only from the published Linux container image. Native binaries and source builds are intended for development and testing.
+Production GoGoClaw runs only from the published Linux container image. Native binaries and source builds are intended for development and testing.
 
 ## Supported Image Platforms
 

@@ -16,7 +16,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 )
 
 // Run with: go test -tags=integration ./pkg/mcp

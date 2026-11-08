@@ -46,6 +46,7 @@ export function FilterBar({
         <Input
           value={searchQuery}
           onChange={(event) => onSearchQueryChange(event.target.value)}
+          aria-label={t("pages.agent.skills.search_placeholder")}
           placeholder={t("pages.agent.skills.search_placeholder")}
           className="hover:bg-background/50 focus-visible:bg-background h-9 border-transparent bg-transparent pl-9 shadow-none focus-visible:ring-1"
         />
@@ -104,10 +105,12 @@ export function FilterBar({
       <div className="bg-background/50 ring-border/20 inline-flex items-center rounded-lg p-0.5 shadow-sm ring-1">
         <button
           type="button"
+          aria-label={t("pages.agent.skills.layout.grouped")}
+          aria-pressed={layoutMode === "grouped"}
           className={cn(
-            "rounded-md px-2.5 py-1.5 text-xs font-medium transition-all",
+            "rounded-md px-2.5 py-1.5 text-xs font-medium transition-[color,background-color,border-color,box-shadow]",
             layoutMode === "grouped"
-              ? "bg-background text-foreground ring-border/30 shadow-sm ring-1"
+              ? "bg-background text-foreground ring-border/30 hover:bg-muted/60 shadow-sm ring-1"
               : "text-muted-foreground hover:text-foreground",
           )}
           onClick={() => onLayoutModeChange("grouped")}
@@ -116,10 +119,12 @@ export function FilterBar({
         </button>
         <button
           type="button"
+          aria-label={t("pages.agent.skills.layout.grid")}
+          aria-pressed={layoutMode === "grid"}
           className={cn(
-            "rounded-md px-2.5 py-1.5 text-xs font-medium transition-all",
+            "rounded-md px-2.5 py-1.5 text-xs font-medium transition-[color,background-color,border-color,box-shadow]",
             layoutMode === "grid"
-              ? "bg-background text-foreground ring-border/30 shadow-sm ring-1"
+              ? "bg-background text-foreground ring-border/30 hover:bg-muted/60 shadow-sm ring-1"
               : "text-muted-foreground hover:text-foreground",
           )}
           onClick={() => onLayoutModeChange("grid")}

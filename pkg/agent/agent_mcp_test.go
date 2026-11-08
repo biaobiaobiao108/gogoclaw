@@ -1,8 +1,8 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// GoGoClaw - Ultra-lightweight personal AI agent
 // Inspired by and based on nanobot: https://github.com/HKUDS/nanobot
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 GoGoClaw contributors
 
 package agent
 
@@ -14,11 +14,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/mcp"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	agenttools "github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/mcp"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	agenttools "github.com/sipeed/picoclaw/pkg/tools"
 )
 
 func boolPtr(b bool) *bool { return &b }
@@ -264,11 +264,8 @@ func TestRegisterMCPServerPromptContributorUsesActualRegisteredToolCount(t *test
 	registerMCPServerPromptContributor("research", agent, "github", 2, false)
 	messages = cb.BuildMessagesFromPrompt(PromptBuildRequest{CurrentMessage: "hello"})
 	prompt := messages[0].Content
-	if !strings.Contains(prompt, "MCP server `github` is connected") {
-		t.Fatalf("expected MCP prompt for registered tools, got %q", prompt)
-	}
-	if !strings.Contains(prompt, "It contributes 2 tool(s)") {
-		t.Fatalf("expected actual registered tool count in prompt, got %q", prompt)
+	if strings.Contains(prompt, "MCP server `github` is connected") {
+		t.Fatalf("tool schemas should carry connected MCP tools without duplicating prompt text, got %q", prompt)
 	}
 }
 
@@ -395,7 +392,7 @@ func TestEnsureMCPInitialized_LoadFailureSetsInitErr(t *testing.T) {
 			Servers: map[string]config.MCPServerConfig{
 				"broken": {
 					Enabled: true,
-					Command: "picoclaw-command-that-does-not-exist-for-mcp-tests",
+					Command: "gogoclaw-command-that-does-not-exist-for-mcp-tests",
 				},
 			},
 		},

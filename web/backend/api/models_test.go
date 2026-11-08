@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/auth"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/auth"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
 func resetModelProbeHooks(t *testing.T) {
@@ -4040,13 +4040,13 @@ func TestHandleFetchModels_ModelIndexUsesStoredKey(t *testing.T) {
 	defer srv.Close()
 
 	tmp := t.TempDir()
-	oldHome := os.Getenv("PICOCLAW_HOME")
-	t.Setenv("PICOCLAW_HOME", filepath.Join(tmp, ".picoclaw"))
+	oldHome := os.Getenv("GOGOCLAW_HOME")
+	t.Setenv("GOGOCLAW_HOME", filepath.Join(tmp, ".gogoclaw"))
 	defer func() {
 		if oldHome != "" {
-			os.Setenv("PICOCLAW_HOME", oldHome)
+			os.Setenv("GOGOCLAW_HOME", oldHome)
 		} else {
-			os.Unsetenv("PICOCLAW_HOME")
+			os.Unsetenv("GOGOCLAW_HOME")
 		}
 	}()
 
@@ -4105,7 +4105,7 @@ func TestHandleFetchModels_ModelIndexProviderMismatchRejectsKey(t *testing.T) {
 	defer srv.Close()
 
 	tmp := t.TempDir()
-	t.Setenv("PICOCLAW_HOME", filepath.Join(tmp, ".picoclaw"))
+	t.Setenv("GOGOCLAW_HOME", filepath.Join(tmp, ".gogoclaw"))
 
 	cfg := config.DefaultConfig()
 	cfg.ModelList = []*config.ModelConfig{

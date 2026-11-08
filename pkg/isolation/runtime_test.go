@@ -7,13 +7,13 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg"
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 )
 
-func TestResolveInstanceRoot_UsesPicoclawHome(t *testing.T) {
-	t.Setenv(config.EnvHome, "/custom/picoclaw/home")
-	want := filepath.Clean("/custom/picoclaw/home")
+func TestResolveInstanceRoot_UsesGogoclawHome(t *testing.T) {
+	t.Setenv(config.EnvHome, "/custom/gogoclaw/home")
+	want := filepath.Clean("/custom/gogoclaw/home")
 	root, err := ResolveInstanceRoot()
 	if err != nil {
 		t.Fatalf("ResolveInstanceRoot() error = %v", err)
@@ -150,7 +150,7 @@ func TestBuildLinuxMountPlan(t *testing.T) {
 
 func TestBuildWindowsAccessRules(t *testing.T) {
 	rules := BuildWindowsAccessRules(
-		`C:\picoclaw`,
+		`C:\gogoclaw`,
 		[]config.ExposePath{{Source: `D:\data`, Target: `C:\mapped`, Mode: "ro"}},
 	)
 	if len(rules) == 0 {
@@ -159,7 +159,7 @@ func TestBuildWindowsAccessRules(t *testing.T) {
 	foundRoot := false
 	foundOverride := false
 	for _, rule := range rules {
-		if rule.Path == `C:\picoclaw` && rule.Mode == "rw" {
+		if rule.Path == `C:\gogoclaw` && rule.Mode == "rw" {
 			foundRoot = true
 		}
 		if rule.Path == `D:\data` && rule.Mode == "ro" {

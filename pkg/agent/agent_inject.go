@@ -1,13 +1,13 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// GoGoClaw - Ultra-lightweight personal AI agent
 
 package agent
 
 import (
-	"github.com/sipeed/picoclaw/pkg/audio/asr"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/media"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/audio/asr"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 )
 
 func (al *AgentLoop) RegisterTool(tool tools.Tool) {

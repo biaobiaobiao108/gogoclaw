@@ -1,4 +1,4 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// GoGoClaw - Ultra-lightweight personal AI agent
 
 package agent
 
@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/constants"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/session"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/constants"
+	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
 
 // CallLLM performs an LLM call with fallback support, hook invocation, and retry logic.

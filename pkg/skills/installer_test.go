@@ -26,47 +26,47 @@ func TestParseGitHubRef(t *testing.T) {
 	}{
 		{
 			name:         "simple owner/repo",
-			repo:         "sipeed/picoclaw",
-			wantOwner:    "sipeed",
-			wantRepoName: "picoclaw",
+			repo:         "biaobiaobiao108/gogoclaw",
+			wantOwner:    "biaobiaobiao108",
+			wantRepoName: "gogoclaw",
 			wantRef:      "main",
 			wantSubPath:  "",
 		},
 		{
 			name:         "owner/repo with subpath",
-			repo:         "sipeed/picoclaw/skills/test",
-			wantOwner:    "sipeed",
-			wantRepoName: "picoclaw",
+			repo:         "biaobiaobiao108/gogoclaw/skills/test",
+			wantOwner:    "biaobiaobiao108",
+			wantRepoName: "gogoclaw",
 			wantRef:      "main",
 			wantSubPath:  "skills/test",
 		},
 		{
 			name:         "full URL with tree",
-			repo:         "https://github.com/sipeed/picoclaw/tree/dev/skills/test",
-			wantOwner:    "sipeed",
-			wantRepoName: "picoclaw",
+			repo:         "https://github.com/biaobiaobiao108/gogoclaw/tree/dev/skills/test",
+			wantOwner:    "biaobiaobiao108",
+			wantRepoName: "gogoclaw",
 			wantRef:      "dev",
 			wantSubPath:  "skills/test",
 		},
 		{
 			name:         "full URL with blob",
-			repo:         "https://github.com/sipeed/picoclaw/blob/main/README.md",
-			wantOwner:    "sipeed",
-			wantRepoName: "picoclaw",
+			repo:         "https://github.com/biaobiaobiao108/gogoclaw/blob/main/README.md",
+			wantOwner:    "biaobiaobiao108",
+			wantRepoName: "gogoclaw",
 			wantRef:      "main",
 			wantSubPath:  "README.md",
 		},
 		{
 			name:         "full URL without ref",
-			repo:         "https://github.com/sipeed/picoclaw",
-			wantOwner:    "sipeed",
-			wantRepoName: "picoclaw",
+			repo:         "https://github.com/biaobiaobiao108/gogoclaw",
+			wantOwner:    "biaobiaobiao108",
+			wantRepoName: "gogoclaw",
 			wantRef:      "main",
 			wantSubPath:  "",
 		},
 		{
 			name:           "invalid format - single part",
-			repo:           "sipeed",
+			repo:           "biaobiaobiao108",
 			wantErr:        true,
 			wantErrContain: "expected 'owner/repo'",
 		},
@@ -78,21 +78,21 @@ func TestParseGitHubRef(t *testing.T) {
 		},
 		{
 			name:           "invalid GitHub URL - only one path part",
-			repo:           "https://github.com/sipeed",
+			repo:           "https://github.com/biaobiaobiao108",
 			wantErr:        true,
 			wantErrContain: "invalid GitHub URL",
 		},
 		{
 			name:         "with whitespace",
-			repo:         "  sipeed/picoclaw  ",
-			wantOwner:    "sipeed",
-			wantRepoName: "picoclaw",
+			repo:         "  biaobiaobiao108/gogoclaw  ",
+			wantOwner:    "biaobiaobiao108",
+			wantRepoName: "gogoclaw",
 			wantRef:      "main",
 			wantSubPath:  "",
 		},
 		{
 			name:           "invalid non github host",
-			repo:           "https://gitlab.com/sipeed/picoclaw/-/tree/main/skills/test",
+			repo:           "https://gitlab.com/biaobiaobiao108/gogoclaw/-/tree/main/skills/test",
 			wantErr:        true,
 			wantErrContain: `invalid GitHub URL host "gitlab.com"`,
 		},
@@ -728,12 +728,12 @@ func TestSkillInstaller_InstallFromGitHub_SkillAlreadyExists(t *testing.T) {
 	}
 
 	// Create an existing skill directory
-	existingSkill := filepath.Join(skillsDir, "picoclaw")
+	existingSkill := filepath.Join(skillsDir, "gogoclaw")
 	os.MkdirAll(existingSkill, 0o755)
 	os.WriteFile(filepath.Join(existingSkill, "SKILL.md"), []byte("existing"), 0o644)
 
 	// Try to install the same skill - should fail
-	err = installer.InstallFromGitHub(context.Background(), "sipeed/picoclaw")
+	err = installer.InstallFromGitHub(context.Background(), "biaobiaobiao108/gogoclaw")
 	if err == nil {
 		t.Error("InstallFromGitHub() expected error for existing skill, got nil")
 	}

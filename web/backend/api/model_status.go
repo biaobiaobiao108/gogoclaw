@@ -16,8 +16,8 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
 const (

@@ -1,6 +1,6 @@
 # Tools Configuration
 
-PicoClaw's tools configuration is located in the `tools` field of `config.json`.
+GoGoClaw's tools configuration is located in the `tools` field of `config.json`.
 
 ## Directory Structure
 
@@ -31,7 +31,7 @@ PicoClaw's tools configuration is located in the `tools` field of `config.json`.
 
 ## Sensitive Data Filtering
 
-Before tool results are sent to the LLM, PicoClaw can filter sensitive values (API keys, tokens, secrets) from the output. This prevents the LLM from seeing its own credentials.
+Before tool results are sent to the LLM, GoGoClaw can filter sensitive values (API keys, tokens, secrets) from the output. This prevents the LLM from seeing its own credentials.
 
 See [Sensitive Data Filtering](../security/sensitive_data_filtering.md) for full documentation.
 
@@ -42,7 +42,7 @@ See [Sensitive Data Filtering](../security/sensitive_data_filtering.md) for full
 
 ## Human Approval
 
-Human approval pauses selected tool calls until a decision is received in the Pico web console. It is disabled by default so headless deployments keep their existing behavior.
+Human approval pauses selected tool calls until a decision is received in the GoGoClaw Web console. It is disabled by default because production runs inside a container sandbox; enable it explicitly when a deployment needs human review of selected tools.
 
 | Config | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -237,7 +237,7 @@ At runtime, the `web_search` tool accepts the following parameters:
 | `count` | integer | no | Number of results to return. Default: `10`, max: `10` |
 | `range` | string | no | Optional time filter: `d` (day), `w` (week), `m` (month), `y` (year) |
 
-If `range` is omitted, PicoClaw performs an unrestricted search.
+If `range` is omitted, GoGoClaw performs an unrestricted search.
 For Kagi, `d`, `w`, and `m` map to Kagi lens `time_relative`; `y` maps to a lens `time_after` date one year before the current day.
 
 ### Example `web_search` Call
@@ -277,7 +277,7 @@ To completely disable the `exec` tool, set `enabled` to `false`:
 
 **Via environment variable:**
 ```bash
-PICOCLAW_TOOLS_EXEC_ENABLED=false
+GOGOCLAW_TOOLS_EXEC_ENABLED=false
 ```
 
 > **Note:** When disabled, the agent will not be able to execute shell commands. This also affects the Cron tool's ability to run scheduled shell commands.
@@ -289,7 +289,7 @@ PICOCLAW_TOOLS_EXEC_ENABLED=false
 
 ### Default Blocked Command Patterns
 
-By default, PicoClaw blocks the following dangerous commands:
+By default, GoGoClaw blocks the following dangerous commands:
 
 - Delete commands: `rm -rf`, `del /f/q`, `rmdir /s`
 - Disk operations: `format`, `mkfs`, `diskpart`, `dd if=`, writing to `/dev/sd*`
@@ -306,7 +306,7 @@ By default, PicoClaw blocks the following dangerous commands:
 
 ### Known Architectural Limitation
 
-The exec guard only validates the top-level command sent to PicoClaw. It does **not** recursively inspect child
+The exec guard only validates the top-level command sent to GoGoClaw. It does **not** recursively inspect child
 processes spawned by build tools or scripts after that command starts running.
 
 Examples of workflows that can bypass the direct command guard once the initial command is allowed:
@@ -353,14 +353,14 @@ For schedule types, execution modes (`deliver`, agent turn, and command jobs), p
 
 The MCP tool enables integration with external Model Context Protocol servers.
 
-If you prefer not to edit JSON manually, PicoClaw also provides an MCP configuration manager CLI:
+If you prefer not to edit JSON manually, GoGoClaw also provides an MCP configuration manager CLI:
 
-- `picoclaw mcp add` — add or update a server (supports `--deferred` / `--no-deferred`)
-- `picoclaw mcp list` — list all configured servers with status and deferred state
-- `picoclaw mcp show <name>` — show full details and the tool list for one server
-- `picoclaw mcp test <name>` — connectivity check for one server
-- `picoclaw mcp remove <name>` — remove a server entry
-- `picoclaw mcp edit` — open `config.json` in `$EDITOR` for advanced edits
+- `gogoclaw mcp add` — add or update a server (supports `--deferred` / `--no-deferred`)
+- `gogoclaw mcp list` — list all configured servers with status and deferred state
+- `gogoclaw mcp show <name>` — show full details and the tool list for one server
+- `gogoclaw mcp test <name>` — connectivity check for one server
+- `gogoclaw mcp remove <name>` — remove a server entry
+- `gogoclaw mcp edit` — open `config.json` in `$EDITOR` for advanced edits
 
 These commands manage the same `tools.mcp.servers` section documented below. See [MCP Server CLI](mcp-cli.md) for command syntax, examples, and behavior details.
 
@@ -394,7 +394,7 @@ and injected into the context for a configured number of turns (`ttl`).
 > **Note:** If `discovery.enabled` is `true`, you MUST enable at least one search engine (`use_bm25` or `use_regex`),
 > otherwise the application will fail to start.
 
-MCP servers that advertise tool-list changes are refreshed at runtime. PicoClaw reconciles additions and removals per server and per agent allowlist, so removed tools disappear from prompts, search, and execution without restarting the gateway.
+MCP servers that advertise tool-list changes are refreshed at runtime. GoGoClaw reconciles additions and removals per server and per agent allowlist, so removed tools disappear from prompts, search, and execution without restarting the gateway.
 
 ### Per-Server Config
 
@@ -648,18 +648,18 @@ The skills tool configures skill discovery and installation via registries like 
 
 ## Environment Variables
 
-All configuration options can be overridden via environment variables with the format `PICOCLAW_TOOLS_<SECTION>_<KEY>`:
+All configuration options can be overridden via environment variables with the format `GOGOCLAW_TOOLS_<SECTION>_<KEY>`:
 
 For example:
 
-- `PICOCLAW_TOOLS_WEB_BRAVE_ENABLED=true`
-- `PICOCLAW_TOOLS_EXEC_ENABLED=false`
-- `PICOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS=false`
-- `PICOCLAW_TOOLS_CRON_EXEC_TIMEOUT_MINUTES=10`
-- `PICOCLAW_TOOLS_MCP_ENABLED=true`
-- `PICOCLAW_TOOLS_MCP_MAX_INLINE_TEXT_CHARS=16384`
+- `GOGOCLAW_TOOLS_WEB_BRAVE_ENABLED=true`
+- `GOGOCLAW_TOOLS_EXEC_ENABLED=false`
+- `GOGOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS=false`
+- `GOGOCLAW_TOOLS_CRON_EXEC_TIMEOUT_MINUTES=10`
+- `GOGOCLAW_TOOLS_MCP_ENABLED=true`
+- `GOGOCLAW_TOOLS_MCP_MAX_INLINE_TEXT_CHARS=16384`
 
 Note: Nested map-style config (for example `tools.mcp.servers.<name>.*`) is configured in `config.json` rather than
 environment variables.
 
-For MCP tools, `tools.mcp.max_inline_text_chars` controls how much text result is kept inline in model context. The threshold is counted in Unicode characters (Go runes), not bytes. For example, `16384` means up to 16,384 characters inline, which may occupy more than 16 KB for multibyte text such as CJK. Above this threshold, PicoClaw saves the MCP text result as a local artifact in the agent workspace and gives the model a short note plus a structured `[file:...]` artifact path instead of injecting the full payload into context.
+For MCP tools, `tools.mcp.max_inline_text_chars` controls how much text result is kept inline in model context. The threshold is counted in Unicode characters (Go runes), not bytes. For example, `16384` means up to 16,384 characters inline, which may occupy more than 16 KB for multibyte text such as CJK. Above this threshold, GoGoClaw saves the MCP text result as a local artifact in the agent workspace and gives the model a short note plus a structured `[file:...]` artifact path instead of injecting the full payload into context.

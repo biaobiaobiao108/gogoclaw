@@ -2,59 +2,86 @@ package tokenizer
 
 import (
 	"encoding/json"
-	"unicode/utf8"
+	"unicode"
 
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
+
+// EstimateTextTokens returns a locale-aware token estimate. ASCII-heavy
+// prompts average roughly 3.5 characters per token, CJK text is close to one
+// token per rune, and other non-ASCII text is counted conservatively.
+func EstimateTextTokens(text string) int {
+	asciiRunes := 0
+	cjkRunes := 0
+	otherRunes := 0
+	wideRunes := 0
+
+	for _, r := range text {
+		switch {
+		case unicode.Is(unicode.Han, r),
+			unicode.Is(unicode.Hiragana, r),
+			unicode.Is(unicode.Katakana, r),
+			unicode.Is(unicode.Hangul, r):
+			cjkRunes++
+		case r <= unicode.MaxASCII:
+			asciiRunes++
+		case r > 0xFFFF:
+			wideRunes++
+		default:
+			otherRunes++
+		}
+	}
+
+	asciiTokens := (asciiRunes*2 + 6) / 7
+	otherTokens := (otherRunes + 1) / 2
+	return asciiTokens + cjkRunes + otherTokens + wideRunes
+}
 
 // EstimateMessageTokens estimates the token count for a single message,
 // including Content, ReasoningContent, ToolCalls arguments, ToolCallID
-// metadata, and Media items. Uses a heuristic of 2.5 characters per token.
+// metadata, and Media items.
 func EstimateMessageTokens(msg providers.Message) int {
-	contentChars := utf8.RuneCountInString(msg.Content)
+	contentTokens := EstimateTextTokens(msg.Content)
 
 	// SystemParts are structured system blocks used for cache-aware adapters.
 	// They carry the same content as Content, but in multiple blocks.
 	// We estimate them as an alternative representation, not additive.
-	systemPartsChars := 0
+	systemPartsTokens := 0
 	if len(msg.SystemParts) > 0 {
 		for _, part := range msg.SystemParts {
-			systemPartsChars += utf8.RuneCountInString(part.Text)
+			systemPartsTokens += EstimateTextTokens(part.Text)
 		}
 		// Per-part overhead for JSON structure (type, text, cache_control).
-		const perPartOverhead = 20
-		systemPartsChars += len(msg.SystemParts) * perPartOverhead
+		systemPartsTokens += len(msg.SystemParts) * 5
 	}
 
 	// Use the larger of the two representations to stay conservative.
-	chars := contentChars
-	if systemPartsChars > chars {
-		chars = systemPartsChars
+	tokens := contentTokens
+	if systemPartsTokens > tokens {
+		tokens = systemPartsTokens
 	}
 
-	chars += utf8.RuneCountInString(msg.ReasoningContent)
+	tokens += EstimateTextTokens(msg.ReasoningContent)
 
 	for _, tc := range msg.ToolCalls {
-		chars += len(tc.ID) + len(tc.Type)
+		tokens += EstimateTextTokens(tc.ID) + EstimateTextTokens(tc.Type)
 		if tc.Function != nil {
 			// Count function name + arguments (the wire format for most providers).
 			// tc.Name mirrors tc.Function.Name — count only once to avoid double-counting.
-			chars += len(tc.Function.Name) + len(tc.Function.Arguments)
+			tokens += EstimateTextTokens(tc.Function.Name)
+			tokens += EstimateTextTokens(tc.Function.Arguments)
 		} else {
 			// Fallback: some provider formats use top-level Name without Function.
-			chars += len(tc.Name)
+			tokens += EstimateTextTokens(tc.Name)
 		}
 	}
 
 	if msg.ToolCallID != "" {
-		chars += len(msg.ToolCallID)
+		tokens += EstimateTextTokens(msg.ToolCallID)
 	}
 
 	// Per-message overhead for role label, JSON structure, separators.
-	const messageOverhead = 12
-	chars += messageOverhead
-
-	tokens := chars * 2 / 5
+	tokens += 12
 
 	// Media items (images, files) are serialized by provider adapters into
 	// multipart or image_url payloads. Add a fixed per-item token estimate
@@ -73,19 +100,20 @@ func EstimateToolDefsTokens(defs []providers.ToolDefinition) int {
 		return 0
 	}
 
-	totalChars := 0
+	totalTokens := 0
 	for _, d := range defs {
-		totalChars += len(d.Function.Name) + len(d.Function.Description)
+		totalTokens += EstimateTextTokens(d.Function.Name)
+		totalTokens += EstimateTextTokens(d.Function.Description)
 
 		if d.Function.Parameters != nil {
 			if paramJSON, err := json.Marshal(d.Function.Parameters); err == nil {
-				totalChars += len(paramJSON)
+				totalTokens += EstimateTextTokens(string(paramJSON))
 			}
 		}
 
 		// Per-tool overhead: type field, JSON structure, separators.
-		totalChars += 20
+		totalTokens += 5
 	}
 
-	return totalChars * 2 / 5
+	return totalTokens
 }

@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"github.com/sipeed/picoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 )
 
 // computeContextUsage estimates current context window consumption for the

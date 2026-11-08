@@ -2,7 +2,7 @@
 
 ## Overview
 
-PicoClaw uses a schema versioning system for `config.json` to ensure smooth upgrades as the configuration format evolves.
+GoGoClaw uses a schema versioning system for `config.json` to ensure smooth upgrades as the configuration format evolves.
 
 ## Version History
 
@@ -188,9 +188,9 @@ Version 3 introduces improved type safety and error handling:
 
 ### Auto-Migration Behavior
 
-When you run PicoClaw with a V2 config file:
+When you run GoGoClaw with a V2 config file:
 
-1. **Detection**: PicoClaw reads the `version` field and detects V2
+1. **Detection**: GoGoClaw reads the `version` field and detects V2
 2. **Backup**: Before any changes, creates `config.json.YYYYMMDD.bak` (e.g., `config.json.20260413.bak`)
 3. **Migration**: Applies V2→V3 structural changes (primarily internal type safety improvements)
 4. **Save**: Writes the updated config with `"version": 3`
@@ -202,23 +202,23 @@ When you run PicoClaw with a V2 config file:
 
 Backups are created in the same directory as your config file:
 
-- **Default**: `~/.picoclaw/config.json.20260413.bak`
-- **Custom path**: If using `PICOCLAW_CONFIG`, backup is created next to that file
+- **Default**: `~/.gogoclaw/config.json.20260413.bak`
+- **Custom path**: If using `GOGOCLAW_CONFIG`, backup is created next to that file
 - **Security file**: `.security.yml` is also backed up as `.security.yml.YYYYMMDD.bak`
 
 ### Downgrade Risk
 
-⚠️ **Important**: Once migrated to V3, the config **cannot** be safely loaded by older PicoClaw versions that only support V2.
+⚠️ **Important**: Once migrated to V3, the config **cannot** be safely loaded by older GoGoClaw versions that only support V2.
 
 **To downgrade:**
 
-1. Stop PicoClaw
+1. Stop GoGoClaw
 2. Restore the backup:
    ```bash
-   cp ~/.picoclaw/config.json.20260413.bak ~/.picoclaw/config.json
-   cp ~/.picoclaw/.security.yml.20260413.bak ~/.picoclaw/.security.yml  # if it exists
+   cp ~/.gogoclaw/config.json.20260413.bak ~/.gogoclaw/config.json
+   cp ~/.gogoclaw/.security.yml.20260413.bak ~/.gogoclaw/.security.yml  # if it exists
    ```
-3. Use a PicoClaw version that supports V2 configs
+3. Use a GoGoClaw version that supports V2 configs
 
 **Alternative**: Manually edit `config.json` and change `"version": 3` to `"version": 2`. This works because V3 changes are primarily code-level safety improvements, not structural schema changes.
 

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
 func (p *Pipeline) tryConfiguredStreamingLLM(
@@ -56,6 +56,9 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 		modelName: exec.llmModelName,
 		ts:        ts,
 	}
+	delivery := p.al.prepareStreamingDelivery(ts)
+	publisher.SetDeliveryID(delivery.ID)
+	exec.streamingDelivery = &delivery
 
 	logger.DebugCF("agent", "configured streaming enabled", map[string]any{
 		"agent_id": ts.agent.ID,
@@ -118,10 +121,14 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 			}
 			if publisher.Published() {
 				logger.WarnCF("agent", "ChatStream update failed after visible output", logFields)
+				p.al.failStreamingDelivery(ts.sessionKey, delivery, updateErr)
+				exec.streamingDelivery = nil
 				return nil, true, configuredStreamingVisibleError{err: updateErr}
 			}
 			logger.WarnCF("agent", "ChatStream update failed before visible output; retrying with Chat", logFields)
 			publisher.Cancel(ctx)
+			p.al.discardDelivery(ts.sessionKey, delivery.ID)
+			exec.streamingDelivery = nil
 			fallbackResponse, err := exec.activeProvider.Chat(
 				ctx,
 				messagesForCall,
@@ -144,6 +151,8 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 				"error":    streamErr.Error(),
 			})
 			publisher.Cancel(ctx)
+			p.al.discardDelivery(ts.sessionKey, delivery.ID)
+			exec.streamingDelivery = nil
 			fallbackResponse, err := exec.activeProvider.Chat(
 				ctx,
 				messagesForCall,
@@ -156,6 +165,8 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 			}
 			return fallbackResponse, true, err
 		}
+		p.al.failStreamingDelivery(ts.sessionKey, delivery, streamErr)
+		exec.streamingDelivery = nil
 		return nil, true, configuredStreamingVisibleError{err: streamErr}
 	}
 
@@ -214,6 +225,7 @@ func isConfiguredStreamingVisibleError(err error) bool {
 }
 
 func finalizeConfiguredStreamingLLM(
+	al *AgentLoop,
 	ctx context.Context,
 	ts *turnState,
 	exec *turnExecution,
@@ -225,9 +237,20 @@ func finalizeConfiguredStreamingLLM(
 	}
 	publisher := exec.streamingPublisher
 	exec.streamingPublisher = nil
+	delivery := exec.streamingDelivery
+	exec.streamingDelivery = nil
 	visibleBeforeFinalize := publisher.Published()
 	if err := publisher.Finalize(ctx, content, contextUsage); err != nil {
 		if visibleBeforeFinalize {
+			if delivery != nil {
+				if persistErr := al.completeStreamingDelivery(ts.sessionKey, *delivery, content, contextUsage, false); persistErr != nil {
+					logger.WarnCF("agent", "Failed to persist retryable stream delivery", map[string]any{
+						"agent_id": ts.agent.ID,
+						"channel":  ts.channel,
+						"error":    persistErr.Error(),
+					})
+				}
+			}
 			logger.WarnCF("agent", "stream final flush failed after visible output", map[string]any{
 				"agent_id": ts.agent.ID,
 				"channel":  ts.channel,
@@ -237,6 +260,9 @@ func finalizeConfiguredStreamingLLM(
 			return configuredStreamingVisibleError{err: err}
 		}
 		publisher.Cancel(ctx)
+		if delivery != nil {
+			al.discardDelivery(ts.sessionKey, delivery.ID)
+		}
 		logger.WarnCF("agent", "stream final flush failed", map[string]any{
 			"agent_id": ts.agent.ID,
 			"channel":  ts.channel,
@@ -244,6 +270,11 @@ func finalizeConfiguredStreamingLLM(
 			"error":    err.Error(),
 		})
 		return err
+	}
+	if delivery != nil {
+		if err := al.completeStreamingDelivery(ts.sessionKey, *delivery, content, contextUsage, publisher.Published()); err != nil {
+			return configuredStreamingVisibleError{err: fmt.Errorf("persist streamed final delivery: %w", err)}
+		}
 	}
 	return nil
 }
@@ -254,6 +285,7 @@ func cancelConfiguredStreamingLLM(ctx context.Context, exec *turnExecution) {
 	}
 	publisher := exec.streamingPublisher
 	exec.streamingPublisher = nil
+	exec.streamingDelivery = nil
 	publisher.Cancel(ctx)
 }
 
@@ -377,7 +409,18 @@ type streamingChunkPublisher struct {
 	published          bool
 	reasoningPublished bool
 	err                error
+	deliveryID         string
 	ts                 *turnState
+}
+
+func (p *streamingChunkPublisher) SetDeliveryID(deliveryID string) {
+	if p == nil {
+		return
+	}
+	p.deliveryID = strings.TrimSpace(deliveryID)
+	if streamer, ok := p.streamer.(bus.DeliveryStreamer); ok && p.deliveryID != "" {
+		streamer.SetDeliveryID(p.deliveryID)
+	}
 }
 
 func (p *streamingChunkPublisher) Update(ctx context.Context, accumulated string) {

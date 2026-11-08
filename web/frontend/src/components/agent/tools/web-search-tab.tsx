@@ -70,7 +70,7 @@ export function WebSearchTab({
             <Button
               onClick={onSave}
               disabled={!isDirty || isSaving}
-              className="h-10 shrink-0 rounded-xl px-6 shadow-sm transition-all active:scale-95"
+              className="h-10 shrink-0 rounded-md px-6 shadow-sm transition-[color,background-color,border-color,opacity,box-shadow,transform]"
             >
               {t("pages.agent.tools.web_search.save", "Save Changes")}
             </Button>
@@ -106,8 +106,8 @@ export function WebSearchTab({
 function LoadingState() {
   return (
     <div className="space-y-8">
-      <Skeleton className="h-24 rounded-2xl" />
-      <Skeleton className="h-64 rounded-2xl" />
+      <Skeleton className="h-24 rounded-lg" />
+      <Skeleton className="h-64 rounded-lg" />
     </div>
   )
 }

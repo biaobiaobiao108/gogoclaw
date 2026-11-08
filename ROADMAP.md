@@ -1,5 +1,5 @@
 
-# 🦐 PicoClaw Roadmap
+# 🦐 GoGoClaw Roadmap
 
 > **Vision**: To build the ultimate lightweight, secure, and fully autonomous AI Agent infrastructure.automate the mundane, unleash your creativity
 
@@ -9,7 +9,7 @@
 
 *Our defining characteristic. We keep the application process small while production runs in a Linux container.*
 
-* [**Memory Footprint Reduction**](https://github.com/sipeed/picoclaw/issues/346)
+* [**Memory Footprint Reduction**](https://github.com/biaobiaobiao108/gogoclaw/issues/346)
   * **Goal**: Keep the core gateway process below 20MB where practical and keep the production container usable on compact 64-bit Linux hosts.
   * **Context**: Production capacity is determined by the container image and runtime, not by native binaries on bare embedded boards. The documented host baseline remains 512MB RAM.
   * **Action**: Analyze memory growth between releases, remove redundant dependencies, and optimize data structures.
@@ -42,7 +42,7 @@
 *Connect every model, reach every platform.*
 
 * **Provider**
-  * [**Architecture Upgrade**](https://github.com/sipeed/picoclaw/issues/283): Refactor from "Vendor-based" to "Protocol-based" classification (e.g., OpenAI-compatible, Ollama-compatible). *(Status: In progress by @Daming, ETA 5 days)*
+  * [**Architecture Upgrade**](https://github.com/biaobiaobiao108/gogoclaw/issues/283): Refactor from "Vendor-based" to "Protocol-based" classification (e.g., OpenAI-compatible, Ollama-compatible). *(Status: In progress by @Daming, ETA 5 days)*
   * **Local Models**: Deep integration with **Ollama**, **vLLM**, **LM Studio**, and **Mistral** (local inference).
   * **Online Models**: Continued support for frontier closed-source models.
 
@@ -50,11 +50,11 @@
 * **Channel**
   * **IM Matrix**: QQ, WeChat (Work), DingTalk, Feishu (Lark), Telegram, Discord, WhatsApp, LINE, Slack, Email, KOOK, Signal, ...
   * **Standards**: Support for the **OneBot** protocol.
-  * [**attachment**](https://github.com/sipeed/picoclaw/issues/348): Native handling of images, audio, and video attachments.
+  * [**attachment**](https://github.com/biaobiaobiao108/gogoclaw/issues/348): Native handling of images, audio, and video attachments.
 
 
 * **Skill Marketplace**
-  * [**Discovery skills**](https://github.com/sipeed/picoclaw/issues/287): Implement `find_skill` to automatically discover and install skills from the [GitHub Skills Repo] or other registries.
+  * [**Discovery skills**](https://github.com/biaobiaobiao108/gogoclaw/issues/287): Implement `find_skill` to automatically discover and install skills from the [GitHub Skills Repo] or other registries.
 
 
 
@@ -63,15 +63,15 @@
 *Beyond conversation—focusing on action and collaboration.*
 
 * **Operations**
-  * [**MCP Support**](https://github.com/sipeed/picoclaw/issues/290): Native support for the **Model Context Protocol (MCP)**.
-  * [**Browser Automation**](https://github.com/sipeed/picoclaw/issues/293): Headless browser control via CDP (Chrome DevTools Protocol) or ActionBook.
+  * [**MCP Support**](https://github.com/biaobiaobiao108/gogoclaw/issues/290): Native support for the **Model Context Protocol (MCP)**.
+  * [**Browser Automation**](https://github.com/biaobiaobiao108/gogoclaw/issues/293): Headless browser control via CDP (Chrome DevTools Protocol) or ActionBook.
 
 
 * **Multi-Agent Collaboration**
-  * [**Basic Multi-Agent**](https://github.com/sipeed/picoclaw/issues/294) implement
-  * [**Model Routing**](https://github.com/sipeed/picoclaw/issues/295): "Smart Routing" — dispatch simple tasks to small/local models (fast/cheap) and complex tasks to SOTA models (smart).
-  * [**Swarm Mode**](https://github.com/sipeed/picoclaw/issues/284): Collaboration between multiple PicoClaw instances on the same network.
-  * [**AIEOS**](https://github.com/sipeed/picoclaw/issues/296): Exploring AI-Native Operating System interaction paradigms.
+  * [**Basic Multi-Agent**](https://github.com/biaobiaobiao108/gogoclaw/issues/294) implement
+  * [**Model Routing**](https://github.com/biaobiaobiao108/gogoclaw/issues/295): "Smart Routing" — dispatch simple tasks to small/local models (fast/cheap) and complex tasks to SOTA models (smart).
+  * [**Swarm Mode**](https://github.com/biaobiaobiao108/gogoclaw/issues/284): Collaboration between multiple GoGoClaw instances on the same network.
+  * [**AIEOS**](https://github.com/biaobiaobiao108/gogoclaw/issues/296): Exploring AI-Native Operating System interaction paradigms.
 
 
 
@@ -79,7 +79,7 @@
 
 *Lowering the barrier to entry so anyone can deploy in minutes.*
 
-* [**QuickGuide (Zero-Config Start)**](https://github.com/sipeed/picoclaw/issues/350)
+* [**QuickGuide (Zero-Config Start)**](https://github.com/biaobiaobiao108/gogoclaw/issues/350)
   * Interactive CLI Wizard: If launched without config, automatically detect the environment and guide the user through Token/Network setup step-by-step.
 
 
@@ -103,7 +103,7 @@
 
 ## 🎨 7. Brand & Community
 
-* [**Logo Design**](https://github.com/sipeed/picoclaw/issues/297): We are looking for a **Mantis Shrimp (Stomatopoda)** logo design!
+* [**Logo Design**](https://github.com/biaobiaobiao108/gogoclaw/issues/297): We are looking for a **Mantis Shrimp (Stomatopoda)** logo design!
   * *Concept*: Needs to reflect "Small but Mighty" and "Lightning Fast Strikes."
 
 

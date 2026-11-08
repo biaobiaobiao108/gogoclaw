@@ -6,9 +6,11 @@ import ReactDOM from "react-dom/client"
 import { AppProviders } from "./app-providers"
 import "./i18n"
 import "./index.css"
+import { installInteractionFeedback } from "./lib/interaction-feedback"
 import { routeTree } from "./routeTree.gen"
 
 const queryClient = new QueryClient()
+installInteractionFeedback()
 
 const router = createRouter({
   routeTree,

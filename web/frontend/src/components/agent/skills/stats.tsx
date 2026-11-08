@@ -12,11 +12,11 @@ export function Stats({ stats }: { stats: SkillStatItem[] }) {
         <Card
           key={stat.key}
           size="sm"
-          className="border-border/40 bg-card/40 hover:bg-card gap-3 shadow-sm transition-all hover:shadow-md"
+          className="border-border bg-card hover:bg-muted/15 gap-3 transition-colors"
         >
           <CardContent className="flex items-center justify-between pt-4">
             <div className="space-y-1">
-              <div className="text-muted-foreground text-[11px] font-semibold tracking-wider uppercase">
+              <div className="text-muted-foreground text-xs font-medium">
                 {stat.label}
               </div>
               <div className="text-2xl font-bold tracking-tight">

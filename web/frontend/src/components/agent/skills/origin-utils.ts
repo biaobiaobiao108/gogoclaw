@@ -48,26 +48,26 @@ export function getOriginLabel(origin: string, t: TFunction) {
 
 export function getOriginAccentClasses(origin: string) {
   if (origin === "manual") {
-    return "bg-emerald-100 text-emerald-700"
+    return "bg-secondary text-secondary-foreground"
   }
   if (origin === "third_party") {
-    return "bg-sky-100 text-sky-700"
+    return "bg-muted text-foreground"
   }
   if (origin === "builtin") {
-    return "bg-amber-100 text-amber-700"
+    return "bg-accent/10 text-accent"
   }
   return "bg-muted text-muted-foreground"
 }
 
 export function getOriginBadgeClasses(origin: string) {
   if (origin === "manual") {
-    return "bg-emerald-100 text-emerald-700"
+    return "bg-secondary text-secondary-foreground"
   }
   if (origin === "third_party") {
-    return "bg-sky-100 text-sky-700"
+    return "bg-muted text-foreground"
   }
   if (origin === "builtin") {
-    return "bg-amber-100 text-amber-700"
+    return "bg-accent/10 text-accent"
   }
   return "bg-muted text-muted-foreground"
 }

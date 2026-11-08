@@ -59,7 +59,7 @@ export function ApprovalPanel({
             </code>
           </div>
           <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
-            {t(approvalRiskKey(approval.tool))}
+            {approval.risk || t(approvalRiskKey(approval.tool))}
           </p>
           {args && (
             <details className="mt-2">

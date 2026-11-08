@@ -1,7 +1,7 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// GoGoClaw - Ultra-lightweight personal AI agent
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 GoGoClaw contributors
 
 package config
 
@@ -16,7 +16,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/sipeed/picoclaw/pkg/fileutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 )
 
 const (

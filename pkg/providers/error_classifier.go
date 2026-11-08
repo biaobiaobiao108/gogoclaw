@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/providers/common"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/common"
 )
 
 // Common patterns in Go HTTP error messages

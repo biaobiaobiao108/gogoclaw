@@ -17,9 +17,9 @@ interface AssistantDetailVisibilityDecision {
 }
 
 export const ASSISTANT_DETAIL_VISIBILITY_STORAGE_KEY =
-  "picoclaw:chat-assistant-detail-visibility"
+  "gogoclaw:chat-assistant-detail-visibility"
 export const LEGACY_SHOW_ASSISTANT_DETAILS_STORAGE_KEY =
-  "picoclaw:chat-show-thoughts"
+  "gogoclaw:chat-show-thoughts"
 export const DEFAULT_ASSISTANT_DETAIL_VISIBILITY: AssistantDetailVisibility =
   "all"
 

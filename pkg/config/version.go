@@ -8,10 +8,10 @@ import (
 // Build-time variables injected via ldflags during build process.
 // These are set by the Makefile or .goreleaser.yaml using the -X flag:
 //
-//	-X github.com/sipeed/picoclaw/pkg/config.Version=<version>
-//	-X github.com/sipeed/picoclaw/pkg/config.GitCommit=<commit>
-//	-X github.com/sipeed/picoclaw/pkg/config.BuildTime=<timestamp>
-//	-X github.com/sipeed/picoclaw/pkg/config.GoVersion=<go-version>
+//	-X github.com/biaobiaobiao108/gogoclaw/pkg/config.Version=<version>
+//	-X github.com/biaobiaobiao108/gogoclaw/pkg/config.GitCommit=<commit>
+//	-X github.com/biaobiaobiao108/gogoclaw/pkg/config.BuildTime=<timestamp>
+//	-X github.com/biaobiaobiao108/gogoclaw/pkg/config.GoVersion=<go-version>
 var (
 	Version   = "dev" // Default value when not built with ldflags
 	GitCommit string  // Git commit SHA (short)

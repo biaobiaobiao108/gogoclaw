@@ -1,21 +1,16 @@
 <div align="center">
-<img src="assets/logo.webp" alt="PicoClaw" width="512">
+<img src="assets/logo.svg" alt="GoGoClaw" width="128">
 
-<h1>PicoClaw: Ultra-Efficient AI Assistant in Go</h1>
+<h1>GoGoClaw: Ultra-Efficient AI Assistant in Go</h1>
 
-<h3>Linux Containers · amd64 / arm64 · Let's Go, PicoClaw!</h3>
+<h3>Container-first agent harness · amd64 / arm64</h3>
   <p>
     <img src="https://img.shields.io/badge/Go-1.27.3+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
     <img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64-blue" alt="Hardware">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
     <br>
-    <a href="https://picoclaw.io"><img src="https://img.shields.io/badge/Website-picoclaw.io-blue?style=flat&logo=google-chrome&logoColor=white" alt="Website"></a>
-    <a href="https://docs.picoclaw.io/"><img src="https://img.shields.io/badge/Docs-Official-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
-    <a href="https://deepwiki.com/sipeed/picoclaw"><img src="https://img.shields.io/badge/Wiki-DeepWiki-FFA500?style=flat&logo=wikipedia&logoColor=white" alt="Wiki"></a>
-    <br>
-    <a href="https://x.com/SipeedIO"><img src="https://img.shields.io/badge/X_(Twitter)-SipeedIO-black?style=flat&logo=x&logoColor=white" alt="Twitter"></a>
-    <a href="./assets/wechat.png"><img src="https://img.shields.io/badge/WeChat-Group-41d56b?style=flat&logo=wechat&logoColor=white"></a>
-    <a href="https://discord.gg/V4sAZ9XWpN"><img src="https://img.shields.io/badge/Discord-Community-4c60eb?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
+    <a href="https://github.com/biaobiaobiao108/gogoclaw"><img src="https://img.shields.io/badge/Repository-GitHub-181717?style=flat&logo=github&logoColor=white" alt="Repository"></a>
+    <a href="docs/README.md"><img src="https://img.shields.io/badge/Docs-Local-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
   </p>
 
 [中文](docs/project/README.zh.md) | **English**
@@ -24,49 +19,16 @@
 
 ---
 
-> **PicoClaw** is an independent open-source project initiated by [Sipeed](https://sipeed.com), written entirely in **Go** from scratch — not a fork of OpenClaw, NanoBot, or any other project.
-
-**PicoClaw** is an ultra-lightweight personal AI assistant inspired by [NanoBot](https://github.com/HKUDS/nanobot). It was rebuilt from the ground up in **Go** through a "self-bootstrapping" process — the AI Agent itself drove the architecture migration and code optimization.
+**GoGoClaw** is a lightweight agent harness and Web control console written in **Go**, with a React dashboard for sessions, models, channels, tools, approvals, and runtime diagnostics.
 
 **Container-first for production** — published images target 64-bit x86 and ARM Linux. Native binaries are for development and testing only.
 
 > [!CAUTION]
 > **Security Notice**
 >
-> * **NO CRYPTO:** PicoClaw has **not** issued any official tokens or cryptocurrency. All claims on `pump.fun` or other trading platforms are **scams**.
-> * **OFFICIAL DOMAIN:** The **ONLY** official website is **[picoclaw.io](https://picoclaw.io)**, and company website is **[sipeed.com](https://sipeed.com)**
-> * **BEWARE:** Many `.ai/.org/.com/.net/...` domains have been registered by third parties. Do not trust them.
-> * **NOTE:** PicoClaw is in early rapid development. Production deployment is supported through the container image only; review the security guidance before exposing it.
-> * **NOTE:** PicoClaw has recently merged many PRs. Recent builds may use 10-20MB RAM. Resource optimization is planned after feature stabilization.
-
-## 📢 News
-
-2026-05-28 🚀 **v0.2.9 Released!** MCP server management in Web UI, configurable Sogou-backed web search, tool feedback animation in channels, `pretty_print` and `disable_escape_html` defaults, and numerous bug fixes across providers and channels.
-
-2026-05-14 🚀 **v0.2.8 Released!** MCP CLI commands (`show`, `add`, `list`, `remove`, `test`, `edit`), empty object instead of null for MCP tool parameters, and build fixes.
-
-2026-05-07 🚀 **v0.2.7 Released!** Configurable Sogou-backed web search, channel tool feedback animation, and quality fixes.
-
-2026-04-23 🚀 **v0.2.6 Released!** Hooks with respond action and comprehensive documentation, isolation support, help banner fix.
-
-2026-04-11 🚀 **v0.2.5 Released!** Zoneinfo from TZ/ZONEINFO env, Matrix CommonMark rendering alignment, `read_file` by lines.
-
-2026-03-25 🚀 **v0.2.4 Released!** Agent architecture overhaul (SubTurn, Hooks, Steering, EventBus), WeChat/WeCom integration, security hardening (.security.yml, sensitive data filtering), new providers (AWS Bedrock, Azure, Xiaomi MiMo), and 35 bug fixes. PicoClaw has reached **26K Stars**!
-
-2026-03-09 🎉 **v0.2.1 — Biggest update yet!** MCP protocol support, 4 new channels (Matrix/IRC/WeCom/Discord Proxy), 3 new providers (Kimi/Minimax/Avian), vision pipeline, JSONL memory store, model routing.
-
-2026-02-28 📦 **v0.2.0** released with Docker Compose and Web UI Launcher support.
-
-<details>
-<summary>Earlier news...</summary>
-
-2026-02-26 🎉 PicoClaw hits **20K Stars** in just 17 days! Channel auto-orchestration and capability interfaces are live.
-
-2026-02-16 🎉 PicoClaw breaks 12K Stars in one week! Community maintainer roles and [Roadmap](ROADMAP.md) officially launched.
-
-2026-02-13 🎉 PicoClaw breaks 5000 Stars in 4 days! Project roadmap and developer groups in progress.
-
-</details>
+> * Production deployment is supported through the container image only.
+> * The container is the execution sandbox. Tool approval is therefore disabled by default; enable `tools.approval` explicitly when human review is required.
+> * Review the security guidance before exposing the console to a public network.
 
 ## ✨ Features
 
@@ -75,37 +37,13 @@
 
 🌍 **Container-first**: Production images are published for x86-64 and ARM64 Linux.
 
-🤖 **AI-bootstrapped**: Pure Go native implementation — 95% of core code was generated by an Agent and fine-tuned through human-in-the-loop review.
-
 🔌 **MCP support**: Native [Model Context Protocol](https://modelcontextprotocol.io/) integration — connect any MCP server to extend Agent capabilities.
 
 👁️ **Vision pipeline**: Send images and files directly to the Agent — automatic base64 encoding for multimodal LLMs.
 
 🧠 **Smart routing**: Rule-based model routing — simple queries go to lightweight models, saving API costs.
 
-> **[Hardware Compatibility List](docs/guides/hardware-compatibility.md)** — See tested Linux hosts that can run the container image. Your board not listed? Submit a PR!
-
-## 🦾 Demonstration
-
-### 🛠️ Standard Assistant Workflows
-
-<table align="center">
-<tr align="center">
-<th><p align="center">Full-Stack Engineer Mode</p></th>
-<th><p align="center">Logging & Planning</p></th>
-<th><p align="center">Web Search & Learning</p></th>
-</tr>
-<tr>
-<td align="center"><p align="center"><img src="assets/picoclaw_code.gif" width="240" height="180"></p></td>
-<td align="center"><p align="center"><img src="assets/picoclaw_memory.gif" width="240" height="180"></p></td>
-<td align="center"><p align="center"><img src="assets/picoclaw_search.gif" width="240" height="180"></p></td>
-</tr>
-<tr>
-<td align="center">Develop · Deploy · Scale</td>
-<td align="center">Schedule · Automate · Remember</td>
-<td align="center">Discover · Insights · Trends</td>
-</tr>
-</table>
+> **[Hardware Compatibility List](docs/guides/hardware-compatibility.md)** — See tested Linux hosts that can run the container image.
 
 ### 🐜 Container Hosts
 
@@ -125,8 +63,8 @@ Production deployments are supported only through the published Linux container 
 ### Start With The Web Console
 
 ```bash
-git clone https://github.com/sipeed/picoclaw.git
-cd picoclaw
+git clone https://github.com/biaobiaobiao108/gogoclaw.git
+cd gogoclaw
 
 docker compose -f docker/docker-compose.yml --profile launcher pull
 docker compose -f docker/docker-compose.yml --profile launcher up -d
@@ -138,7 +76,7 @@ The launcher port is bound to loopback by default. Keep it private, or place a h
 
 ```bash
 # Only do this behind a TLS reverse proxy or private network.
-PICOCLAW_LAUNCHER_BIND=0.0.0.0 \
+GOGOCLAW_LAUNCHER_BIND=0.0.0.0 \
   docker compose -f docker/docker-compose.yml --profile launcher up -d
 ```
 
@@ -149,7 +87,7 @@ Create the initial configuration interactively:
 ```bash
 docker compose -f docker/docker-compose.yml --profile gateway pull
 docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint picoclaw picoclaw-gateway onboard
+  --entrypoint gogoclaw gogoclaw-gateway onboard
 ```
 
 Then start the gateway:
@@ -158,36 +96,36 @@ Then start the gateway:
 docker compose -f docker/docker-compose.yml --profile gateway up -d
 ```
 
-Webhook-capable channels use gateway port `18790`. The host binding defaults to `127.0.0.1`; change `PICOCLAW_GATEWAY_BIND` only when a reverse proxy or trusted network needs access.
+Webhook-capable channels use gateway port `18790`. The host binding defaults to `127.0.0.1`; change `GOGOCLAW_GATEWAY_BIND` only when a reverse proxy or trusted network needs access.
 
 ### One-Off CLI Commands
 
 ```bash
 # Ask a one-off question
 docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint picoclaw picoclaw-gateway agent -m "What is 2+2?"
+  --entrypoint gogoclaw gogoclaw-gateway agent -m "What is 2+2?"
 
 # Inspect status
 docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint picoclaw picoclaw-gateway status
+  --entrypoint gogoclaw gogoclaw-gateway status
 ```
 
 ### Data, Backup, And Updates
 
-Application state is stored in the named volume `picoclaw-data` and mounted at `/data`. This includes `/data/.picoclaw/config.json`, credentials, workspace files, sessions, and logs.
+Application state is stored in the named volume `gogoclaw-data` and mounted at `/data`. This includes `/data/.gogoclaw/config.json`, credentials, workspace files, sessions, and logs.
 
 ```bash
 # Back up the volume
 docker run --rm \
-  -v picoclaw-data:/data:ro \
+  -v gogoclaw-data:/data:ro \
   -v "${PWD}:/backup" \
-  alpine tar czf /backup/picoclaw-data.tgz -C /data .
+  alpine tar czf /backup/gogoclaw-data.tgz -C /data .
 
 # Restore into an empty volume (the volume must not contain existing state)
 docker run --rm \
-  -v picoclaw-data:/data \
+  -v gogoclaw-data:/data \
   -v "${PWD}:/backup" \
-  alpine tar xzf /backup/picoclaw-data.tgz -C /data
+  alpine tar xzf /backup/gogoclaw-data.tgz -C /data
 ```
 
 Update by pulling the new image and recreating the service:
@@ -240,7 +178,7 @@ docker compose -f docker/docker-compose.yml \
 
 ## 🔌 Providers (LLM)
 
-PicoClaw supports 30+ LLM providers through the `model_list` configuration. Use the `protocol/model` format:
+GoGoClaw supports 30+ LLM providers through the `model_list` configuration. Use the `protocol/model` format:
 
 | Provider | Protocol | API Key | Notes |
 |----------|----------|---------|-------|
@@ -308,7 +246,7 @@ For full provider configuration details, see [Providers & Models](docs/guides/pr
 
 ## 💬 Channels (Chat Apps)
 
-Talk to your PicoClaw through 19+ messaging platforms:
+Talk to your GoGoClaw through 19+ messaging platforms:
 
 | Channel | Setup | Protocol | Docs |
 |---------|-------|----------|------|
@@ -334,7 +272,7 @@ Talk to your PicoClaw through 19+ messaging platforms:
 
 > All webhook-based channels share a single Gateway HTTP server (`gateway.host`:`gateway.port`, default `127.0.0.1:18790`). Feishu uses WebSocket/SDK mode and does not use the shared HTTP server.
 
-> Log verbosity is controlled by `gateway.log_level` (default: `warn`). Supported values: `debug`, `info`, `warn`, `error`, `fatal`. Can also be set via `PICOCLAW_LOG_LEVEL`. See [Configuration](docs/guides/configuration.md#gateway-log-level) for details.
+> Log verbosity is controlled by `gateway.log_level` (default: `warn`). Supported values: `debug`, `info`, `warn`, `error`, `fatal`. Can also be set via `GOGOCLAW_LOG_LEVEL`. See [Configuration](docs/guides/configuration.md#gateway-log-level) for details.
 
 For detailed channel setup instructions, see [Chat Apps Configuration](docs/guides/chat-apps.md).
 
@@ -342,7 +280,7 @@ For detailed channel setup instructions, see [Chat Apps Configuration](docs/guid
 
 ### 🔍 Web Search
 
-PicoClaw can search the web to provide up-to-date information. Configure in `tools.web`:
+GoGoClaw can search the web to provide up-to-date information. Configure in `tools.web`:
 
 | Search Engine | API Key | Free Tier | Link |
 |--------------|---------|-----------|------|
@@ -358,7 +296,7 @@ PicoClaw can search the web to provide up-to-date information. Configure in `too
 
 ### ⚙️ Other Tools
 
-PicoClaw includes built-in tools for file operations, code execution, scheduling, and more. See [Tools Configuration](docs/reference/tools_configuration.md) for details.
+GoGoClaw includes built-in tools for file operations, code execution, scheduling, and more. See [Tools Configuration](docs/reference/tools_configuration.md) for details.
 
 ## 🎯 Skills
 
@@ -367,8 +305,8 @@ Skills are modular capabilities that extend your Agent. They are loaded from `SK
 **Install skills from ClawHub:**
 
 ```bash
-picoclaw skills search "web scraping"
-picoclaw skills install <skill-name>
+gogoclaw skills search "web scraping"
+gogoclaw skills install <skill-name>
 ```
 
 **Configure skill registries**:
@@ -399,7 +337,7 @@ For more details, see [Tools Configuration - Skills](docs/reference/tools_config
 
 ## 🔗 MCP (Model Context Protocol)
 
-PicoClaw natively supports [MCP](https://modelcontextprotocol.io/) — connect any MCP server to extend your Agent's capabilities with external tools and data sources.
+GoGoClaw natively supports [MCP](https://modelcontextprotocol.io/) — connect any MCP server to extend your Agent's capabilities with external tools and data sources.
 
 ```json
 {
@@ -421,53 +359,47 @@ PicoClaw natively supports [MCP](https://modelcontextprotocol.io/) — connect a
 You can manage common MCP setups directly from the CLI instead of editing JSON by hand:
 
 ```bash
-picoclaw mcp add filesystem -- bunx --bun @modelcontextprotocol/server-filesystem /tmp
-picoclaw mcp list
-picoclaw mcp test filesystem
+gogoclaw mcp add filesystem -- bunx --bun @modelcontextprotocol/server-filesystem /tmp
+gogoclaw mcp list
+gogoclaw mcp test filesystem
 ```
 
-`picoclaw mcp` is a configuration manager: it updates `config.json` under `tools.mcp.servers`, but it does not keep the server process running itself.
+`gogoclaw mcp` is a configuration manager: it updates `config.json` under `tools.mcp.servers`, but it does not keep the server process running itself.
 
-Use `picoclaw mcp edit` when you need advanced fields that are not covered by `picoclaw mcp add`.
-For example, `picoclaw mcp add` supports `--deferred` and `--env-file`, while `picoclaw mcp edit` is still useful for direct JSON editing and uncommon MCP settings.
+Use `gogoclaw mcp edit` when you need advanced fields that are not covered by `gogoclaw mcp add`.
+For example, `gogoclaw mcp add` supports `--deferred` and `--env-file`, while `gogoclaw mcp edit` is still useful for direct JSON editing and uncommon MCP settings.
 
 For full MCP configuration (stdio, SSE, HTTP transports, Tool Discovery), see [Tools Configuration - MCP](docs/reference/tools_configuration.md#mcp-tool). For CLI usage and examples, see [MCP Server CLI](docs/reference/mcp-cli.md).
-
-## <img src="assets/clawdchat-icon.png" width="24" height="24" alt="ClawdChat"> Join the Agent Social Network
-
-Connect PicoClaw to the Agent Social Network simply by sending a single message via the CLI or any integrated Chat App.
-
-**Read `https://clawdchat.ai/skill.md` and follow the instructions to join [ClawdChat.ai](https://clawdchat.ai)**
 
 ## 🖥️ CLI Reference
 
 | Command                   | Description                      |
 | ------------------------- | -------------------------------- |
-| `picoclaw onboard`        | Initialize config & workspace    |
-| `picoclaw auth weixin` | Connect WeChat account via QR |
-| `picoclaw agent -m "..."` | Chat with the agent              |
-| `picoclaw agent`          | Interactive chat mode            |
-| `picoclaw gateway`        | Start the gateway                |
-| `picoclaw status`         | Show status                      |
-| `picoclaw version`        | Show version info                |
-| `picoclaw model`          | View or switch the default model |
-| `picoclaw mcp list`       | List configured MCP servers      |
-| `picoclaw mcp add ...`    | Add or update an MCP server entry |
-| `picoclaw mcp test`       | Probe a configured MCP server    |
-| `picoclaw mcp edit`       | Open config for advanced MCP editing |
-| `picoclaw mcp remove`     | Remove an MCP server entry       |
-| `picoclaw cron list`      | List all scheduled jobs          |
-| `picoclaw cron add ...`   | Add a scheduled job              |
-| `picoclaw cron disable`   | Disable a scheduled job          |
-| `picoclaw cron remove`    | Remove a scheduled job           |
-| `picoclaw skills list`    | List installed skills            |
-| `picoclaw skills install` | Install a skill                  |
-| `picoclaw migrate`        | Migrate data from older versions |
-| `picoclaw auth login`     | Authenticate with providers      |
+| `gogoclaw onboard`        | Initialize config & workspace    |
+| `gogoclaw auth weixin` | Connect WeChat account via QR |
+| `gogoclaw agent -m "..."` | Chat with the agent              |
+| `gogoclaw agent`          | Interactive chat mode            |
+| `gogoclaw gateway`        | Start the gateway                |
+| `gogoclaw status`         | Show status                      |
+| `gogoclaw version`        | Show version info                |
+| `gogoclaw model`          | View or switch the default model |
+| `gogoclaw mcp list`       | List configured MCP servers      |
+| `gogoclaw mcp add ...`    | Add or update an MCP server entry |
+| `gogoclaw mcp test`       | Probe a configured MCP server    |
+| `gogoclaw mcp edit`       | Open config for advanced MCP editing |
+| `gogoclaw mcp remove`     | Remove an MCP server entry       |
+| `gogoclaw cron list`      | List all scheduled jobs          |
+| `gogoclaw cron add ...`   | Add a scheduled job              |
+| `gogoclaw cron disable`   | Disable a scheduled job          |
+| `gogoclaw cron remove`    | Remove a scheduled job           |
+| `gogoclaw skills list`    | List installed skills            |
+| `gogoclaw skills install` | Install a skill                  |
+| `gogoclaw migrate`        | Migrate data from older versions |
+| `gogoclaw auth login`     | Authenticate with providers      |
 
 ### ⏰ Scheduled Tasks / Reminders
 
-PicoClaw supports scheduled reminders and recurring tasks through the `cron` tool:
+GoGoClaw supports scheduled reminders and recurring tasks through the `cron` tool:
 
 * **One-time reminders**: "Remind me in 10 minutes" -> triggers once after 10min
 * **Recurring tasks**: "Remind me every 2 hours" -> triggers every 2 hours
@@ -499,13 +431,4 @@ For detailed guides beyond this README:
 
 PRs welcome! The codebase is intentionally small and readable.
 
-See our [Community Roadmap](https://github.com/sipeed/picoclaw/issues/988) and [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-Developer group building, join after your first merged PR!
-
-User Groups:
-
-Discord: <https://discord.gg/V4sAZ9XWpN>
-
-WeChat:
-<img src="assets/wechat.png" alt="WeChat group QR code" width="512">
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the repository [issues](https://github.com/biaobiaobiao108/gogoclaw/issues) for guidelines.

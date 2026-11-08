@@ -12,9 +12,9 @@ before:
     - sh -c 'cd web/frontend && bun install --frozen-lockfile && bun run build:backend'
 
 builds:
-  - id: picoclaw
-    main: ./cmd/picoclaw
-    binary: picoclaw
+  - id: gogoclaw
+    main: ./cmd/gogoclaw
+    binary: gogoclaw
     env:
       - CGO_ENABLED=0
     tags:
@@ -28,14 +28,14 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/sipeed/picoclaw/pkg/config.Version={{ .Version }}
-      - -X github.com/sipeed/picoclaw/pkg/config.GitCommit={{ .ShortCommit }}
-      - -X github.com/sipeed/picoclaw/pkg/config.BuildTime={{ .Date }}
-      - -X github.com/sipeed/picoclaw/pkg/config.GoVersion={{ with index .Env "GOVERSION" }}{{ . }}{{ else }}unknown{{ end }}
+      - -X github.com/biaobiaobiao108/gogoclaw/pkg/config.Version={{ .Version }}
+      - -X github.com/biaobiaobiao108/gogoclaw/pkg/config.GitCommit={{ .ShortCommit }}
+      - -X github.com/biaobiaobiao108/gogoclaw/pkg/config.BuildTime={{ .Date }}
+      - -X github.com/biaobiaobiao108/gogoclaw/pkg/config.GoVersion={{ with index .Env "GOVERSION" }}{{ . }}{{ else }}unknown{{ end }}
 
-  - id: picoclaw-launcher
+  - id: gogoclaw-launcher
     main: ./web/backend
-    binary: picoclaw-launcher
+    binary: gogoclaw-launcher
     env:
       - CGO_ENABLED=0
     tags:
@@ -48,21 +48,21 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/sipeed/picoclaw/pkg/config.Version={{ .Version }}
-      - -X github.com/sipeed/picoclaw/pkg/config.GitCommit={{ .ShortCommit }}
-      - -X github.com/sipeed/picoclaw/pkg/config.BuildTime={{ .Date }}
-      - -X github.com/sipeed/picoclaw/pkg/config.GoVersion={{ with index .Env "GOVERSION" }}{{ . }}{{ else }}unknown{{ end }}
+      - -X github.com/biaobiaobiao108/gogoclaw/pkg/config.Version={{ .Version }}
+      - -X github.com/biaobiaobiao108/gogoclaw/pkg/config.GitCommit={{ .ShortCommit }}
+      - -X github.com/biaobiaobiao108/gogoclaw/pkg/config.BuildTime={{ .Date }}
+      - -X github.com/biaobiaobiao108/gogoclaw/pkg/config.GoVersion={{ with index .Env "GOVERSION" }}{{ . }}{{ else }}unknown{{ end }}
 
 dockers_v2:
-  - id: picoclaw
+  - id: gogoclaw
     dockerfile: docker/Dockerfile.goreleaser
     extra_files:
       - docker/entrypoint.sh
     ids:
-      - picoclaw
-      - picoclaw-launcher
+      - gogoclaw
+      - gogoclaw-launcher
     images:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/picoclaw"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/gogoclaw"
       - "docker.io/{{ .Env.DOCKERHUB_IMAGE_NAME }}"
     tags:
       - '{{ if isEnvSet "NIGHTLY_BUILD" }}nightly{{ else }}{{ .Tag }}{{ end }}'

@@ -50,11 +50,11 @@ export function WebSearchProviderSettings({
 
   return (
     <div className="space-y-4">
-      <h3 className="text-foreground/80 text-[13px] font-bold tracking-widest uppercase">
+      <h3 className="text-foreground text-sm font-semibold">
         {t("pages.agent.tools.web_search.providers_config", "Integrations")}
       </h3>
 
-      <div className="bg-card border-border/40 divide-border/40 divide-y overflow-hidden rounded-2xl border shadow-sm">
+      <div className="bg-card border-border divide-border divide-y overflow-hidden rounded-lg border">
         {Object.entries(settings).map(([providerId, providerSettings]) => (
           <ProviderCard
             key={providerId}
@@ -124,7 +124,7 @@ function ProviderCard({
         >
           <div
             className={cn(
-              "text-muted-foreground flex items-center justify-center transition-transform duration-300",
+              "text-muted-foreground flex items-center justify-center transition-transform duration-[var(--motion-state)]",
               isExpanded && "rotate-180",
             )}
           >
@@ -135,11 +135,11 @@ function ProviderCard({
               {providerLabel}
             </span>
             {settings.enabled ? (
-              <span className="inline-block rounded-md bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold tracking-wider text-emerald-600 uppercase dark:text-emerald-400">
+              <span className="bg-success/10 text-success inline-block rounded-sm px-2 py-0.5 text-[11px] font-medium">
                 {t("pages.agent.tools.filter.enabled", "Enabled")}
               </span>
             ) : (
-              <span className="bg-muted text-muted-foreground/70 inline-block rounded-md px-2 py-0.5 text-[10px] font-bold tracking-wider uppercase">
+              <span className="bg-muted text-muted-foreground inline-block rounded-sm px-2 py-0.5 text-[11px] font-medium">
                 {t("pages.agent.tools.filter.disabled", "Disabled")}
               </span>
             )}
@@ -158,6 +158,11 @@ function ProviderCard({
                 enabled: checked,
               }))
             }
+            aria-label={t(
+              "pages.agent.tools.web_search.enable_provider",
+              "Enable {{name}}",
+              { name: providerLabel },
+            )}
           />
         </div>
       </div>
@@ -185,7 +190,7 @@ function ProviderCard({
                     max_results: Number(event.target.value) || 0,
                   }))
                 }
-                className="bg-muted/40 hover:bg-muted/60 focus:bg-background focus:ring-primary/20 h-10 rounded-xl border-transparent shadow-none transition-colors"
+                className="bg-muted/40 hover:bg-muted/60 focus:bg-background h-10 rounded-md border-transparent"
               />
             </ProviderField>
 
@@ -205,7 +210,7 @@ function ProviderCard({
                     "pages.agent.tools.web_search.base_url_placeholder",
                     "Optional endpoint override",
                   )}
-                  className="bg-muted/40 hover:bg-muted/60 focus:bg-background focus:ring-primary/20 h-10 rounded-xl border-transparent shadow-none transition-colors"
+                  className="bg-muted/40 hover:bg-muted/60 focus:bg-background h-10 rounded-md border-transparent"
                 />
               </ProviderField>
             )}
@@ -227,7 +232,7 @@ function ProviderCard({
                     }))
                   }
                   placeholder={apiKeyPlaceholder}
-                  className="bg-muted/40 hover:bg-muted/60 focus:bg-background focus:ring-primary/20 h-10 rounded-xl border-transparent transition-colors"
+                  className="bg-muted/40 hover:bg-muted/60 focus:bg-background h-10 rounded-md border-transparent"
                 />
               </ProviderField>
             )}
@@ -248,7 +253,7 @@ function ProviderCard({
                     "pages.agent.tools.web_search.model_placeholder",
                     "Optional model override",
                   )}
-                  className="bg-muted/40 hover:bg-muted/60 focus:bg-background focus:ring-primary/20 h-10 rounded-xl border-transparent shadow-none transition-colors"
+                  className="bg-muted/40 hover:bg-muted/60 focus:bg-background h-10 rounded-md border-transparent"
                 />
               </ProviderField>
             )}

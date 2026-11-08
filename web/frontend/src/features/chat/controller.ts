@@ -2,6 +2,7 @@ import { getDefaultStore } from "jotai"
 import { toast } from "sonner"
 
 import {
+  loadOlderSessionHistory,
   loadSessionHistory,
   mergeHistoryMessages,
 } from "@/features/chat/history"
@@ -207,6 +208,8 @@ export async function connectChat() {
               recentActivities: history.activities,
               recentPlan: history.plan,
               turnHistory: history.turnHistory,
+              historyCursor: history.nextCursor,
+              hasOlderHistory: history.hasOlder,
             }))
           })
           .catch((error) => {
@@ -233,7 +236,15 @@ export async function connectChat() {
 
       try {
         const message = JSON.parse(event.data) as PicoMessage
-        handlePicoMessage(message, sessionId)
+        const deliveryId = handlePicoMessage(message, sessionId)
+        if (deliveryId && socket.readyState === WebSocket.OPEN) {
+          socket.send(
+            JSON.stringify({
+              type: "delivery.ack",
+              payload: { delivery_id: deliveryId },
+            }),
+          )
+        }
       } catch {
         console.warn("Non-JSON message from pico:", event.data)
       }
@@ -339,6 +350,8 @@ export async function hydrateActiveSession() {
           turnHistory: history.turnHistory,
           hasHydratedActiveSession: true,
           isHistoryLoading: false,
+          historyCursor: history.nextCursor,
+          hasOlderHistory: history.hasOlder,
         })
         return
       }
@@ -351,6 +364,8 @@ export async function hydrateActiveSession() {
         isTyping: false,
         hasHydratedActiveSession: true,
         isHistoryLoading: false,
+        historyCursor: history.nextCursor,
+        hasOlderHistory: history.hasOlder,
       })
     })
     .catch((error) => {
@@ -448,6 +463,38 @@ export function sendChatMessage({
   }
 }
 
+export async function loadOlderChatHistory(): Promise<boolean> {
+  const state = getChatState()
+  if (
+    !state.historyCursor ||
+    !state.hasOlderHistory ||
+    state.isLoadingOlderHistory
+  ) {
+    return false
+  }
+  const sessionId = state.activeSessionId
+  const cursor = state.historyCursor
+  updateChatStore({ isLoadingOlderHistory: true })
+  try {
+    const history = await loadOlderSessionHistory(sessionId, cursor)
+    if (getChatState().activeSessionId !== sessionId) {
+      return false
+    }
+    updateChatStore((prev) => ({
+      messages: mergeHistoryMessages(history.messages, prev.messages),
+      historyCursor: history.nextCursor,
+      hasOlderHistory: history.hasOlder,
+      isLoadingOlderHistory: false,
+    }))
+    return history.messages.length > 0
+  } catch (error) {
+    console.error("Failed to load earlier messages:", error)
+    updateChatStore({ isLoadingOlderHistory: false })
+    toast.error(i18n.t("chat.historyLoadFailed"))
+    return false
+  }
+}
+
 export function respondToApproval({
   approve,
   scope = "once",
@@ -511,6 +558,8 @@ export async function switchChatSession(sessionId: string) {
       hasHydratedActiveSession: true,
       isHistoryLoading: false,
       contextUsage: undefined,
+      historyCursor: history.nextCursor,
+      hasOlderHistory: history.hasOlder,
     })
 
     if (store.get(gatewayAtom).status === "running") {
@@ -538,6 +587,9 @@ export async function newChatSession() {
     isHistoryLoading: false,
     turnHistory: undefined,
     contextUsage: undefined,
+    historyCursor: undefined,
+    hasOlderHistory: false,
+    isLoadingOlderHistory: false,
   })
 
   if (store.get(gatewayAtom).status === "running") {

@@ -2,9 +2,11 @@ package api
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,12 +15,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/memory"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/providers/messageutil"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/messageutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
 
 // registerSessionRoutes binds session list and detail endpoints to the ServeMux.
@@ -47,11 +50,45 @@ type sessionListItem struct {
 	MessageCount int    `json:"message_count"`
 	Created      string `json:"created"`
 	Updated      string `json:"updated"`
+	updatedAt    time.Time
+}
+
+type sessionListResponse struct {
+	Items      []sessionListItem `json:"items"`
+	NextCursor string            `json:"next_cursor,omitempty"`
+	HasMore    bool              `json:"has_more"`
+}
+
+type sessionListCursor struct {
+	Updated string `json:"updated"`
+	ID      string `json:"id"`
 }
 
 type cachedSessionListItem struct {
 	item  sessionListItem
 	stamp string
+}
+
+type cachedSessionRefs struct {
+	stamp      string
+	jsonlRefs  []picoJSONLSessionRef
+	legacyRefs []picoLegacySessionRef
+}
+
+const (
+	sessionIndexVersion  = 1
+	sessionIndexDir      = ".gogoclaw"
+	sessionIndexFilename = "session-index.json"
+)
+
+type persistentSessionIndex struct {
+	Version int                                 `json:"version"`
+	Items   map[string]persistedSessionListItem `json:"items"`
+}
+
+type persistedSessionListItem struct {
+	Item  sessionListItem `json:"item"`
+	Stamp string          `json:"stamp"`
 }
 
 type sessionChatMessage struct {
@@ -63,6 +100,12 @@ type sessionChatMessage struct {
 	Media       []string                `json:"media,omitempty"`
 	Attachments []sessionChatAttachment `json:"attachments,omitempty"`
 	ToolCalls   []utils.VisibleToolCall `json:"tool_calls,omitempty"`
+}
+
+type sessionMessagesPage struct {
+	Messages   []providers.Message
+	NextCursor string
+	HasMore    bool
 }
 
 type sessionChatAttachment struct {
@@ -105,6 +148,20 @@ func sanitizeSessionKey(key string) string {
 	key = strings.ReplaceAll(key, "/", "_")
 	key = strings.ReplaceAll(key, "\\", "_")
 	return key
+}
+
+func pageLegacySessionMessages(messages []providers.Message, limit int) sessionMessagesPage {
+	if limit <= 0 {
+		return sessionMessagesPage{Messages: messages}
+	}
+	start := len(messages) - limit
+	if start < 0 {
+		start = 0
+	}
+	return sessionMessagesPage{
+		Messages: messages[start:],
+		HasMore:  start > 0,
+	}
 }
 
 func (h *Handler) readLegacySession(path string) (sessionFile, error) {
@@ -177,19 +234,84 @@ func (h *Handler) readSessionMessages(path string, skip int) ([]providers.Messag
 	return msgs, nil
 }
 
-func (h *Handler) readJSONLSession(dir, sessionKey string) (sessionFile, error) {
+func (h *Handler) readSessionMessagesPage(
+	path string,
+	skip, limit, beforeLine int,
+) (sessionMessagesPage, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return sessionMessagesPage{}, err
+	}
+	defer f.Close()
+
+	type lineMessage struct {
+		line    int
+		message providers.Message
+	}
+	records := make([]lineMessage, 0)
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSessionJSONLLineSize)
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		if lineNumber <= skip || (beforeLine > 0 && lineNumber >= beforeLine) {
+			continue
+		}
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var msg providers.Message
+		if err := json.Unmarshal(line, &msg); err != nil {
+			continue
+		}
+		if messageutil.IsTransientAssistantThoughtMessage(msg) {
+			continue
+		}
+		records = append(records, lineMessage{line: lineNumber, message: msg})
+	}
+	if err := scanner.Err(); err != nil {
+		return sessionMessagesPage{}, err
+	}
+
+	if limit <= 0 {
+		messages := make([]providers.Message, 0, len(records))
+		for _, record := range records {
+			messages = append(messages, record.message)
+		}
+		return sessionMessagesPage{Messages: messages}, nil
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	start := len(records) - limit
+	if start < 0 {
+		start = 0
+	}
+	page := sessionMessagesPage{
+		Messages: make([]providers.Message, 0, len(records)-start),
+		HasMore:  start > 0,
+	}
+	for _, record := range records[start:] {
+		page.Messages = append(page.Messages, record.message)
+	}
+	if start > 0 {
+		page.NextCursor = strconv.Itoa(records[start].line)
+	}
+	return page, nil
+}
+
+func (h *Handler) readJSONLSessionInfo(dir, sessionKey string) (sessionFile, string, error) {
 	base := filepath.Join(dir, sanitizeSessionKey(sessionKey))
 	jsonlPath := base + ".jsonl"
 	metaPath := base + ".meta.json"
+	if _, err := os.Stat(jsonlPath); err != nil {
+		return sessionFile{}, "", err
+	}
 
 	meta, err := h.readSessionMeta(metaPath, sessionKey)
 	if err != nil {
-		return sessionFile{}, err
-	}
-
-	messages, err := h.readSessionMessages(jsonlPath, meta.Skip)
-	if err != nil {
-		return sessionFile{}, err
+		return sessionFile{}, "", err
 	}
 
 	updated := meta.UpdatedAt
@@ -207,13 +329,30 @@ func (h *Handler) readJSONLSession(dir, sessionKey string) (sessionFile, error) 
 
 	return sessionFile{
 		Key:         meta.Key,
-		Messages:    messages,
 		Summary:     meta.Summary,
 		Created:     created,
 		Updated:     updated,
 		Turn:        decodeTurnCheckpoint(meta.Turn),
 		TurnHistory: decodeTurnCheckpointHistory(meta.TurnHistory),
-	}, nil
+	}, jsonlPath, nil
+}
+
+func (h *Handler) readJSONLSession(dir, sessionKey string) (sessionFile, error) {
+	sess, jsonlPath, err := h.readJSONLSessionInfo(dir, sessionKey)
+	if err != nil {
+		return sessionFile{}, err
+	}
+	base := filepath.Join(dir, sanitizeSessionKey(sessionKey))
+	meta, err := h.readSessionMeta(base+".meta.json", sessionKey)
+	if err != nil {
+		return sessionFile{}, err
+	}
+	messages, err := h.readSessionMessages(jsonlPath, meta.Skip)
+	if err != nil {
+		return sessionFile{}, err
+	}
+	sess.Messages = messages
+	return sess, nil
 }
 
 func decodeTurnCheckpoint(raw json.RawMessage) session.TurnCheckpoint {
@@ -302,7 +441,34 @@ func sessionRefFromMeta(meta memory.SessionMeta) (picoJSONLSessionRef, bool) {
 	return picoJSONLSessionRef{ID: sessionID, Key: meta.Key}, true
 }
 
+func sessionDirectoryStamp(dir string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", err
+	}
+	hasher := fnv.New64a()
+	for _, entry := range entries {
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			continue
+		}
+		fmt.Fprintf(hasher, "%s\x00%d\x00%d\x00", entry.Name(), info.Size(), info.ModTime().UnixNano())
+	}
+	return strconv.FormatUint(hasher.Sum64(), 16), nil
+}
+
 func (h *Handler) findPicoJSONLSessions(dir string) ([]picoJSONLSessionRef, error) {
+	cached, err := h.loadSessionRefs(dir)
+	if err != nil {
+		return nil, err
+	}
+	return append([]picoJSONLSessionRef(nil), cached.jsonlRefs...), nil
+}
+
+func (h *Handler) scanPicoJSONLSessions(dir string) ([]picoJSONLSessionRef, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -369,6 +535,46 @@ func (h *Handler) findPicoJSONLSession(dir, sessionID string) (picoJSONLSessionR
 }
 
 func (h *Handler) findLegacyPicoSessions(dir string) ([]picoLegacySessionRef, error) {
+	cached, err := h.loadSessionRefs(dir)
+	if err != nil {
+		return nil, err
+	}
+	return append([]picoLegacySessionRef(nil), cached.legacyRefs...), nil
+}
+
+func (h *Handler) loadSessionRefs(dir string) (cachedSessionRefs, error) {
+	stamp, err := sessionDirectoryStamp(dir)
+	if err != nil {
+		return cachedSessionRefs{}, err
+	}
+	key := filepath.Clean(dir)
+	h.sessionListMu.Lock()
+	cached, ok := h.sessionRefCache[key]
+	h.sessionListMu.Unlock()
+	if ok && cached.stamp == stamp {
+		return cached, nil
+	}
+
+	jsonlRefs, err := h.scanPicoJSONLSessions(dir)
+	if err != nil {
+		return cachedSessionRefs{}, err
+	}
+	legacyRefs, err := h.scanLegacyPicoSessions(dir)
+	if err != nil {
+		return cachedSessionRefs{}, err
+	}
+	entry := cachedSessionRefs{
+		stamp:      stamp,
+		jsonlRefs:  append([]picoJSONLSessionRef(nil), jsonlRefs...),
+		legacyRefs: append([]picoLegacySessionRef(nil), legacyRefs...),
+	}
+	h.sessionListMu.Lock()
+	h.sessionRefCache[key] = entry
+	h.sessionListMu.Unlock()
+	return entry, nil
+}
+
+func (h *Handler) scanLegacyPicoSessions(dir string) ([]picoLegacySessionRef, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -471,6 +677,7 @@ func buildSessionListItem(sessionID string, sess sessionFile, toolFeedbackMaxArg
 		MessageCount: len(transcript),
 		Created:      sess.Created.Format(time.RFC3339),
 		Updated:      sess.Updated.Format(time.RFC3339),
+		updatedAt:    sess.Updated,
 	}
 }
 
@@ -808,7 +1015,7 @@ func parseMessageToolContent(argsJSON string) (string, bool) {
 }
 
 // sessionsDir resolves the path to the gateway's session storage directory.
-// It reads the workspace from config, falling back to ~/.picoclaw/workspace.
+// It reads the workspace from config, falling back to ~/.gogoclaw/workspace.
 func (h *Handler) sessionsDir() (string, error) {
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
@@ -830,7 +1037,7 @@ func (h *Handler) sessionRuntimeSettings() (string, int, error) {
 func resolveSessionsDir(workspace string) string {
 	if workspace == "" {
 		home, _ := os.UserHomeDir()
-		workspace = filepath.Join(home, ".picoclaw", "workspace")
+		workspace = filepath.Join(home, ".gogoclaw", "workspace")
 	}
 
 	// Expand ~ prefix
@@ -858,11 +1065,16 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := os.ReadDir(dir); err != nil {
 		// Directory doesn't exist yet = no sessions
-		h.pruneSessionListCache(nil)
+		h.pruneSessionListCache(nil, dir)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]sessionListItem{})
+		if r.URL.Query().Get("limit") == "" && r.URL.Query().Get("cursor") == "" {
+			json.NewEncoder(w).Encode([]sessionListItem{})
+		} else {
+			json.NewEncoder(w).Encode(sessionListResponse{Items: []sessionListItem{}})
+		}
 		return
 	}
+	h.ensureSessionIndexLoaded(dir)
 
 	items := []sessionListItem{}
 	seen := make(map[string]struct{})
@@ -911,41 +1123,102 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			items = append(items, item)
 		}
 	}
-	h.pruneSessionListCache(validCacheKeys)
+	h.pruneSessionListCache(validCacheKeys, dir)
+	h.saveSessionIndex(dir, validCacheKeys)
 
-	// Sort by updated descending (most recent first)
+	// Sort by updated descending, then ID for a stable cursor boundary.
 	sort.Slice(items, func(i, j int) bool {
-		return items[i].Updated > items[j].Updated
+		if !items[i].updatedAt.Equal(items[j].updatedAt) {
+			return items[i].updatedAt.After(items[j].updatedAt)
+		}
+		return items[i].ID > items[j].ID
 	})
 
-	// Pagination parameters
-	offsetStr := r.URL.Query().Get("offset")
+	legacyList := r.URL.Query().Get("limit") == "" && r.URL.Query().Get("cursor") == ""
+	limit := 30
 	limitStr := r.URL.Query().Get("limit")
-
-	offset := 0
-	limit := 20 // Default limit
-
-	if val, err := strconv.Atoi(offsetStr); err == nil && val >= 0 {
-		offset = val
-	}
 	if val, err := strconv.Atoi(limitStr); err == nil && val > 0 {
 		limit = val
 	}
+	if limit > 100 {
+		limit = 100
+	}
+	if legacyList {
+		limit = len(items)
+	}
 
-	totalItems := len(items)
-
-	end := offset + limit
-	if offset >= totalItems {
-		items = []sessionListItem{} // Out of bounds, return empty
-	} else {
-		if end > totalItems {
-			end = totalItems
+	cursor, cursorErr := decodeSessionListCursor(r.URL.Query().Get("cursor"))
+	if cursorErr != nil {
+		http.Error(w, "invalid session cursor", http.StatusBadRequest)
+		return
+	}
+	filtered := items[:0]
+	for _, item := range items {
+		if cursor != nil {
+			cursorUpdated, err := time.Parse(time.RFC3339Nano, cursor.Updated)
+			if err != nil {
+				cursorUpdated, _ = time.Parse(time.RFC3339, cursor.Updated)
+			}
+			if item.updatedAt.After(cursorUpdated) ||
+				(item.updatedAt.Equal(cursorUpdated) && item.ID >= cursor.ID) {
+				continue
+			}
 		}
-		items = items[offset:end]
+		filtered = append(filtered, item)
+	}
+	items = filtered
+
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	response := sessionListResponse{Items: items, HasMore: hasMore}
+	if hasMore && len(items) > 0 {
+		last := items[len(items)-1]
+		response.NextCursor = encodeSessionListCursor(last)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(items)
+	if legacyList {
+		json.NewEncoder(w).Encode(items)
+		return
+	}
+	json.NewEncoder(w).Encode(response)
+}
+
+func encodeSessionListCursor(item sessionListItem) string {
+	data, err := json.Marshal(sessionListCursor{
+		Updated: item.updatedAt.UTC().Format(time.RFC3339Nano),
+		ID:      item.ID,
+	})
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+func decodeSessionListCursor(raw string) (*sessionListCursor, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, err
+	}
+	var cursor sessionListCursor
+	if err := json.Unmarshal(data, &cursor); err != nil {
+		return nil, err
+	}
+	if cursor.Updated == "" || cursor.ID == "" {
+		return nil, fmt.Errorf("incomplete cursor")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, cursor.Updated); err != nil {
+		if _, fallbackErr := time.Parse(time.RFC3339, cursor.Updated); fallbackErr != nil {
+			return nil, err
+		}
+	}
+	return &cursor, nil
 }
 
 // handleGetSession returns the full message history for a specific session.
@@ -964,11 +1237,39 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	limit := 0
+	if value, parseErr := strconv.Atoi(r.URL.Query().Get("limit")); parseErr == nil && value > 0 {
+		limit = value
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	beforeLine := 0
+	if rawCursor := strings.TrimSpace(r.URL.Query().Get("cursor")); rawCursor != "" {
+		value, parseErr := strconv.Atoi(rawCursor)
+		if parseErr != nil || value <= 0 {
+			http.Error(w, "invalid message cursor", http.StatusBadRequest)
+			return
+		}
+		beforeLine = value
+	}
+
 	ref, refErr := h.findPicoJSONLSession(dir, sessionID)
 	var sess sessionFile
+	var page sessionMessagesPage
 	err = refErr
 	if refErr == nil {
-		sess, err = h.readJSONLSession(dir, ref.Key)
+		sess, _, err = h.readJSONLSessionInfo(dir, ref.Key)
+		if err == nil {
+			base := filepath.Join(dir, sanitizeSessionKey(ref.Key))
+			meta, metaErr := h.readSessionMeta(base+".meta.json", ref.Key)
+			if metaErr != nil {
+				err = metaErr
+			} else {
+				page, err = h.readSessionMessagesPage(base+".jsonl", meta.Skip, limit, beforeLine)
+				sess.Messages = page.Messages
+			}
+		}
 	}
 	if err == nil && isEmptySession(sess) {
 		err = os.ErrNotExist
@@ -977,6 +1278,10 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, os.ErrNotExist) {
 			if legacyRef, legacyErr := h.findLegacyPicoSession(dir, sessionID); legacyErr == nil {
 				sess, err = h.readLegacySession(legacyRef.Path)
+				if err == nil {
+					page = pageLegacySessionMessages(sess.Messages, limit)
+					sess.Messages = page.Messages
+				}
 			}
 			if err == nil && isEmptySession(sess) {
 				err = os.ErrNotExist
@@ -1003,6 +1308,8 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{
 		"id":           sessionID,
 		"messages":     messages,
+		"next_cursor":  page.NextCursor,
+		"has_more":     page.HasMore,
 		"summary":      sess.Summary,
 		"created":      sess.Created.Format(time.RFC3339),
 		"updated":      sess.Updated.Format(time.RFC3339),
@@ -1098,12 +1405,91 @@ func (h *Handler) storeCachedSessionListItem(key string, item sessionListItem, p
 	h.sessionListMu.Unlock()
 }
 
-func (h *Handler) pruneSessionListCache(valid map[string]struct{}) {
+func (h *Handler) pruneSessionListCache(valid map[string]struct{}, dir string) {
 	h.sessionListMu.Lock()
 	defer h.sessionListMu.Unlock()
 	for key := range h.sessionListCache {
+		if !sessionCacheKeyMatchesDir(key, dir) {
+			continue
+		}
 		if _, ok := valid[key]; !ok {
 			delete(h.sessionListCache, key)
 		}
 	}
+}
+
+func sessionCacheKeyMatchesDir(key, dir string) bool {
+	cleanDir := filepath.Clean(dir)
+	return strings.HasPrefix(key, "jsonl:"+cleanDir+":") ||
+		strings.HasPrefix(key, "legacy:"+cleanDir+":")
+}
+
+func sessionIndexPath(dir string) string {
+	return filepath.Join(dir, sessionIndexDir, sessionIndexFilename)
+}
+
+func (h *Handler) ensureSessionIndexLoaded(dir string) {
+	key := filepath.Clean(dir)
+	h.sessionListMu.Lock()
+	if h.sessionIndexRead[key] {
+		h.sessionListMu.Unlock()
+		return
+	}
+	h.sessionIndexRead[key] = true
+	h.sessionListMu.Unlock()
+
+	data, err := os.ReadFile(sessionIndexPath(dir))
+	if err != nil {
+		return
+	}
+	var index persistentSessionIndex
+	if err := json.Unmarshal(data, &index); err != nil || index.Version != sessionIndexVersion {
+		return
+	}
+
+	h.sessionListMu.Lock()
+	defer h.sessionListMu.Unlock()
+	for cacheKey, entry := range index.Items {
+		if !sessionCacheKeyMatchesDir(cacheKey, dir) || entry.Stamp == "" {
+			continue
+		}
+		updatedAt, err := time.Parse(time.RFC3339Nano, entry.Item.Updated)
+		if err != nil {
+			updatedAt, err = time.Parse(time.RFC3339, entry.Item.Updated)
+		}
+		if err != nil {
+			continue
+		}
+		entry.Item.updatedAt = updatedAt
+		h.sessionListCache[cacheKey] = cachedSessionListItem{item: entry.Item, stamp: entry.Stamp}
+	}
+}
+
+func (h *Handler) saveSessionIndex(dir string, valid map[string]struct{}) {
+	index := persistentSessionIndex{
+		Version: sessionIndexVersion,
+		Items:   make(map[string]persistedSessionListItem, len(valid)),
+	}
+	h.sessionListMu.Lock()
+	for key := range valid {
+		entry, ok := h.sessionListCache[key]
+		if !ok {
+			continue
+		}
+		index.Items[key] = persistedSessionListItem{Item: entry.item, Stamp: entry.stamp}
+	}
+	h.sessionListMu.Unlock()
+	if len(index.Items) == 0 {
+		return
+	}
+
+	data, err := json.Marshal(index)
+	if err != nil {
+		return
+	}
+	path := sessionIndexPath(dir)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	_ = fileutil.WriteFileAtomic(path, data, 0o644)
 }

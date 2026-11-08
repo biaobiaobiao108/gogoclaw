@@ -3,7 +3,7 @@ package agent
 import (
 	"fmt"
 
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
 func formatProcessingError(err error) string {

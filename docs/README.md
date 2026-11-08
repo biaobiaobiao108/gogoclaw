@@ -1,6 +1,6 @@
-# PicoClaw Documentation
+# GoGoClaw Documentation
 
-PicoClaw documentation is organized by document type. English is the source language; Chinese translations use the `.zh.md` suffix beside the source file.
+GoGoClaw documentation is organized by document type. English is the source language; Chinese translations use the `.zh.md` suffix beside the source file.
 
 ## Reader Navigation
 

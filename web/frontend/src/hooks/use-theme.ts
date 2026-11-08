@@ -3,8 +3,9 @@ import { useCallback, useEffect, useState } from "react"
 type Theme = "light" | "dark"
 
 function getStoredTheme(): Theme {
-  if (typeof window === "undefined") return "dark"
-  return (localStorage.getItem("theme") as Theme) || "dark"
+  if (typeof window === "undefined") return "light"
+  const stored = localStorage.getItem("theme")
+  return stored === "dark" ? "dark" : "light"
 }
 
 export function useTheme() {
@@ -18,6 +19,9 @@ export function useTheme() {
       root.classList.remove("dark")
     }
     localStorage.setItem("theme", theme)
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", theme === "dark" ? "#1f2023" : "#efedea")
   }, [theme])
 
   const toggleTheme = useCallback(() => {

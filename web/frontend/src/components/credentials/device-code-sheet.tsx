@@ -42,16 +42,16 @@ export function DeviceCodeSheet({
 
         <div className="space-y-4 px-6 py-5">
           <div>
-            <p className="text-muted-foreground text-xs uppercase">
+            <p className="text-muted-foreground text-xs">
               {t("credentials.device.code")}
             </p>
-            <p className="mt-1 rounded-md border px-3 py-2 font-mono text-lg font-semibold tracking-wide">
+            <p className="mt-1 rounded-md border px-3 py-2 font-mono text-lg font-semibold">
               {flow?.user_code || "-"}
             </p>
           </div>
 
           <div>
-            <p className="text-muted-foreground text-xs uppercase">
+            <p className="text-muted-foreground text-xs">
               {t("credentials.device.url")}
             </p>
             <a

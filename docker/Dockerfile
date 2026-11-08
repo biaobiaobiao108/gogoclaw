@@ -1,4 +1,4 @@
-# Production image for the PicoClaw gateway and web console.
+# Production image for the GoGoClaw gateway and web console.
 FROM --platform=$BUILDPLATFORM oven/bun:1.4.4-alpine AS frontend
 
 WORKDIR /src/web/frontend
@@ -24,7 +24,7 @@ COPY --from=frontend /src/web/backend/dist web/backend/dist
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH GO_BUILD_TAGS=goolm,stdjson,whatsapp_native make build && \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -tags goolm,stdjson \
       -ldflags "-s -w" \
-      -o build/picoclaw-launcher ./web/backend/
+      -o build/gogoclaw-launcher ./web/backend/
 
 FROM oven/bun:1.4.4-alpine AS bun
 
@@ -45,17 +45,17 @@ RUN apk add --no-cache \
       tzdata && \
     curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | env UV_INSTALL_DIR=/usr/local sh && \
     ln -sf /usr/local/bin/uv /usr/local/bin/uvx && \
-    addgroup -S -g 10001 picoclaw && \
-    adduser -S -D -H -u 10001 -G picoclaw picoclaw && \
+    addgroup -S -g 10001 gogoclaw && \
+    adduser -S -D -H -u 10001 -G gogoclaw gogoclaw && \
     mkdir -p /data && \
-    chown -R picoclaw:picoclaw /data
+    chown -R gogoclaw:gogoclaw /data
 
-COPY --from=builder /src/build/picoclaw /usr/local/bin/picoclaw
-COPY --from=builder /src/build/picoclaw-launcher /usr/local/bin/picoclaw-launcher
+COPY --from=builder /src/build/gogoclaw /usr/local/bin/gogoclaw
+COPY --from=builder /src/build/gogoclaw-launcher /usr/local/bin/gogoclaw-launcher
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
-COPY docker/entrypoint.sh /usr/local/bin/picoclaw-entrypoint
+COPY docker/entrypoint.sh /usr/local/bin/gogoclaw-entrypoint
 RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx && \
-    chmod 0755 /usr/local/bin/picoclaw /usr/local/bin/picoclaw-launcher /usr/local/bin/picoclaw-entrypoint
+    chmod 0755 /usr/local/bin/gogoclaw /usr/local/bin/gogoclaw-launcher /usr/local/bin/gogoclaw-entrypoint
 
 ENV HOME=/data \
     BUN_INSTALL=/data/.bun \
@@ -68,5 +68,5 @@ WORKDIR /data
 VOLUME ["/data"]
 USER 10001:10001
 
-ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/picoclaw-entrypoint"]
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/gogoclaw-entrypoint"]
 CMD ["gateway"]

@@ -1,21 +1,21 @@
-name: picoclaw
+name: gogoclaw
 
 # Local development override. Production uses docker-compose.yml without this file.
 services:
-  picoclaw-gateway:
+  gogoclaw-gateway:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: ${PICOCLAW_IMAGE:-picoclaw:dev}
+    image: ${GOGOCLAW_IMAGE:-gogoclaw:dev}
 
-  picoclaw-launcher:
+  gogoclaw-launcher:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: ${PICOCLAW_IMAGE:-picoclaw:dev}
+    image: ${GOGOCLAW_IMAGE:-gogoclaw:dev}
 
-  picoclaw-agent:
+  gogoclaw-agent:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: ${PICOCLAW_IMAGE:-picoclaw:dev}
+    image: ${GOGOCLAW_IMAGE:-gogoclaw:dev}

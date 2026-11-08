@@ -1,7 +1,7 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// GoGoClaw - Ultra-lightweight personal AI agent
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 GoGoClaw contributors
 
 package providers
 
@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/auth"
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/auth"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 )
 
 func TestExtractProtocol(t *testing.T) {
@@ -1392,7 +1392,7 @@ const openaiCompatResponse = `{"choices":[{"message":{"content":"ok"},"finish_re
 const anthropicResponse = `{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","model":"claude-sonnet-4-20250514","usage":{"input_tokens":10,"output_tokens":5}}`
 
 func TestCreateProviderFromConfig_UserAgent(t *testing.T) {
-	defaultUA := "PicoClaw/" + config.Version
+	defaultUA := "GoGoClaw/" + config.Version
 
 	tests := []struct {
 		name      string

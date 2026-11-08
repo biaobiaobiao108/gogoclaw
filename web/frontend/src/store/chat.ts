@@ -49,6 +49,7 @@ export interface ChatMessage {
   modelName?: string
   attachments?: ChatAttachment[]
   toolCalls?: ChatToolCall[]
+  deliveryId?: string
   deliveryStatus?: MessageDeliveryStatus
 }
 
@@ -123,6 +124,9 @@ export interface ChatStoreState {
   activeSessionId: string
   hasHydratedActiveSession: boolean
   isHistoryLoading: boolean
+  isLoadingOlderHistory?: boolean
+  historyCursor?: string
+  hasOlderHistory?: boolean
   contextUsage?: ContextUsage
 }
 

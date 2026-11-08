@@ -1,7 +1,7 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// GoGoClaw - Ultra-lightweight personal AI agent
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 GoGoClaw contributors
 
 package anthropicmessages
 
@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/providers/common"
-	"github.com/sipeed/picoclaw/pkg/providers/protocoltypes"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/common"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/protocoltypes"
 )
 
 type (

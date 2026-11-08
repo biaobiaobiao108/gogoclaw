@@ -1,21 +1,16 @@
 <div align="center">
-<img src="../../assets/logo.webp" alt="PicoClaw" width="512">
+<img src="../../assets/logo.svg" alt="GoGoClaw" width="128">
 
-<h1>PicoClaw: 基于Go语言的超高效 AI 助手</h1>
+<h1>GoGoClaw: 基于Go语言的超高效 AI 助手</h1>
 
-<h3>Linux 容器 · amd64 / arm64 · 皮皮虾，我们走！</h3>
+<h3>容器优先的 Agent Harness · amd64 / arm64</h3>
   <p>
     <img src="https://img.shields.io/badge/Go-1.27.3+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
-    <img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64%2C%20RISC--V-blue" alt="Hardware">
+    <img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64-blue" alt="Hardware">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
     <br>
-    <a href="https://picoclaw.io"><img src="https://img.shields.io/badge/Website-picoclaw.io-blue?style=flat&logo=google-chrome&logoColor=white" alt="Website"></a>
-    <a href="https://docs.picoclaw.io/"><img src="https://img.shields.io/badge/Docs-Official-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
-    <a href="https://deepwiki.com/sipeed/picoclaw"><img src="https://img.shields.io/badge/Wiki-DeepWiki-FFA500?style=flat&logo=wikipedia&logoColor=white" alt="Wiki"></a>
-    <br>
-    <a href="https://x.com/SipeedIO"><img src="https://img.shields.io/badge/X_(Twitter)-SipeedIO-black?style=flat&logo=x&logoColor=white" alt="Twitter"></a>
-    <a href="../../assets/wechat.png"><img src="https://img.shields.io/badge/WeChat-Group-41d56b?style=flat&logo=wechat&logoColor=white"></a>
-    <a href="https://discord.gg/V4sAZ9XWpN"><img src="https://img.shields.io/badge/Discord-Community-4c60eb?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
+    <a href="https://github.com/biaobiaobiao108/gogoclaw"><img src="https://img.shields.io/badge/Repository-GitHub-181717?style=flat&logo=github&logoColor=white" alt="Repository"></a>
+    <a href="../README.md"><img src="https://img.shields.io/badge/Docs-Local-007acc?style=flat&logo=read-the-docs&logoColor=white" alt="Docs"></a>
   </p>
 
 **中文** | [English](../../README.md)
@@ -24,39 +19,16 @@
 
 ---
 
-> **PicoClaw** 是由 [矽速科技 (Sipeed)](https://sipeed.com) 发起的独立开源项目，完全使用 **Go 语言**从零编写——不是 OpenClaw、NanoBot 或其他项目的分支。
-
-🦐 **PicoClaw** 是一个受 [NanoBot](https://github.com/HKUDS/nanobot) 启发的超轻量级个人 AI 助手。它采用 **Go 语言** 从零重构，经历了一个"自举"过程——即由 AI Agent 自身驱动了整个架构迁移和代码优化。
+**GoGoClaw** 是一个使用 **Go** 编写的轻量级 Agent Harness 与 Web 控制台，用于管理会话、模型、频道、工具、审批和运行时诊断。
 
 ⚡️ **容器优先**：生产镜像支持 64 位 x86 和 ARM Linux。原生二进制只用于开发与测试。
 
 > [!CAUTION]
 > **🚨 安全声明**
 >
-> - **无加密货币 (NO CRYPTO):** PicoClaw **没有** 发行任何官方代币、Token 或虚拟货币。所有在 `pump.fun` 或其他交易平台上的相关声称均为 **诈骗**。
-> - **官方域名:** 唯一的官方网站是 **[picoclaw.io](https://picoclaw.io)**，公司官网是 **[sipeed.com](https://sipeed.com)**。
-> - **警惕:** 许多 `.ai/.org/.com/.net/...` 后缀的域名被第三方抢注，请勿轻信。
-> - **注意:** PicoClaw 正在初期的快速功能开发阶段。生产部署仅支持容器镜像，暴露到公网前请先阅读安全说明。
-> - **注意:** PicoClaw 最近合并了大量 PR，近期版本可能内存占用较大 (10~20MB)，我们将在功能较为收敛后进行资源占用优化。
-
-## 📢 新闻
-
-2026-03-25 🚀 **v0.2.4 发布！** Agent 架构全面重构（SubTurn、Hook、Steering、EventBus）、微信/企业微信深度集成、安全体系升级（.security.yml、敏感数据过滤）、新增 Provider（AWS Bedrock、Azure、小米 MiMo），以及 35 项 Bug 修复。PicoClaw 已达 **26K ⭐**！
-
-2026-03-09 🎉 **v0.2.1 — 史上最大更新！** MCP 协议支持、4 个新频道 (Matrix/IRC/WeCom/Discord Proxy)、3 个新 Provider (Kimi/Minimax/Avian)、视觉管线、JSONL 记忆存储、模型路由。
-
-2026-02-28 📦 **v0.2.0** 发布，支持 Docker Compose 和 Web UI 启动器。
-
-<details>
-<summary>更早的新闻...</summary>
-
-2026-02-26 🎉 PicoClaw 仅 17 天突破 **20K Stars**！频道自动编排和能力接口上线。
-
-2026-02-16 🎉 PicoClaw 一周内突破 12K Stars！社区维护者角色和 [路线图](../../ROADMAP.md) 正式发布。
-
-2026-02-13 🎉 PicoClaw 4 天内突破 5000 Stars！项目路线图和开发者群组筹建中。
-
-</details>
+> - 生产部署仅支持容器镜像。
+> - 容器即执行沙箱，因此工具审批默认关闭；需要人工复核时显式启用 `tools.approval`。
+> - 将控制台暴露到公网前，请先阅读安全指南。
 
 ## ✨ 特性
 
@@ -65,37 +37,13 @@
 
 🌍 **容器优先**: 生产镜像支持 x86-64 和 ARM64 Linux。
 
-🤖 **AI 自举**: 纯 Go 语言原生实现 — 95% 的核心代码由 Agent 生成，并经由"人机回环"微调。
-
 🔌 **MCP 支持**: 原生 [Model Context Protocol](https://modelcontextprotocol.io/) 集成 — 连接任意 MCP 服务器扩展 Agent 能力。
 
 👁️ **视觉管线**: 直接向 Agent 发送图片和文件 — 自动 base64 编码对接多模态 LLM。
 
 🧠 **智能路由**: 基于规则的模型路由 — 简单查询走轻量模型，节省 API 成本。
 
-> 📋 **[硬件兼容列表](../guides/hardware-compatibility.zh.md)** — 查看可运行容器镜像的 Linux 主机。你的板卡没在列表中？欢迎提交 PR！
-
-## 🦾 演示
-
-### 🛠️ 标准助手工作流
-
-<table align="center">
-<tr align="center">
-<th><p align="center">🧩 全栈工程师模式</p></th>
-<th><p align="center">🗂️ 日志与规划管理</p></th>
-<th><p align="center">🔎 网络搜索与学习</p></th>
-</tr>
-<tr>
-<td align="center"><p align="center"><img src="../../assets/picoclaw_code.gif" width="240" height="180"></p></td>
-<td align="center"><p align="center"><img src="../../assets/picoclaw_memory.gif" width="240" height="180"></p></td>
-<td align="center"><p align="center"><img src="../../assets/picoclaw_search.gif" width="240" height="180"></p></td>
-</tr>
-<tr>
-<td align="center">开发 • 部署 • 扩展</td>
-<td align="center">日程 • 自动化 • 记忆</td>
-<td align="center">发现 • 洞察 • 趋势</td>
-</tr>
-</table>
+> 📋 **[硬件兼容列表](../guides/hardware-compatibility.zh.md)** — 查看可运行容器镜像的 Linux 主机。
 
 ### 🐜 容器宿主机
 
@@ -115,8 +63,8 @@
 ### 使用 Web 控制台启动
 
 ```bash
-git clone https://github.com/sipeed/picoclaw.git
-cd picoclaw
+git clone https://github.com/biaobiaobiao108/gogoclaw.git
+cd gogoclaw
 
 docker compose -f docker/docker-compose.yml --profile launcher pull
 docker compose -f docker/docker-compose.yml --profile launcher up -d
@@ -128,7 +76,7 @@ launcher 端口默认只绑定回环地址。不要直接暴露到公网；如�
 
 ```bash
 # 仅在 TLS 反向代理或可信内网后方使用。
-PICOCLAW_LAUNCHER_BIND=0.0.0.0 \
+GOGOCLAW_LAUNCHER_BIND=0.0.0.0 \
   docker compose -f docker/docker-compose.yml --profile launcher up -d
 ```
 
@@ -139,7 +87,7 @@ PICOCLAW_LAUNCHER_BIND=0.0.0.0 \
 ```bash
 docker compose -f docker/docker-compose.yml --profile gateway pull
 docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint picoclaw picoclaw-gateway onboard
+  --entrypoint gogoclaw gogoclaw-gateway onboard
 ```
 
 再启动 gateway：
@@ -148,36 +96,36 @@ docker compose -f docker/docker-compose.yml --profile gateway run --rm \
 docker compose -f docker/docker-compose.yml --profile gateway up -d
 ```
 
-需要接收 Webhook 的 Channel 使用 gateway 端口 `18790`。宿主机默认只绑定 `127.0.0.1`；只有反向代理或可信网络需要访问时才修改 `PICOCLAW_GATEWAY_BIND`。
+需要接收 Webhook 的 Channel 使用 gateway 端口 `18790`。宿主机默认只绑定 `127.0.0.1`；只有反向代理或可信网络需要访问时才修改 `GOGOCLAW_GATEWAY_BIND`。
 
 ### 一次性 CLI 命令
 
 ```bash
 # 单次提问
 docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint picoclaw picoclaw-gateway agent -m "2+2 等于多少？"
+  --entrypoint gogoclaw gogoclaw-gateway agent -m "2+2 等于多少？"
 
 # 查看状态
 docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint picoclaw picoclaw-gateway status
+  --entrypoint gogoclaw gogoclaw-gateway status
 ```
 
 ### 数据、备份与更新
 
-应用状态保存在命名卷 `picoclaw-data` 中，并挂载到容器内 `/data`。其中包括 `/data/.picoclaw/config.json`、凭据、工作区、会话和日志。
+应用状态保存在命名卷 `gogoclaw-data` 中，并挂载到容器内 `/data`。其中包括 `/data/.gogoclaw/config.json`、凭据、工作区、会话和日志。
 
 ```bash
 # 备份数据卷
 docker run --rm \
-  -v picoclaw-data:/data:ro \
+  -v gogoclaw-data:/data:ro \
   -v "${PWD}:/backup" \
-  alpine tar czf /backup/picoclaw-data.tgz -C /data .
+  alpine tar czf /backup/gogoclaw-data.tgz -C /data .
 
 # 恢复到空数据卷（卷中不能已有状态）
 docker run --rm \
-  -v picoclaw-data:/data \
+  -v gogoclaw-data:/data \
   -v "${PWD}:/backup" \
-  alpine tar xzf /backup/picoclaw-data.tgz -C /data
+  alpine tar xzf /backup/gogoclaw-data.tgz -C /data
 ```
 
 更新时拉取新镜像并重建服务：
@@ -230,7 +178,7 @@ docker compose -f docker/docker-compose.yml \
 
 ## 🔌 Providers (LLM)
 
-PicoClaw 通过 `model_list` 配置支持 30+ LLM Provider，使用 `协议/模型` 格式：
+GoGoClaw 通过 `model_list` 配置支持 30+ LLM Provider，使用 `协议/模型` 格式：
 
 | Provider | 协议 | API Key | 备注 |
 |----------|------|---------|------|
@@ -292,7 +240,7 @@ PicoClaw 通过 `model_list` 配置支持 30+ LLM Provider，使用 `协议/模�
 
 ## 💬 Channels（聊天应用）
 
-通过 18+ 消息平台与你的 PicoClaw 对话：
+通过 18+ 消息平台与你的 GoGoClaw 对话：
 
 | Channel | 配置难度 | 协议 | 文档 |
 |---------|----------|------|------|
@@ -316,7 +264,7 @@ PicoClaw 通过 `model_list` 配置支持 30+ LLM Provider，使用 `协议/模�
 
 > 所有基于 Webhook 的 Channel 共用同一个 Gateway HTTP 服务器（`gateway.host`:`gateway.port`，默认 `127.0.0.1:18790`）。飞书使用 WebSocket/SDK 模式，不使用共享 HTTP 服务器。
 
-> 日志详细程度通过 `gateway.log_level` 控制（默认：`warn`）。支持的值：`debug`、`info`、`warn`、`error`、`fatal`。也可通过 `PICOCLAW_LOG_LEVEL` 环境变量设置。详见[配置指南](../guides/configuration.zh.md#gateway-日志等级)。
+> 日志详细程度通过 `gateway.log_level` 控制（默认：`warn`）。支持的值：`debug`、`info`、`warn`、`error`、`fatal`。也可通过 `GOGOCLAW_LOG_LEVEL` 环境变量设置。详见[配置指南](../guides/configuration.zh.md#gateway-日志等级)。
 
 详细 Channel 配置说明请参阅 [聊天应用配置](../guides/chat-apps.zh.md)。
 
@@ -324,7 +272,7 @@ PicoClaw 通过 `model_list` 配置支持 30+ LLM Provider，使用 `协议/模�
 
 ### 🔍 网络搜索
 
-PicoClaw 可以搜索网络以提供最新信息。在 `tools.web` 中配置：
+GoGoClaw 可以搜索网络以提供最新信息。在 `tools.web` 中配置：
 
 | 搜索引擎 | API Key | 免费额度 | 链接 |
 |---------|---------|---------|------|
@@ -338,7 +286,7 @@ PicoClaw 可以搜索网络以提供最新信息。在 `tools.web` 中配置：
 
 ### ⚙️ 其他工具
 
-PicoClaw 内置文件操作、代码执行、定时任务等工具。详情请参阅 [工具配置](../reference/tools_configuration.zh.md)。
+GoGoClaw 内置文件操作、代码执行、定时任务等工具。详情请参阅 [工具配置](../reference/tools_configuration.zh.md)。
 
 ## 🎯 Skills
 
@@ -347,8 +295,8 @@ Skills 是扩展 Agent 能力的模块化插件，从工作区的 `SKILL.md` 文
 **从 ClawHub 安装 Skills：**
 
 ```bash
-picoclaw skills search "web scraping"
-picoclaw skills install <skill-name>
+gogoclaw skills search "web scraping"
+gogoclaw skills install <skill-name>
 ```
 
 **配置 Skills 仓库源**：
@@ -379,7 +327,7 @@ picoclaw skills install <skill-name>
 
 ## 🔗 MCP (Model Context Protocol)
 
-PicoClaw 原生支持 [MCP](https://modelcontextprotocol.io/) — 连接任意 MCP 服务器，通过外部工具和数据源扩展 Agent 能力。
+GoGoClaw 原生支持 [MCP](https://modelcontextprotocol.io/) — 连接任意 MCP 服务器，通过外部工具和数据源扩展 Agent 能力。
 
 ```json
 {
@@ -400,36 +348,30 @@ PicoClaw 原生支持 [MCP](https://modelcontextprotocol.io/) — 连接任意 M
 
 完整 MCP 配置（stdio、SSE、HTTP 传输、Tool Discovery）请参阅 [工具配置 - MCP](../reference/tools_configuration.zh.md#mcp-tool)。
 
-## <img src="../../assets/clawdchat-icon.png" width="24" height="24" alt="ClawdChat"> 加入 Agent 社交网络
-
-通过 CLI 或任何已集成的聊天应用发送一条消息，即可将 PicoClaw 连接到 Agent 社交网络。
-
-**阅读 `https://clawdchat.ai/skill.md` 并按照说明加入 [ClawdChat.ai](https://clawdchat.ai)**
-
 ## 🖥️ CLI 命令行参考
 
 | 命令                       | 说明                   |
 | ------------------------- | ---------------------- |
-| `picoclaw onboard`        | 初始化配置与工作区       |
-| `picoclaw auth weixin` | 扫码连接微信个人号 |
-| `picoclaw agent -m "..."` | 与 Agent 对话           |
-| `picoclaw agent`          | 交互式对话模式           |
-| `picoclaw gateway`        | 启动网关                |
-| `picoclaw status`         | 查看状态                |
-| `picoclaw version`        | 查看版本信息             |
-| `picoclaw model`          | 查看或切换默认模型       |
-| `picoclaw cron list`      | 列出所有定时任务         |
-| `picoclaw cron add ...`   | 添加定时任务             |
-| `picoclaw cron disable`   | 禁用定时任务             |
-| `picoclaw cron remove`    | 删除定时任务             |
-| `picoclaw skills list`    | 列出已安装 Skills        |
-| `picoclaw skills install` | 安装 Skill              |
-| `picoclaw migrate`        | 从旧版本迁移数据         |
-| `picoclaw auth login`     | 认证 Provider           |
+| `gogoclaw onboard`        | 初始化配置与工作区       |
+| `gogoclaw auth weixin` | 扫码连接微信个人号 |
+| `gogoclaw agent -m "..."` | 与 Agent 对话           |
+| `gogoclaw agent`          | 交互式对话模式           |
+| `gogoclaw gateway`        | 启动网关                |
+| `gogoclaw status`         | 查看状态                |
+| `gogoclaw version`        | 查看版本信息             |
+| `gogoclaw model`          | 查看或切换默认模型       |
+| `gogoclaw cron list`      | 列出所有定时任务         |
+| `gogoclaw cron add ...`   | 添加定时任务             |
+| `gogoclaw cron disable`   | 禁用定时任务             |
+| `gogoclaw cron remove`    | 删除定时任务             |
+| `gogoclaw skills list`    | 列出已安装 Skills        |
+| `gogoclaw skills install` | 安装 Skill              |
+| `gogoclaw migrate`        | 从旧版本迁移数据         |
+| `gogoclaw auth login`     | 认证 Provider           |
 
 ### ⏰ 定时任务 / 提醒
 
-PicoClaw 通过 `cron` 工具支持定时提醒和重复任务：
+GoGoClaw 通过 `cron` 工具支持定时提醒和重复任务：
 
 * **一次性提醒**: "10分钟后提醒我" → 10分钟后触发一次
 * **重复任务**: "每2小时提醒我" → 每2小时触发
@@ -457,13 +399,4 @@ PicoClaw 通过 `cron` 工具支持定时提醒和重复任务：
 
 欢迎提交 PR！代码库刻意保持小巧和可读。🤗
 
-查看完整的 [社区路线图](https://github.com/sipeed/picoclaw/issues/988) 和 [CONTRIBUTING.md](../../CONTRIBUTING.md)。
-
-开发者群组正在组建中，入群门槛：至少合并过 1 个 PR。
-
-用户群组：
-
-Discord: <https://discord.gg/V4sAZ9XWpN>
-
-WeChat:
-<img src="../../assets/wechat.png" alt="WeChat group QR code" width="512">
+查看 [CONTRIBUTING.md](../../CONTRIBUTING.md) 和仓库 [Issues](https://github.com/biaobiaobiao108/gogoclaw/issues)。

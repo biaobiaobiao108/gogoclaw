@@ -40,5 +40,5 @@ jobs:
         run: >-
           docker buildx build
           --platform linux/amd64,linux/arm64
-          --output=type=oci,dest=/tmp/picoclaw-multiarch.tar
+          --output=type=oci,dest=/tmp/gogoclaw-multiarch.tar
           -f docker/Dockerfile .

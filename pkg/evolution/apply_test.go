@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/evolution"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/evolution"
 )
 
 func TestApplier_CreateDraftWritesSkillFile(t *testing.T) {

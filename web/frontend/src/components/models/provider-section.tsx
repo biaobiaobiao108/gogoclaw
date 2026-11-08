@@ -46,7 +46,7 @@ export function ProviderSection({
       >
         <div className="flex items-center gap-2">
           <ProviderIcon provider={provider} />
-          <span className="text-foreground text-xs font-semibold tracking-wider uppercase">
+          <span className="text-foreground text-xs font-semibold">
             {provider.label}
           </span>
           <span className="text-muted-foreground font-mono text-[11px]">
@@ -62,7 +62,7 @@ export function ProviderSection({
       </button>
 
       {open && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {models.map((model) => (
             <ModelCard
               key={model.index}

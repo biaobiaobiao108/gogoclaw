@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 )
 
 func skipUnlessPOSIXShell(t *testing.T) {
@@ -716,7 +716,7 @@ func TestShellTool_URLsNotBlocked(t *testing.T) {
 		"wget http://example.com/file",
 		"browser open https://github.com/user/repo",
 		"fetch ftp://ftp.example.com/file.txt",
-		"git clone https://github.com/sipeed/picoclaw.git",
+		"git clone https://github.com/biaobiaobiao108/gogoclaw.git",
 	}
 
 	for _, cmd := range commands {
@@ -1418,42 +1418,34 @@ func TestShellTool_Read_NonPTY_Running(t *testing.T) {
 	var resp ExecResponse
 	err = json.Unmarshal([]byte(result.ForLLM), &resp)
 	require.NoError(t, err)
-
-	// Give time for first outputs to be produced
-	time.Sleep(300 * time.Millisecond)
-
-	// Read output while process is running
-	readResult := tool.Execute(ctx, map[string]any{
-		"action":    "read",
-		"sessionId": resp.SessionID,
+	t.Cleanup(func() {
+		tool.Execute(context.Background(), map[string]any{
+			"action":    "kill",
+			"sessionId": resp.SessionID,
+		})
 	})
-	require.False(t, readResult.IsError, "read should succeed: %s", readResult.ForLLM)
 
-	var readResp ExecResponse
-	err = json.Unmarshal([]byte(readResult.ForLLM), &readResp)
-	require.NoError(t, err)
-	// Should have at least line1
-	require.Contains(t, readResp.Output, "line1")
+	readOutput := func() string {
+		readResult := tool.Execute(ctx, map[string]any{
+			"action":    "read",
+			"sessionId": resp.SessionID,
+		})
+		require.False(t, readResult.IsError, "read should succeed: %s", readResult.ForLLM)
+		var readResp ExecResponse
+		require.NoError(t, json.Unmarshal([]byte(readResult.ForLLM), &readResp))
+		return readResp.Output
+	}
 
-	// Wait for line3 to be produced (line1=0s, line2=0.5s, line3=1s, then sleep 10)
-	time.Sleep(1200 * time.Millisecond)
+	var output string
+	require.Eventually(t, func() bool {
+		output = readOutput()
+		return strings.Contains(output, "line1")
+	}, 3*time.Second, 50*time.Millisecond, "output never contained line1")
 
-	// Read again - should have line3 as well
-	readResult = tool.Execute(ctx, map[string]any{
-		"action":    "read",
-		"sessionId": resp.SessionID,
-	})
-	require.False(t, readResult.IsError, "read should succeed: %s", readResult.ForLLM)
-
-	err = json.Unmarshal([]byte(readResult.ForLLM), &readResp)
-	require.NoError(t, err)
-	require.Contains(t, readResp.Output, "line3")
-
-	// Clean up
-	tool.Execute(ctx, map[string]any{
-		"action":    "kill",
-		"sessionId": resp.SessionID,
-	})
+	require.Eventually(t, func() bool {
+		output = readOutput()
+		return strings.Contains(output, "line3")
+	}, 4*time.Second, 100*time.Millisecond, "output never contained line3")
 }
 
 func TestShellTool_ProcessGroupKill(t *testing.T) {
@@ -1977,7 +1969,7 @@ func TestShellTool_CustomAllowDoesNotBypassDenyPatterns(t *testing.T) {
 		t.Fatalf("NewExecToolWithConfig() error: %v", err)
 	}
 
-	got := tool.guardCommand(`jq -n '$ENV.PICOCLAW_VARIANT_CANARY'`, t.TempDir())
+	got := tool.guardCommand(`jq -n '$ENV.GOGOCLAW_VARIANT_CANARY'`, t.TempDir())
 	if !strings.Contains(got, "dangerous pattern detected") {
 		t.Fatalf("custom allow should not bypass deny patterns, got: %q", got)
 	}

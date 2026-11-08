@@ -12,13 +12,13 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/skills"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/skills"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/tokenizer"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
 
 type ContextBuilder struct {
@@ -174,24 +174,21 @@ func (cb *ContextBuilder) getIdentity(includeToolUseRule bool) string {
 	}
 
 	return fmt.Sprintf(
-		`# picoclaw 🦞 (%s)
+		`# gogoclaw 🦞 (%s)
 
-You are picoclaw, a helpful AI assistant.
+You are gogoclaw, a helpful AI assistant.
 
 ## Workspace
-Your workspace is at: %s
-- Memory: %s/memory/MEMORY.md
-- Daily Notes: %s/memory/YYYYMM/YYYYMMDD.md
-- Skills: %s/skills/{skill-name}/SKILL.md
+Root: %s
+Memory: memory/MEMORY.md
+Daily notes: memory/YYYYMM/YYYYMMDD.md
+Skills: skills/{skill-name}/SKILL.md
 
 ## Important Rules
 
 %s
 `,
 		version,
-		workspacePath,
-		workspacePath,
-		workspacePath,
 		workspacePath,
 		strings.Join(rules, "\n\n"),
 	)
@@ -254,7 +251,7 @@ func (cb *ContextBuilder) buildSystemPromptParts(opts systemPromptBuildOptions) 
 		Layer:   PromptLayerKernel,
 		Slot:    PromptSlotIdentity,
 		Source:  PromptSource{ID: PromptSourceKernel, Name: "identity"},
-		Title:   "picoclaw identity",
+		Title:   "gogoclaw identity",
 		Content: cb.getIdentity(opts.IncludeToolUseRule),
 		Stable:  true,
 		Cache:   PromptCacheEphemeral,
@@ -416,11 +413,21 @@ func (cb *ContextBuilder) buildSystemPromptForRequest(
 	})
 	staticPrompt := renderPromptPartsLegacy(parts)
 	blocks := make([]providers.ContentBlock, 0, len(parts))
-	for _, part := range parts {
+	lastStable := -1
+	for i, part := range parts {
+		if part.Stable && strings.TrimSpace(part.Content) != "" {
+			lastStable = i
+		}
+	}
+	for i, part := range parts {
 		if strings.TrimSpace(part.Content) == "" {
 			continue
 		}
-		blocks = append(blocks, promptContentBlock(part, cacheControlForPromptPart(part)))
+		var cache *providers.CacheControl
+		if i == lastStable {
+			cache = &providers.CacheControl{Type: "ephemeral"}
+		}
+		blocks = append(blocks, promptContentBlock(part, cache))
 	}
 	return staticPrompt, blocks
 }
@@ -486,11 +493,12 @@ func (cb *ContextBuilder) EstimateSystemTokens(summary string, activeSkills []st
 	// Actual buildDynamicContext produces ~200-400 chars of time/runtime/session info.
 	const dynamicContextChars = 300
 
-	totalChars := utf8.RuneCountInString(staticPrompt) + dynamicContextChars
+	totalTokens := tokenizer.EstimateTextTokens(staticPrompt)
+	totalTokens += tokenizer.EstimateTextTokens(strings.Repeat("x", dynamicContextChars))
 
 	if skillsText := cb.buildActiveSkillsContext(activeSkills); skillsText != "" {
-		totalChars += utf8.RuneCountInString(skillsText)
-		totalChars += 7 // separator \n\n---\n\n
+		totalTokens += tokenizer.EstimateTextTokens(skillsText)
+		totalTokens += tokenizer.EstimateTextTokens("\n\n---\n\n")
 	}
 
 	if contributedParts, err := cb.promptRegistryOrDefault().Collect(context.Background(), PromptBuildRequest{
@@ -501,8 +509,8 @@ func (cb *ContextBuilder) EstimateSystemTokens(summary string, activeSkills []st
 			if strings.TrimSpace(part.Content) == "" {
 				continue
 			}
-			totalChars += utf8.RuneCountInString(part.Content)
-			totalChars += 7 // separator
+			totalTokens += tokenizer.EstimateTextTokens(part.Content)
+			totalTokens += tokenizer.EstimateTextTokens("\n\n---\n\n")
 		}
 	}
 
@@ -510,11 +518,12 @@ func (cb *ContextBuilder) EstimateSystemTokens(summary string, activeSkills []st
 		// Matches the CONTEXT_SUMMARY: prefix added in BuildMessages
 		const summaryPrefix = "CONTEXT_SUMMARY: The following is an approximate summary of prior conversation " +
 			"for reference only. It may be incomplete or outdated — always defer to explicit instructions.\n\n"
-		totalChars += utf8.RuneCountInString(summaryPrefix) + utf8.RuneCountInString(summary)
-		totalChars += 7 // separator
+		totalTokens += tokenizer.EstimateTextTokens(summaryPrefix)
+		totalTokens += tokenizer.EstimateTextTokens(summary)
+		totalTokens += tokenizer.EstimateTextTokens("\n\n---\n\n")
 	}
 
-	return totalChars * 2 / 5 // same heuristic as tokenizer.EstimateMessageTokens
+	return totalTokens
 }
 
 // InvalidateCache clears the cached system prompt.
@@ -849,7 +858,7 @@ func (cb *ContextBuilder) BuildMessagesFromPrompt(req PromptBuildRequest) []prov
 	// locally to avoid repeated file I/O and string building on every call
 	// (fixes issue #607). Profile-customized static prompts are built on demand.
 	// Dynamic parts (time, session, summary) are appended per request unless the
-	// profile suppresses PicoClaw system context.
+	// profile suppresses GoGoClaw system context.
 	// Everything is sent as a single system message for provider compatibility:
 	// - Anthropic adapter extracts messages[0] (Role=="system") and maps its content
 	//   to the top-level "system" parameter in the Messages API request. A single

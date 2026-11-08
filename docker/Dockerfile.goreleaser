@@ -18,17 +18,17 @@ RUN apk add --no-cache \
       tzdata && \
     curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | env UV_INSTALL_DIR=/usr/local sh && \
     ln -sf /usr/local/bin/uv /usr/local/bin/uvx && \
-    addgroup -S -g 10001 picoclaw && \
-    adduser -S -D -H -u 10001 -G picoclaw picoclaw && \
+    addgroup -S -g 10001 gogoclaw && \
+    adduser -S -D -H -u 10001 -G gogoclaw gogoclaw && \
     mkdir -p /data && \
-    chown -R picoclaw:picoclaw /data
+    chown -R gogoclaw:gogoclaw /data
 
-COPY $TARGETPLATFORM/picoclaw /usr/local/bin/picoclaw
-COPY $TARGETPLATFORM/picoclaw-launcher /usr/local/bin/picoclaw-launcher
+COPY $TARGETPLATFORM/gogoclaw /usr/local/bin/gogoclaw
+COPY $TARGETPLATFORM/gogoclaw-launcher /usr/local/bin/gogoclaw-launcher
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
-COPY docker/entrypoint.sh /usr/local/bin/picoclaw-entrypoint
+COPY docker/entrypoint.sh /usr/local/bin/gogoclaw-entrypoint
 RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx && \
-    chmod 0755 /usr/local/bin/picoclaw /usr/local/bin/picoclaw-launcher /usr/local/bin/picoclaw-entrypoint
+    chmod 0755 /usr/local/bin/gogoclaw /usr/local/bin/gogoclaw-launcher /usr/local/bin/gogoclaw-entrypoint
 
 ENV HOME=/data \
     BUN_INSTALL=/data/.bun \
@@ -41,5 +41,5 @@ WORKDIR /data
 VOLUME ["/data"]
 USER 10001:10001
 
-ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/picoclaw-entrypoint"]
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/gogoclaw-entrypoint"]
 CMD ["gateway"]

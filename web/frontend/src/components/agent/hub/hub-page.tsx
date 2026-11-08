@@ -15,35 +15,33 @@ export function HubPage() {
       <PageHeader title={t("navigation.hub")} />
 
       <div
-        className="flex-1 overflow-auto px-6 py-6"
+        className="flex-1 overflow-auto px-4 py-6 sm:px-6"
         onScroll={hub.handleScroll}
       >
-        <div className="mx-auto w-full max-w-[1000px] space-y-8">
-          <section className="animate-in fade-in mx-auto flex w-full flex-col items-center space-y-8 duration-300 md:duration-500">
-            <SearchPanel
-              marketQuery={hub.marketQuery}
-              canSearchMarketplace={hub.canSearchMarketplace}
-              isMarketSearchInitialLoading={hub.isMarketSearchInitialLoading}
-              unavailableToolMessages={hub.unavailableToolMessages}
-              onMarketQueryChange={hub.setMarketQuery}
-              onSearchSubmit={hub.handleSearchSubmit}
-            />
+        <div className="mx-auto w-full max-w-[960px] space-y-6">
+          <SearchPanel
+            marketQuery={hub.marketQuery}
+            canSearchMarketplace={hub.canSearchMarketplace}
+            isMarketSearchInitialLoading={hub.isMarketSearchInitialLoading}
+            unavailableToolMessages={hub.unavailableToolMessages}
+            onMarketQueryChange={hub.setMarketQuery}
+            onSearchSubmit={hub.handleSearchSubmit}
+          />
 
-            <ResultsPanel
-              canSearchMarketplace={hub.canSearchMarketplace}
-              hasSubmittedQuery={hub.hasSubmittedQuery}
-              submittedQuery={hub.submittedMarketQuery}
-              marketResults={hub.marketResults}
-              marketSearchError={hub.marketSearchError}
-              isMarketSearchInitialLoading={hub.isMarketSearchInitialLoading}
-              isMarketSearchLoadingMore={hub.isMarketSearchLoadingMore}
-              canInstallFromMarketplace={hub.canInstallFromMarketplace}
-              getInstalledSkill={hub.getInstalledSkill}
-              isInstallPending={hub.isInstallPending}
-              onInstall={hub.handleInstall}
-              onViewInstalled={hub.handleViewInstalled}
-            />
-          </section>
+          <ResultsPanel
+            canSearchMarketplace={hub.canSearchMarketplace}
+            hasSubmittedQuery={hub.hasSubmittedQuery}
+            submittedQuery={hub.submittedMarketQuery}
+            marketResults={hub.marketResults}
+            marketSearchError={hub.marketSearchError}
+            isMarketSearchInitialLoading={hub.isMarketSearchInitialLoading}
+            isMarketSearchLoadingMore={hub.isMarketSearchLoadingMore}
+            canInstallFromMarketplace={hub.canInstallFromMarketplace}
+            getInstalledSkill={hub.getInstalledSkill}
+            isInstallPending={hub.isInstallPending}
+            onInstall={hub.handleInstall}
+            onViewInstalled={hub.handleViewInstalled}
+          />
         </div>
       </div>
     </div>

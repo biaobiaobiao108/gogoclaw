@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/memory"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
 
 func sessionsTestDir(t *testing.T, configPath string) string {
@@ -118,6 +118,69 @@ func TestHandleListSessions_JSONLStorage(t *testing.T) {
 	}
 	if items[0].Preview != "Explain why the history API is empty after migration." {
 		t.Fatalf("items[0].Preview = %q", items[0].Preview)
+	}
+}
+
+func TestHandleListSessions_PersistentMetadataIndex(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionKey := legacyPicoSessionPrefix + "persistent-index"
+	if err := store.AddFullMessage(nil, sessionKey, providers.Message{
+		Role:    "user",
+		Content: "Keep this session available through the metadata index.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	list := func(h *Handler) []sessionListItem {
+		t.Helper()
+		mux := http.NewServeMux()
+		h.RegisterRoutes(mux)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+		}
+		var items []sessionListItem
+		if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil {
+			t.Fatal(err)
+		}
+		return items
+	}
+
+	if items := list(NewHandler(configPath)); len(items) != 1 {
+		t.Fatalf("initial items = %d, want 1", len(items))
+	}
+	if _, err := os.Stat(sessionIndexPath(dir)); err != nil {
+		t.Fatalf("metadata index was not persisted: %v", err)
+	}
+
+	jsonlPath := filepath.Join(dir, sanitizeSessionKey(sessionKey)+".jsonl")
+	info, err := os.Stat(jsonlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupt := make([]byte, info.Size())
+	for i := range corrupt {
+		corrupt[i] = 'x'
+	}
+	if err := os.WriteFile(jsonlPath, corrupt, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(jsonlPath, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+
+	// A new process must resolve the unchanged file from the persisted index
+	// instead of reparsing the now-invalid JSONL transcript.
+	if items := list(NewHandler(configPath)); len(items) != 1 || items[0].ID != "persistent-index" {
+		t.Fatalf("indexed items = %+v, want persistent-index", items)
 	}
 }
 

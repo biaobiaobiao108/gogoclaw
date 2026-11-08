@@ -143,7 +143,7 @@ function parseApproval(raw: unknown): ChatApproval | undefined {
 export function handlePicoMessage(
   message: PicoMessage,
   expectedSessionId: string,
-) {
+): string | undefined {
   if (message.session_id && message.session_id !== expectedSessionId) {
     return
   }
@@ -202,6 +202,10 @@ export function handlePicoMessage(
     case "message.create":
     case "media.create": {
       const messageId = (payload.message_id as string) || `pico-${Date.now()}`
+      const deliveryId =
+        typeof payload.delivery_id === "string"
+          ? payload.delivery_id
+          : undefined
       const { content, kind, toolCalls } =
         parseAssistantMessageCreateState(payload)
       const attachments = parseAttachments(payload)
@@ -215,19 +219,40 @@ export function handlePicoMessage(
           : Date.now()
 
       updateChatStore((prev) => ({
-        messages: [
-          ...prev.messages,
-          {
-            id: messageId,
-            role: "assistant",
-            content,
-            kind,
-            ...(modelName ? { modelName } : {}),
-            ...(toolCalls ? { toolCalls } : {}),
-            attachments,
-            timestamp,
-          },
-        ],
+        messages: (() => {
+          const duplicate = deliveryId
+            ? prev.messages.find((msg) => msg.deliveryId === deliveryId)
+            : undefined
+          if (duplicate) {
+            return prev.messages.map((msg) =>
+              msg.id === duplicate.id
+                ? {
+                    ...msg,
+                    content,
+                    kind,
+                    ...(modelName ? { modelName } : {}),
+                    ...(toolCalls ? { toolCalls } : {}),
+                    attachments,
+                    ...(deliveryId ? { deliveryId } : {}),
+                  }
+                : msg,
+            )
+          }
+          return [
+            ...prev.messages,
+            {
+              id: messageId,
+              role: "assistant" as const,
+              content,
+              kind,
+              ...(modelName ? { modelName } : {}),
+              ...(toolCalls ? { toolCalls } : {}),
+              attachments,
+              ...(deliveryId ? { deliveryId } : {}),
+              timestamp,
+            },
+          ]
+        })(),
         isTyping:
           !isPlaceholder &&
           (kind === "normal" || message.type === "media.create")
@@ -235,7 +260,7 @@ export function handlePicoMessage(
             : prev.isTyping,
         ...(contextUsage ? { contextUsage } : {}),
       }))
-      break
+      return deliveryId
     }
 
     case "message.update": {
@@ -243,6 +268,10 @@ export function handlePicoMessage(
       const attachments = parseAttachments(payload)
       const contextUsage = parseContextUsage(payload)
       const modelName = parseModelName(payload)
+      const deliveryId =
+        typeof payload.delivery_id === "string"
+          ? payload.delivery_id
+          : undefined
       const timestamp =
         message.timestamp !== undefined &&
         Number.isFinite(Number(message.timestamp))
@@ -270,6 +299,7 @@ export function handlePicoMessage(
               toolCalls,
               ...(modelName ? { modelName } : {}),
               ...(attachments ? { attachments } : {}),
+              ...(deliveryId ? { deliveryId } : {}),
             }
           })
           if (found) {
@@ -289,13 +319,14 @@ export function handlePicoMessage(
               toolCalls,
               ...(modelName ? { modelName } : {}),
               ...(attachments ? { attachments } : {}),
+              ...(deliveryId ? { deliveryId } : {}),
               timestamp,
             },
           ]
         })(),
         ...(contextUsage ? { contextUsage } : {}),
       }))
-      break
+      return deliveryId
     }
 
     case "message.delete": {
@@ -395,4 +426,6 @@ export function handlePicoMessage(
     default:
       console.log("Unknown pico message type:", message.type)
   }
+
+  return undefined
 }

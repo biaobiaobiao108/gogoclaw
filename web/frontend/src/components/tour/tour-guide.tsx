@@ -160,7 +160,7 @@ export function TourGuide() {
     <>
       {targetElement ? (
         <div
-          className="pointer-events-none fixed z-[100] transition-all duration-300"
+          className="pointer-events-none fixed z-[100] transition-[top,left,width,height] duration-[var(--motion-state)] motion-reduce:transition-none"
           style={{
             top: targetElement.getBoundingClientRect().top - 8,
             left: targetElement.getBoundingClientRect().left - 8,
@@ -177,7 +177,7 @@ export function TourGuide() {
 
       {targetElement && (
         <div
-          className="ring-primary ring-offset-background pointer-events-none fixed z-[101] rounded-lg ring-2 ring-offset-2 transition-all duration-300"
+          className="ring-primary ring-offset-background pointer-events-none fixed z-[101] rounded-lg ring-2 ring-offset-2 transition-[top,left,width,height] duration-[var(--motion-state)] motion-reduce:transition-none"
           style={{
             top: targetElement.getBoundingClientRect().top - 4,
             left: targetElement.getBoundingClientRect().left - 4,

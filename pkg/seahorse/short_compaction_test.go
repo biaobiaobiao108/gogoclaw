@@ -700,8 +700,8 @@ func TestGenerateLeafSummaryEscalationToAggressive(t *testing.T) {
 
 func TestGenerateLeafSummaryEscalatesWhenLevel1MissesTarget(t *testing.T) {
 	var calls []string
-	normalContent := strings.Repeat("n", 1000)    // ~404 tokens: below input, above target
-	aggressiveContent := strings.Repeat("a", 450) // ~184 tokens: within aggressive target
+	normalContent := strings.Repeat("n", 1300)    // ~372 tokens: below input, above target
+	aggressiveContent := strings.Repeat("a", 450) // ~129 tokens: within aggressive target
 	escalateComplete := func(ctx context.Context, prompt string, opts CompleteOptions) (string, error) {
 		if contains(prompt, "Aggressive summary policy") {
 			calls = append(calls, "aggressive")
@@ -732,7 +732,7 @@ func TestGenerateLeafSummaryEscalatesWhenLevel1MissesTarget(t *testing.T) {
 }
 
 func TestGenerateLeafSummaryAcceptsContentAtTargetBoundary(t *testing.T) {
-	exactTargetContent := strings.Repeat("x", 488) // (488 + 12) * 2 / 5 = 200 tokens
+	exactTargetContent := strings.Repeat("x", 658) // ceil(658 * 2 / 7) + 12 = 200 tokens
 	var aggressiveCalled bool
 	complete := func(ctx context.Context, prompt string, opts CompleteOptions) (string, error) {
 		if contains(prompt, "Aggressive summary policy") {

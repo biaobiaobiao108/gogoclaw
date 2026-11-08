@@ -156,7 +156,7 @@ export function WeixinForm({
       if (isBound) {
         return (
           <div className="flex flex-col items-center gap-3 py-6">
-            <div className="flex items-center gap-2 rounded-full bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+            <div className="bg-success/10 text-success flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium">
               <IconCheck size={16} />
               {t("channels.weixin.bound")}
             </div>
@@ -211,10 +211,10 @@ export function WeixinForm({
             <img
               src={qrDataURI}
               alt="WeChat QR Code"
-              className="border-border/60 h-48 w-48 rounded-xl border bg-white p-2 shadow-sm"
+              className="border-border h-48 w-48 rounded-lg border bg-white p-2"
             />
           ) : (
-            <div className="border-border/60 bg-muted flex h-48 w-48 items-center justify-center rounded-xl border">
+            <div className="border-border bg-muted flex h-48 w-48 items-center justify-center rounded-lg border">
               <IconLoader2
                 className="text-muted-foreground animate-spin"
                 size={32}
@@ -222,7 +222,7 @@ export function WeixinForm({
             </div>
           )}
           {bindState === "scaned" ? (
-            <div className="flex items-center gap-2 rounded-full bg-amber-500/10 px-4 py-2 text-sm font-medium text-amber-600 dark:text-amber-400">
+            <div className="bg-warning/10 text-warning flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium">
               <IconLoader2 size={14} className="animate-spin" />
               {t("channels.weixin.scanned")}
             </div>
@@ -247,13 +247,10 @@ export function WeixinForm({
     if (bindState === "confirmed") {
       return (
         <div className="flex flex-col items-center gap-3 py-6">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/10">
-            <IconCheck
-              size={28}
-              className="text-emerald-600 dark:text-emerald-400"
-            />
+          <div className="bg-success/10 flex h-14 w-14 items-center justify-center rounded-md">
+            <IconCheck size={28} className="text-success" />
           </div>
-          <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+          <p className="text-success text-sm font-medium">
             {t("channels.weixin.bound")}
           </p>
           {accountID && (
@@ -277,12 +274,10 @@ export function WeixinForm({
     if (bindState === "expired") {
       return (
         <div className="flex flex-col items-center gap-4 py-6">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-500/10">
-            <IconX size={28} className="text-amber-600 dark:text-amber-400" />
+          <div className="bg-warning/10 flex h-14 w-14 items-center justify-center rounded-md">
+            <IconX size={28} className="text-warning" />
           </div>
-          <p className="text-sm text-amber-600 dark:text-amber-400">
-            {t("channels.weixin.expired")}
-          </p>
+          <p className="text-warning text-sm">{t("channels.weixin.expired")}</p>
           <Button onClick={handleRebind} className="gap-2">
             <IconRefresh size={14} />
             {t("channels.weixin.retry")}

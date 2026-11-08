@@ -1,4 +1,4 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// GoGoClaw - Ultra-lightweight personal AI agent
 
 package agent
 
@@ -11,14 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/constants"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/tools"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/constants"
+	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
 
 func toolErrorSummary(result *tools.ToolResult) string {
@@ -592,6 +592,9 @@ toolLoop:
 			}
 
 			content = al.cfg.FilterSensitiveData(content)
+			content = al.compactToolResultForPrompt(
+				ts, asyncToolName, toolCallID+"-async", content,
+			).Content
 
 			logger.InfoCF("agent", "Async tool completed, publishing result",
 				map[string]any{
@@ -651,6 +654,17 @@ toolLoop:
 		toolDuration := time.Since(toolStart)
 
 		if ts.hardAbortRequested() {
+			ts.finishTurnActivity(activityID, func(activity *session.TurnActivity) {
+				activity.Status = "effects_unknown"
+				if toolResult != nil {
+					activity.Output = boundedActivityOutput(
+						al.cfg.FilterSensitiveData(toolResult.ContentForLLM()),
+						al.cfg.FilterSensitiveData(toolResult.ForUser),
+					)
+				}
+				activity.Detail = strings.TrimSpace(activity.Detail +
+					"\nThe turn was stopped during tool execution; external effects could not be verified.")
+			})
 			exec.abortedByHardAbort = true
 			return ToolControlBreak
 		}
@@ -768,6 +782,14 @@ toolLoop:
 
 		if al.cfg.Tools.IsFilterSensitiveDataEnabled() {
 			contentForLLM = al.cfg.FilterSensitiveData(contentForLLM)
+		}
+		compacted := al.compactToolResultForPrompt(ts, toolName, toolCallID, contentForLLM)
+		contentForLLM = compacted.Content
+		if compacted.Artifact != "" {
+			toolResult.ArtifactTags = append(
+				toolResult.ArtifactTags,
+				"[file:"+compacted.Artifact+"]",
+			)
 		}
 
 		var toolResultMedia []string

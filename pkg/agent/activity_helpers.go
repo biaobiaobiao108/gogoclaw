@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
 var exitCodePattern = regexp.MustCompile(`"exit_code"\s*:\s*(-?\d+)`)

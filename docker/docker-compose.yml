@@ -1,4 +1,4 @@
-name: picoclaw
+name: gogoclaw
 
 x-production-security: &production-security
   user: "10001:10001"
@@ -11,18 +11,18 @@ x-production-security: &production-security
     - /tmp:rw,nosuid,nodev,noexec,size=256m
 
 services:
-  picoclaw-gateway:
-    image: ${PICOCLAW_IMAGE:-ghcr.io/sipeed/picoclaw:latest}
+  gogoclaw-gateway:
+    image: ${GOGOCLAW_IMAGE:-ghcr.io/biaobiaobiao108/gogoclaw:latest}
     profiles: [gateway]
     restart: unless-stopped
     <<: *production-security
     environment:
       TZ: ${TZ:-Asia/Shanghai}
-      PICOCLAW_GATEWAY_HOST: 0.0.0.0
+      GOGOCLAW_GATEWAY_HOST: 0.0.0.0
     ports:
-      - "${PICOCLAW_GATEWAY_BIND:-127.0.0.1}:18790:18790"
+      - "${GOGOCLAW_GATEWAY_BIND:-127.0.0.1}:18790:18790"
     volumes:
-      - picoclaw-data:/data
+      - gogoclaw-data:/data
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18790/health"]
       interval: 30s
@@ -30,19 +30,19 @@ services:
       start_period: 10s
       retries: 3
 
-  picoclaw-launcher:
-    image: ${PICOCLAW_IMAGE:-ghcr.io/sipeed/picoclaw:latest}
+  gogoclaw-launcher:
+    image: ${GOGOCLAW_IMAGE:-ghcr.io/biaobiaobiao108/gogoclaw:latest}
     profiles: [launcher]
     restart: unless-stopped
     <<: *production-security
     environment:
       TZ: ${TZ:-Asia/Shanghai}
-      PICOCLAW_GATEWAY_HOST: 0.0.0.0
-    command: ["picoclaw-launcher", "-public", "-no-browser"]
+      GOGOCLAW_GATEWAY_HOST: 0.0.0.0
+    command: ["gogoclaw-launcher", "-public", "-no-browser"]
     ports:
-      - "${PICOCLAW_LAUNCHER_BIND:-127.0.0.1}:18800:18800"
+      - "${GOGOCLAW_LAUNCHER_BIND:-127.0.0.1}:18800:18800"
     volumes:
-      - picoclaw-data:/data
+      - gogoclaw-data:/data
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18800/api/auth/status"]
       interval: 30s
@@ -50,8 +50,8 @@ services:
       start_period: 10s
       retries: 3
 
-  picoclaw-agent:
-    image: ${PICOCLAW_IMAGE:-ghcr.io/sipeed/picoclaw:latest}
+  gogoclaw-agent:
+    image: ${GOGOCLAW_IMAGE:-ghcr.io/biaobiaobiao108/gogoclaw:latest}
     profiles: [agent]
     <<: *production-security
     environment:
@@ -60,8 +60,8 @@ services:
     stdin_open: true
     tty: true
     volumes:
-      - picoclaw-data:/data
+      - gogoclaw-data:/data
 
 volumes:
-  picoclaw-data:
-    name: picoclaw-data
+  gogoclaw-data:
+    name: gogoclaw-data

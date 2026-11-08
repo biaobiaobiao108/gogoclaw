@@ -95,7 +95,7 @@ export function SkillsPage() {
               {t("pages.agent.load_error")}
             </div>
           ) : (
-            <section className="animate-in fade-in space-y-3 duration-300 md:duration-500">
+            <section className="space-y-3">
               <Stats stats={stats} />
 
               <div className="flex flex-col gap-4 py-3">

@@ -163,7 +163,7 @@ export function DetailSheet({
                     key={view}
                     type="button"
                     className={cn(
-                      "rounded-md px-4 py-1.5 text-xs font-medium transition-all duration-200",
+                      "rounded-md px-4 py-1.5 text-xs font-medium transition-[color,background-color,border-color,box-shadow] duration-[var(--motion-state)]",
                       detailView === view
                         ? "bg-background text-foreground ring-border/30 shadow-[0_1px_3px_rgba(0,0,0,0.1)] ring-1"
                         : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
@@ -176,7 +176,7 @@ export function DetailSheet({
               </div>
 
               {detailView === "preview" ? (
-                <div className="prose prose-zinc dark:prose-invert prose-sm sm:prose-base prose-pre:rounded-xl prose-pre:border prose-pre:border-border/40 prose-pre:bg-zinc-100 prose-pre:p-0 prose-pre:shadow-sm dark:prose-pre:bg-zinc-950/90 prose-headings:tracking-tight prose-a:text-primary prose-a:no-underline hover:prose-a:underline max-w-none">
+                <div className="prose prose-sm sm:prose-base prose-pre:bg-code-surface prose-pre:text-code-foreground prose-pre:border-border prose-pre:rounded-md prose-pre:border prose-pre:p-0 prose-headings:tracking-tight prose-a:text-primary prose-a:no-underline hover:prose-a:underline max-w-none">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeHighlight]}
@@ -240,9 +240,7 @@ function MetadataItem({
 }) {
   return (
     <div className="border-border/70 bg-muted/20 rounded-xl border px-4 py-3">
-      <div className="text-muted-foreground text-[11px] font-semibold tracking-[0.18em] uppercase">
-        {label}
-      </div>
+      <div className="text-muted-foreground text-xs font-medium">{label}</div>
       <div
         className={cn(
           "text-foreground mt-2 text-sm leading-6 break-all",

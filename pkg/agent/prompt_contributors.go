@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 )
 
 type toolDiscoveryPromptContributor struct {
@@ -81,14 +81,14 @@ func (c mcpServerPromptContributor) ContributePrompt(
 	if serverName == "" || c.toolCount <= 0 {
 		return nil, nil
 	}
+	if !c.deferred {
+		// Native MCP tool schemas already describe these tools. Repeating the
+		// server name and tool count in the system prompt only spends tokens.
+		return nil, nil
+	}
 	if len(req.AllowedTools) > 0 &&
 		!promptAllowsToolPrefix(req, "mcp_"+promptSourceComponent(serverName)+"_") {
 		return nil, nil
-	}
-
-	availability := "available as native tools"
-	if c.deferred {
-		availability = "hidden behind tool discovery until unlocked"
 	}
 
 	return []PromptPart{
@@ -99,10 +99,9 @@ func (c mcpServerPromptContributor) ContributePrompt(
 			Source: PromptSource{ID: mcpPromptSourceID(serverName), Name: "mcp:" + serverName},
 			Title:  "MCP server capability",
 			Content: fmt.Sprintf(
-				"MCP server `%s` is connected. It contributes %d tool(s), currently %s.",
+				"MCP server `%s` provides %d tools hidden behind tool discovery. Search before assuming a capability is unavailable.",
 				serverName,
 				c.toolCount,
-				availability,
 			),
 			Stable: true,
 			Cache:  PromptCacheEphemeral,

@@ -1,4 +1,6 @@
 import {
+  IconAlertTriangle,
+  IconBan,
   IconCheck,
   IconCircle,
   IconClock,
@@ -13,6 +15,8 @@ import type { ChatActivity, ChatPlanStep, ChatTurnHistory } from "@/store/chat"
 function statusLabelKey(status: string): string {
   if (status === "completed") return "chat.activityStatus.completed"
   if (status === "failed") return "chat.activityStatus.failed"
+  if (status === "cancelled") return "chat.activityStatus.cancelled"
+  if (status === "effects_unknown") return "chat.activityStatus.effectsUnknown"
   if (status === "running") return "chat.activityStatus.running"
   return "chat.activityStatus.pending"
 }
@@ -23,6 +27,12 @@ function ActivityIcon({ status }: { status: string }) {
   }
   if (status === "failed") {
     return <IconX className="text-destructive size-3.5" />
+  }
+  if (status === "cancelled") {
+    return <IconBan className="text-muted-foreground size-3.5" />
+  }
+  if (status === "effects_unknown") {
+    return <IconAlertTriangle className="text-warning size-3.5" />
   }
   if (status === "running") {
     return <IconClock className="text-accent size-3.5" />

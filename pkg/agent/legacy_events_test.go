@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
 )
 
 func TestSubscribeEventsFiltersRuntimeBusToLegacyAgentEvents(t *testing.T) {

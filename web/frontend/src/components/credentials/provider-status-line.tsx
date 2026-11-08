@@ -15,11 +15,11 @@ export function ProviderStatusLine({
 
   const style =
     status === "connected"
-      ? "bg-green-500/10 text-green-700 dark:text-green-300"
+      ? "bg-success/10 text-success"
       : status === "needs_refresh"
-        ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+        ? "bg-warning/10 text-warning"
         : status === "expired"
-          ? "bg-red-500/10 text-red-700 dark:text-red-300"
+          ? "bg-destructive/10 text-destructive"
           : "bg-muted text-muted-foreground"
 
   return (
@@ -34,9 +34,7 @@ export function ProviderStatusLine({
               : t("credentials.status.notLoggedIn")}
       </span>
       {authMethod && (
-        <span className="text-muted-foreground text-xs uppercase">
-          {authMethod}
-        </span>
+        <span className="text-muted-foreground text-xs">{authMethod}</span>
       )}
     </div>
   )

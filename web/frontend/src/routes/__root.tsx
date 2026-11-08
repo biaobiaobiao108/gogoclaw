@@ -1,5 +1,4 @@
 import { createRootRoute, Outlet, useRouterState } from "@tanstack/react-router"
-import { TanStackRouterDevtools } from "@tanstack/react-router-devtools"
 import { useEffect, useState } from "react"
 
 import { getLauncherAuthStatus } from "@/api/launcher-auth"
@@ -68,12 +67,7 @@ const RootLayout = () => {
   }, [isAuthPage])
 
   if (isAuthPage) {
-    return (
-      <>
-        <Outlet />
-        {import.meta.env.DEV ? <TanStackRouterDevtools /> : null}
-      </>
-    )
+    return <Outlet />
   }
 
   return (
@@ -92,7 +86,6 @@ const RootLayout = () => {
       )}
       <AppLayout>
         <Outlet />
-        {import.meta.env.DEV ? <TanStackRouterDevtools /> : null}
       </AppLayout>
     </>
   )

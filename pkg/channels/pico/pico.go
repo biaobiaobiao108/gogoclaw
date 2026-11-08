@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,13 +19,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
-	"github.com/sipeed/picoclaw/pkg/approval"
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/identity"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/approval"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/identity"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
 
 // picoConn represents a single WebSocket connection.
@@ -74,6 +76,9 @@ func outboundMessageFinalizesTrackedToolFeedback(msg bus.OutboundMessage) bool {
 
 // writeJSON sends a JSON message to the connection with write locking.
 func (pc *picoConn) writeJSON(v any) error {
+	if pc == nil || pc.conn == nil {
+		return fmt.Errorf("connection unavailable")
+	}
 	if pc.closed.Load() {
 		return fmt.Errorf("connection closed")
 	}
@@ -84,11 +89,16 @@ func (pc *picoConn) writeJSON(v any) error {
 
 // close closes the connection.
 func (pc *picoConn) close() {
+	if pc == nil {
+		return
+	}
 	if pc.closed.CompareAndSwap(false, true) {
 		if pc.cancel != nil {
 			pc.cancel()
 		}
-		pc.conn.Close()
+		if pc.conn != nil {
+			pc.conn.Close()
+		}
 	}
 }
 
@@ -112,8 +122,11 @@ type PicoChannel struct {
 	approvalHandler  func(context.Context, approval.Response) error
 	approvalMu       sync.Mutex
 	approvalSessions map[string]string
+	deliveryAck      func(context.Context, string, string, string) error
 	dedupMu          sync.Mutex
 	messageSeen      map[string]time.Time
+	dedupePath       string
+	dedupeLoaded     bool
 }
 
 // SetTurnStatusProvider supplies a session-scoped snapshot for connected clients.
@@ -123,6 +136,12 @@ func (c *PicoChannel) SetTurnStatusProvider(provider func(string, bool) map[stri
 
 func (c *PicoChannel) SetApprovalHandler(handler func(context.Context, approval.Response) error) {
 	c.approvalHandler = handler
+}
+
+func (c *PicoChannel) SetDeliveryAckHandler(
+	handler func(context.Context, string, string, string) error,
+) {
+	c.deliveryAck = handler
 }
 
 func (c *PicoChannel) SendApprovalRequest(ctx context.Context, req approval.Request) error {
@@ -198,6 +217,7 @@ func NewPicoChannel(
 		connections:        make(map[string]*picoConn),
 		sessionConnections: make(map[string]map[string]*picoConn),
 		messageSeen:        make(map[string]time.Time),
+		dedupePath:         filepath.Join(config.GetHome(), "state", "pico-inbound.json"),
 		approvalSessions:   make(map[string]string),
 	}
 	ch.progress = channels.NewToolFeedbackAnimator(ch.EditMessage)
@@ -374,11 +394,18 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]stri
 	if isToolFeedback {
 		content = channels.InitialAnimatedToolFeedbackContent(msg.Content)
 	}
-	msgID := uuid.New().String()
+	deliveryID := strings.TrimSpace(msg.Context.Raw[PayloadKeyDeliveryID])
+	msgID := deliveryID
+	if msgID == "" {
+		msgID = uuid.New().String()
+	}
 
 	payload := map[string]any{
 		PayloadKeyContent: content,
 		"message_id":      msgID,
+	}
+	if deliveryID != "" {
+		payload[PayloadKeyDeliveryID] = deliveryID
 	}
 	if modelName := strings.TrimSpace(msg.Context.Raw[PayloadKeyModelName]); modelName != "" {
 		payload[PayloadKeyModelName] = modelName
@@ -516,6 +543,9 @@ func (c *PicoChannel) FinalizeToolFeedbackMessage(ctx context.Context, msg bus.O
 	payload := map[string]any{
 		PayloadKeyContent: msg.Content,
 	}
+	if deliveryID := strings.TrimSpace(msg.Context.Raw[PayloadKeyDeliveryID]); deliveryID != "" {
+		payload[PayloadKeyDeliveryID] = deliveryID
+	}
 	if modelName := strings.TrimSpace(msg.Context.Raw[PayloadKeyModelName]); modelName != "" {
 		payload[PayloadKeyModelName] = modelName
 	}
@@ -583,22 +613,24 @@ func (c *PicoChannel) BeginStream(ctx context.Context, chatID string) (channels.
 }
 
 type picoStreamer struct {
-	channel          *PicoChannel
-	chatID           string
-	modelName        string
-	turnInputTokens  int
-	turnOutputTokens int
-	messageID        string
-	reasoningID      string
-	throttleInterval time.Duration
-	minGrowth        int
-	lastLen          int
-	lastAt           time.Time
-	lastContent      string
-	reasoningLastLen int
-	reasoningLastAt  time.Time
-	reasoningContent string
-	mu               sync.Mutex
+	channel           *PicoChannel
+	chatID            string
+	deliveryID        string
+	modelName         string
+	turnInputTokens   int
+	turnOutputTokens  int
+	messageID         string
+	reasoningID       string
+	throttleInterval  time.Duration
+	minGrowth         int
+	lastLen           int
+	lastAt            time.Time
+	lastContent       string
+	deliveryPublished bool
+	reasoningLastLen  int
+	reasoningLastAt   time.Time
+	reasoningContent  string
+	mu                sync.Mutex
 }
 
 func (s *picoStreamer) SetModelName(modelName string) {
@@ -608,6 +640,15 @@ func (s *picoStreamer) SetModelName(modelName string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.modelName = strings.TrimSpace(modelName)
+}
+
+func (s *picoStreamer) SetDeliveryID(deliveryID string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deliveryID = strings.TrimSpace(deliveryID)
 }
 
 // SetTurnUsage records the real per-turn LLM token usage to emit on finalize.
@@ -692,7 +733,7 @@ func (s *picoStreamer) updateLocked(
 		}
 	}
 
-	return s.sendLocked(ctx, content, contextUsage)
+	return s.sendLocked(ctx, content, force, contextUsage)
 }
 
 func (s *picoStreamer) updateReasoningLocked(ctx context.Context, content string, force bool) error {
@@ -715,15 +756,27 @@ func (s *picoStreamer) updateReasoningLocked(ctx context.Context, content string
 	return s.sendReasoningLocked(ctx, content)
 }
 
-func (s *picoStreamer) sendLocked(ctx context.Context, content string, contextUsage *bus.ContextUsage) error {
+func (s *picoStreamer) sendLocked(
+	ctx context.Context,
+	content string,
+	final bool,
+	contextUsage *bus.ContextUsage,
+) error {
 	now := time.Now()
 	contentLen := len([]rune(content))
 
 	if s.messageID == "" {
-		s.messageID = uuid.New().String()
+		s.messageID = s.deliveryID
+		if s.messageID == "" {
+			s.messageID = uuid.New().String()
+		}
 		payload := map[string]any{
 			PayloadKeyContent: content,
 			"message_id":      s.messageID,
+		}
+		if s.deliveryID != "" {
+			payload[PayloadKeyDeliveryID] = s.deliveryID
+			s.deliveryPublished = true
 		}
 		if s.modelName != "" {
 			payload[PayloadKeyModelName] = s.modelName
@@ -734,10 +787,15 @@ func (s *picoStreamer) sendLocked(ctx context.Context, content string, contextUs
 		if err := s.channel.broadcast(s.chatID, outMsg); err != nil {
 			return err
 		}
-	} else if content != s.lastContent || contextUsage != nil {
+	} else if content != s.lastContent || contextUsage != nil ||
+		(final && s.deliveryID != "" && !s.deliveryPublished) {
 		payload := map[string]any{
 			PayloadKeyContent: content,
 			"message_id":      s.messageID,
+		}
+		if s.deliveryID != "" {
+			payload[PayloadKeyDeliveryID] = s.deliveryID
+			s.deliveryPublished = true
 		}
 		if s.modelName != "" {
 			payload[PayloadKeyModelName] = s.modelName
@@ -1252,10 +1310,41 @@ func (c *PicoChannel) handleMessage(pc *picoConn, msg PicoMessage) {
 	case TypeApprovalRespond:
 		c.handleApprovalRespond(pc, msg)
 
+	case TypeDeliveryAck:
+		c.handleDeliveryAck(pc, msg)
+
 	default:
 		errMsg := newError("unknown_type", fmt.Sprintf("unknown message type: %s", msg.Type))
 		pc.writeJSON(errMsg)
 	}
+}
+
+func (c *PicoChannel) handleDeliveryAck(pc *picoConn, msg PicoMessage) {
+	deliveryID, _ := msg.Payload[PayloadKeyDeliveryID].(string)
+	deliveryID = strings.TrimSpace(deliveryID)
+	if deliveryID == "" {
+		deliveryID = strings.TrimSpace(msg.ID)
+	}
+	if deliveryID == "" || c.deliveryAck == nil {
+		pc.writeJSON(newErrorWithPayload("invalid_delivery_ack", "delivery ACK handler is unavailable", map[string]any{
+			"request_id": deliveryID,
+		}))
+		return
+	}
+	chatID := "pico:" + pc.sessionID
+	if err := c.deliveryAck(c.ctx, "pico", chatID, deliveryID); err != nil {
+		pc.writeJSON(newErrorWithPayload("delivery_ack_failed", err.Error(), map[string]any{
+			"request_id": deliveryID,
+		}))
+		return
+	}
+	ack := newMessage(TypeDeliveryAck, map[string]any{
+		PayloadKeyDeliveryID: deliveryID,
+		"status":             "acknowledged",
+	})
+	ack.ID = deliveryID
+	ack.SessionID = pc.sessionID
+	_ = pc.writeJSON(ack)
 }
 
 func (c *PicoChannel) handleApprovalRespond(pc *picoConn, msg PicoMessage) {
@@ -1317,13 +1406,23 @@ func (c *PicoChannel) forgetApprovalSession(approvalID, sessionID string, after 
 // handleMessageSend processes an inbound message.send from a client.
 func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	dedupeKey := pc.sessionID + "\x00" + msg.ID
-	if msg.ID != "" && c.isDuplicateMessage(dedupeKey) {
-		c.writeMessageAck(pc, msg.ID, "duplicate")
-		return
+	if msg.ID != "" {
+		claimed, err := c.claimMessage(dedupeKey)
+		if err != nil {
+			pc.writeJSON(newErrorWithPayload("dedupe_failed", err.Error(), map[string]any{
+				"request_id": msg.ID,
+			}))
+			return
+		}
+		if !claimed {
+			c.writeMessageAck(pc, msg.ID, "duplicate")
+			return
+		}
 	}
 	content, _ := msg.Payload["content"].(string)
 	media, err := parseInlineImageMedia(msg.Payload)
 	if err != nil {
+		c.releaseMessage(dedupeKey)
 		errMsg := newErrorWithPayload("invalid_media", err.Error(), map[string]any{
 			"request_id": msg.ID,
 		})
@@ -1332,6 +1431,7 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	}
 
 	if strings.TrimSpace(content) == "" && len(media) == 0 {
+		c.releaseMessage(dedupeKey)
 		errMsg := newErrorWithPayload("empty_content", "message content is empty", map[string]any{
 			"request_id": msg.ID,
 		})
@@ -1366,6 +1466,7 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	}
 
 	if !c.IsAllowedSender(sender) {
+		c.releaseMessage(dedupeKey)
 		return
 	}
 
@@ -1379,12 +1480,10 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	}
 
 	if err := c.HandleInboundContext(c.ctx, chatID, content, media, inboundCtx, sender); err != nil {
+		c.releaseMessage(dedupeKey)
 		errMsg := newErrorWithPayload("send_failed", err.Error(), map[string]any{"request_id": msg.ID})
 		_ = pc.writeJSON(errMsg)
 		return
-	}
-	if msg.ID != "" {
-		c.rememberMessage(dedupeKey)
 	}
 	c.writeMessageAck(pc, msg.ID, "accepted")
 }
@@ -1402,23 +1501,98 @@ func (c *PicoChannel) writeMessageAck(pc *picoConn, requestID, status string) {
 	_ = pc.writeJSON(ack)
 }
 
-func (c *PicoChannel) isDuplicateMessage(key string) bool {
+func (c *PicoChannel) claimMessage(key string) (bool, error) {
 	c.dedupMu.Lock()
 	defer c.dedupMu.Unlock()
 	now := time.Now()
+	if err := c.loadMessageDedupeLocked(); err != nil {
+		return false, err
+	}
 	for existing, seenAt := range c.messageSeen {
-		if now.Sub(seenAt) > 10*time.Minute {
+		if now.Sub(seenAt) > 24*time.Hour {
 			delete(c.messageSeen, existing)
 		}
 	}
-	_, ok := c.messageSeen[key]
-	return ok
+	if _, ok := c.messageSeen[key]; ok {
+		return false, nil
+	}
+	c.messageSeen[key] = now
+	if err := c.saveMessageDedupeLocked(); err != nil {
+		delete(c.messageSeen, key)
+		return false, err
+	}
+	return true, nil
 }
 
-func (c *PicoChannel) rememberMessage(key string) {
+func (c *PicoChannel) releaseMessage(key string) {
+	if key == "" || strings.HasSuffix(key, "\x00") {
+		return
+	}
 	c.dedupMu.Lock()
-	c.messageSeen[key] = time.Now()
-	c.dedupMu.Unlock()
+	defer c.dedupMu.Unlock()
+	delete(c.messageSeen, key)
+	if err := c.saveMessageDedupeLocked(); err != nil {
+		logger.WarnCF("pico", "Failed to release inbound message reservation", map[string]any{
+			"error": err.Error(),
+		})
+	}
+}
+
+func (c *PicoChannel) loadMessageDedupeLocked() error {
+	if c.dedupeLoaded {
+		return nil
+	}
+	c.dedupeLoaded = true
+	if c.dedupePath == "" {
+		return nil
+	}
+	data, err := os.ReadFile(c.dedupePath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read inbound dedupe state: %w", err)
+	}
+	if err := json.Unmarshal(data, &c.messageSeen); err != nil {
+		return fmt.Errorf("decode inbound dedupe state: %w", err)
+	}
+	if c.messageSeen == nil {
+		c.messageSeen = make(map[string]time.Time)
+	}
+	return nil
+}
+
+func (c *PicoChannel) saveMessageDedupeLocked() error {
+	if c.dedupePath == "" {
+		return nil
+	}
+	type entry struct {
+		Key      string    `json:"key"`
+		SeenTime time.Time `json:"seen_at"`
+	}
+	entries := make([]entry, 0, len(c.messageSeen))
+	for key, seenAt := range c.messageSeen {
+		entries = append(entries, entry{Key: key, SeenTime: seenAt.UTC()})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].SeenTime.After(entries[j].SeenTime)
+	})
+	if len(entries) > 10000 {
+		entries = entries[:10000]
+		pruned := make(map[string]time.Time, len(entries))
+		for _, item := range entries {
+			pruned[item.Key] = item.SeenTime
+		}
+		c.messageSeen = pruned
+	}
+	data, err := json.Marshal(entries)
+	if err != nil {
+		return err
+	}
+	if err := fileutil.WriteFileAtomic(c.dedupePath, data, 0o600); err != nil {
+		return fmt.Errorf("write inbound dedupe state: %w", err)
+	}
+	return nil
 }
 
 // truncate truncates a string to maxLen runes.

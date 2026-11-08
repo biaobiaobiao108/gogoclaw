@@ -107,7 +107,7 @@ export function MessageCodeBlock({
 
   return (
     <div
-      data-picoclaw-code-block=""
+      data-gogoclaw-code-block=""
       className={cn(
         "not-prose border-border/80 bg-muted/20 text-foreground my-3 overflow-hidden rounded-lg border shadow-xs",
         className,

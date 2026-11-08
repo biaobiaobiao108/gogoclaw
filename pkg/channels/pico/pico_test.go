@@ -15,11 +15,11 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/sipeed/picoclaw/pkg/approval"
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/media"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/approval"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
 )
 
 func TestApprovalRequestAndResponseRoundTrip(t *testing.T) {
@@ -131,6 +131,7 @@ func TestHandleMessageSend_ForwardsMessageMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPicoChannel: %v", err)
 	}
+	ch.dedupePath = filepath.Join(t.TempDir(), "pico-inbound.json")
 	ch.ctx = context.Background()
 
 	ch.handleMessageSend(&picoConn{id: "conn-1", sessionID: "sess-1"}, PicoMessage{

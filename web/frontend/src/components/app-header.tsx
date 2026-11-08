@@ -1,5 +1,6 @@
 import {
   IconBook,
+  IconDotsVertical,
   IconLanguage,
   IconLoader2,
   IconLogout,
@@ -30,6 +31,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu.tsx"
 import { Separator } from "@/components/ui/separator.tsx"
@@ -41,6 +43,8 @@ import {
 } from "@/components/ui/tooltip"
 import { useGateway } from "@/hooks/use-gateway.ts"
 import { useTheme } from "@/hooks/use-theme.ts"
+
+const DOCS_URL = "https://github.com/biaobiaobiao108/gogoclaw/tree/main/docs"
 
 export function AppHeader() {
   const { i18n, t } = useTranslation()
@@ -106,13 +110,16 @@ export function AppHeader() {
         >
           <IconMenu2 />
         </SidebarTrigger>
-        <div className="hidden w-28 shrink-0 items-center sm:flex">
+        <div className="flex shrink-0 items-center">
           <Link
             to="/chat"
             aria-label={t("header.home")}
-            className="opacity-90 transition-opacity hover:opacity-100"
+            className="-ml-1 flex h-8 items-center gap-2 rounded-md px-1 opacity-95 transition-opacity hover:opacity-100"
           >
-            <img className="h-5 w-auto" src="/logo_with_text.png" alt="Logo" />
+            <img className="size-5" src="/logo.svg" alt="" />
+            <span className="hidden text-sm font-semibold tracking-tight md:inline">
+              GoGoClaw
+            </span>
           </Link>
         </div>
       </div>
@@ -121,23 +128,17 @@ export function AppHeader() {
       <div className="pointer-events-none absolute left-1/2 hidden h-full -translate-x-1/2 items-center justify-center lg:flex">
         {showNotConnectedHint && (
           <div className="bg-card/80 text-muted-foreground border-border/80 flex items-center gap-2 rounded-full border px-3 py-1 text-xs shadow-xs">
-            <span className="relative flex size-2 shrink-0 items-center justify-center">
-              <span className="bg-destructive absolute inline-flex size-full animate-ping rounded-full opacity-75"></span>
-              <span className="bg-destructive relative inline-flex size-1.5 rounded-full"></span>
-            </span>
-            <span className="font-mono text-[11px] tracking-tight">
+            <span className="bg-destructive size-1.5 shrink-0 rounded-full" />
+            <span className="text-[11px] tracking-tight">
               {t("chat.notConnected")}
             </span>
           </div>
         )}
         {isRunning && (
           <div className="text-muted-foreground flex items-center gap-2 text-xs">
-            <span className="relative flex size-2 shrink-0 items-center justify-center">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-60"></span>
-              <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500"></span>
-            </span>
-            <span className="text-foreground/80 font-mono text-[11px] font-medium tracking-tight">
-              ONLINE
+            <span className="bg-success size-1.5 shrink-0 rounded-full" />
+            <span className="text-foreground/80 text-[11px] font-medium tracking-tight">
+              {t("header.gateway.status.running")}
             </span>
           </div>
         )}
@@ -189,7 +190,7 @@ export function AppHeader() {
               <Button
                 variant="secondary"
                 size="icon-sm"
-                className="h-8 w-8 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
+                className="text-warning hover:bg-warning/10 h-8 w-8"
                 onClick={handleGatewayRestart}
                 disabled={gwLoading || isRestarting || isStopping || !canStart}
                 aria-label={t("header.gateway.action.restart")}
@@ -210,7 +211,7 @@ export function AppHeader() {
               <Button
                 variant="outline"
                 size="icon-sm"
-                className="h-8 w-8 border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400"
+                className="border-success/30 text-success hover:bg-success/10 h-8 w-8"
                 data-tour="gateway-button"
                 onClick={handleGatewayToggle}
                 disabled={gwLoading}
@@ -241,6 +242,7 @@ export function AppHeader() {
                       : "default"
                   }
                   size="sm"
+                  aria-label={t("header.gateway.action.start")}
                   data-tour="gateway-button"
                   className={`h-8 gap-1.5 px-2.5 text-xs font-medium ${
                     isStopped
@@ -261,7 +263,7 @@ export function AppHeader() {
                   ) : (
                     <IconPlayerPlay className="h-3.5 w-3.5" />
                   )}
-                  <span>
+                  <span className="hidden sm:inline">
                     {isStopping
                       ? t("header.gateway.status.stopping")
                       : isRestarting
@@ -279,18 +281,21 @@ export function AppHeader() {
           </Tooltip>
         )}
 
-        <Separator className="mx-1 h-4" orientation="vertical" />
+        <Separator
+          className="mx-1 hidden h-4 sm:block"
+          orientation="vertical"
+        />
 
         {/* Docs Link */}
         <Button
           variant="ghost"
           size="icon"
-          className="text-muted-foreground hover:text-foreground size-8 rounded-md"
+          className="text-muted-foreground hover:text-foreground hidden size-8 rounded-md sm:inline-flex"
           data-tour="docs-button"
           asChild
         >
           <a
-            href="https://docs.picoclaw.io"
+            href={DOCS_URL}
             target="_blank"
             rel="noreferrer"
             aria-label={t("header.docs")}
@@ -305,7 +310,7 @@ export function AppHeader() {
             <Button
               variant="ghost"
               size="icon"
-              className="text-muted-foreground hover:text-foreground size-8 rounded-md"
+              className="text-muted-foreground hover:text-foreground hidden size-8 rounded-md sm:inline-flex"
               aria-label={t("header.language")}
             >
               <IconLanguage className="size-4" />
@@ -340,23 +345,66 @@ export function AppHeader() {
           )}
         </Button>
 
-        <Separator className="mx-1 h-4" orientation="vertical" />
-
-        {/* Logout */}
-        <Tooltip delayDuration={300}>
-          <TooltipTrigger asChild>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className="text-muted-foreground hover:text-destructive size-8 rounded-md"
-              onClick={() => setShowLogoutDialog(true)}
-              aria-label={t("header.logout.tooltip")}
+              className="text-muted-foreground hover:text-foreground size-8 rounded-md sm:hidden"
+              aria-label={t("header.moreActions")}
+            >
+              <IconDotsVertical className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-44">
+            <DropdownMenuItem asChild>
+              <a href={DOCS_URL} target="_blank" rel="noreferrer">
+                <IconBook className="size-4" />
+                {t("header.docs")}
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => i18n.changeLanguage("en")}>
+              <IconLanguage className="size-4" />
+              English
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => i18n.changeLanguage("zh")}>
+              <IconLanguage className="size-4" />
+              简体中文
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onSelect={() => setShowLogoutDialog(true)}
             >
               <IconLogout className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t("header.logout.tooltip")}</TooltipContent>
-        </Tooltip>
+              {t("header.logout.tooltip")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <Separator
+          className="mx-1 hidden h-4 sm:block"
+          orientation="vertical"
+        />
+
+        {/* Logout */}
+        <div className="hidden sm:block">
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-destructive size-8 rounded-md"
+                onClick={() => setShowLogoutDialog(true)}
+                aria-label={t("header.logout.tooltip")}
+              >
+                <IconLogout className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("header.logout.tooltip")}</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
     </header>
   )

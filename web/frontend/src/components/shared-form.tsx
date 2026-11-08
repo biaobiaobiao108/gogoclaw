@@ -1,5 +1,12 @@
 import { IconChevronDown, IconEye, IconEyeOff } from "@tabler/icons-react"
-import { type ReactNode, useState } from "react"
+import {
+  cloneElement,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+  useId,
+  useState,
+} from "react"
 import { useTranslation } from "react-i18next"
 
 import {
@@ -32,16 +39,49 @@ export function Field({
   layout = "default",
   controlClassName,
 }: FieldProps) {
+  const generatedId = useId()
+  const labelId = `${generatedId}-label`
+  const hintId = hint ? `${generatedId}-hint` : undefined
+  const errorId = error ? `${generatedId}-error` : undefined
+
+  const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined
+  const control = isValidElement(children)
+    ? cloneElement(children as ReactElement<Record<string, unknown>>, {
+        id:
+          (children.props as Record<string, unknown>).id ??
+          `${generatedId}-control`,
+        "aria-labelledby":
+          (children.props as Record<string, unknown>)["aria-labelledby"] ??
+          labelId,
+        "aria-describedby":
+          [
+            (children.props as Record<string, unknown>)["aria-describedby"],
+            describedBy,
+          ]
+            .filter(Boolean)
+            .join(" ") || undefined,
+        "aria-required": required || undefined,
+        "aria-invalid": error ? true : undefined,
+      })
+    : children
+
   if (layout === "setting-row") {
     return (
-      <div className="flex flex-col gap-4 py-4 md:grid md:grid-cols-[280px_minmax(0,1fr)] md:items-center md:gap-8">
+      <div className="flex flex-col gap-4 py-4 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:items-center lg:gap-6">
         <div className="w-full min-w-0">
-          <FieldLabel className="leading-relaxed break-words whitespace-normal">
+          <FieldLabel
+            id={labelId}
+            htmlFor={`${generatedId}-control`}
+            className="leading-relaxed break-words whitespace-normal"
+          >
             {label}
             {required && <span className="text-destructive ml-1">*</span>}
           </FieldLabel>
           {hint && (
-            <FieldDescription className="mt-1 text-xs leading-relaxed break-words whitespace-normal">
+            <FieldDescription
+              id={hintId}
+              className="mt-1 text-xs leading-relaxed break-words whitespace-normal"
+            >
               {hint}
             </FieldDescription>
           )}
@@ -52,10 +92,13 @@ export function Field({
             controlClassName,
           )}
         >
-          {children}
+          {control}
         </div>
         {error && (
-          <FieldDescription className="text-destructive text-xs leading-normal md:col-start-2 md:justify-self-end">
+          <FieldDescription
+            id={errorId}
+            className="text-destructive text-xs leading-normal lg:col-start-2 lg:justify-self-end"
+          >
             {error}
           </FieldDescription>
         )}
@@ -64,21 +107,24 @@ export function Field({
   }
 
   return (
-    <UiField className="gap-2.5">
+    <UiField className="gap-2.5" aria-labelledby={labelId}>
       <div className="space-y-1">
-        <FieldLabel>
+        <FieldLabel id={labelId} htmlFor={`${generatedId}-control`}>
           {label}
           {required && <span className="text-destructive ml-1">*</span>}
         </FieldLabel>
         {hint && (
-          <FieldDescription className="text-xs leading-normal">
+          <FieldDescription id={hintId} className="text-xs leading-normal">
             {hint}
           </FieldDescription>
         )}
       </div>
-      {children}
+      {control}
       {error && (
-        <FieldDescription className="text-destructive text-xs leading-normal">
+        <FieldDescription
+          id={errorId}
+          className="text-destructive text-xs leading-normal"
+        >
           {error}
         </FieldDescription>
       )}
@@ -91,6 +137,11 @@ interface KeyInputProps {
   onChange: (v: string) => void
   placeholder?: string
   className?: string
+  id?: string
+  "aria-labelledby"?: string
+  "aria-describedby"?: string
+  "aria-invalid"?: boolean
+  "aria-required"?: boolean
 }
 
 export function KeyInput({
@@ -98,23 +149,38 @@ export function KeyInput({
   onChange,
   placeholder,
   className,
+  id,
+  "aria-labelledby": ariaLabelledBy,
+  "aria-describedby": ariaDescribedBy,
+  "aria-invalid": ariaInvalid,
+  "aria-required": ariaRequired,
 }: KeyInputProps) {
   const [show, setShow] = useState(false)
+  const { t } = useTranslation()
 
   return (
-    <div className="relative">
+    <div className="relative w-full">
       <Input
+        id={id}
         type={show ? "text" : "password"}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        aria-labelledby={ariaLabelledBy}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={ariaInvalid}
+        aria-required={ariaRequired}
         className={cn("pr-10", className)}
       />
       <button
         type="button"
         onClick={() => setShow((v) => !v)}
-        tabIndex={-1}
-        className="text-muted-foreground hover:text-foreground absolute top-1/2 right-3 -translate-y-1/2 transition-colors"
+        aria-label={t(
+          show ? "common.hidePassword" : "common.showPassword",
+          show ? "Hide password" : "Show password",
+        )}
+        aria-pressed={show}
+        className="text-muted-foreground hover:bg-muted/70 hover:text-foreground absolute top-1/2 right-1 flex size-8 -translate-y-1/2 items-center justify-center rounded-md transition-colors"
       >
         {show ? (
           <IconEyeOff className="size-4" />
@@ -153,7 +219,7 @@ export function SwitchCardField({
 }: SwitchCardFieldProps) {
   if (layout === "setting-row") {
     return (
-      <div className="flex flex-col gap-4 py-4 md:grid md:grid-cols-[280px_minmax(0,1fr)] md:items-center md:gap-8">
+      <div className="flex flex-col gap-4 py-4 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:items-center lg:gap-6">
         <div className="w-full min-w-0">
           <p className="text-sm leading-relaxed font-medium break-words whitespace-normal">
             {label}
@@ -173,12 +239,12 @@ export function SwitchCardField({
           />
         </div>
         {children && (
-          <div className="mt-1 flex w-full justify-end md:col-start-2">
+          <div className="mt-1 flex w-full justify-end lg:col-start-2">
             <div className="w-full md:max-w-[28rem]">{children}</div>
           </div>
         )}
         {error && (
-          <p className="text-destructive text-xs leading-normal md:col-start-2 md:justify-self-end">
+          <p className="text-destructive text-xs leading-normal lg:col-start-2 lg:justify-self-end">
             {error}
           </p>
         )}

@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/netbind"
-	"github.com/sipeed/picoclaw/web/backend/launcherconfig"
-	"github.com/sipeed/picoclaw/web/backend/middleware"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/netbind"
+	"github.com/biaobiaobiao108/gogoclaw/web/backend/launcherconfig"
+	"github.com/biaobiaobiao108/gogoclaw/web/backend/middleware"
 )
 
 func TestShouldEnableLocalAutoLogin(t *testing.T) {

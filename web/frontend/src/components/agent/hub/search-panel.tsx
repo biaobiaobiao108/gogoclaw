@@ -1,4 +1,4 @@
-import { IconLoader2 } from "@tabler/icons-react"
+import { IconLoader2, IconSearch } from "@tabler/icons-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
@@ -24,61 +24,71 @@ export function SearchPanel({
   const { t } = useTranslation()
 
   return (
-    <div className="flex flex-col items-center justify-center space-y-6 py-8 text-center sm:py-12">
-      <div className="space-y-2">
-        <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
+    <section className="space-y-4" aria-labelledby="hub-search-title">
+      <div className="space-y-1">
+        <h2 id="hub-search-title" className="text-sm font-semibold">
           {t("pages.agent.skills.marketplace_title", {
             defaultValue: "Discover Skills",
           })}
         </h2>
-        <p className="text-muted-foreground max-w-[600px] text-base md:text-lg">
+        <p className="text-muted-foreground max-w-2xl text-xs leading-5">
           {t("pages.agent.skills.marketplace_description")}
         </p>
       </div>
 
       <form
-        className="w-full max-w-2xl px-4 md:px-0"
+        className="flex w-full items-center gap-2"
         onSubmit={(event) => {
           event.preventDefault()
           onSearchSubmit()
         }}
       >
-        <div className="group relative flex items-center justify-center">
+        <div className="relative min-w-0 flex-1">
+          <IconSearch
+            className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+            aria-hidden="true"
+          />
           <Input
+            id="hub-skill-search"
             value={marketQuery}
             onChange={(event) => onMarketQueryChange(event.target.value)}
+            aria-label={t("pages.agent.skills.marketplace_search_placeholder")}
             placeholder={t("pages.agent.skills.marketplace_search_placeholder")}
-            className="border-border/60 bg-background/50 hover:bg-background focus-visible:ring-primary/20 h-12 w-full rounded-full pr-20 pl-5 text-sm shadow-sm backdrop-blur-sm transition-all focus-visible:ring-2 md:min-w-[520px]"
+            className="pl-8"
             disabled={!canSearchMarketplace}
           />
-          <Button
-            type="submit"
-            className="absolute top-1/2 right-1.5 h-9 -translate-y-1/2 rounded-full px-4 font-medium shadow-sm transition-all"
-            disabled={
-              !canSearchMarketplace ||
-              isMarketSearchInitialLoading ||
-              marketQuery.trim() === ""
-            }
-          >
-            {isMarketSearchInitialLoading ? (
-              <IconLoader2 className="size-4 animate-spin" />
-            ) : (
-              <span>
-                {t("pages.agent.skills.marketplace_search_action", {
-                  defaultValue: "Search",
-                })}
-              </span>
-            )}
-          </Button>
         </div>
+        <Button
+          type="submit"
+          className="min-w-16"
+          aria-label={t("pages.agent.skills.marketplace_search_action", {
+            defaultValue: "Search",
+          })}
+          aria-busy={isMarketSearchInitialLoading}
+          disabled={
+            !canSearchMarketplace ||
+            isMarketSearchInitialLoading ||
+            marketQuery.trim() === ""
+          }
+        >
+          {isMarketSearchInitialLoading ? (
+            <IconLoader2 className="size-4 animate-spin" />
+          ) : (
+            <span>
+              {t("pages.agent.skills.marketplace_search_action", {
+                defaultValue: "Search",
+              })}
+            </span>
+          )}
+        </Button>
       </form>
 
       {unavailableToolMessages.length ? (
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 pt-2">
+        <div className="flex w-full flex-col gap-3">
           {unavailableToolMessages.map((item) => (
             <div
               key={item.key}
-              className="rounded-xl border border-amber-200/80 bg-amber-50/70 px-4 py-3 text-left text-sm text-amber-900"
+              className="border-warning/30 bg-warning/10 text-foreground rounded-lg border px-4 py-3 text-left text-sm"
             >
               <div className="font-semibold">{item.label}</div>
               <div className="mt-1 leading-6">{item.message}</div>
@@ -86,6 +96,6 @@ export function SearchPanel({
           ))}
         </div>
       ) : null}
-    </div>
+    </section>
   )
 }

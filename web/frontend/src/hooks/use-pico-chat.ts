@@ -2,6 +2,7 @@ import dayjs from "dayjs"
 import { useAtomValue } from "jotai"
 
 import {
+  loadOlderChatHistory,
   newChatSession,
   respondToApproval,
   sendChatMessage,
@@ -70,6 +71,8 @@ export function usePicoChat() {
     contextUsage,
     hasHydratedActiveSession,
     isHistoryLoading,
+    isLoadingOlderHistory,
+    hasOlderHistory,
   } = useAtomValue(chatAtom)
 
   return {
@@ -86,6 +89,9 @@ export function usePicoChat() {
     contextUsage,
     hasHydratedActiveSession,
     isHistoryLoading,
+    isLoadingOlderHistory,
+    hasOlderHistory,
+    loadOlderHistory: loadOlderChatHistory,
     sendMessage: sendChatMessage,
     respondToApproval,
     switchSession: switchChatSession,

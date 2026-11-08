@@ -4,17 +4,17 @@ import githubDarkCss from "highlight.js/styles/github-dark.css?inline"
 import githubLightCss from "highlight.js/styles/github.css?inline"
 
 const THEME_STYLE_ID = "hljs-theme-style"
-const THEME_STYLE_OWNER_ATTR = "data-picoclaw-highlight-theme"
+const THEME_STYLE_OWNER_ATTR = "data-gogoclaw-highlight-theme"
 const THEME_STYLE_OWNER_VALUE = "true"
 const MANAGED_THEME_STYLE_SELECTOR = `style[${THEME_STYLE_OWNER_ATTR}="${THEME_STYLE_OWNER_VALUE}"]`
 const ID_THEME_STYLE_SELECTOR = `style#${THEME_STYLE_ID}`
 const CHAT_CODE_BLOCK_OVERRIDES = `
-[data-picoclaw-code-block] .hljs {
+[data-gogoclaw-code-block] .hljs {
   background: transparent !important;
 }
 
-[data-picoclaw-code-block] pre code.hljs,
-[data-picoclaw-code-block] code.hljs {
+[data-gogoclaw-code-block] pre code.hljs,
+[data-gogoclaw-code-block] code.hljs {
   padding: 0 !important;
   background: transparent !important;
 }

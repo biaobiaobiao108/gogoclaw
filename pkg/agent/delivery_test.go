@@ -3,11 +3,13 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/session"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
 
 type deliveryTestBus struct {
@@ -47,8 +49,9 @@ type deliveryCheckpointStore struct {
 	session.SessionStore
 	store session.TurnCheckpointStore
 
-	mu       sync.Mutex
-	statuses []string
+	mu        sync.Mutex
+	statuses  []string
+	listCalls int
 }
 
 func (s *deliveryCheckpointStore) SetTurnCheckpoint(key string, checkpoint session.TurnCheckpoint) error {
@@ -68,10 +71,29 @@ func (s *deliveryCheckpointStore) ClearTurnCheckpoints(key string) error {
 	return s.store.ClearTurnCheckpoints(key)
 }
 
+func (s *deliveryCheckpointStore) ListSessions() []string {
+	s.mu.Lock()
+	s.listCalls++
+	s.mu.Unlock()
+	return s.SessionStore.ListSessions()
+}
+
 func (s *deliveryCheckpointStore) deliveryStatuses() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.statuses...)
+}
+
+func (s *deliveryCheckpointStore) resetListCalls() {
+	s.mu.Lock()
+	s.listCalls = 0
+	s.mu.Unlock()
+}
+
+func (s *deliveryCheckpointStore) sessionListCalls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listCalls
 }
 
 func TestPublishTrackedOutboundPersistsFailureAndRetries(t *testing.T) {
@@ -133,5 +155,133 @@ func TestPublishTrackedOutboundPersistsFailureAndRetries(t *testing.T) {
 	}
 	if transport.outbound[0].Context.Raw[metadataKeyOutboundKind] != outboundKindFinal {
 		t.Fatalf("retried outbound was not marked final: %+v", transport.outbound[0].Context.Raw)
+	}
+}
+
+func TestAcknowledgeDeliveryUsesIndexedSession(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+
+	checkpointStore, ok := agent.Sessions.(session.TurnCheckpointStore)
+	if !ok {
+		t.Fatal("test session store does not support turn checkpoints")
+	}
+	store := &deliveryCheckpointStore{SessionStore: agent.Sessions, store: checkpointStore}
+	agent.Sessions = store
+	al.bus = &deliveryTestBus{}
+
+	sessionKey := "delivery-ack-index"
+	msg := bus.OutboundMessage{
+		Context:    bus.NewOutboundContext("pico", "pico:delivery-ack-index", ""),
+		SessionKey: sessionKey,
+		Content:    "final answer",
+	}
+	if err := al.publishTrackedOutbound(context.Background(), sessionKey, msg); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, err := store.GetTurnCheckpoint(sessionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint.Delivery == nil {
+		t.Fatal("delivery checkpoint is nil")
+	}
+
+	store.resetListCalls()
+	if err := al.AcknowledgeDelivery(
+		context.Background(),
+		"pico",
+		"pico:delivery-ack-index",
+		checkpoint.Delivery.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if calls := store.sessionListCalls(); calls != 0 {
+		t.Fatalf("indexed acknowledgement scanned %d session lists, want 0", calls)
+	}
+	acknowledged, err := store.GetTurnCheckpoint(sessionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acknowledged.Delivery == nil || acknowledged.Delivery.Status != deliveryStatusAcknowledged {
+		t.Fatalf("acknowledged delivery = %+v", acknowledged.Delivery)
+	}
+}
+
+func TestRetryPendingDeliveryReconcilesInterruptedStreaming(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		content    string
+		wantStatus string
+		wantOutbox int
+		wantError  string
+	}{
+		{
+			name:       "partial stream is dead lettered",
+			wantStatus: deliveryStatusDeadLetter,
+			wantError:  "interrupted before final content",
+		},
+		{
+			name:       "persisted final content is retried",
+			content:    "complete answer",
+			wantStatus: deliveryStatusDeliveredBus,
+			wantOutbox: 1,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+			defer cleanup()
+
+			transport := &deliveryTestBus{}
+			al.bus = transport
+			store, ok := agent.Sessions.(session.TurnCheckpointStore)
+			if !ok {
+				t.Fatal("test session store does not support turn checkpoints")
+			}
+			sessionKey := "delivery-interrupted-stream"
+			delivery := session.TurnDelivery{
+				ID:          "delivery-interrupted",
+				Status:      deliveryStatusStreaming,
+				Channel:     "pico",
+				ChatID:      "pico:interrupted",
+				Content:     tt.content,
+				RequiresAck: true,
+				CreatedAt:   time.Now().UTC().Add(-time.Minute),
+				UpdatedAt:   time.Now().UTC().Add(-time.Minute),
+			}
+			if err := store.SetTurnCheckpoint(sessionKey, session.TurnCheckpoint{
+				TurnID:     "turn-interrupted",
+				Status:     "running",
+				Deliveries: []session.TurnDelivery{delivery},
+				Delivery:   &delivery,
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			al.retryPendingDelivery(context.Background())
+
+			checkpoint, err := store.GetTurnCheckpoint(sessionKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if checkpoint.Delivery == nil {
+				t.Fatal("delivery checkpoint is nil")
+			}
+			if checkpoint.Delivery.Status != tt.wantStatus {
+				t.Fatalf("delivery status = %q, want %q", checkpoint.Delivery.Status, tt.wantStatus)
+			}
+			if tt.wantError != "" && !strings.Contains(checkpoint.Delivery.LastError, tt.wantError) {
+				t.Fatalf("delivery error = %q, want substring %q", checkpoint.Delivery.LastError, tt.wantError)
+			}
+			if tt.wantStatus == deliveryStatusDeadLetter && checkpoint.Delivery.DeadLetteredAt == nil {
+				t.Fatal("dead-letter timestamp is nil")
+			}
+			transport.mu.Lock()
+			outbox := len(transport.outbound)
+			transport.mu.Unlock()
+			if outbox != tt.wantOutbox {
+				t.Fatalf("outbox deliveries = %d, want %d", outbox, tt.wantOutbox)
+			}
+		})
 	}
 }

@@ -163,6 +163,8 @@ export function ChannelArrayListField({
               setDraft(nextDraft)
             }}
             onKeyDown={handleKeyDown}
+            aria-label={label}
+            aria-invalid={error ? true : undefined}
             placeholder={placeholder}
           />
           <Button

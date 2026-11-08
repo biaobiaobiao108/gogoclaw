@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/auth"
-	"github.com/sipeed/picoclaw/pkg/config"
-	ppid "github.com/sipeed/picoclaw/pkg/pid"
-	"github.com/sipeed/picoclaw/web/backend/utils"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/auth"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	ppid "github.com/biaobiaobiao108/gogoclaw/pkg/pid"
+	"github.com/biaobiaobiao108/gogoclaw/web/backend/utils"
 )
 
 func startLongRunningProcess(t *testing.T) *exec.Cmd {
@@ -45,7 +45,7 @@ func startGatewayLikeProcess(t *testing.T) *exec.Cmd {
 	if runtime.GOOS == "windows" {
 		t.Skip("gateway-like process commandline check is not deterministic on Windows tests")
 	}
-	cmd = exec.Command("sh", "-c", "sleep 30 # picoclaw gateway")
+	cmd = exec.Command("sh", "-c", "sleep 30 # gogoclaw gateway")
 
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -57,7 +57,7 @@ func startGatewayLikeProcess(t *testing.T) *exec.Cmd {
 func writeTestPidFile(t *testing.T, data ppid.PidFileData) string {
 	t.Helper()
 
-	path := filepath.Join(globalConfigDir(), ".picoclaw.pid")
+	path := filepath.Join(globalConfigDir(), ".gogoclaw.pid")
 	raw, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		t.Fatalf("marshal pid file: %v", err)
@@ -101,7 +101,7 @@ func resetGatewayTestState(t *testing.T) {
 	originalRestartGracePeriod := gatewayRestartGracePeriod
 	originalRestartForceKillWindow := gatewayRestartForceKillWindow
 	originalRestartPollInterval := gatewayRestartPollInterval
-	t.Setenv("PICOCLAW_HOME", t.TempDir())
+	t.Setenv("GOGOCLAW_HOME", t.TempDir())
 	t.Cleanup(func() {
 		gatewayHealthGet = originalHealthGet
 		gatewayProcessMatcher = originalProcessMatcher
@@ -402,8 +402,8 @@ func TestLooksLikeGatewayCommandLine(t *testing.T) {
 		want    bool
 	}{
 		{
-			name:    "default picoclaw gateway",
-			cmdline: "/usr/local/bin/picoclaw gateway -E",
+			name:    "default gogoclaw gateway",
+			cmdline: "/usr/local/bin/gogoclaw gateway -E",
 			want:    true,
 		},
 		{
@@ -2356,11 +2356,11 @@ func TestGatewayRestartReturnsErrorStatusWhenReplacementFailsToStart(t *testing.
 		t.Fatalf("SaveConfig() error = %v", err)
 	}
 
-	invalidBinaryPath := filepath.Join(t.TempDir(), "fake-picoclaw")
+	invalidBinaryPath := filepath.Join(t.TempDir(), "fake-gogoclaw")
 	if err := os.WriteFile(invalidBinaryPath, []byte("#!/bin/sh\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	t.Setenv("PICOCLAW_BINARY", invalidBinaryPath)
+	t.Setenv("GOGOCLAW_BINARY", invalidBinaryPath)
 
 	h := NewHandler(configPath)
 	mux := http.NewServeMux()
@@ -2533,30 +2533,30 @@ func TestGatewayClearLogsResetsBufferedHistory(t *testing.T) {
 	}
 }
 
-func TestFindPicoclawBinary_EnvOverride(t *testing.T) {
+func TestFindGogoclawBinary_EnvOverride(t *testing.T) {
 	// Create a temporary file to act as the mock binary
 	tmpDir := t.TempDir()
-	mockBinary := filepath.Join(tmpDir, "picoclaw-mock")
+	mockBinary := filepath.Join(tmpDir, "gogoclaw-mock")
 	if err := os.WriteFile(mockBinary, []byte("mock"), 0o755); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	t.Setenv("PICOCLAW_BINARY", mockBinary)
+	t.Setenv("GOGOCLAW_BINARY", mockBinary)
 
-	got := utils.FindPicoclawBinary()
+	got := utils.FindGogoclawBinary()
 	if got != mockBinary {
-		t.Errorf("FindPicoclawBinary() = %q, want %q", got, mockBinary)
+		t.Errorf("FindGogoclawBinary() = %q, want %q", got, mockBinary)
 	}
 }
 
-func TestFindPicoclawBinary_EnvOverride_InvalidPath(t *testing.T) {
-	// When PICOCLAW_BINARY points to a non-existent path, fall through to next strategy
-	t.Setenv("PICOCLAW_BINARY", "/nonexistent/picoclaw-binary")
+func TestFindGogoclawBinary_EnvOverride_InvalidPath(t *testing.T) {
+	// When GOGOCLAW_BINARY points to a non-existent path, fall through to next strategy
+	t.Setenv("GOGOCLAW_BINARY", "/nonexistent/gogoclaw-binary")
 
-	got := utils.FindPicoclawBinary()
-	// Should not return the invalid path; falls back to "picoclaw" or another found path
-	if got == "/nonexistent/picoclaw-binary" {
-		t.Errorf("FindPicoclawBinary() returned invalid env path %q, expected fallback", got)
+	got := utils.FindGogoclawBinary()
+	// Should not return the invalid path; falls back to "gogoclaw" or another found path
+	if got == "/nonexistent/gogoclaw-binary" {
+		t.Errorf("FindGogoclawBinary() returned invalid env path %q, expected fallback", got)
 	}
 }
 

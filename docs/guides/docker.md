@@ -2,7 +2,7 @@
 
 > Back to [README](../../README.md)
 
-PicoClaw production deployments use the container image only. Native binaries and source builds are for development and testing.
+GoGoClaw production deployments use the container image only. Native binaries and source builds are for development and testing.
 
 ## Prerequisites
 
@@ -10,7 +10,7 @@ PicoClaw production deployments use the container image only. Native binaries an
 - A persistent volume for `/data`
 - TLS termination in a reverse proxy before exposing the Web console or webhook endpoint outside the local host
 
-The published image contains both `picoclaw` and `picoclaw-launcher`. The Compose file uses one persistent volume, `picoclaw-data`.
+The published image contains both `gogoclaw` and `gogoclaw-launcher`. The Compose file uses one persistent volume, `gogoclaw-data`.
 
 ## Web Console
 
@@ -24,7 +24,7 @@ Open `http://127.0.0.1:18800`, create the dashboard password, then configure mod
 The host port binds to loopback by default. Keep it private, or put a hardened TLS reverse proxy in front of it:
 
 ```bash
-PICOCLAW_LAUNCHER_BIND=0.0.0.0 \
+GOGOCLAW_LAUNCHER_BIND=0.0.0.0 \
   docker compose -f docker/docker-compose.yml --profile launcher up -d
 ```
 
@@ -37,7 +37,7 @@ Create the initial configuration:
 ```bash
 docker compose -f docker/docker-compose.yml --profile gateway pull
 docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint picoclaw picoclaw-gateway onboard
+  --entrypoint gogoclaw gogoclaw-gateway onboard
 ```
 
 Start the gateway:
@@ -46,34 +46,34 @@ Start the gateway:
 docker compose -f docker/docker-compose.yml --profile gateway up -d
 ```
 
-Webhook-capable channels use port `18790`. The host binding defaults to `127.0.0.1`. Set `PICOCLAW_GATEWAY_BIND` only for a reverse proxy or trusted private network.
+Webhook-capable channels use port `18790`. The host binding defaults to `127.0.0.1`. Set `GOGOCLAW_GATEWAY_BIND` only for a reverse proxy or trusted private network.
 
 ## One-Off Commands
 
 ```bash
 docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint picoclaw picoclaw-gateway agent -m "What is 2+2?"
+  --entrypoint gogoclaw gogoclaw-gateway agent -m "What is 2+2?"
 
 docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint picoclaw picoclaw-gateway status
+  --entrypoint gogoclaw gogoclaw-gateway status
 ```
 
 ## Data And Updates
 
-The volume is mounted at `/data`. It contains `/data/.picoclaw/config.json`, credentials, workspace files, sessions, and logs.
+The volume is mounted at `/data`. It contains `/data/.gogoclaw/config.json`, credentials, workspace files, sessions, and logs.
 
 ```bash
 # Backup
 docker run --rm \
-  -v picoclaw-data:/data:ro \
+  -v gogoclaw-data:/data:ro \
   -v "${PWD}:/backup" \
-  alpine tar czf /backup/picoclaw-data.tgz -C /data .
+  alpine tar czf /backup/gogoclaw-data.tgz -C /data .
 
 # Restore into an empty volume
 docker run --rm \
-  -v picoclaw-data:/data \
+  -v gogoclaw-data:/data \
   -v "${PWD}:/backup" \
-  alpine tar xzf /backup/picoclaw-data.tgz -C /data
+  alpine tar xzf /backup/gogoclaw-data.tgz -C /data
 
 # Update
 docker compose -f docker/docker-compose.yml --profile launcher pull

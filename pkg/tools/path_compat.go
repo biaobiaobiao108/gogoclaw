@@ -3,7 +3,7 @@ package tools
 import (
 	"regexp"
 
-	fstools "github.com/sipeed/picoclaw/pkg/tools/fs"
+	fstools "github.com/biaobiaobiao108/gogoclaw/pkg/tools/fs"
 )
 
 func validatePathWithAllowPaths(

@@ -3,9 +3,10 @@ package session
 import (
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/approval"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/approval"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
 type TurnCheckpoint struct {
@@ -19,6 +20,7 @@ type TurnCheckpoint struct {
 	Activities []TurnActivity        `json:"activities,omitempty"`
 	Approval   *approval.Request     `json:"approval,omitempty"`
 	Delivery   *TurnDelivery         `json:"delivery,omitempty"`
+	Deliveries []TurnDelivery        `json:"deliveries,omitempty"`
 	Events     []TurnCheckpointEvent `json:"events,omitempty"`
 }
 
@@ -42,15 +44,24 @@ type TurnActivity struct {
 }
 
 type TurnDelivery struct {
-	ID        string    `json:"id"`
-	Status    string    `json:"status"`
-	Channel   string    `json:"channel,omitempty"`
-	ChatID    string    `json:"chat_id,omitempty"`
-	Content   string    `json:"content,omitempty"`
-	Attempts  int       `json:"attempts,omitempty"`
-	LastError string    `json:"last_error,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID             string              `json:"id"`
+	Status         string              `json:"status"`
+	Channel        string              `json:"channel,omitempty"`
+	ChatID         string              `json:"chat_id,omitempty"`
+	AgentID        string              `json:"agent_id,omitempty"`
+	Context        *bus.InboundContext `json:"context,omitempty"`
+	Scope          *bus.OutboundScope  `json:"scope,omitempty"`
+	Content        string              `json:"content,omitempty"`
+	ContextUsage   *bus.ContextUsage   `json:"context_usage,omitempty"`
+	RequiresAck    bool                `json:"requires_ack,omitempty"`
+	Attempts       int                 `json:"attempts,omitempty"`
+	LastError      string              `json:"last_error,omitempty"`
+	CreatedAt      time.Time           `json:"created_at"`
+	UpdatedAt      time.Time           `json:"updated_at"`
+	NextAttemptAt  *time.Time          `json:"next_attempt_at,omitempty"`
+	LeaseUntil     *time.Time          `json:"lease_until,omitempty"`
+	AcknowledgedAt *time.Time          `json:"acknowledged_at,omitempty"`
+	DeadLetteredAt *time.Time          `json:"dead_lettered_at,omitempty"`
 }
 
 type TurnCheckpointEvent struct {

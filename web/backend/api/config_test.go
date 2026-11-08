@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 )
 
 func TestHandlePatchConfig_PreservesTurnProfile(t *testing.T) {
@@ -149,7 +149,7 @@ func TestHandleUpdateConfig_PreservesExecAllowRemoteDefaultWhenOmitted(t *testin
 "version": 3,
 		"agents": {
 			"defaults": {
-				"workspace": "~/.picoclaw/workspace"
+				"workspace": "~/.gogoclaw/workspace"
 			}
 		},
 		"model_list": [
@@ -188,7 +188,7 @@ func TestHandleUpdateConfig_DoesNotInheritDefaultModelFields(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewBufferString(`{
 		"agents": {
 			"defaults": {
-				"workspace": "~/.picoclaw/workspace"
+				"workspace": "~/.gogoclaw/workspace"
 			}
 		},
 		"model_list": [
@@ -733,13 +733,13 @@ func setupPicoEnabledEnv(t *testing.T) (string, func()) {
 
 	tmp := t.TempDir()
 	oldHome := os.Getenv("HOME")
-	oldPicoHome := os.Getenv("PICOCLAW_HOME")
+	oldPicoHome := os.Getenv("GOGOCLAW_HOME")
 
 	if err := os.Setenv("HOME", tmp); err != nil {
 		t.Fatalf("set HOME: %v", err)
 	}
-	if err := os.Setenv("PICOCLAW_HOME", filepath.Join(tmp, ".picoclaw")); err != nil {
-		t.Fatalf("set PICOCLAW_HOME: %v", err)
+	if err := os.Setenv("GOGOCLAW_HOME", filepath.Join(tmp, ".gogoclaw")); err != nil {
+		t.Fatalf("set GOGOCLAW_HOME: %v", err)
 	}
 
 	cfg := config.DefaultConfig()
@@ -766,9 +766,9 @@ func setupPicoEnabledEnv(t *testing.T) (string, func()) {
 	cleanup := func() {
 		_ = os.Setenv("HOME", oldHome)
 		if oldPicoHome == "" {
-			_ = os.Unsetenv("PICOCLAW_HOME")
+			_ = os.Unsetenv("GOGOCLAW_HOME")
 		} else {
-			_ = os.Setenv("PICOCLAW_HOME", oldPicoHome)
+			_ = os.Setenv("GOGOCLAW_HOME", oldPicoHome)
 		}
 	}
 	return configPath, cleanup
@@ -787,7 +787,7 @@ func TestHandleUpdateConfig_SucceedsWhenPicoTokenInSecurityOnly(t *testing.T) {
 		"version": 1,
 		"agents": {
 			"defaults": {
-				"workspace": "~/.picoclaw/workspace",
+				"workspace": "~/.gogoclaw/workspace",
 				"model_name": "custom-default"
 			}
 		},
@@ -855,7 +855,7 @@ func TestHandleUpdateConfig_AppliesGatewayLogLevel(t *testing.T) {
 		"version": 1,
 		"agents": {
 			"defaults": {
-				"workspace": "~/.picoclaw/workspace",
+				"workspace": "~/.gogoclaw/workspace",
 				"model_name": "custom-default"
 			}
 		},

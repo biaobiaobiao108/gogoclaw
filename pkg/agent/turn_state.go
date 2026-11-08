@@ -1,4 +1,4 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// GoGoClaw - Ultra-lightweight personal AI agent
 
 package agent
 
@@ -11,11 +11,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 )
 
 // =============================================================================
@@ -140,6 +140,7 @@ type turnExecution struct {
 	normalizedToolCalls []providers.ToolCall
 	allResponsesHandled bool
 	streamingPublisher  *streamingChunkPublisher
+	streamingDelivery   *session.TurnDelivery
 	streamingFallback   bool
 	suppressReasoning   bool
 	callMessages        []providers.Message
@@ -597,6 +598,27 @@ func (ts *turnState) finishTurnActivity(id string, update func(*session.TurnActi
 	}
 }
 
+func (ts *turnState) finishRunningActivities(status, detail string) {
+	if ts == nil {
+		return
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	now := time.Now().UTC()
+	for i := range ts.activities {
+		activity := &ts.activities[i]
+		if activity.Status != "running" {
+			continue
+		}
+		activity.Status = status
+		if detail != "" {
+			activity.Detail = strings.TrimSpace(activity.Detail + "\n" + detail)
+		}
+		activity.CompletedAt = &now
+		activity.DurationMS = now.Sub(activity.StartedAt).Milliseconds()
+	}
+}
+
 func (ts *turnState) activitiesSnapshot() []session.TurnActivity {
 	if ts == nil {
 		return nil
@@ -903,6 +925,11 @@ func (ts *turnState) interruptHintMessage() providers.Message {
 // Finish marks the turn as finished and closes the pendingResults channel
 func (ts *turnState) Finish(isHardAbort bool) {
 	ts.isFinished.Store(true)
+	if isHardAbort {
+		ts.finishRunningActivities("effects_unknown", "The turn was stopped before the tool result could be verified.")
+	} else {
+		ts.finishRunningActivities("cancelled", "The turn ended before this activity completed.")
+	}
 
 	// Close pendingResults channel exactly once
 	ts.closeOnce.Do(func() {

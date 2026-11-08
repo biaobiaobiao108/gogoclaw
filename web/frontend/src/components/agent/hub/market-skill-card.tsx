@@ -54,12 +54,9 @@ export function MarketSkillCard({
 
   return (
     <Card
-      className="group border-border/40 bg-card/40 hover:border-border/80 hover:bg-card relative overflow-hidden transition-all hover:shadow-md"
+      className="group border-border bg-card hover:border-border/80 hover:bg-muted/15 relative overflow-hidden rounded-lg border transition-colors"
       size="sm"
     >
-      {result.installed && (
-        <div className="absolute inset-x-0 top-0 h-1 bg-emerald-500/20" />
-      )}
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1 space-y-2">
@@ -67,11 +64,11 @@ export function MarketSkillCard({
               <CardTitle className="text-base font-semibold tracking-tight">
                 {result.display_name || result.slug}
               </CardTitle>
-              <span className="bg-muted/60 text-muted-foreground ring-border/50 inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-semibold tracking-wider uppercase ring-1 ring-inset">
+              <span className="bg-muted text-muted-foreground inline-flex items-center rounded-sm px-2 py-0.5 text-[11px] font-medium">
                 {result.registry_name}
               </span>
               {result.installed ? (
-                <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 ring-1 ring-emerald-500/20 ring-inset">
+                <span className="bg-success/10 text-success inline-flex items-center rounded-sm px-2 py-0.5 text-[11px] font-medium">
                   {t("pages.agent.skills.marketplace_installed")}
                 </span>
               ) : null}
@@ -111,7 +108,7 @@ export function MarketSkillCard({
                   <Button
                     size="sm"
                     variant={result.installed ? "secondary" : "default"}
-                    className="shadow-sm transition-all"
+                    className="shadow-sm transition-[color,background-color,border-color,opacity,box-shadow,transform]"
                     disabled={installDisabled}
                     onClick={onInstall}
                   >
@@ -146,7 +143,7 @@ export function MarketSkillCard({
       </CardHeader>
       {result.installed_name ? (
         <CardContent className="pt-0 pb-4">
-          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
+          <div className="border-success/20 bg-success/5 text-success rounded-md border px-3 py-2 text-xs">
             {t("pages.agent.skills.marketplace_installed_hint", {
               name: result.installed_name,
             })}

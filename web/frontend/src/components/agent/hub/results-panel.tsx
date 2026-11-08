@@ -38,11 +38,11 @@ export function ResultsPanel({
   const { t } = useTranslation()
 
   return (
-    <div className="mx-auto flex w-full max-w-[1000px] justify-center">
+    <div className="flex w-full">
       <div className="w-full">
         {canSearchMarketplace && hasSubmittedQuery ? (
           <div className="space-y-6">
-            <div className="rounded-xl border border-amber-200/80 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
+            <div className="border-warning/30 bg-warning/10 text-foreground rounded-lg border px-4 py-3 text-sm">
               <div className="font-semibold">
                 {t("pages.agent.skills.marketplace_notice_title")}
               </div>
@@ -52,7 +52,7 @@ export function ResultsPanel({
             </div>
 
             {isMarketSearchInitialLoading ? (
-              <div className="border-border/40 bg-muted/10 flex min-h-[200px] flex-col items-center justify-center gap-4 rounded-xl border border-dashed">
+              <div className="border-border/60 bg-card/40 flex min-h-40 flex-col items-center justify-center gap-4 rounded-lg border">
                 <IconLoader2 className="text-muted-foreground/60 size-6 animate-spin" />
                 <span className="text-muted-foreground text-sm font-medium">
                   {t("pages.agent.skills.marketplace_loading_results")}
@@ -105,7 +105,7 @@ export function ResultsPanel({
                 ) : null}
               </div>
             ) : (
-              <div className="border-border/40 bg-muted/10 flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed">
+              <div className="border-border/60 bg-card/40 flex min-h-40 flex-col items-center justify-center gap-3 rounded-lg border">
                 <IconSearch className="text-muted-foreground/50 size-6" />
                 <span className="text-muted-foreground text-sm font-medium">
                   {t("pages.agent.skills.marketplace_empty_results", {
@@ -116,13 +116,13 @@ export function ResultsPanel({
             )}
           </div>
         ) : !canSearchMarketplace ? (
-          <div className="border-border/40 bg-muted/10 flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed">
+          <div className="border-border/60 bg-card/40 flex min-h-40 flex-col items-center justify-center gap-3 rounded-lg border">
             <span className="text-muted-foreground text-sm font-medium">
               {t("pages.agent.skills.marketplace_unavailable")}
             </span>
           </div>
         ) : (
-          <div className="border-border/40 bg-muted/10 flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed">
+          <div className="border-border/60 bg-card/40 flex min-h-40 flex-col items-center justify-center gap-3 rounded-lg border">
             <IconSearch className="text-muted-foreground/50 size-6" />
             <span className="text-muted-foreground text-sm font-medium">
               {t("pages.agent.skills.marketplace_idle")}

@@ -5,17 +5,17 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/netbind"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/netbind"
 )
 
 const DefaultGatewayLogLevel = "warn"
 
 type GatewayConfig struct {
-	Host      string `json:"host"                env:"PICOCLAW_GATEWAY_HOST"`
-	Port      int    `json:"port"                env:"PICOCLAW_GATEWAY_PORT"`
-	HotReload bool   `json:"hot_reload"          env:"PICOCLAW_GATEWAY_HOT_RELOAD"`
-	LogLevel  string `json:"log_level,omitempty" env:"PICOCLAW_LOG_LEVEL"`
+	Host      string `json:"host"                env:"GOGOCLAW_GATEWAY_HOST"`
+	Port      int    `json:"port"                env:"GOGOCLAW_GATEWAY_PORT"`
+	HotReload bool   `json:"hot_reload"          env:"GOGOCLAW_GATEWAY_HOT_RELOAD"`
+	LogLevel  string `json:"log_level,omitempty" env:"GOGOCLAW_LOG_LEVEL"`
 }
 
 func canonicalGatewayLogLevel(level logger.LogLevel) string {
@@ -78,7 +78,7 @@ func normalizeGatewayHostInput(host string) (string, error) {
 
 // ResolveGatewayLogLevel reads the configured gateway log level without triggering
 // the full config loader, so startup code can apply logging before config load logs run.
-// The PICOCLAW_LOG_LEVEL environment variable overrides the file value.
+// The GOGOCLAW_LOG_LEVEL environment variable overrides the file value.
 func ResolveGatewayLogLevel(path string) string {
 	cfg := struct {
 		Gateway GatewayConfig `json:"gateway"`
@@ -96,7 +96,7 @@ func ResolveGatewayLogLevel(path string) string {
 		}
 	}
 
-	if envLevel := os.Getenv("PICOCLAW_LOG_LEVEL"); envLevel != "" {
+	if envLevel := os.Getenv("GOGOCLAW_LOG_LEVEL"); envLevel != "" {
 		cfg.Gateway.LogLevel = envLevel
 	}
 

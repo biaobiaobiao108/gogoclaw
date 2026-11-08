@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 )
 
 type longResultTool struct{}
@@ -43,7 +43,7 @@ func TestRunTurnContinuesAfterActiveContextCompaction(t *testing.T) {
 	provider := &compactingTestProvider{}
 	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
 	defer cleanup()
-	agent.ContextWindow = 2000
+	agent.ContextWindow = 900
 	agent.MaxTokens = 200
 	agent.Tools = tools.NewToolRegistry()
 	agent.Tools.Register(&longResultTool{})
@@ -135,6 +135,42 @@ func TestCompactActiveTurnHandlesOversizedUserRequest(t *testing.T) {
 	}
 	if len(messages[0].Content) < 10000 {
 		t.Fatal("original request was modified")
+	}
+}
+
+func TestFormatCompactionTranscriptKeepsToolSemanticsWithoutJSONNoise(t *testing.T) {
+	messages := []providers.Message{
+		{Role: "user", Content: "update the parser"},
+		{
+			Role: "assistant",
+			ToolCalls: []providers.ToolCall{{
+				ID:   "call-1",
+				Type: "function",
+				Function: &providers.FunctionCall{
+					Name:      "exec",
+					Arguments: `{"command":"go test ./..."}`,
+				},
+			}},
+		},
+		{Role: "tool", ToolCallID: "call-1", Content: "FAIL: parser_test.go:42"},
+		{Role: "assistant", Content: "The parser still fails."},
+	}
+
+	transcript := formatCompactionTranscript(messages)
+	for _, want := range []string{
+		`<message role="user">`,
+		`<tool_call id="call-1" name="exec">`,
+		`{"command":"go test ./..."}`,
+		`<tool_result id="call-1">`,
+		`FAIL: parser_test.go:42`,
+		`The parser still fails.`,
+	} {
+		if !strings.Contains(transcript, want) {
+			t.Fatalf("transcript missing %q:\n%s", want, transcript)
+		}
+	}
+	if strings.Contains(transcript, `"role":`) || strings.Contains(transcript, `"content":`) {
+		t.Fatalf("transcript should not serialize the full message structs:\n%s", transcript)
 	}
 }
 
@@ -586,7 +622,7 @@ func TestEstimateMessageTokens_ToolCallsContribute(t *testing.T) {
 				Name: "web_search",
 				Function: &providers.FunctionCall{
 					Name:      "web_search",
-					Arguments: `{"query":"picoclaw agent framework","max_results":5}`,
+					Arguments: `{"query":"gogoclaw agent framework","max_results":5}`,
 				},
 			},
 		},
@@ -631,9 +667,22 @@ func TestEstimateMessageTokens_LargeArguments(t *testing.T) {
 	}
 
 	tokens := EstimateMessageTokens(msg)
-	// 5000+ chars → at least 2000 tokens with the 2.5 char/token heuristic
-	if tokens < 2000 {
+	// 5000+ ASCII chars are intentionally estimated below the old 2.5
+	// char/token fallback, while still remaining a significant payload.
+	if tokens < 1200 {
 		t.Errorf("large tool call arguments should produce significant token count, got %d", tokens)
+	}
+}
+
+func TestEstimateTextTokens_HandlesCJKAndASCII(t *testing.T) {
+	ascii := EstimateMessageTokens(msgUser(strings.Repeat("a", 700)))
+	cjk := EstimateMessageTokens(msgUser(strings.Repeat("云", 200)))
+
+	if ascii >= 230 {
+		t.Fatalf("ASCII estimate should avoid the old 2.5 char/token overestimate: %d", ascii)
+	}
+	if cjk < 200 {
+		t.Fatalf("CJK estimate should stay near one token per rune, got %d", cjk)
 	}
 }
 
@@ -1011,7 +1060,7 @@ func TestTrimHistoryToFitContextWindow_DropsOldestTurns(t *testing.T) {
 	trimmedHistory, messages, fit := trimHistoryToFitContextWindow(
 		history,
 		build,
-		700,
+		500,
 		nil,
 		0,
 	)
@@ -1024,7 +1073,7 @@ func TestTrimHistoryToFitContextWindow_DropsOldestTurns(t *testing.T) {
 	if trimmedHistory[0].Content != history[2].Content {
 		t.Fatalf("first kept message = %q, want second turn start", trimmedHistory[0].Content)
 	}
-	if isOverContextBudget(700, messages, nil, 0) {
+	if isOverContextBudget(500, messages, nil, 0) {
 		t.Fatal("trimmed messages should be within budget")
 	}
 }

@@ -1,9 +1,11 @@
 import { IconPlus } from "@tabler/icons-react"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import {
   type ChangeEvent,
   type ClipboardEvent,
   type DragEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react"
@@ -33,7 +35,14 @@ import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
 import { usePicoChat } from "@/hooks/use-pico-chat"
 import { useSessionHistory } from "@/hooks/use-session-history"
-import type { ChatAttachment, ConnectionState } from "@/store/chat"
+import type {
+  ChatActivity,
+  ChatAttachment,
+  ChatMessage,
+  ChatPlanStep,
+  ChatTurnHistory,
+  ConnectionState,
+} from "@/store/chat"
 import type { GatewayState } from "@/store/gateway"
 
 function resolveChatInputDisabledReason({
@@ -78,6 +87,40 @@ function resolveChatInputDisabledReason({
   return null
 }
 
+type ChatStreamRow =
+  | { kind: "loadOlder" }
+  | { kind: "historyLoading" }
+  | { kind: "empty" }
+  | { kind: "message"; message: ChatMessage }
+  | { kind: "typing" }
+  | {
+      kind: "activity"
+      plan?: ChatPlanStep[]
+      activities?: ChatActivity[]
+      history?: ChatTurnHistory[]
+    }
+
+function chatStreamRowKey(row: ChatStreamRow): string {
+  return row.kind === "message" ? `message:${row.message.id}` : row.kind
+}
+
+function estimateChatStreamRow(row: ChatStreamRow): number {
+  switch (row.kind) {
+    case "loadOlder":
+      return 56
+    case "historyLoading":
+      return 104
+    case "empty":
+      return 420
+    case "typing":
+      return 56
+    case "activity":
+      return 180
+    default:
+      return 112
+  }
+}
+
 export function ChatPage() {
   const { t } = useTranslation()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -106,6 +149,9 @@ export function ChatPage() {
     switchSession,
     newChat,
     isHistoryLoading,
+    isLoadingOlderHistory,
+    hasOlderHistory,
+    loadOlderHistory,
   } = usePicoChat()
 
   const { state: gwState } = useGateway()
@@ -153,14 +199,19 @@ export function ChatPage() {
     syncScrollState(e.currentTarget)
   }
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      if (isAtBottom) {
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-      }
-      syncScrollState(scrollRef.current)
+  const handleLoadOlderHistory = async () => {
+    const element = scrollRef.current
+    const preserveFromBottom = element
+      ? element.scrollHeight - element.scrollTop
+      : 0
+    const loaded = await loadOlderHistory()
+    if (!loaded || !element) {
+      return
     }
-  }, [messages, isTyping, isAtBottom])
+    requestAnimationFrame(() => {
+      element.scrollTop = element.scrollHeight - preserveFromBottom
+    })
+  }
 
   useEffect(() => {
     const preventFileNavigation = (event: globalThis.DragEvent) => {
@@ -295,6 +346,59 @@ export function ChatPage() {
   const canSubmit =
     canInput && (Boolean(input.trim()) || attachments.length > 0)
 
+  const streamRows = useMemo<ChatStreamRow[]>(() => {
+    const rows: ChatStreamRow[] = []
+    if (hasOlderHistory && !isHistoryLoading) rows.push({ kind: "loadOlder" })
+    if (isHistoryLoading) rows.push({ kind: "historyLoading" })
+    if (!isHistoryLoading && messages.length === 0 && !isTyping) {
+      rows.push({ kind: "empty" })
+    }
+    for (const message of messages) {
+      rows.push({ kind: "message", message })
+    }
+    if (isTyping) rows.push({ kind: "typing" })
+    if (!isHistoryLoading && !activeTurn) {
+      rows.push({
+        kind: "activity",
+        plan: recentPlan,
+        activities: recentActivities,
+        history: turnHistory,
+      })
+    }
+    return rows
+  }, [
+    activeTurn,
+    hasOlderHistory,
+    isHistoryLoading,
+    isTyping,
+    messages,
+    recentActivities,
+    recentPlan,
+    turnHistory,
+  ])
+
+  const streamVirtualizer = useVirtualizer({
+    count: streamRows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (index) => {
+      const row = streamRows[index]
+      return row ? estimateChatStreamRow(row) : 112
+    },
+    getItemKey: (index) => {
+      const row = streamRows[index]
+      return row ? chatStreamRowKey(row) : index
+    },
+    overscan: 6,
+  })
+
+  useEffect(() => {
+    if (!scrollRef.current) return
+    if (isAtBottom) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+    syncScrollState(scrollRef.current)
+  }, [streamRows, isAtBottom])
+
   return (
     <div className="bg-background flex h-full flex-col">
       <PageHeader
@@ -351,60 +455,90 @@ export function ChatPage() {
         onScroll={handleScroll}
         className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-8 lg:px-24 xl:px-48"
       >
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 pb-6">
-          {isHistoryLoading && (
-            <div className="space-y-3" aria-busy="true">
-              <span className="sr-only">{t("chat.loadingConversation")}</span>
-              {[72, 88, 56].map((width) => (
-                <div
-                  key={width}
-                  className="bg-muted/50 h-4 animate-pulse rounded motion-reduce:animate-none"
-                  style={{ width: `${width}%` }}
-                  aria-hidden="true"
-                />
-              ))}
-            </div>
-          )}
-
-          {!isHistoryLoading && messages.length === 0 && !isTyping && (
-            <ChatEmptyState
-              hasAvailableModels={hasAvailableModels}
-              defaultModelName={defaultModelName}
-              isConnected={isGatewayRunning}
-            />
-          )}
-
-          {messages.map((msg) => (
-            <div key={msg.id} className="flex w-full">
-              {msg.role === "assistant" ? (
-                <AssistantMessage
-                  content={msg.content}
-                  attachments={msg.attachments}
-                  kind={msg.kind}
-                  modelName={msg.modelName}
-                  toolCalls={msg.toolCalls}
-                  timestamp={msg.timestamp}
-                />
-              ) : (
-                <UserMessage
-                  content={msg.content}
-                  attachments={msg.attachments}
-                  timestamp={msg.timestamp}
-                  deliveryStatus={msg.deliveryStatus}
-                />
-              )}
-            </div>
-          ))}
-
-          {isTyping && <TypingIndicator />}
-
-          {!isHistoryLoading && !activeTurn && (
-            <ActivityTimeline
-              plan={recentPlan}
-              activities={recentActivities}
-              history={turnHistory}
-            />
-          )}
+        <div
+          className="relative mx-auto w-full max-w-4xl"
+          style={{ height: `${streamVirtualizer.getTotalSize()}px` }}
+          role="list"
+          aria-label={t("chat.conversation")}
+        >
+          {streamVirtualizer.getVirtualItems().map((virtualRow) => {
+            const row = streamRows[virtualRow.index]
+            if (!row) return null
+            return (
+              <div
+                key={virtualRow.key}
+                ref={streamVirtualizer.measureElement}
+                data-index={virtualRow.index}
+                role="listitem"
+                className="absolute top-0 left-0 w-full pb-6"
+                style={{ transform: `translateY(${virtualRow.start}px)` }}
+              >
+                {row.kind === "loadOlder" && (
+                  <div className="flex justify-center">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleLoadOlderHistory()}
+                      disabled={isLoadingOlderHistory}
+                    >
+                      {isLoadingOlderHistory
+                        ? t("chat.loadingEarlierMessages")
+                        : t("chat.loadEarlierMessages")}
+                    </Button>
+                  </div>
+                )}
+                {row.kind === "historyLoading" && (
+                  <div className="space-y-3" aria-busy="true">
+                    <span className="sr-only">
+                      {t("chat.loadingConversation")}
+                    </span>
+                    {[72, 88, 56].map((width) => (
+                      <div
+                        key={width}
+                        className="bg-muted/50 h-4 animate-pulse rounded motion-reduce:animate-none"
+                        style={{ width: `${width}%` }}
+                        aria-hidden="true"
+                      />
+                    ))}
+                  </div>
+                )}
+                {row.kind === "empty" && (
+                  <ChatEmptyState
+                    hasAvailableModels={hasAvailableModels}
+                    defaultModelName={defaultModelName}
+                    isConnected={isGatewayRunning}
+                  />
+                )}
+                {row.kind === "message" &&
+                  (row.message.role === "assistant" ? (
+                    <AssistantMessage
+                      content={row.message.content}
+                      attachments={row.message.attachments}
+                      kind={row.message.kind}
+                      modelName={row.message.modelName}
+                      toolCalls={row.message.toolCalls}
+                      timestamp={row.message.timestamp}
+                    />
+                  ) : (
+                    <UserMessage
+                      content={row.message.content}
+                      attachments={row.message.attachments}
+                      timestamp={row.message.timestamp}
+                      deliveryStatus={row.message.deliveryStatus}
+                    />
+                  ))}
+                {row.kind === "typing" && <TypingIndicator />}
+                {row.kind === "activity" && (
+                  <ActivityTimeline
+                    plan={row.plan}
+                    activities={row.activities}
+                    history={row.history}
+                  />
+                )}
+              </div>
+            )
+          })}
         </div>
       </div>
 

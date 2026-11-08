@@ -2,7 +2,7 @@
 
 ## 项目概述与定位
 
-PicoClaw 是一个轻量级、面向多通道连接的私有化智能 Agent 框架与 Web 控制台系统。
+GoGoClaw 是一个轻量级、面向多通道连接的私有化智能 Agent 框架与 Web 控制台系统。
 
 - **运行形态**：生产环境**仅支持容器化部署**，本地电脑仅作开发与测试。
 - **核心架构**：
@@ -11,7 +11,7 @@ PicoClaw 是一个轻量级、面向多通道连接的私有化智能 Agent 框�
 
 ## 项目结构与模块划分
 
-- `cmd/picoclaw`：CLI 核心入口与根命令定义。
+- `cmd/gogoclaw`：CLI 核心入口与根命令定义。
 - `pkg/`：核心后端模块，包括 Agent 循环、大模型 Providers、多通道接入、工具系统与 SQLite 存储。
 - `web/backend`：Go 控制台后端服务（嵌入前端构建产物）。
 - `web/frontend`：React 19 SPA（TanStack Router、Tailwind CSS v4、由 Bun 原生驱动）。
@@ -20,7 +20,7 @@ PicoClaw 是一个轻量级、面向多通道连接的私有化智能 Agent 框�
 
 ## 构建、测试与开发常用命令
 
-- `make build`：编译生成当前平台的 `picoclaw` CLI 可执行文件。
+- `make build`：编译生成当前平台的 `gogoclaw` CLI 可执行文件。
 - `make build-launcher`：编译前端并内嵌到控制台 Launcher 二进制中。
 - `make dev`（或 `cd web && make dev`）：同时启动 Go 后端与前端开发服务（带 HMR 与接口代理）。
 - `make test`：同时运行后端 Go 单元测试与前端 `bun test`。

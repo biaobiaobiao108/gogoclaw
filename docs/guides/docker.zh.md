@@ -2,7 +2,7 @@
 
 > 返回 [README](../../README.md)
 
-PicoClaw 生产环境仅使用容器镜像。原生二进制和源码构建只用于开发与测试。
+GoGoClaw 生产环境仅使用容器镜像。原生二进制和源码构建只用于开发与测试。
 
 ## 环境要求
 
@@ -10,7 +10,7 @@ PicoClaw 生产环境仅使用容器镜像。原生二进制和源码构建只�
 - 为 `/data` 使用持久化卷
 - Web 控制台或 Webhook 暴露到本机以外前，在反向代理中终止 TLS
 
-发布镜像同时包含 `picoclaw` 和 `picoclaw-launcher`。Compose 使用命名卷 `picoclaw-data` 保存状态。
+发布镜像同时包含 `gogoclaw` 和 `gogoclaw-launcher`。Compose 使用命名卷 `gogoclaw-data` 保存状态。
 
 ## Web 控制台
 
@@ -24,7 +24,7 @@ docker compose -f docker/docker-compose.yml --profile launcher up -d
 宿主机端口默认只绑定回环地址。需要远程访问时，使用经过加固的 TLS 反向代理：
 
 ```bash
-PICOCLAW_LAUNCHER_BIND=0.0.0.0 \
+GOGOCLAW_LAUNCHER_BIND=0.0.0.0 \
   docker compose -f docker/docker-compose.yml --profile launcher up -d
 ```
 
@@ -37,7 +37,7 @@ PICOCLAW_LAUNCHER_BIND=0.0.0.0 \
 ```bash
 docker compose -f docker/docker-compose.yml --profile gateway pull
 docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint picoclaw picoclaw-gateway onboard
+  --entrypoint gogoclaw gogoclaw-gateway onboard
 ```
 
 然后启动 gateway：
@@ -46,34 +46,34 @@ docker compose -f docker/docker-compose.yml --profile gateway run --rm \
 docker compose -f docker/docker-compose.yml --profile gateway up -d
 ```
 
-需要接收 Webhook 的 Channel 使用端口 `18790`。宿主机默认只绑定 `127.0.0.1`；只有反向代理或可信内网需要访问时才设置 `PICOCLAW_GATEWAY_BIND`。
+需要接收 Webhook 的 Channel 使用端口 `18790`。宿主机默认只绑定 `127.0.0.1`；只有反向代理或可信内网需要访问时才设置 `GOGOCLAW_GATEWAY_BIND`。
 
 ## 一次性命令
 
 ```bash
 docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint picoclaw picoclaw-gateway agent -m "2+2 等于多少？"
+  --entrypoint gogoclaw gogoclaw-gateway agent -m "2+2 等于多少？"
 
 docker compose -f docker/docker-compose.yml --profile gateway run --rm \
-  --entrypoint picoclaw picoclaw-gateway status
+  --entrypoint gogoclaw gogoclaw-gateway status
 ```
 
 ## 数据与更新
 
-数据卷挂载到 `/data`，其中包含 `/data/.picoclaw/config.json`、凭据、工作区、会话和日志。
+数据卷挂载到 `/data`，其中包含 `/data/.gogoclaw/config.json`、凭据、工作区、会话和日志。
 
 ```bash
 # 备份
 docker run --rm \
-  -v picoclaw-data:/data:ro \
+  -v gogoclaw-data:/data:ro \
   -v "${PWD}:/backup" \
-  alpine tar czf /backup/picoclaw-data.tgz -C /data .
+  alpine tar czf /backup/gogoclaw-data.tgz -C /data .
 
 # 恢复到空数据卷
 docker run --rm \
-  -v picoclaw-data:/data \
+  -v gogoclaw-data:/data \
   -v "${PWD}:/backup" \
-  alpine tar xzf /backup/picoclaw-data.tgz -C /data
+  alpine tar xzf /backup/gogoclaw-data.tgz -C /data
 
 # 更新
 docker compose -f docker/docker-compose.yml --profile launcher pull

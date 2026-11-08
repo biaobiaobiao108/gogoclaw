@@ -1,8 +1,8 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// GoGoClaw - Ultra-lightweight personal AI agent
 // Inspired by and based on nanobot: https://github.com/HKUDS/nanobot
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 GoGoClaw contributors
 
 package channels
 
@@ -21,14 +21,14 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/constants"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/health"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/media"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/constants"
+	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/health"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
 
 const (
@@ -687,12 +687,23 @@ type modelNameStreamer interface {
 	SetModelName(modelName string)
 }
 
+type deliveryIDStreamer interface {
+	SetDeliveryID(deliveryID string)
+}
+
 func setStreamerModelName(streamer any, modelName string) {
 	setter, ok := streamer.(modelNameStreamer)
 	if !ok {
 		return
 	}
 	setter.SetModelName(modelName)
+}
+
+func setStreamerDeliveryID(streamer any, deliveryID string) {
+	setter, ok := streamer.(deliveryIDStreamer)
+	if ok {
+		setter.SetDeliveryID(deliveryID)
+	}
 }
 
 type turnUsageStreamer interface {
@@ -721,6 +732,7 @@ type splitMarkerStreamer struct {
 	onFinalize       func(context.Context, string)
 	clearMarker      func()
 	modelName        string
+	deliveryID       string
 	turnInputTokens  int
 	turnOutputTokens int
 }
@@ -771,6 +783,15 @@ func (s *splitMarkerStreamer) SetModelName(modelName string) {
 	s.modelName = strings.TrimSpace(modelName)
 	setStreamerModelName(s.current, s.modelName)
 	setStreamerModelName(s.reasoning, s.modelName)
+}
+
+func (s *splitMarkerStreamer) SetDeliveryID(deliveryID string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deliveryID = strings.TrimSpace(deliveryID)
 }
 
 func (s *splitMarkerStreamer) SetTurnUsage(inputTokens, outputTokens int) {
@@ -828,6 +849,9 @@ func (s *splitMarkerStreamer) finalizeCompletedPartsLocked(
 		if content != "" {
 			if err := s.ensureCurrentLocked(ctx); err != nil {
 				return err
+			}
+			if isLast {
+				setStreamerDeliveryID(s.current, s.deliveryID)
 			}
 			if isLast && usage != nil {
 				if contextStreamer, ok := s.current.(bus.ContextUsageStreamer); ok {
@@ -947,6 +971,10 @@ func (s *finalizeHookStreamer) FinalizeReasoning(ctx context.Context, content st
 
 func (s *finalizeHookStreamer) SetModelName(modelName string) {
 	setStreamerModelName(s.Streamer, strings.TrimSpace(modelName))
+}
+
+func (s *finalizeHookStreamer) SetDeliveryID(deliveryID string) {
+	setStreamerDeliveryID(s.Streamer, strings.TrimSpace(deliveryID))
 }
 
 func (s *finalizeHookStreamer) SetTurnUsage(inputTokens, outputTokens int) {

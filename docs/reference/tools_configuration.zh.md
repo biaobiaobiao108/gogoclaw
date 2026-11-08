@@ -2,7 +2,7 @@
 
 > 返回 [README](../project/README.zh.md)
 
-PicoClaw 的工具配置位于 `config.json` 的 `tools` 字段中。
+GoGoClaw 的工具配置位于 `config.json` 的 `tools` 字段中。
 
 ## 目录结构
 
@@ -33,7 +33,7 @@ PicoClaw 的工具配置位于 `config.json` 的 `tools` 字段中。
 
 ## 敏感数据过滤
 
-在将工具结果发送给 LLM 之前，PicoClaw 可以从输出中过滤敏感值（API 密钥、令牌、密码）。这可以防止 LLM 看到自己的凭据。
+在将工具结果发送给 LLM 之前，GoGoClaw 可以从输出中过滤敏感值（API 密钥、令牌、密码）。这可以防止 LLM 看到自己的凭据。
 
 详细说明请参阅[敏感数据过滤](../security/sensitive_data_filtering.zh.md)。
 
@@ -44,7 +44,7 @@ PicoClaw 的工具配置位于 `config.json` 的 `tools` 字段中。
 
 ## 人工审批
 
-人工审批会把指定工具调用暂停，直到用户在 Pico Web 控制台作出决定。该功能默认关闭，避免无界面的部署突然被阻塞。
+人工审批会把指定工具调用暂停，直到用户在 GoGoClaw Web 控制台作出决定。生产环境运行在容器沙箱中，因此该功能默认关闭；只有需要人工复核特定工具时才应显式启用。
 
 | 配置项 | 类型 | 默认值 | 描述 |
 |--------|------|--------|------|
@@ -198,7 +198,7 @@ Exec 工具用于执行 shell 命令。
 
 **通过环境变量：**
 ```bash
-PICOCLAW_TOOLS_EXEC_ENABLED=false
+GOGOCLAW_TOOLS_EXEC_ENABLED=false
 ```
 
 > **注意：** 禁用后，代理将无法执行 shell 命令。这也会影响 Cron 工具运行计划 shell 命令的能力。
@@ -210,7 +210,7 @@ PICOCLAW_TOOLS_EXEC_ENABLED=false
 
 ### 默认拦截的命令模式
 
-默认情况下，PicoClaw 会拦截以下危险命令：
+默认情况下，GoGoClaw 会拦截以下危险命令：
 
 - 删除命令：`rm -rf`、`del /f/q`、`rmdir /s`
 - 磁盘操作：`format`、`mkfs`、`diskpart`、`dd if=`、写入 `/dev/sd*`
@@ -227,7 +227,7 @@ PICOCLAW_TOOLS_EXEC_ENABLED=false
 
 ### 已知架构限制
 
-exec 守卫仅验证发送给 PicoClaw 的顶层命令。它**不会**递归检查该命令启动后由构建工具或脚本生成的子进程。
+exec 守卫仅验证发送给 GoGoClaw 的顶层命令。它**不会**递归检查该命令启动后由构建工具或脚本生成的子进程。
 
 以下工作流在初始命令被允许后可以绕过直接命令守卫：
 
@@ -295,7 +295,7 @@ LLM 不会加载所有工具，而是获得一个轻量级搜索工具（使用 
 > **注意：** 如果 `discovery.enabled` 为 `true`，你**必须**启用至少一个搜索引擎（`use_bm25` 或 `use_regex`），
 > 否则应用程序将无法启动。
 
-声明支持工具列表变化的 MCP server 会在运行时自动刷新。PicoClaw 按 server 和 agent allowlist 对新增、移除的工具做差分注册；被移除的工具会立即从提示词、搜索和执行入口中消失，无需重启网关。
+声明支持工具列表变化的 MCP server 会在运行时自动刷新。GoGoClaw 按 server 和 agent allowlist 对新增、移除的工具做差分注册；被移除的工具会立即从提示词、搜索和执行入口中消失，无需重启网关。
 
 ### 单服务器配置
 
@@ -484,15 +484,15 @@ Skills 工具配置通过 ClawHub 等注册表进行技能发现和安装。
 
 ## 环境变量
 
-所有配置选项都可以通过格式为 `PICOCLAW_TOOLS_<SECTION>_<KEY>` 的环境变量覆盖：
+所有配置选项都可以通过格式为 `GOGOCLAW_TOOLS_<SECTION>_<KEY>` 的环境变量覆盖：
 
 例如：
 
-- `PICOCLAW_TOOLS_WEB_BRAVE_ENABLED=true`
-- `PICOCLAW_TOOLS_EXEC_ENABLED=false`
-- `PICOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS=false`
-- `PICOCLAW_TOOLS_CRON_EXEC_TIMEOUT_MINUTES=10`
-- `PICOCLAW_TOOLS_MCP_ENABLED=true`
+- `GOGOCLAW_TOOLS_WEB_BRAVE_ENABLED=true`
+- `GOGOCLAW_TOOLS_EXEC_ENABLED=false`
+- `GOGOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS=false`
+- `GOGOCLAW_TOOLS_CRON_EXEC_TIMEOUT_MINUTES=10`
+- `GOGOCLAW_TOOLS_MCP_ENABLED=true`
 
 注意：嵌套的映射式配置（例如 `tools.mcp.servers.<name>.*`）在 `config.json` 中配置，而非通过环境变量。
 

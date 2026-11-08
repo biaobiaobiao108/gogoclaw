@@ -6,15 +6,16 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 )
 
 func TestNewPicoClientChannel_MissingURL(t *testing.T) {
@@ -312,6 +313,7 @@ func TestPicoChannel_HandleMessageSend_AllowsMediaOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPicoChannel() error = %v", err)
 	}
+	ch.dedupePath = filepath.Join(t.TempDir(), "pico-inbound.json")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

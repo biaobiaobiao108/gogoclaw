@@ -10,7 +10,7 @@ import (
 
 func TestWriteFileAtomicBasic(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.txt")
-	data := []byte("hello picoclaw")
+	data := []byte("hello gogoclaw")
 
 	if err := WriteFileAtomic(path, data, 0o644); err != nil {
 		t.Fatalf("WriteFileAtomic() error = %v", err)

@@ -76,7 +76,7 @@ export function AssistantMessage({
       {!isCollapsedBlock && (
         <div className="flex items-center justify-between gap-2 px-0.5 text-xs">
           <div className="text-muted-foreground/80 flex items-center gap-1.5 font-mono text-[11px]">
-            <span className="text-foreground/90 font-semibold">PicoClaw</span>
+            <span className="text-foreground/90 font-semibold">GoGoClaw</span>
             {trimmedModelName && (
               <>
                 <span className="text-muted-foreground/40">/</span>

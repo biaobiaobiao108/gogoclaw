@@ -1,5 +1,5 @@
 import { IconLoader2, IconUpload, IconX } from "@tabler/icons-react"
-import type { DragEvent } from "react"
+import type { DragEvent, KeyboardEvent } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
@@ -46,7 +46,7 @@ export function ImportDialog({
     >
       <DialogContent
         showCloseButton={false}
-        className="border-border/40 bg-card/95 max-w-[420px] gap-6 p-6 text-center shadow-lg backdrop-blur-sm focus:outline-none sm:rounded-2xl"
+        className="border-border bg-card max-w-[420px] gap-6 rounded-lg p-6 text-center shadow-xs focus:outline-none"
       >
         <div className="relative space-y-1 px-8">
           <Button
@@ -104,10 +104,15 @@ function SkillImportPanel({
   return (
     <div className="space-y-4">
       <div
+        role="button"
+        tabIndex={isImportPending ? -1 : 0}
+        aria-label={t("pages.agent.skills.dropzone_label")}
+        aria-describedby="skill-import-constraints"
+        aria-disabled={isImportPending}
         className={cn(
-          "flex min-h-48 cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-4 py-6 text-center transition-all duration-300",
+          "focus-visible:ring-ring flex min-h-48 cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-4 py-6 text-center transition-[border-color,background-color,box-shadow,transform] duration-[var(--motion-state)] focus-visible:ring-2 focus-visible:outline-none",
           isDragActive
-            ? "border-primary bg-primary/10 scale-[1.02]"
+            ? "border-primary bg-primary/10 scale-[1.01]"
             : "border-border/60 bg-muted/30 hover:bg-muted/50 hover:border-primary/50",
           isImportPending && "pointer-events-none opacity-50",
         )}
@@ -120,10 +125,17 @@ function SkillImportPanel({
         onDragLeave={onDragLeave}
         onDragOver={(event) => event.preventDefault()}
         onDrop={onDrop}
+        onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+          if (isImportPending) return
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault()
+            onImportClick()
+          }
+        }}
       >
         <div
           className={cn(
-            "mb-2 rounded-full p-3 transition-colors duration-300",
+            "mb-2 rounded-md p-3 transition-colors duration-[var(--motion-state)]",
             isDragActive
               ? "bg-primary text-primary-foreground shadow-sm"
               : "bg-background text-muted-foreground ring-border/50 shadow-sm ring-1",
@@ -132,28 +144,29 @@ function SkillImportPanel({
           <IconUpload className="size-6" />
         </div>
         <div className="space-y-1">
-          <div className="text-foreground text-sm font-semibold tracking-tight">
+          <div
+            className="text-foreground text-sm font-semibold tracking-tight"
+            aria-live="polite"
+          >
             {isDragActive
               ? t("pages.agent.skills.dropzone_active")
               : t("pages.agent.skills.dropzone_label")}
           </div>
-          <p className="text-muted-foreground mx-auto hidden max-w-[270px] text-xs leading-relaxed sm:block">
+          <p
+            id="skill-import-constraints"
+            className="text-muted-foreground mx-auto max-w-[270px] text-xs leading-relaxed"
+          >
             {isDragActive
               ? t("pages.agent.skills.dropzone_release")
               : t("pages.agent.skills.import_constraints")}
           </p>
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          className="pointer-events-none mt-2 h-8 shadow-sm"
-          disabled={isImportPending}
-        >
+        <span className="bg-secondary text-secondary-foreground mt-2 inline-flex h-8 items-center rounded-md px-2.5 text-sm font-medium shadow-sm">
           {isImportPending ? (
             <IconLoader2 className="mr-1.5 size-3.5 animate-spin" />
           ) : null}
           {t("pages.agent.skills.import")}
-        </Button>
+        </span>
       </div>
     </div>
   )

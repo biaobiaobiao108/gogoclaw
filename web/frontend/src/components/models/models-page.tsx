@@ -961,6 +961,7 @@ export function ModelsPage() {
             size="sm"
             variant="outline"
             onClick={() => setDefaultChainOpen(true)}
+            aria-label={t("models.defaultChain.button")}
             disabled={
               savingChain ||
               modelUpdatePending ||
@@ -968,29 +969,35 @@ export function ModelsPage() {
             }
           >
             <IconArrowsSort className="size-4" />
-            {t("models.defaultChain.button")}
+            <span className="hidden sm:inline">
+              {t("models.defaultChain.button")}
+            </span>
           </Button>
           <Button
             size="sm"
             variant="outline"
             onClick={() => setCatalogOpen(true)}
+            aria-label={t("models.catalog.button")}
             disabled={
               savingChain || modelUpdatePending || providerOptions.length === 0
             }
           >
             <IconDatabase className="size-4" />
-            {t("models.catalog.button")}
+            <span className="hidden sm:inline">
+              {t("models.catalog.button")}
+            </span>
           </Button>
           <Button
             size="sm"
             variant="outline"
             onClick={() => setAddOpen(true)}
+            aria-label={t("models.add.button")}
             disabled={
               savingChain || modelUpdatePending || providerOptions.length === 0
             }
           >
             <IconPlus className="size-4" />
-            {t("models.add.button")}
+            <span className="hidden sm:inline">{t("models.add.button")}</span>
           </Button>
         </div>
       </PageHeader>

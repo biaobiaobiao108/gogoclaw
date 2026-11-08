@@ -9,6 +9,12 @@ export interface SessionSummary {
   updated: string
 }
 
+export interface SessionListPage {
+  items: SessionSummary[]
+  next_cursor?: string
+  has_more: boolean
+}
+
 export interface SessionDetail {
   id: string
   messages: {
@@ -39,6 +45,8 @@ export interface SessionDetail {
   summary: string
   created: string
   updated: string
+  next_cursor?: string
+  has_more?: boolean
   turn?: SessionTurn
   turn_history?: SessionTurn[]
 }
@@ -68,13 +76,11 @@ export interface SessionTurn {
 }
 
 export async function getSessions(
-  offset: number = 0,
-  limit: number = 20,
-): Promise<SessionSummary[]> {
-  const params = new URLSearchParams({
-    offset: offset.toString(),
-    limit: limit.toString(),
-  })
+  cursor?: string,
+  limit: number = 30,
+): Promise<SessionListPage> {
+  const params = new URLSearchParams({ limit: limit.toString() })
+  if (cursor) params.set("cursor", cursor)
 
   const res = await launcherFetch(`/api/sessions?${params.toString()}`)
   if (!res.ok) {
@@ -83,8 +89,17 @@ export async function getSessions(
   return res.json()
 }
 
-export async function getSessionHistory(id: string): Promise<SessionDetail> {
-  const res = await launcherFetch(`/api/sessions/${encodeURIComponent(id)}`)
+export async function getSessionHistory(
+  id: string,
+  options?: { cursor?: string; limit?: number },
+): Promise<SessionDetail> {
+  const params = new URLSearchParams()
+  if (options?.cursor) params.set("cursor", options.cursor)
+  if (options?.limit) params.set("limit", options.limit.toString())
+  const query = params.size > 0 ? `?${params.toString()}` : ""
+  const res = await launcherFetch(
+    `/api/sessions/${encodeURIComponent(id)}${query}`,
+  )
   if (!res.ok) {
     throw new Error(`Failed to fetch session ${id}: ${res.status}`)
   }

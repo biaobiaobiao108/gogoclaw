@@ -13,11 +13,9 @@ export function ToolStatusBadge({ status }: ToolStatusBadgeProps) {
   return (
     <span
       className={cn(
-        "shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium tracking-wide sm:text-[11px]",
-        status === "enabled" &&
-          "bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400",
-        status === "blocked" &&
-          "bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400",
+        "shrink-0 rounded-sm px-2 py-0.5 text-[11px] font-medium",
+        status === "enabled" && "bg-success/10 text-success",
+        status === "blocked" && "bg-warning/10 text-warning",
         status === "disabled" &&
           "bg-muted text-muted-foreground/80 dark:bg-muted-foreground/20 dark:text-muted-foreground",
       )}

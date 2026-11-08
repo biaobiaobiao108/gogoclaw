@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/logger"
+	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 )
 
 // ErrBusClosed is returned when publishing to a closed MessageBus.
@@ -83,6 +83,12 @@ type Streamer interface {
 type ContextUsageStreamer interface {
 	Streamer
 	FinalizeWithContext(ctx context.Context, content string, usage *ContextUsage) error
+}
+
+// DeliveryStreamer attaches a durable delivery ID to a channel's streamed
+// message so final ACKs and retries target the same user-visible message.
+type DeliveryStreamer interface {
+	SetDeliveryID(deliveryID string)
 }
 
 // ReasoningStreamer can show incremental model reasoning/thought content

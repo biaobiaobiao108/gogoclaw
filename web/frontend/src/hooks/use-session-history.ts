@@ -17,7 +17,7 @@ export function useSessionHistory({
   const { t } = useTranslation()
   const observerRef = useRef<HTMLDivElement>(null)
   const [sessions, setSessions] = useState<SessionSummary[]>([])
-  const [offset, setOffset] = useState(0)
+  const [cursor, setCursor] = useState<string>()
   const [hasMore, setHasMore] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -27,33 +27,30 @@ export function useSessionHistory({
   const loadSessions = useCallback(
     async (reset = true) => {
       try {
-        const currentOffset = reset ? 0 : offset
+        const currentCursor = reset ? undefined : cursor
         if (reset) {
           setLoadError(false)
           setIsLoading(true)
           setDeleteError(false)
           setHasMore(true)
-          setOffset(0)
+          setCursor(undefined)
         }
 
-        const data = await getSessions(currentOffset, LIMIT)
+        const data = await getSessions(currentCursor, LIMIT)
         setLoadError(false)
 
-        if (data.length < LIMIT) {
-          setHasMore(false)
-        }
+        setHasMore(data.has_more)
+        setCursor(data.next_cursor)
 
         if (reset) {
-          setSessions(data)
+          setSessions(data.items)
         } else {
           setSessions((prev) => {
             const existingIds = new Set(prev.map((s) => s.id))
-            const newItems = data.filter((s) => !existingIds.has(s.id))
+            const newItems = data.items.filter((s) => !existingIds.has(s.id))
             return [...prev, ...newItems]
           })
         }
-
-        setOffset(currentOffset + data.length)
       } catch (err) {
         console.error("Failed to fetch session history:", err)
         setLoadError(true)
@@ -65,7 +62,7 @@ export function useSessionHistory({
         setIsLoadingMore(false)
       }
     },
-    [offset],
+    [cursor],
   )
 
   useEffect(() => {
@@ -94,14 +91,8 @@ export function useSessionHistory({
     async (id: string) => {
       try {
         setDeleteError(false)
-        const deletedLoadedSession = sessions.some(
-          (session) => session.id === id,
-        )
         await deleteSession(id)
         setSessions((prev) => prev.filter((s) => s.id !== id))
-        if (deletedLoadedSession) {
-          setOffset((prev) => Math.max(prev - 1, 0))
-        }
         if (id === activeSessionId) {
           onDeletedActiveSession()
         }

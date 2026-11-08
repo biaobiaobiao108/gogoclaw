@@ -22,10 +22,9 @@ export function SkillCard({ skill, onView, onDelete }: SkillCardProps) {
 
   return (
     <Card
-      className="group border-border/40 bg-card/40 hover:bg-card hover:border-border/80 relative overflow-hidden transition-all hover:shadow-md"
+      className="group border-border bg-card hover:bg-muted/15 hover:border-border/80 relative overflow-hidden rounded-lg border transition-colors"
       size="sm"
     >
-      <div className="via-primary/10 absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1 space-y-2">
@@ -34,7 +33,7 @@ export function SkillCard({ skill, onView, onDelete }: SkillCardProps) {
                 {skill.name}
               </CardTitle>
               {skill.registry_name ? (
-                <span className="bg-muted/60 text-muted-foreground ring-border/50 inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-semibold tracking-wider uppercase ring-1 ring-inset">
+                <span className="bg-muted text-muted-foreground inline-flex items-center rounded-sm px-2 py-0.5 text-[11px] font-medium">
                   {skill.registry_name}
                 </span>
               ) : null}

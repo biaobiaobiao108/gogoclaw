@@ -56,10 +56,12 @@ export async function loadSessionHistory(sessionId: string): Promise<{
   activities: ChatActivity[]
   plan: ChatPlanStep[]
   turnHistory: ChatTurnHistory[]
+  nextCursor?: string
+  hasOlder: boolean
 }> {
-  const detail = await getSessionHistory(sessionId)
+  const detail = await getSessionHistory(sessionId, { limit: 80 })
   const messages = detail.messages.map((message, index) => ({
-    id: `hist-${index}-${Date.now()}`,
+    id: historyMessageId(message, index),
     role: message.role,
     content: message.content,
     kind: message.role === "assistant" ? (message.kind ?? "normal") : undefined,
@@ -126,7 +128,60 @@ export async function loadSessionHistory(sessionId: string): Promise<{
         plan: item.plan ?? [],
         activities: toActivities(item.activities),
       })),
+    nextCursor: detail.next_cursor,
+    hasOlder: detail.has_more === true,
   }
+}
+
+export async function loadOlderSessionHistory(
+  sessionId: string,
+  cursor: string,
+): Promise<{
+  messages: ChatMessage[]
+  nextCursor?: string
+  hasOlder: boolean
+}> {
+  const detail = await getSessionHistory(sessionId, { cursor, limit: 60 })
+  return {
+    messages: detail.messages.map((message, index) => ({
+      id: historyMessageId(message, index, cursor),
+      role: message.role,
+      content: message.content,
+      kind:
+        message.role === "assistant" ? (message.kind ?? "normal") : undefined,
+      modelName: message.model_name,
+      toolCalls:
+        message.role === "assistant"
+          ? parseToolCallsValue(message.tool_calls)
+          : undefined,
+      attachments: toChatAttachments({
+        media: message.media,
+        attachments: message.attachments,
+      }),
+      timestamp: message.created_at ?? detail.updated,
+    })),
+    nextCursor: detail.next_cursor,
+    hasOlder: detail.has_more === true,
+  }
+}
+
+function historyMessageId(
+  message: {
+    role: "user" | "assistant"
+    content: string
+    created_at?: string
+    kind?: "normal" | "thought" | "tool_calls"
+  },
+  index: number,
+  page?: string,
+): string {
+  let hash = 2166136261
+  const value = `${message.role}\u0000${message.created_at ?? ""}\u0000${message.kind ?? ""}\u0000${message.content}`
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return `hist-${page ?? "latest"}-${index}-${(hash >>> 0).toString(36)}`
 }
 
 function normalizeMessageTimestamp(timestamp: number | string): string {

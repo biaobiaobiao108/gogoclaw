@@ -52,6 +52,7 @@
       "noDefaultModel": "Unable to chat: No default model is selected. Set a default model on the Models page."
     },
     "newChat": "New Chat",
+    "conversation": "Conversation messages",
     "notConnected": "Gateway is not running. Start it to chat.",
     "thinking": {
       "step1": "Thinking...",
@@ -122,9 +123,13 @@
       "pending": "pending",
       "running": "running",
       "completed": "completed",
-      "failed": "failed"
+      "failed": "failed",
+      "cancelled": "cancelled",
+      "effectsUnknown": "result unknown"
     },
     "loadingConversation": "Loading conversation",
+    "loadEarlierMessages": "Load earlier messages",
+    "loadingEarlierMessages": "Loading…",
     "planStatus": {
       "pending": "Pending",
       "in_progress": "In progress",
@@ -162,9 +167,10 @@
     }
   },
   "header": {
-    "home": "PicoClaw console",
+    "home": "GoGoClaw console",
     "docs": "Open documentation",
     "language": "Change language",
+    "moreActions": "More actions",
     "toggleSidebar": "Toggle sidebar",
     "theme": {
       "switchToLight": "Switch to light theme",
@@ -189,7 +195,8 @@
       "status": {
         "starting": "Starting Gateway...",
         "restarting": "Restarting Gateway...",
-        "stopping": "Stopping Gateway..."
+        "stopping": "Stopping Gateway...",
+        "running": "Gateway online"
       },
       "restartRequired": "Configuration changes require a gateway restart to take effect."
     }
@@ -198,6 +205,8 @@
     "cancel": "Cancel",
     "close": "Close",
     "save": "Save",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
     "saving": "Saving...",
     "reset": "Reset",
     "confirm": "Confirm",
@@ -488,6 +497,105 @@
     }
   },
   "channels": {
+    "field": {
+      "allowFrom": "Allowed senders",
+      "allowFromPlaceholder": "Enter an ID and press Enter",
+      "allowOrigins": "Allowed origins",
+      "allowOriginsPlaceholder": "Enter an origin and press Enter",
+      "appId": "App ID",
+      "appSecret": "App Secret",
+      "baseUrl": "API base URL",
+      "encryptKey": "Encrypt Key",
+      "groupTriggerMentionOnly": "Respond to mentions only",
+      "groupTriggerPrefixes": "Group trigger prefixes",
+      "isLark": "Use Lark international",
+      "mentionOnly": "Respond to mentions only",
+      "placeholderEnabled": "Show waiting placeholder",
+      "placeholderText": "Waiting placeholder text",
+      "proxy": "Proxy URL",
+      "randomReactionEmoji": "Random reaction emoji",
+      "randomReactionEmojiPlaceholder": "For example OK or THUMBSUP",
+      "removeListItem": "Remove {{value}}",
+      "secretHintSet": "Configured; leave blank to keep it",
+      "secretPlaceholder": "Enter a new value to replace it",
+      "streamingEnabled": "Streaming replies",
+      "streamingMinGrowthChars": "Minimum new characters",
+      "streamingThrottleSeconds": "Update interval (seconds)",
+      "token": "Token",
+      "tokenPlaceholder": "Bot Token",
+      "typingEnabled": "Show typing indicator",
+      "verificationToken": "Verification Token"
+    },
+    "form": {
+      "desc": {
+        "agentId": "Agent that handles messages from this channel. Leave blank to use the default agent.",
+        "allowFrom": "Restrict which senders can trigger this channel. Leave empty for no restriction.",
+        "allowOrigins": "Restrict browser origins allowed to connect over WebSocket.",
+        "allowTokenQuery": "Allow the access token to be passed as a query parameter.",
+        "appId": "App ID from the platform application credentials.",
+        "appSecret": "App Secret from the platform application credentials.",
+        "baseUrl": "Override the platform API base URL. This is usually left unchanged.",
+        "bridgeUrl": "Connection URL for the external bridge service.",
+        "channels": "Channels to join or monitor.",
+        "clientId": "Client identifier supplied by the target platform.",
+        "corpId": "Enterprise identifier supplied by the target platform.",
+        "deviceId": "Device identifier used to distinguish clients for the same account.",
+        "encryptKey": "Encryption key for platform callback messages.",
+        "genericField": "Configure {{field}}.",
+        "groupTriggerMentionOnly": "Only handle group messages that explicitly mention the bot.",
+        "groupTriggerPrefixes": "Only trigger the agent when a group message starts with one of these prefixes.",
+        "homeserver": "Address of the Matrix homeserver.",
+        "host": "Host used to listen for or connect to the channel service.",
+        "isLark": "Use Lark international endpoints instead of Feishu China.",
+        "joinOnInvite": "Join groups automatically when invited.",
+        "maxBase64FileSizeMiB": "Maximum size of one inline file in MiB.",
+        "maxConnections": "Maximum concurrent connections accepted by the channel service.",
+        "maxSteps": "Maximum agent steps allowed for one task.",
+        "mentionOnly": "Respond only when the bot is explicitly mentioned.",
+        "nick": "Nickname to use when connecting to IRC.",
+        "pingInterval": "Interval between heartbeat messages in seconds.",
+        "placeholderEnabled": "Send an updatable waiting placeholder while handling a message.",
+        "port": "Port used to listen for or connect to the channel service.",
+        "proxy": "HTTP or SOCKS proxy used for channel requests.",
+        "randomReactionEmoji": "Choose one of these reactions after receiving a message.",
+        "readTimeout": "Response read timeout in seconds.",
+        "realName": "Real name to use when connecting to IRC.",
+        "reconnectInterval": "Seconds to wait before reconnecting after a disconnect.",
+        "replyTimeout": "Timeout for waiting on an upstream reply in seconds.",
+        "requestCaps": "IRC capabilities to request when connecting.",
+        "server": "Server address used for the channel connection.",
+        "sessionStorePath": "Optional persistence path for channel session state.",
+        "streamingEnabled": "Update replies progressively instead of waiting for the complete result.",
+        "streamingMinGrowthChars": "Minimum number of new characters before another streaming update.",
+        "streamingThrottleSeconds": "Minimum interval between streaming updates.",
+        "tls": "Encrypt the connection with TLS.",
+        "token": "Platform bot token used to authenticate the channel.",
+        "typingEnabled": "Send a typing state to the platform while handling a message.",
+        "useNative": "Prefer native platform capabilities over the compatibility layer.",
+        "user": "Username used for authentication or connection.",
+        "userId": "Unique identifier for the platform account.",
+        "verificationToken": "Token used to verify signatures on platform callbacks.",
+        "webhookHost": "Host used to listen for platform callbacks.",
+        "webhookPath": "URL path that receives platform callbacks.",
+        "webhookPort": "Port used to listen for platform callbacks.",
+        "webhookUrl": "Callback URL where the platform sends events to this service.",
+        "welcomeMessage": "Message sent when a new member or conversation first connects.",
+        "writeTimeout": "Response write timeout in seconds.",
+        "wsUrl": "Complete WebSocket service URL."
+      }
+    },
+    "loadError": "Failed to load channel configuration. Try again.",
+    "page": {
+      "docLink": "Configuration docs",
+      "enableLabel": "Enable channel",
+      "notFound": "Channel {{name}} was not found.",
+      "saveError": "Failed to save channel configuration. Try again.",
+      "savePrompt": "The channel connection reloads with the new configuration after saving.",
+      "saveSuccess": "Channel configuration saved."
+    },
+    "validation": {
+      "requiredField": "This field is required."
+    },
     "weixin": {
       "bindTitle": "WeChat Account Binding",
       "bindDesc": "Scan the QR code with WeChat to bind your personal account.",
@@ -539,7 +647,7 @@
         "dropzone_release": "The skill will be normalized and saved into the workspace skills directory.",
         "marketplace_title": "Discover Skills",
         "marketplace_description": "Search the skill registries and install useful skills into this workspace",
-        "marketplace_search_placeholder": "Search for capabilities like github, docker, database...",
+        "marketplace_search_placeholder": "Search GitHub, Docker, database skills",
         "marketplace_search_action": "Search",
         "marketplace_search_status": "Search Status",
         "marketplace_install_status": "Install Status",
@@ -631,6 +739,8 @@
           "base_url_placeholder": "Optional endpoint override",
           "api_key": "API Key / Token",
           "api_key_placeholder": "Enter API key, leave it blank to keep the original key",
+          "model": "Model",
+          "model_placeholder": "Model name required by the provider",
           "none": "Unavailable"
         },
         "status": {
@@ -709,14 +819,14 @@
       "turn_profile": "Request Context Policy",
       "turn_profile_hint": "Controls what context each request carries. Leave disabled to keep the normal chat behavior.",
       "turn_profile_enabled": "Enable policy",
-      "turn_profile_enabled_hint": "When enabled, this policy applies to every new turn. When disabled, PicoClaw uses the original context behavior.",
+      "turn_profile_enabled_hint": "When enabled, this policy applies to every new turn. When disabled, GoGoClaw uses the original context behavior.",
       "turn_profile_mode_default": "Default",
       "turn_profile_mode_off": "Off",
       "turn_profile_mode_custom": "Allow List",
       "turn_profile_history": "History Context",
       "turn_profile_history_hint": "Default includes earlier messages from this session. Off makes the turn behave like a fresh chat and skips saving its result back to history.",
       "turn_profile_system_prompt": "System Context",
-      "turn_profile_system_prompt_hint": "Default includes PicoClaw identity, workspace, memory, and runtime instructions. Off keeps only system prompts explicitly supplied by the request.",
+      "turn_profile_system_prompt_hint": "Default includes GoGoClaw identity, workspace, memory, and runtime instructions. Off keeps only system prompts explicitly supplied by the request.",
       "turn_profile_skills": "Skill Prompts",
       "turn_profile_skills_hint": "Default includes available skills and active skill instructions. Off hides them. Allow List keeps only skill names entered one per line.",
       "turn_profile_skills_allow_placeholder": "skill-name\nanother-skill",
@@ -742,7 +852,7 @@
       "monitor_usb": "Monitor USB",
       "monitor_usb_hint": "Watch USB plug/unplug events when devices are enabled.",
       "server_port": "Service Port",
-      "server_port_hint": "HTTP port used by PicoClaw Web.",
+      "server_port_hint": "HTTP port used by GoGoClaw Web.",
       "launcher_section_hint": "Changes in this section take effect after the launcher restarts.",
       "gateway_restart_hint": "Changes in this section take effect after the gateway restarts.",
       "dashboard_password": "Login Password",
@@ -858,8 +968,8 @@
     "next": "Next",
     "finish": "Finish",
     "welcome": {
-      "title": "Welcome to PicoClaw",
-      "description": "PicoClaw is a powerful AI assistant platform. Let's take a few seconds to help you complete the basic setup."
+      "title": "Welcome to GoGoClaw",
+      "description": "GoGoClaw is a powerful AI assistant platform. Let's take a few seconds to help you complete the basic setup."
     },
     "models": {
       "title": "Configure Models",

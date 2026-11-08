@@ -12,11 +12,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sipeed/picoclaw/pkg/approval"
-	"github.com/sipeed/picoclaw/pkg/config"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/session"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/approval"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
 
 var (
@@ -333,15 +333,141 @@ func (al *AgentLoop) RespondApproval(ctx context.Context, response approval.Resp
 	if al == nil || al.humanApprovals == nil {
 		return errApprovalNotFound
 	}
-	return al.humanApprovals.respond(ctx, response)
+	err := al.humanApprovals.respond(ctx, response)
+	if err == nil || !errors.Is(err, errApprovalNotFound) {
+		return err
+	}
+	return al.respondPersistedApproval(ctx, response)
 }
 
 func (al *AgentLoop) PendingApprovalByConversation(channel, chatID string) *approval.Request {
 	turn := al.GetActiveTurnByConversation(channel, chatID)
-	if turn == nil || al.humanApprovals == nil {
+	if turn == nil {
+		return al.persistedPendingApprovalByConversation(channel, chatID)
+	}
+	if al.humanApprovals == nil {
 		return nil
 	}
 	return al.humanApprovals.pendingForSession(turn.SessionKey)
+}
+
+func (al *AgentLoop) persistedPendingApprovalByConversation(channel, chatID string) *approval.Request {
+	registry := al.GetRegistry()
+	if registry == nil {
+		return nil
+	}
+	for _, agentID := range registry.ListAgentIDs() {
+		agent, ok := registry.GetAgent(agentID)
+		if !ok || agent == nil {
+			continue
+		}
+		store, ok := agent.Sessions.(session.TurnCheckpointStore)
+		if !ok {
+			continue
+		}
+		for _, sessionKey := range agent.Sessions.ListSessions() {
+			checkpoint, err := store.GetTurnCheckpoint(sessionKey)
+			if err != nil || checkpoint.Approval == nil ||
+				checkpoint.Approval.Status != approval.StatusPending {
+				continue
+			}
+			request := checkpoint.Approval
+			if request.Channel != channel || request.ChatID != chatID {
+				continue
+			}
+			if !request.ExpiresAt.IsZero() && time.Now().After(request.ExpiresAt) {
+				continue
+			}
+			cloned := *request
+			cloned.Arguments = cloneStringAnyMap(request.Arguments)
+			return &cloned
+		}
+	}
+	return nil
+}
+
+func (al *AgentLoop) respondPersistedApproval(ctx context.Context, response approval.Response) error {
+	if strings.TrimSpace(response.ID) == "" {
+		return fmt.Errorf("approval id is required")
+	}
+	registry := al.GetRegistry()
+	if registry == nil {
+		return errApprovalNotFound
+	}
+	for _, agentID := range registry.ListAgentIDs() {
+		agent, ok := registry.GetAgent(agentID)
+		if !ok || agent == nil {
+			continue
+		}
+		store, ok := agent.Sessions.(session.TurnCheckpointStore)
+		if !ok {
+			continue
+		}
+		for _, sessionKey := range agent.Sessions.ListSessions() {
+			checkpoint, err := store.GetTurnCheckpoint(sessionKey)
+			if err != nil || checkpoint.Approval == nil || checkpoint.Approval.ID != response.ID {
+				continue
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+			now := time.Now().UTC()
+			status := approval.StatusDenied
+			checkpoint.Status = "denied"
+			if response.Approve {
+				status = approval.StatusApproved
+				checkpoint.Status = "ready_to_resume"
+			}
+			checkpoint.Approval.Status = status
+			checkpoint.Approval.Scope = response.Scope
+			if checkpoint.Approval.Scope != approval.ScopeSession {
+				checkpoint.Approval.Scope = approval.ScopeOnce
+			}
+			checkpoint.Approval.Reason = strings.TrimSpace(response.Reason)
+			checkpoint.Approval.ResolvedAt = &now
+			checkpoint.UpdatedAt = now
+			return store.SetTurnCheckpoint(sessionKey, checkpoint)
+		}
+	}
+	return errApprovalNotFound
+}
+
+// ResumeSession continues an interrupted or approved turn from its durable
+// checkpoint. The existing history supplies the prior work; the synthetic
+// prompt only tells the model how to continue.
+func (al *AgentLoop) ResumeSession(ctx context.Context, sessionKey string) (string, error) {
+	if al == nil {
+		return "", fmt.Errorf("agent loop is unavailable")
+	}
+	agent := al.agentForSession(sessionKey)
+	if agent == nil {
+		return "", fmt.Errorf("session %q is unavailable", sessionKey)
+	}
+	store, ok := agent.Sessions.(session.TurnCheckpointStore)
+	if !ok {
+		return "", fmt.Errorf("session store does not support resumable turns")
+	}
+	checkpoint, err := store.GetTurnCheckpoint(sessionKey)
+	if err != nil {
+		return "", err
+	}
+	if checkpoint.Status == "" || checkpoint.Status == "completed" {
+		return "", fmt.Errorf("session %q has no interrupted task", sessionKey)
+	}
+	if checkpoint.Approval != nil && checkpoint.Approval.Status == approval.StatusPending {
+		return "", fmt.Errorf("task is waiting for approval %s", checkpoint.Approval.ID)
+	}
+	checkpoint.Status = "resuming"
+	checkpoint.UpdatedAt = time.Now().UTC()
+	if err := store.SetTurnCheckpoint(sessionKey, checkpoint); err != nil {
+		return "", err
+	}
+	return al.ProcessDirect(ctx,
+		"Continue the interrupted task from the durable checkpoint. Review the existing conversation, preserve completed work, and resume from the first incomplete step. Do not repeat completed tool calls.",
+		sessionKey,
+	)
 }
 
 func (al *AgentLoop) requestHumanApproval(

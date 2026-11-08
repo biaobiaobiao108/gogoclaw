@@ -1,7 +1,7 @@
 .PHONY: all build build-launcher build-launcher-frontend clean help deps update-deps test integration-test check fmt
 
 # Build variables
-BINARY_NAME=picoclaw
+BINARY_NAME=gogoclaw
 BUILD_DIR=build
 CMD_DIR=cmd/$(BINARY_NAME)
 EXT=
@@ -27,7 +27,7 @@ VERSION?=$(if $(VERSION_RAW),$(VERSION_RAW),dev)
 GIT_COMMIT=$(if $(GIT_COMMIT_RAW),$(GIT_COMMIT_RAW),dev)
 BUILD_TIME=$(if $(BUILD_TIME_RAW),$(BUILD_TIME_RAW),dev)
 GO_VERSION=$(if $(GO_VERSION_RAW),$(firstword $(GO_VERSION_RAW)),unknown)
-CONFIG_PKG=github.com/sipeed/picoclaw/pkg/config
+CONFIG_PKG=github.com/biaobiaobiao108/gogoclaw/pkg/config
 LDFLAGS=-X $(CONFIG_PKG).Version=$(VERSION) -X $(CONFIG_PKG).GitCommit=$(GIT_COMMIT) -X $(CONFIG_PKG).BuildTime=$(BUILD_TIME) -X $(CONFIG_PKG).GoVersion=$(GO_VERSION) -s -w
 
 # Go variables
@@ -142,7 +142,7 @@ else
 endif
 	@echo "Run generate complete"
 
-## build: Build the picoclaw binary for current platform
+## build: Build the gogoclaw binary for current platform
 build: generate
 	@echo "Building $(BINARY_NAME)$(EXT) for $(PLATFORM)/$(ARCH)..."
 ifeq ($(OS),Windows_NT)
@@ -157,23 +157,23 @@ else
 endif
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)$(EXT)"
 
-## build-launcher: Build the picoclaw-launcher (web console) binary
+## build-launcher: Build the gogoclaw-launcher (web console) binary
 build-launcher:
-	@echo "Building picoclaw-launcher for $(PLATFORM)/$(ARCH)..."
+	@echo "Building gogoclaw-launcher for $(PLATFORM)/$(ARCH)..."
 ifeq ($(OS),Windows_NT)
 	@$(POWERSHELL) "New-Item -ItemType Directory -Force -Path '$(BUILD_DIR)' | Out-Null"
-	@$(MAKE) -C web build PLATFORM="$(PLATFORM)" ARCH="$(ARCH)" EXT="$(EXT)" OUTPUT="$(CURDIR)/$(BUILD_DIR)/picoclaw-launcher-$(PLATFORM)-$(ARCH)$(EXT)" GO_BUILD_TAGS="$(GO_BUILD_TAGS)"
-	@$(POWERSHELL) "Copy-Item -LiteralPath '$(BUILD_DIR)/picoclaw-launcher-$(PLATFORM)-$(ARCH)$(EXT)' -Destination '$(BUILD_DIR)/picoclaw-launcher$(EXT)' -Force"
+	@$(MAKE) -C web build PLATFORM="$(PLATFORM)" ARCH="$(ARCH)" EXT="$(EXT)" OUTPUT="$(CURDIR)/$(BUILD_DIR)/gogoclaw-launcher-$(PLATFORM)-$(ARCH)$(EXT)" GO_BUILD_TAGS="$(GO_BUILD_TAGS)"
+	@$(POWERSHELL) "Copy-Item -LiteralPath '$(BUILD_DIR)/gogoclaw-launcher-$(PLATFORM)-$(ARCH)$(EXT)' -Destination '$(BUILD_DIR)/gogoclaw-launcher$(EXT)' -Force"
 else
 	@mkdir -p $(BUILD_DIR)
 	@GOOS=$(PLATFORM) GOARCH=$(ARCH) $(MAKE) -C web build \
-		OUTPUT="$(CURDIR)/$(BUILD_DIR)/picoclaw-launcher-$(PLATFORM)-$(ARCH)$(EXT)" \
+		OUTPUT="$(CURDIR)/$(BUILD_DIR)/gogoclaw-launcher-$(PLATFORM)-$(ARCH)$(EXT)" \
 		WEB_GO='$(WEB_GO)' \
 		GO_BUILD_TAGS='$(GO_BUILD_TAGS)' \
 		LDFLAGS='$(LDFLAGS)'
-	@$(LNCMD) picoclaw-launcher-$(PLATFORM)-$(ARCH)$(EXT) $(BUILD_DIR)/picoclaw-launcher$(EXT)
+	@$(LNCMD) gogoclaw-launcher-$(PLATFORM)-$(ARCH)$(EXT) $(BUILD_DIR)/gogoclaw-launcher$(EXT)
 endif
-	@echo "Build complete: $(BUILD_DIR)/picoclaw-launcher$(EXT)"
+	@echo "Build complete: $(BUILD_DIR)/gogoclaw-launcher$(EXT)"
 
 build-launcher-frontend:
 	@$(MAKE) -C web build-frontend
@@ -190,7 +190,7 @@ endif
 
 ## test: Test Go code
 test: generate
-	@$(GO) test $(GOFLAGS) $$($(GO) list $(GOFLAGS) ./... | grep -v github.com/sipeed/picoclaw/web/)
+	@$(GO) test $(GOFLAGS) $$($(GO) list $(GOFLAGS) ./... | grep -v github.com/biaobiaobiao108/gogoclaw/web/)
 	@cd web && make test
 
 ## integration-test: Run Docker-backed integration test suites
@@ -217,17 +217,17 @@ fmt:
 ## check: Verify dependencies, tests, and development builds
 check: deps test build build-launcher
 
-## run: Build and run picoclaw
+## run: Build and run gogoclaw
 run: build
 	@$(BUILD_DIR)/$(BINARY_NAME) $(ARGS)
 
 ## docker-build: Build the production container image
 docker-build:
-	docker build -f docker/Dockerfile -t picoclaw:dev .
+	docker build -f docker/Dockerfile -t gogoclaw:dev .
 
 ## docker-onboard: Create configuration in the local development volume
 docker-onboard:
-	docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml --profile gateway run --rm --entrypoint picoclaw picoclaw-gateway onboard
+	docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml --profile gateway run --rm --entrypoint gogoclaw gogoclaw-gateway onboard
 
 ## docker-test: Test MCP tools in Docker container
 docker-test:
@@ -241,7 +241,7 @@ docker-run:
 
 ## docker-run-agent: Run a one-shot development agent container
 docker-run-agent:
-	docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml --profile agent run --rm picoclaw-agent
+	docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml --profile agent run --rm gogoclaw-agent
 
 ## docker-clean: Clean Docker images and volumes
 docker-clean:
@@ -269,7 +269,7 @@ mem:
 
 ## help: Show this help message
 help:
-	@echo "picoclaw Makefile"
+	@echo "gogoclaw Makefile"
 	@echo ""
 	@echo "Usage:"
 	@echo "  make [target]"

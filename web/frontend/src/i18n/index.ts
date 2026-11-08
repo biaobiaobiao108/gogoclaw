@@ -40,12 +40,26 @@ i18n
     },
   })
 
-i18n.on("languageChanged", (lng) => {
+function syncDocumentLanguage(lng: string) {
   if (lng.startsWith("zh")) {
     dayjs.locale("zh-cn")
+    if (typeof document !== "undefined") {
+      document.documentElement.lang = "zh-CN"
+    }
   } else {
     dayjs.locale("en")
+    if (typeof document !== "undefined") {
+      document.documentElement.lang = "en"
+    }
   }
+}
+
+i18n.on("languageChanged", syncDocumentLanguage)
+i18n.on("initialized", () => {
+  syncDocumentLanguage(i18n.resolvedLanguage ?? i18n.language ?? "en")
 })
+if (i18n.isInitialized) {
+  syncDocumentLanguage(i18n.resolvedLanguage ?? i18n.language ?? "en")
+}
 
 export default i18n

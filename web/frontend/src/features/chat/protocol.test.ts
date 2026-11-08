@@ -145,3 +145,41 @@ describe("approval messages", () => {
     expect(getChatState().isTyping).toBe(true)
   })
 })
+
+describe("delivery acknowledgements", () => {
+  test("deduplicates repeated message.create deliveries in place", () => {
+    updateChatStore({ messages: [] })
+    handlePicoMessage(
+      {
+        type: "message.create",
+        session_id: "current",
+        payload: {
+          message_id: "message-1",
+          delivery_id: "delivery-1",
+          content: "first segment",
+        },
+      },
+      "current",
+    )
+    handlePicoMessage(
+      {
+        type: "message.create",
+        session_id: "current",
+        payload: {
+          message_id: "message-2",
+          delivery_id: "delivery-1",
+          content: "first segment and final text",
+        },
+      },
+      "current",
+    )
+
+    const messages = getChatState().messages
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toMatchObject({
+      id: "message-1",
+      deliveryId: "delivery-1",
+      content: "first segment and final text",
+    })
+  })
+})

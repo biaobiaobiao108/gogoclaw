@@ -70,11 +70,15 @@ export function ToolLibraryTab({
             <IconSearch className="text-muted-foreground/60 group-focus-within:text-foreground/80 absolute top-1/2 left-3.5 size-4 -translate-y-1/2 transition-colors" />
             <Input
               type="text"
+              aria-label={t(
+                "pages.agent.tools.search_placeholder",
+                "Search tools...",
+              )}
               placeholder={t(
                 "pages.agent.tools.search_placeholder",
                 "Search tools...",
               )}
-              className="bg-muted/40 hover:bg-muted/60 focus-visible:bg-background focus-visible:border-border/80 focus-visible:ring-foreground/5 h-11 w-full rounded-xl border-transparent pl-10 shadow-none transition-all duration-300"
+              className="bg-muted/40 hover:bg-muted/60 focus-visible:bg-background focus-visible:border-border/80 focus-visible:ring-foreground/5 h-11 w-full rounded-md border-transparent pl-10 shadow-none transition-[color,background-color,border-color,box-shadow] duration-[var(--motion-state)]"
               value={searchQuery}
               onChange={(event) => onSearchQueryChange(event.target.value)}
             />
@@ -86,12 +90,12 @@ export function ToolLibraryTab({
               onStatusFilterChange(value as ToolStatusFilter)
             }
           >
-            <SelectTrigger className="bg-muted/40 hover:bg-muted/60 focus:ring-foreground/5 focus:border-border/80 h-11 w-full rounded-xl border-transparent shadow-none transition-all duration-300 sm:w-36">
+            <SelectTrigger className="bg-muted/40 hover:bg-muted/60 focus:ring-foreground/5 focus:border-border/80 h-11 w-full rounded-md border-transparent shadow-none transition-[color,background-color,border-color,box-shadow] duration-[var(--motion-state)] sm:w-36">
               <SelectValue
                 placeholder={t("pages.agent.tools.filter.all", "All Status")}
               />
             </SelectTrigger>
-            <SelectContent className="border-border/40 rounded-xl shadow-lg">
+            <SelectContent className="border-border/40 rounded-lg shadow-lg">
               <SelectItem value="all">
                 {t("pages.agent.tools.filter.all", "All Status")}
               </SelectItem>
@@ -171,10 +175,10 @@ function ToolCard({
   return (
     <Card
       className={cn(
-        "group bg-card border-border/40 flex flex-col shadow-none transition-all duration-300 sm:rounded-2xl",
+        "group bg-card border-border flex flex-col shadow-none transition-colors sm:rounded-lg",
         isBlocked
-          ? "border-amber-500/30 bg-amber-50/20 dark:border-amber-900/40 dark:bg-amber-950/20"
-          : "hover:border-border/80 hover:-translate-y-[2px] hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] dark:hover:shadow-[0_4px_20px_-4px_rgba(255,255,255,0.02)]",
+          ? "border-warning/30 bg-warning/5"
+          : "hover:border-border/80 hover:bg-muted/15",
         isDisabled && "opacity-[0.80] hover:opacity-100",
       )}
     >
@@ -206,9 +210,14 @@ function ToolCard({
               checked={isToggledOn}
               disabled={isPending}
               onCheckedChange={(checked) => onToggleTool(tool.name, checked)}
+              aria-label={t(
+                "pages.agent.tools.toggle_tool",
+                "Enable {{name}}",
+                { name: tool.name },
+              )}
               className={cn(
                 "shrink-0",
-                isEnabled && "shadow-xs ring-1 ring-emerald-500/20",
+                isEnabled && "ring-success/20 shadow-xs ring-1",
               )}
             />
           </div>
@@ -220,7 +229,7 @@ function ToolCard({
 
         {reasonText && (
           <div className="border-border/40 mt-4 border-t pt-4">
-            <div className="inline-flex rounded-lg border border-amber-200/50 bg-amber-50/80 px-3 py-2 text-[13px] font-medium text-amber-600 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400">
+            <div className="border-warning/30 bg-warning/10 text-warning inline-flex rounded-md border px-3 py-2 text-[13px] font-medium">
               {reasonText}
             </div>
           </div>
@@ -238,7 +247,7 @@ function LibraryLoadingState() {
           <Skeleton className="h-6 w-32 rounded-md" />
           <div className="grid gap-5 lg:grid-cols-2">
             {[1, 2].map((itemIndex) => (
-              <Skeleton key={itemIndex} className="h-36 rounded-2xl" />
+              <Skeleton key={itemIndex} className="h-36 rounded-lg" />
             ))}
           </div>
         </div>

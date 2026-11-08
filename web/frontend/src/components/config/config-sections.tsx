@@ -122,7 +122,7 @@ export function AgentDefaultsSection({
         <Input
           value={form.workspace}
           onChange={(e) => onFieldChange("workspace", e.target.value)}
-          placeholder="~/.picoclaw/workspace"
+          placeholder="~/.gogoclaw/workspace"
         />
       </Field>
 
@@ -444,7 +444,7 @@ export function EvolutionSection({
         <Input
           value={form.evolutionStateDir}
           onChange={(e) => onFieldChange("evolutionStateDir", e.target.value)}
-          placeholder="e.g. /var/lib/picoclaw/evolution"
+          placeholder="e.g. /var/lib/gogoclaw/evolution"
         />
       </Field>
 
@@ -982,6 +982,9 @@ export function ExecSection({ form, onFieldChange }: ExecSectionProps) {
               <div className="flex gap-2">
                 <Input
                   value={testCommand}
+                  aria-label={t(
+                    "pages.config.pattern_detector_input_placeholder",
+                  )}
                   placeholder={t(
                     "pages.config.pattern_detector_input_placeholder",
                   )}
@@ -1000,9 +1003,9 @@ export function ExecSection({ form, onFieldChange }: ExecSectionProps) {
                 <div
                   className={`rounded-md p-2 text-sm ${
                     testResult.allowed
-                      ? "bg-green-500/10 text-green-600"
+                      ? "bg-success/10 text-success"
                       : testResult.blocked
-                        ? "bg-red-500/10 text-red-600"
+                        ? "bg-destructive/10 text-destructive"
                         : "bg-muted text-muted-foreground"
                   }`}
                 >

@@ -27,11 +27,11 @@ export function WebSearchGeneralSettings({
 
   return (
     <div className="space-y-4">
-      <h3 className="text-foreground/80 text-[13px] font-bold tracking-widest uppercase">
+      <h3 className="text-foreground text-sm font-semibold">
         {t("pages.agent.tools.web_search.global_settings", "General")}
       </h3>
 
-      <div className="bg-card border-border/40 divide-border/40 divide-y overflow-hidden rounded-2xl border shadow-sm">
+      <div className="bg-card border-border divide-border divide-y overflow-hidden rounded-lg border">
         <SettingRow
           label={t("pages.agent.tools.web_search.provider", "Primary Provider")}
           description={t(
@@ -48,15 +48,15 @@ export function WebSearchGeneralSettings({
               }))
             }
           >
-            <SelectTrigger className="bg-muted/40 hover:bg-muted/60 focus:ring-foreground/5 focus:border-border/80 w-full rounded-xl border-transparent shadow-none transition-all sm:w-64">
+            <SelectTrigger className="bg-muted/40 hover:bg-muted/60 focus:border-border w-full rounded-md border-transparent sm:w-64">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent className="border-border/40 rounded-xl shadow-lg">
+            <SelectContent className="border-border rounded-md">
               {draft.providers.map((provider) => (
                 <SelectItem
                   key={provider.id}
                   value={provider.id}
-                  className="rounded-lg"
+                  className="rounded-sm"
                 >
                   {provider.label}
                 </SelectItem>
@@ -73,7 +73,7 @@ export function WebSearchGeneralSettings({
           )}
         >
           <Input
-            className="bg-muted/40 hover:bg-muted/60 focus-visible:bg-background focus-visible:border-border/80 focus-visible:ring-foreground/5 w-full rounded-xl border-transparent shadow-none transition-all duration-300 sm:w-64"
+            className="bg-muted/40 hover:bg-muted/60 focus-visible:bg-background focus-visible:border-border w-full rounded-md border-transparent sm:w-64"
             value={draft.proxy ?? ""}
             onChange={(event) =>
               onUpdateDraft((current) => ({
@@ -103,6 +103,10 @@ export function WebSearchGeneralSettings({
                 prefer_native: checked,
               }))
             }
+            aria-label={t(
+              "pages.agent.tools.web_search.prefer_native",
+              "Prefer Native Search",
+            )}
             className="data-[state=checked]:shadow-xs"
           />
         </SettingRow>
