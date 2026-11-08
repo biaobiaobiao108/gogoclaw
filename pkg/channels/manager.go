@@ -68,11 +68,7 @@ type placeholderEntry struct {
 var channelRateConfig = map[string]float64{
 	"telegram": 20,
 	"discord":  1,
-	"slack":    1,
-	"matrix":   2,
-	"line":     10,
 	"qq":       5,
-	"irc":      2,
 }
 
 type channelWorker struct {
@@ -1045,49 +1041,20 @@ func (m *Manager) getChannelConfigAndEnabled(channelName string) (*config.Channe
 		return bc, false
 	}
 	switch settings := decoded.(type) {
-	case *config.WhatsAppSettings:
-		if channelType == config.ChannelWhatsApp {
-			return bc, settings.BridgeURL != ""
-		}
-		return bc, channelType == config.ChannelWhatsAppNative && settings.UseNative
-	case *config.MatrixSettings:
-		return bc, settings.Homeserver != "" && settings.UserID != "" && settings.AccessToken.String() != ""
-	case *config.WeComSettings:
-		return bc, settings.BotID != "" && settings.Secret.String() != ""
 	case *config.PicoClientSettings:
 		return bc, settings.URL != ""
-	case *config.DingTalkSettings:
-		return bc, settings.ClientID != ""
-	case *config.SlackSettings:
-		return bc, settings.BotToken.String() != ""
-	case *config.WeixinSettings:
-		return bc, settings.Token.String() != ""
 	case *config.PicoSettings:
 		return bc, settings.Token.String() != ""
-	case *config.IRCSettings:
-		return bc, settings.Server != ""
-	case *config.LINESettings:
-		return bc, settings.ChannelAccessToken.String() != ""
-	case *config.OneBotSettings:
-		return bc, settings.WSUrl != ""
+	case *config.WeixinSettings:
+		return bc, settings.Token.String() != ""
 	case *config.QQSettings:
 		return bc, settings.AppSecret.String() != ""
 	case *config.TelegramSettings:
 		return bc, settings.Token.String() != ""
 	case *config.FeishuSettings:
 		return bc, settings.AppSecret.String() != ""
-	case *config.MaixCamSettings:
-		return bc, true
-	case *config.TeamsWebhookSettings:
-		return bc, true
-	case *config.SlackWebhookSettings:
-		return bc, true
 	case *config.DiscordSettings:
 		return bc, settings.Token.String() != ""
-	case *config.VKSettings:
-		return bc, settings.GroupID != 0 && settings.Token.String() != ""
-	case *config.MQTTSettings:
-		return bc, settings.Broker != "" && settings.AgentID != ""
 	}
 
 	return bc, bc.Enabled

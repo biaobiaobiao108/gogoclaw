@@ -18,12 +18,9 @@ type VoiceCapabilityProvider interface {
 var asrCapableChannels = map[string]bool{
 	"discord":  true,
 	"telegram": true,
-	"matrix":   true,
 	"qq":       true,
 	"weixin":   true,
-	"line":     true,
 	"feishu":   true,
-	"onebot":   true,
 }
 
 // DetectVoiceCapabilities returns ASR/TTS availability for a channel, gated by

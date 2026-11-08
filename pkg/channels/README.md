@@ -60,7 +60,7 @@ pkg/channels/
 ├── discord/
 │   ├── init.go
 │   └── discord.go
-├── slack/ line/ onebot/ dingtalk/ feishu/ wecom/ qq/ whatsapp/ whatsapp_native/ maixcam/ pico/
+├── discord/ feishu/ pico/ qq/ telegram/ weixin/
 │   └── ...
 
 pkg/bus/
@@ -145,7 +145,7 @@ After refactoring, these files have been removed and code moved to corresponding
 | _(did not exist)_ | `pkg/channels/interfaces.go` | New optional capability interfaces |
 | _(did not exist)_ | `pkg/channels/media.go` | New MediaSender interface |
 | _(did not exist)_ | `pkg/channels/webhook.go` | New WebhookHandler/HealthChecker |
-| _(did not exist)_ | `pkg/channels/whatsapp_native/` | New WhatsApp native mode (whatsmeow) |
+| _(did not exist)_ | `pkg/channels/feishu/` | New WhatsApp native mode (whatsmeow) |
 | _(did not exist)_ | `pkg/channels/split.go` | New message splitting (migrated from utils) |
 | _(did not exist)_ | `pkg/bus/types.go` | New structured message types |
 | _(did not exist)_ | `pkg/media/store.go` | New media file lifecycle management |
@@ -1308,7 +1308,7 @@ make test                                       # Full test suite
 | `pkg/channels/wecom/` | `"wecom"` | MediaSender |
 | `pkg/channels/qq/` | `"qq"` | — |
 | `pkg/channels/whatsapp/` | `"whatsapp"` | — (Bridge mode) |
-| `pkg/channels/whatsapp_native/` | `"whatsapp_native"` | — (Native whatsmeow mode) |
+| `pkg/channels/feishu/` | `"whatsapp_native"` | — (Native whatsmeow mode) |
 | `pkg/channels/maixcam/` | `"maixcam"` | — |
 | `pkg/channels/mqtt/` | `"mqtt"` | — |
 | `pkg/channels/pico/` | `"pico"` | TypingCapable, PlaceholderCapable, MessageEditor, WebhookHandler |

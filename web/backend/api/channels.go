@@ -15,23 +15,12 @@ type channelCatalogItem struct {
 }
 
 var channelCatalog = []channelCatalogItem{
-	{Name: "weixin", ConfigKey: "weixin"},
-	{Name: "telegram", ConfigKey: "telegram"},
-	{Name: "discord", ConfigKey: "discord"},
-	{Name: "slack", ConfigKey: "slack"},
 	{Name: "feishu", ConfigKey: "feishu"},
-	{Name: "dingtalk", ConfigKey: "dingtalk"},
-	{Name: "line", ConfigKey: "line"},
+	{Name: "weixin", ConfigKey: "weixin"},
+	{Name: "discord", ConfigKey: "discord"},
+	{Name: "telegram", ConfigKey: "telegram"},
 	{Name: "qq", ConfigKey: "qq"},
-	{Name: "onebot", ConfigKey: "onebot"},
-	{Name: "wecom", ConfigKey: "wecom"},
-	{Name: "whatsapp", ConfigKey: "whatsapp", Variant: "bridge"},
-	{Name: "whatsapp_native", ConfigKey: "whatsapp", Variant: "native"},
 	{Name: "pico", ConfigKey: "pico"},
-	{Name: "maixcam", ConfigKey: "maixcam"},
-	{Name: "matrix", ConfigKey: "matrix"},
-	{Name: "irc", ConfigKey: "irc"},
-	{Name: "mqtt", ConfigKey: "mqtt"},
 }
 
 type channelConfigResponse struct {

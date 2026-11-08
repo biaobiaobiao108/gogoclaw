@@ -1,18 +1,10 @@
 import {
   IconBrandChrome,
-  IconBrandDingtalk,
   IconBrandDiscord,
-  IconBrandLine,
-  IconBrandMatrix,
   IconBrandQq,
-  IconBrandSlack,
   IconBrandTelegram,
   IconBrandWechat,
-  IconBrandWhatsapp,
-  IconCamera,
-  IconMessages,
   IconPlug,
-  IconRobot,
 } from "@tabler/icons-react"
 import type { TFunction } from "i18next"
 import { useAtomValue } from "jotai"
@@ -28,20 +20,7 @@ import { getChannelDisplayName } from "@/components/channels/channel-display-nam
 import { gatewayAtom } from "@/store/gateway"
 
 const DEFAULT_VISIBLE_CHANNELS = 4
-const CHANNEL_IMPORTANCE_TAIL = [
-  "slack",
-  "line",
-  "wecom",
-  "dingtalk",
-  "qq",
-  "onebot",
-  "matrix",
-  "pico",
-  "maixcam",
-  "irc",
-  "whatsapp",
-  "whatsapp_native",
-]
+const CHANNEL_IMPORTANCE_TAIL = ["qq", "pico"]
 
 function getChannelImportanceOrder(language: string): string[] {
   const priority = language.startsWith("zh")
@@ -67,22 +46,12 @@ const CHANNEL_ICON_MAP: Record<
   string,
   React.ComponentType<{ className?: string }>
 > = {
-  telegram: IconBrandTelegram,
-  discord: IconBrandDiscord,
-  slack: IconBrandSlack,
   feishu: IconLark,
-  dingtalk: IconBrandDingtalk,
-  line: IconBrandLine,
-  qq: IconBrandQq,
   weixin: IconBrandWechat,
-  wecom: IconBrandWechat,
-  whatsapp: IconBrandWhatsapp,
-  whatsapp_native: IconBrandWhatsapp,
-  matrix: IconBrandMatrix,
-  maixcam: IconCamera,
-  onebot: IconRobot,
+  discord: IconBrandDiscord,
+  telegram: IconBrandTelegram,
+  qq: IconBrandQq,
   pico: IconBrandChrome,
-  irc: IconMessages,
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -97,19 +66,7 @@ function isChannelEnabled(
   channelsConfig: Record<string, unknown>,
 ): boolean {
   const channelConfig = asRecord(channelsConfig[channel.config_key])
-  if (channelConfig.enabled !== true) {
-    return false
-  }
-
-  // whatsapp / whatsapp_native share one config block and are split by use_native.
-  if (channel.name === "whatsapp_native") {
-    return channelConfig.use_native === true
-  }
-  if (channel.name === "whatsapp") {
-    return channelConfig.use_native !== true
-  }
-
-  return true
+  return channelConfig.enabled === true
 }
 
 function buildChannelEnabledMap(

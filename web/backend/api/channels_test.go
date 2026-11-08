@@ -245,7 +245,7 @@ func TestHandleGetChannelConfig_ReturnsDefaultShapeForMissingChannel(t *testing.
 	if err != nil {
 		t.Fatalf("LoadConfig() error = %v", err)
 	}
-	delete(cfg.Channels, config.ChannelIRC)
+	delete(cfg.Channels, config.ChannelDiscord)
 	if err := config.SaveConfig(configPath, cfg); err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
 	}
@@ -254,7 +254,7 @@ func TestHandleGetChannelConfig_ReturnsDefaultShapeForMissingChannel(t *testing.
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/channels/irc/config", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/channels/discord/config", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -272,12 +272,6 @@ func TestHandleGetChannelConfig_ReturnsDefaultShapeForMissingChannel(t *testing.
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
-	}
-	if got := resp.Config["server"]; got != "" {
-		t.Fatalf("config.server = %#v, want empty string", got)
-	}
-	if got := resp.Config["nick"]; got != "picoclaw" {
-		t.Fatalf("config.nick = %#v, want %q", got, "picoclaw")
 	}
 	if got := resp.Config["enabled"]; got != false {
 		t.Fatalf("config.enabled = %#v, want false", got)

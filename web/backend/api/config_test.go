@@ -357,13 +357,6 @@ func TestHandlePatchConfig_NormalizesStringChannelArrayFields(t *testing.T) {
 				"settings": {
 					"allow_origins": "https://a.example.com，http://localhost:5173，https://a.example.com"
 				}
-			},
-			"irc": {
-				"type": "irc",
-				"settings": {
-					"channels": "#ops,\n#dev,\n#ops",
-					"request_caps": "multi-prefix，echo-message\tbatch，multi-prefix"
-				}
 			}
 		}
 	}`))
@@ -419,26 +412,6 @@ func TestHandlePatchConfig_NormalizesStringChannelArrayFields(t *testing.T) {
 		)
 	}
 
-	ircChannel := cfg.Channels[config.ChannelIRC]
-	decoded, err = ircChannel.GetDecoded()
-	if err != nil {
-		t.Fatalf("GetDecoded() irc error = %v", err)
-	}
-	ircCfg := decoded.(*config.IRCSettings)
-	if len(ircCfg.Channels) != 2 ||
-		ircCfg.Channels[0] != "#ops" ||
-		ircCfg.Channels[1] != "#dev" {
-		t.Fatalf("irc channels = %#v, want [\"#ops\", \"#dev\"]", ircCfg.Channels)
-	}
-	if len(ircCfg.RequestCaps) != 3 ||
-		ircCfg.RequestCaps[0] != "multi-prefix" ||
-		ircCfg.RequestCaps[1] != "echo-message" ||
-		ircCfg.RequestCaps[2] != "batch" {
-		t.Fatalf(
-			"irc request_caps = %#v, want [\"multi-prefix\", \"echo-message\", \"batch\"]",
-			ircCfg.RequestCaps,
-		)
-	}
 }
 
 func TestHandlePatchConfig_NormalizesSingleNumericAllowFrom(t *testing.T) {
@@ -524,11 +497,9 @@ func TestHandlePatchConfig_RejectsInvalidChannelArrayFields(t *testing.T) {
 			name: "object settings array",
 			body: `{
 				"channel_list": {
-					"irc": {
-						"type": "irc",
-						"settings": {
-							"channels": {"name": "#ops"}
-						}
+					"telegram": {
+						"type": "telegram",
+						"allow_from": {"name": "bad"}
 					}
 				}
 			}`,
@@ -694,7 +665,7 @@ func TestHandlePatchConfig_CreatesMissingChannelWithTypeAndSecret(t *testing.T) 
 	if err != nil {
 		t.Fatalf("LoadConfig() error = %v", err)
 	}
-	delete(cfg.Channels, config.ChannelIRC)
+	delete(cfg.Channels, config.ChannelDiscord)
 	if err = config.SaveConfig(configPath, cfg); err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
 	}
@@ -705,12 +676,11 @@ func TestHandlePatchConfig_CreatesMissingChannelWithTypeAndSecret(t *testing.T) 
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/config", bytes.NewBufferString(`{
 		"channel_list": {
-			"irc": {
+			"discord": {
 				"enabled": true,
-				"type": "irc",
+				"type": "discord",
 				"settings": {
-					"server": "irc.example.com",
-					"password": "irc-patch-password"
+					"token": "discord-patch-token"
 				}
 			}
 		}
@@ -732,30 +702,27 @@ func TestHandlePatchConfig_CreatesMissingChannelWithTypeAndSecret(t *testing.T) 
 	if err != nil {
 		t.Fatalf("LoadConfig() error = %v", err)
 	}
-	bc := cfg.Channels[config.ChannelIRC]
+	bc := cfg.Channels[config.ChannelDiscord]
 	if bc == nil {
-		t.Fatal("irc channel should exist after PATCH")
+		t.Fatal("discord channel should exist after PATCH")
 	}
-	if got := bc.Type; got != config.ChannelIRC {
-		t.Fatalf("irc type = %q, want %q", got, config.ChannelIRC)
+	if got := bc.Type; got != config.ChannelDiscord {
+		t.Fatalf("discord type = %q, want %q", got, config.ChannelDiscord)
 	}
 	decoded, err := bc.GetDecoded()
 	if err != nil {
 		t.Fatalf("GetDecoded() error = %v", err)
 	}
-	ircCfg := decoded.(*config.IRCSettings)
-	if got := ircCfg.Server; got != "irc.example.com" {
-		t.Fatalf("irc server = %q, want %q", got, "irc.example.com")
-	}
-	if got := ircCfg.Password.String(); got != "irc-patch-password" {
-		t.Fatalf("irc password = %q, want %q", got, "irc-patch-password")
+	discCfg := decoded.(*config.DiscordSettings)
+	if got := discCfg.Token.String(); got != "discord-patch-token" {
+		t.Fatalf("discord token = %q, want %q", got, "discord-patch-token")
 	}
 	configData, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("ReadFile(configPath) error = %v", err)
 	}
-	if bytes.Contains(configData, []byte("irc-patch-password")) {
-		t.Fatalf("config file leaked irc password: %s", string(configData))
+	if bytes.Contains(configData, []byte("discord-patch-token")) {
+		t.Fatalf("config file leaked discord token: %s", string(configData))
 	}
 }
 
@@ -1291,60 +1258,6 @@ func TestApplyConfigSecretsFromMap_TelegramToken(t *testing.T) {
 	if got := tgCfg.Token.String(); got != "secret-from-api" {
 		t.Fatalf("telegram token = %q, want %q", got, "secret-from-api")
 	}
-}
-
-func TestApplyConfigSecretsFromMap_TeamsWebhook(t *testing.T) {
-	// applyConfigSecretsFromMap recurses into nested maps to find
-	// SecureString fields at any depth (e.g. webhook_url inside webhooks map).
-	cfg := config.DefaultConfig()
-	bc := &config.Channel{Enabled: true, Type: config.ChannelTeamsWebHook}
-	cfg.Channels["teams_webhook"] = bc
-	target := &config.TeamsWebhookSettings{
-		Webhooks: map[string]config.TeamsWebhookTarget{
-			"default": {
-				WebhookURL: *config.NewSecureString("https://example.com/hook1"),
-				Title:      "Default",
-			},
-		},
-	}
-	if err := bc.Decode(target); err != nil {
-		t.Fatalf("Decode() error = %v", err)
-	}
-
-	raw := map[string]any{
-		"channel_list": map[string]any{
-			"teams_webhook": map[string]any{
-				"enabled": true,
-				"settings": map[string]any{
-					"webhooks": map[string]any{
-						"default": map[string]any{
-							"webhook_url": "https://example.com/hook-updated",
-							"title":       "Default Updated",
-						},
-					},
-				},
-			},
-		},
-	}
-
-	applyConfigSecretsFromMap(cfg, raw)
-
-	// Verify the decoded struct has the updated SecureString value
-	decoded, err := bc.GetDecoded()
-	if err != nil {
-		t.Fatalf("GetDecoded() error = %v", err)
-	}
-	twCfg, ok := decoded.(*config.TeamsWebhookSettings)
-	if !ok {
-		t.Fatalf("expected *TeamsWebhookSettings, got %T", decoded)
-	}
-
-	hookURL := twCfg.Webhooks["default"].WebhookURL
-	if got := hookURL.String(); got != "https://example.com/hook-updated" {
-		t.Fatalf("webhook_url = %q, want %q", got, "https://example.com/hook-updated")
-	}
-	// Note: title is a plain string, not a SecureString, so it is NOT updated
-	// by applyConfigSecretsFromMap (only secure fields are handled).
 }
 
 func TestApplyConfigSecretsFromMap_MultipleChannels(t *testing.T) {

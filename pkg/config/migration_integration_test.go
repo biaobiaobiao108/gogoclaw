@@ -331,9 +331,9 @@ func TestMigration_Integration_ChannelsConfigMigrated(t *testing.T) {
 				"token": "discord-token",
 				"mention_only": true
 			},
-			"onebot": {
+			"telegram": {
 				"enabled": true,
-				"ws_url": "ws://127.0.0.1:3001",
+				"token": "telegram-token",
 				"group_trigger_prefix": ["/", "!"]
 			}
 		},
@@ -368,16 +368,16 @@ func TestMigration_Integration_ChannelsConfigMigrated(t *testing.T) {
 		t.Error("Discord.GroupTrigger.MentionOnly should be true after migration")
 	}
 
-	// OneBot: group_trigger_prefix should be migrated to group_trigger.prefixes
-	oneBotBC := cfg.Channels.Get("onebot")
-	if len(oneBotBC.GroupTrigger.Prefixes) != 2 {
-		t.Errorf("len(OneBot.GroupTrigger.Prefixes) = %d, want 2", len(oneBotBC.GroupTrigger.Prefixes))
+	// Telegram: group_trigger_prefix should be migrated to group_trigger.prefixes
+	tgBC := cfg.Channels.Get("telegram")
+	if len(tgBC.GroupTrigger.Prefixes) != 2 {
+		t.Errorf("len(Telegram.GroupTrigger.Prefixes) = %d, want 2", len(tgBC.GroupTrigger.Prefixes))
 	} else {
-		if oneBotBC.GroupTrigger.Prefixes[0] != "/" {
-			t.Errorf("Prefixes[0] = %q, want %q", oneBotBC.GroupTrigger.Prefixes[0], "/")
+		if tgBC.GroupTrigger.Prefixes[0] != "/" {
+			t.Errorf("Prefixes[0] = %q, want %q", tgBC.GroupTrigger.Prefixes[0], "/")
 		}
-		if oneBotBC.GroupTrigger.Prefixes[1] != "!" {
-			t.Errorf("Prefixes[1] = %q, want %q", oneBotBC.GroupTrigger.Prefixes[1], "!")
+		if tgBC.GroupTrigger.Prefixes[1] != "!" {
+			t.Errorf("Prefixes[1] = %q, want %q", tgBC.GroupTrigger.Prefixes[1], "!")
 		}
 	}
 }

@@ -5598,17 +5598,12 @@ func TestTargetReasoningChannelID_AllChannels(t *testing.T) {
 		t.Fatalf("Failed to create channel manager: %v", err)
 	}
 	for name, id := range map[string]string{
-		"whatsapp": "rid-whatsapp",
 		"telegram": "rid-telegram",
 		"feishu":   "rid-feishu",
 		"discord":  "rid-discord",
-		"maixcam":  "rid-maixcam",
 		"qq":       "rid-qq",
-		"dingtalk": "rid-dingtalk",
-		"slack":    "rid-slack",
-		"line":     "rid-line",
-		"onebot":   "rid-onebot",
-		"wecom":    "rid-wecom",
+		"weixin":   "rid-weixin",
+		"pico":     "rid-pico",
 	} {
 		chManager.RegisterChannel(name, &fakeChannel{id: id})
 	}
@@ -5617,17 +5612,12 @@ func TestTargetReasoningChannelID_AllChannels(t *testing.T) {
 		channel string
 		wantID  string
 	}{
-		{channel: "whatsapp", wantID: "rid-whatsapp"},
 		{channel: "telegram", wantID: "rid-telegram"},
 		{channel: "feishu", wantID: "rid-feishu"},
 		{channel: "discord", wantID: "rid-discord"},
-		{channel: "maixcam", wantID: "rid-maixcam"},
 		{channel: "qq", wantID: "rid-qq"},
-		{channel: "dingtalk", wantID: "rid-dingtalk"},
-		{channel: "slack", wantID: "rid-slack"},
-		{channel: "line", wantID: "rid-line"},
-		{channel: "onebot", wantID: "rid-onebot"},
-		{channel: "wecom", wantID: "rid-wecom"},
+		{channel: "weixin", wantID: "rid-weixin"},
+		{channel: "pico", wantID: "rid-pico"},
 		{channel: "unknown", wantID: ""},
 	}
 

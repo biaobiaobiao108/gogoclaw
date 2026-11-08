@@ -24,10 +24,7 @@ import { getChannelDisplayName } from "@/components/channels/channel-display-nam
 import { DiscordForm } from "@/components/channels/channel-forms/discord-form"
 import { FeishuForm } from "@/components/channels/channel-forms/feishu-form"
 import { GenericForm } from "@/components/channels/channel-forms/generic-form"
-import { MqttForm } from "@/components/channels/channel-forms/mqtt-form"
-import { SlackForm } from "@/components/channels/channel-forms/slack-form"
 import { TelegramForm } from "@/components/channels/channel-forms/telegram-form"
-import { WecomForm } from "@/components/channels/channel-forms/wecom-form"
 import { WeixinForm } from "@/components/channels/channel-forms/weixin-form"
 import { ConfigChangeNotice } from "@/components/config-change-notice"
 import { PageHeader } from "@/components/page-header"
@@ -102,17 +99,10 @@ const CHANNEL_COMMON_CONFIG_KEYS = new Set([
 ])
 
 function normalizeConfig(
-  channel: SupportedChannel,
+  _channel: SupportedChannel,
   rawConfig: ChannelConfig,
 ): ChannelConfig {
-  const config = { ...rawConfig }
-  if (channel.name === "whatsapp_native") {
-    config.use_native = true
-  }
-  if (channel.name === "whatsapp") {
-    config.use_native = false
-  }
-  return config
+  return { ...rawConfig }
 }
 
 function buildSavePayload(
@@ -155,13 +145,6 @@ function buildSavePayload(
     }
   }
 
-  if (channel.name === "whatsapp_native") {
-    settings.use_native = true
-  }
-  if (channel.name === "whatsapp") {
-    settings.use_native = false
-  }
-
   if (Object.keys(settings).length > 0) {
     payload.settings = settings
   }
@@ -184,40 +167,14 @@ function isConfigured(
       return hasValue("token")
     case "discord":
       return hasValue("token")
-    case "slack":
-      return hasValue("bot_token")
     case "feishu":
       return hasValue("app_id") && hasValue("app_secret")
-    case "dingtalk":
-      return hasValue("client_id") && hasValue("client_secret")
-    case "line":
-      return hasValue("channel_secret") && hasValue("channel_access_token")
     case "qq":
       return hasValue("app_id") && hasValue("app_secret")
-    case "onebot":
-      return hasValue("ws_url")
     case "weixin":
       return hasValue("account_id")
-    case "wecom":
-      return hasValue("bot_id")
-    case "whatsapp":
-      return hasValue("bridge_url")
-    case "whatsapp_native":
-      return asBool(config.use_native)
     case "pico":
       return hasValue("token")
-    case "maixcam":
-      return hasValue("host")
-    case "matrix":
-      return (
-        hasValue("homeserver") &&
-        hasValue("user_id") &&
-        hasValue("access_token")
-      )
-    case "irc":
-      return hasValue("server")
-    case "mqtt":
-      return hasValue("broker") && hasValue("agent_id")
     default:
       return false
   }
@@ -229,32 +186,12 @@ function getRequiredFieldKeys(channelName: string): string[] {
       return ["token"]
     case "discord":
       return ["token"]
-    case "slack":
-      return ["bot_token"]
     case "feishu":
       return ["app_id", "app_secret"]
-    case "dingtalk":
-      return ["client_id", "client_secret"]
-    case "line":
-      return ["channel_secret", "channel_access_token"]
     case "qq":
       return ["app_id", "app_secret"]
-    case "onebot":
-      return ["ws_url"]
-    case "wecom":
-      return []
-    case "whatsapp":
-      return ["bridge_url"]
     case "pico":
       return ["token"]
-    case "maixcam":
-      return ["host"]
-    case "matrix":
-      return ["homeserver", "user_id", "access_token"]
-    case "irc":
-      return ["server"]
-    case "mqtt":
-      return ["broker", "agent_id"]
     default:
       return []
   }
@@ -277,15 +214,7 @@ function getChannelDocSlug(channelName: string): string {
   return channelName.replaceAll("_", "-")
 }
 
-const CHANNELS_WITHOUT_DOCS = new Set([
-  "pico",
-  "wecom",
-  "matrix",
-  "irc",
-  "whatsapp",
-  "whatsapp_native",
-  "mqtt",
-])
+const CHANNELS_WITHOUT_DOCS = new Set(["pico"])
 
 export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
   const { t, i18n } = useTranslation()
@@ -416,18 +345,7 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
     return getChannelDisplayName(channel, t)
   }, [channel, channelName, t])
 
-  const hidesPageLevelEnableToggle = channel?.name === "wecom"
-
-  const hiddenKeys = useMemo(() => {
-    if (!channel) return []
-    if (channel.name === "whatsapp") {
-      return ["use_native"]
-    }
-    if (channel.name === "whatsapp_native") {
-      return ["use_native", "bridge_url"]
-    }
-    return []
-  }, [channel])
+  const hiddenKeys = useMemo(() => [], [])
   const requiredKeys = useMemo(
     () => getRequiredFieldKeys(channelName),
     [channelName],
@@ -545,36 +463,6 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
     }
   }, [loadData, t])
 
-  const handleWecomBindSuccess = useCallback(async () => {
-    try {
-      setEnabled(true)
-      await Promise.all([loadData(true), refreshGatewayState({ force: true })])
-    } catch (e) {
-      const message =
-        e instanceof Error ? e.message : t("channels.page.saveError")
-      setServerError(message)
-      await loadData(true)
-    }
-  }, [loadData, t])
-
-  const handleWecomEnabledChange = useCallback(
-    async (nextEnabled: boolean) => {
-      try {
-        setEnabled(nextEnabled)
-        await Promise.all([
-          loadData(true),
-          refreshGatewayState({ force: true }),
-        ])
-      } catch (e) {
-        const message =
-          e instanceof Error ? e.message : t("channels.page.saveError")
-        setServerError(message)
-        await loadData(true)
-      }
-    },
-    [loadData, t],
-  )
-
   const renderForm = () => {
     if (!channel) return null
     const isEdit = configured
@@ -602,17 +490,6 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
             arrayFieldResetVersion={arrayFieldResetVersion}
           />
         )
-      case "slack":
-        return (
-          <SlackForm
-            config={editConfig}
-            onChange={handleChange}
-            configuredSecrets={configuredSecrets}
-            fieldErrors={fieldErrors}
-            registerArrayFieldFlusher={registerArrayFieldFlusher}
-            arrayFieldResetVersion={arrayFieldResetVersion}
-          />
-        )
       case "feishu":
         return (
           <FeishuForm
@@ -622,15 +499,6 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
             fieldErrors={fieldErrors}
             registerArrayFieldFlusher={registerArrayFieldFlusher}
             arrayFieldResetVersion={arrayFieldResetVersion}
-          />
-        )
-      case "mqtt":
-        return (
-          <MqttForm
-            config={editConfig}
-            onChange={handleChange}
-            configuredSecrets={configuredSecrets}
-            fieldErrors={fieldErrors}
           />
         )
       case "weixin":
@@ -643,30 +511,6 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
             registerArrayFieldFlusher={registerArrayFieldFlusher}
             arrayFieldResetVersion={arrayFieldResetVersion}
           />
-        )
-      case "wecom":
-        return (
-          <>
-            <WecomForm
-              config={editConfig}
-              isEdit={isEdit}
-              onBindSuccess={() => void handleWecomBindSuccess()}
-              onEnabledChange={(nextEnabled) =>
-                void handleWecomEnabledChange(nextEnabled)
-              }
-            />
-            <GenericForm
-              config={editConfig}
-              onChange={handleChange}
-              configuredSecrets={configuredSecrets}
-              hiddenKeys={[...hiddenKeys, "bot_id"]}
-              requiredKeys={requiredKeys}
-              supportsStreaming
-              fieldErrors={fieldErrors}
-              registerArrayFieldFlusher={registerArrayFieldFlusher}
-              arrayFieldResetVersion={arrayFieldResetVersion}
-            />
-          </>
         )
       default:
         return (
@@ -715,14 +559,14 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
           </div>
         ) : (
           <div className="w-full max-w-4xl space-y-6 pt-5">
-            {!hidesPageLevelEnableToggle && (
+            {
               <div className="bg-card text-card-foreground border-border/60 flex items-center justify-between rounded-xl border px-6 py-4 shadow-sm">
                 <p className="text-sm font-medium">
                   {t("channels.page.enableLabel")}
                 </p>
                 <Switch checked={enabled} onCheckedChange={setEnabled} />
               </div>
-            )}
+            }
 
             {renderForm()}
 

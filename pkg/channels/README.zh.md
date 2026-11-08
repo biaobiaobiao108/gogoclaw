@@ -60,7 +60,7 @@ pkg/channels/
 ├── discord/
 │   ├── init.go
 │   └── discord.go
-├── slack/ line/ onebot/ dingtalk/ feishu/ wecom/ qq/ whatsapp/ whatsapp_native/ maixcam/ pico/
+├── discord/ feishu/ pico/ qq/ telegram/ weixin/
 │   └── ...
 
 pkg/bus/
@@ -145,7 +145,7 @@ pkg/identity/
 | _(不存在)_ | `pkg/channels/interfaces.go` | 新增可选能力接口 |
 | _(不存在)_ | `pkg/channels/media.go` | 新增 MediaSender 接口 |
 | _(不存在)_ | `pkg/channels/webhook.go` | 新增 WebhookHandler/HealthChecker |
-| _(不存在)_ | `pkg/channels/whatsapp_native/` | 新增 WhatsApp 原生模式（whatsmeow） |
+| _(不存在)_ | `pkg/channels/feishu/` | 新增 WhatsApp 原生模式（whatsmeow） |
 | _(不存在)_ | `pkg/channels/split.go` | 新增消息分割（从 utils 迁入） |
 | _(不存在)_ | `pkg/bus/types.go` | 新增结构化消息类型 |
 | _(不存在)_ | `pkg/media/store.go` | 新增媒体文件生命周期管理 |
@@ -1306,7 +1306,7 @@ make test                                       # 全量测试
 | `pkg/channels/wecom/` | `"wecom"` | MediaSender |
 | `pkg/channels/qq/` | `"qq"` | — |
 | `pkg/channels/whatsapp/` | `"whatsapp"` | — (Bridge 模式) |
-| `pkg/channels/whatsapp_native/` | `"whatsapp_native"` | — (原生 whatsmeow 模式) |
+| `pkg/channels/feishu/` | `"whatsapp_native"` | — (原生 whatsmeow 模式) |
 | `pkg/channels/maixcam/` | `"maixcam"` | — |
 | `pkg/channels/mqtt/` | `"mqtt"` | — |
 | `pkg/channels/pico/` | `"pico"` | TypingCapable, PlaceholderCapable, MessageEditor, WebhookHandler |
