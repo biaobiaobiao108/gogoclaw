@@ -30,7 +30,7 @@ func promptBuildRequestForTurn(
 	}
 	hasCallableTools := true
 	if ts.profile.Enabled {
-		hasCallableTools = turnProfileHasCallableTools(ts.profile, ts.agent.Tools.ToProviderDefs()) ||
+		hasCallableTools = turnProfileHasCallableTools(ts.profile, ts.toolRegistry().ToProviderDefs()) ||
 			turnProfileNativeSearchCallable(cfg, ts.profile, ts.agent)
 	}
 	if turnProfileSystemPromptOff(ts.profile) {

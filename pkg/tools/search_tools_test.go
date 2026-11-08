@@ -138,6 +138,39 @@ func TestBM25SearchTool_Execute(t *testing.T) {
 	})
 }
 
+func TestDiscoveryInClonedRegistriesIsIsolated(t *testing.T) {
+	for _, bm25 := range []bool{true, false} {
+		name := "regex"
+		if bm25 {
+			name = "bm25"
+		}
+		t.Run(name, func(t *testing.T) {
+			parent := setupPopulatedRegistry()
+			searchName := RegexSearchToolName
+			args := map[string]any{"pattern": "mcp_read_file"}
+			parent.Register(NewRegexSearchTool(parent, 1, 5))
+			if bm25 {
+				searchName = BM25SearchToolName
+				args = map[string]any{"query": "read contents file"}
+				parent.Register(NewBM25SearchTool(parent, 1, 5))
+			}
+			first, second := parent.Clone(), parent.Clone()
+			result := first.Execute(context.Background(), searchName, args)
+			if result.IsError || !strings.Contains(result.ForLLM, "mcp_read_file") {
+				t.Fatalf("discovery failed: %+v", result)
+			}
+			if result := first.Execute(context.Background(), "mcp_read_file", nil); result.IsError {
+				t.Fatalf("discovered tool could not execute: %+v", result)
+			}
+			for _, registry := range []*ToolRegistry{parent, second} {
+				if _, ok := registry.Get("mcp_read_file"); ok {
+					t.Fatal("discovery leaked into another registry")
+				}
+			}
+		})
+	}
+}
+
 func TestRegexSearchTool_PatternTooLong(t *testing.T) {
 	reg := setupPopulatedRegistry()
 	tool := NewRegexSearchTool(reg, 5, 10)

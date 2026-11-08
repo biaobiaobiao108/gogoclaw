@@ -192,6 +192,7 @@ type turnState struct {
 	mu sync.RWMutex
 
 	agent   *AgentInstance
+	tools   *tools.ToolRegistry
 	opts    processOptions
 	profile config.EffectiveTurnProfile
 	scope   turnEventScope
@@ -256,6 +257,13 @@ type turnState struct {
 
 	// Back-reference to the owning AgentLoop (set for SubTurns only, used for hard abort cascade)
 	al *AgentLoop
+}
+
+func (ts *turnState) toolRegistry() *tools.ToolRegistry {
+	if ts.tools != nil {
+		return ts.tools
+	}
+	return ts.agent.Tools
 }
 
 // =============================================================================

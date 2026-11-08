@@ -265,11 +265,6 @@ func buildBM25Engine(docs []searchDoc) *utils.BM25Engine[searchDoc] {
 // getOrBuildEngine returns a cached BM25 engine, rebuilding it only when
 // the registry version has changed (new tools registered).
 func (t *BM25SearchTool) getOrBuildEngine() *bm25CachedEngine {
-	// Fast path: optimistic check without locking.
-	if t.cachedEngine != nil && t.cacheVersion == t.registry.Version() {
-		return t.cachedEngine
-	}
-
 	t.cacheMu.Lock()
 	defer t.cacheMu.Unlock()
 

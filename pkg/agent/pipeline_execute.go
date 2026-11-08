@@ -567,7 +567,7 @@ toolLoop:
 			ts.sessionKey,
 			ts.opts.Dispatch.SessionScope,
 		)
-		toolResult := ts.agent.Tools.ExecuteWithContext(
+		toolResult := ts.toolRegistry().ExecuteWithContext(
 			execCtx,
 			toolName,
 			toolArgs,
@@ -856,7 +856,18 @@ toolLoop:
 	// allResponsesHandled=false and no pending steering: continue so coordinator
 	// makes another LLM call. The tool result is in messages and the LLM will
 	// return it as finalContent in the next iteration.
-	ts.agent.Tools.TickTTL()
+	// A discovery result must remain available for the next model call even
+	// when its configured lifetime is one iteration.
+	discovered := false
+	for _, tc := range normalizedToolCalls {
+		if tc.Name == tools.BM25SearchToolName || tc.Name == tools.RegexSearchToolName {
+			discovered = true
+			break
+		}
+	}
+	if !discovered {
+		ts.toolRegistry().TickTTL()
+	}
 	logger.DebugCF("agent", "TTL tick after tool execution", map[string]any{
 		"agent_id": ts.agent.ID, "iteration": iteration,
 	})

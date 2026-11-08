@@ -36,7 +36,7 @@ func (p *Pipeline) CallLLM(
 
 	// PreLLM: graceful terminal handling
 	exec.gracefulTerminal, _ = ts.gracefulInterruptRequested()
-	exec.providerToolDefs = ts.agent.Tools.ToProviderDefs()
+	exec.providerToolDefs = ts.toolRegistry().ToProviderDefs()
 	exec.providerToolDefs = filterToolsByTurnProfile(exec.providerToolDefs, ts.profile)
 
 	// Native web search support
@@ -128,7 +128,7 @@ func (p *Pipeline) CallLLM(
 	if nativeSearchBeforeHook && !exec.useNativeSearch {
 		exec.providerToolDefs = restoreToolDefinition(
 			exec.providerToolDefs,
-			filterToolsByTurnProfile(ts.agent.Tools.ToProviderDefs(), ts.profile),
+			filterToolsByTurnProfile(ts.toolRegistry().ToProviderDefs(), ts.profile),
 			"web_search",
 		)
 	}
@@ -228,7 +228,7 @@ func (p *Pipeline) CallLLM(
 				if exec.useNativeSearch {
 					candidateTools = restoreToolDefinition(
 						candidateTools,
-						filterToolsByTurnProfile(ts.agent.Tools.ToProviderDefs(), ts.profile),
+						filterToolsByTurnProfile(ts.toolRegistry().ToProviderDefs(), ts.profile),
 						"web_search",
 					)
 				}

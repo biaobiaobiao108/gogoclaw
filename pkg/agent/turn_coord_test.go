@@ -12,6 +12,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/routing"
 	"github.com/sipeed/picoclaw/pkg/session"
+	"github.com/sipeed/picoclaw/pkg/tools"
 )
 
 // =============================================================================
@@ -911,6 +912,31 @@ func TestRunTurn_SimpleConversation(t *testing.T) {
 	}
 	if result.finalContent == "" {
 		t.Error("expected non-empty finalContent")
+	}
+}
+
+func TestRunTurn_DiscoveryWithOneIterationTTL(t *testing.T) {
+	provider := &sequenceProvider{responses: []*providers.LLMResponse{
+		{ToolCalls: []providers.ToolCall{{ID: "search", Name: tools.BM25SearchToolName, Arguments: map[string]any{"query": "exhaust iteration budget"}}}},
+		{ToolCalls: []providers.ToolCall{{ID: "call", Name: "tool_limit_test_tool", Arguments: map[string]any{}}}},
+		{Content: "done"},
+	}}
+	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+	agent.Tools.RegisterHidden(&toolLimitTestTool{})
+	agent.Tools.Register(tools.NewBM25SearchTool(agent.Tools, 1, 5))
+	ts := newTurnState(agent, makeTestProcessOpts("discovery"), turnEventScope{
+		turnID: "discovery", context: newTurnContext(nil, nil, nil),
+	})
+	if _, err := al.runTurn(context.Background(), ts, NewPipeline(al)); err != nil {
+		t.Fatal(err)
+	}
+	records := ts.toolExecutionsSnapshot()
+	if len(records) != 2 || records[1].Name != "tool_limit_test_tool" || !records[1].Success {
+		t.Fatalf("discovered tool was not executed successfully: %+v", records)
+	}
+	if _, ok := agent.Tools.Get("tool_limit_test_tool"); ok {
+		t.Fatal("turn discovery leaked into the shared registry")
 	}
 }
 
