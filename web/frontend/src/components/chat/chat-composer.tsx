@@ -29,6 +29,8 @@ export type ChatInputDisabledReason =
   | "websocketDisconnected"
   | "websocketError"
   | "noDefaultModel"
+  | "modelsLoading"
+  | "modelsError"
 
 interface ChatComposerProps {
   input: string
@@ -176,7 +178,7 @@ export function ChatComposer({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="text-muted-foreground hover:text-foreground size-7 rounded-md"
+                className="text-muted-foreground hover:text-foreground size-11 rounded-md md:size-8"
                 onClick={onAddImages}
                 disabled={!canInput}
                 aria-label={t("chat.attachImage")}
@@ -198,7 +200,7 @@ export function ChatComposer({
                   type="button"
                   variant="outline"
                   size="icon"
-                  className="size-7 rounded-md"
+                  className="size-11 rounded-md md:size-8"
                   onClick={onStop}
                   aria-label={t("chat.stopTask")}
                   title={t("chat.stopTask")}
@@ -211,7 +213,7 @@ export function ChatComposer({
                   type="button"
                   size="icon"
                   className={cn(
-                    "size-7 rounded-md transition-[color,background-color,transform] duration-[var(--motion-state)] ease-out active:duration-[var(--motion-press)]",
+                    "size-11 rounded-md transition-[color,background-color,transform] duration-[var(--motion-state)] ease-out active:duration-[var(--motion-press)] md:size-8",
                     canSend
                       ? "bg-primary text-primary-foreground hover:bg-primary/90"
                       : "bg-muted text-muted-foreground/40",

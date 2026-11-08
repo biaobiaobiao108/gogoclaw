@@ -20,6 +20,10 @@ export interface ChatAttachment {
   contentType?: string
 }
 
+export const chatDraftsAtom = atom<
+  Record<string, { input: string; attachments: ChatAttachment[] }>
+>({})
+
 export interface ChatToolCallFunction {
   name?: string
   arguments?: string

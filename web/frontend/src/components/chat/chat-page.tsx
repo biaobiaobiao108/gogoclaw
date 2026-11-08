@@ -1,5 +1,6 @@
 import { IconPlus } from "@tabler/icons-react"
 import { useVirtualizer } from "@tanstack/react-virtual"
+import { useAtom } from "jotai"
 import {
   type ChangeEvent,
   type ClipboardEvent,
@@ -36,6 +37,7 @@ import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
 import { usePicoChat } from "@/hooks/use-pico-chat"
 import { useSessionHistory } from "@/hooks/use-session-history"
+import { chatDraftsAtom, getChatState } from "@/store/chat"
 import type {
   ChatActivity,
   ChatAttachment,
@@ -131,8 +133,7 @@ export function ChatPage() {
   const dragDepthRef = useRef(0)
   const [isAtBottom, setIsAtBottom] = useState(true)
   const [hasScrolled, setHasScrolled] = useState(false)
-  const [input, setInput] = useState("")
-  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
+  const [drafts, setDrafts] = useAtom(chatDraftsAtom)
   const [isDragActive, setIsDragActive] = useState(false)
 
   const {
@@ -159,6 +160,36 @@ export function ChatPage() {
     retryHistory,
   } = usePicoChat()
 
+  const { input = "", attachments = [] } = drafts[activeSessionId] ?? {}
+  const updateDraft = (
+    sessionId: string,
+    update: (draft: { input: string; attachments: ChatAttachment[] }) => {
+      input: string
+      attachments: ChatAttachment[]
+    },
+  ) => {
+    setDrafts((previous) => {
+      const next = { ...previous }
+      const draft = update(
+        previous[sessionId] ?? { input: "", attachments: [] },
+      )
+      if (!draft.input && draft.attachments.length === 0) delete next[sessionId]
+      else next[sessionId] = draft
+      return next
+    })
+  }
+  const setInput = (input: string) =>
+    updateDraft(activeSessionId, (draft) => ({ ...draft, input }))
+  const setAttachments = (
+    update:
+      ChatAttachment[] | ((previous: ChatAttachment[]) => ChatAttachment[]),
+  ) =>
+    updateDraft(activeSessionId, (draft) => ({
+      ...draft,
+      attachments:
+        typeof update === "function" ? update(draft.attachments) : update,
+    }))
+
   const { state: gwState } = useGateway()
   const isGatewayRunning = gwState === "running"
 
@@ -170,6 +201,9 @@ export function ChatPage() {
     localModels,
     settingDefault,
     handleSetDefault,
+    modelsLoading,
+    modelsError,
+    reloadModels,
   } = useChatModels({ isConnected: isGatewayRunning })
   const hasDefaultModel = Boolean(defaultModelName)
   const inputDisabledReason = resolveChatInputDisabledReason({
@@ -177,7 +211,13 @@ export function ChatPage() {
     connectionState,
     gatewayState: gwState,
   })
-  const canInput = inputDisabledReason === null
+  const composerDisabledReason =
+    !hasDefaultModel && modelsLoading
+      ? "modelsLoading"
+      : !hasDefaultModel && modelsError
+        ? "modelsError"
+        : inputDisabledReason
+  const canInput = composerDisabledReason === null
 
   const {
     sessions,
@@ -205,12 +245,13 @@ export function ChatPage() {
   }
 
   const handleLoadOlderHistory = async () => {
+    const sessionId = activeSessionId
     const element = scrollRef.current
     const preserveFromBottom = element
       ? element.scrollHeight - element.scrollTop
       : 0
     const loaded = await loadOlderHistory()
-    if (!loaded || !element) {
+    if (!loaded || !element || getChatState().activeSessionId !== sessionId) {
       return
     }
     requestAnimationFrame(() => {
@@ -264,7 +305,10 @@ export function ChatPage() {
       return
     }
 
-    setAttachments((prev) => [...prev, ...nextAttachments])
+    updateDraft(activeSessionId, (draft) => ({
+      ...draft,
+      attachments: [...draft.attachments, ...nextAttachments],
+    }))
   }
 
   const handleImageSelection = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -472,6 +516,22 @@ export function ChatPage() {
           onDeleteSession={handleDeleteSession}
         />
       </PageHeader>
+      {modelsError && (
+        <div
+          role="alert"
+          className="mx-4 flex shrink-0 items-center justify-between gap-3 py-2 text-sm"
+        >
+          <span>{t("chat.modelsLoadFailed")}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={modelsLoading}
+            onClick={() => void reloadModels()}
+          >
+            {t("chat.historyRetry")}
+          </Button>
+        </div>
+      )}
 
       {/* Main chat stream container */}
       <div
@@ -550,13 +610,18 @@ export function ChatPage() {
                     </Button>
                   </div>
                 )}
-                {row.kind === "empty" && (
-                  <ChatEmptyState
-                    hasAvailableModels={hasAvailableModels}
-                    defaultModelName={defaultModelName}
-                    isConnected={isGatewayRunning}
-                  />
-                )}
+                {row.kind === "empty" &&
+                  (modelsLoading && !hasDefaultModel ? (
+                    <div role="status">
+                      {t("chat.disabledPlaceholder.modelsLoading")}
+                    </div>
+                  ) : modelsError && !hasDefaultModel ? null : (
+                    <ChatEmptyState
+                      hasAvailableModels={hasAvailableModels}
+                      defaultModelName={defaultModelName}
+                      isConnected={isGatewayRunning}
+                    />
+                  ))}
                 {row.kind === "message" &&
                   (row.message.role === "assistant" ? (
                     <AssistantMessage
@@ -613,7 +678,10 @@ export function ChatPage() {
         </div>
       )}
       {activeTurn?.plan && activeTurn.plan.length > 0 && (
-        <details open className="mx-auto w-full max-w-4xl px-4 pb-2 text-xs">
+        <details
+          open
+          className="mx-auto max-h-[25dvh] w-full max-w-4xl shrink-0 overflow-y-auto px-4 pb-2 text-xs"
+        >
           <summary className="text-muted-foreground cursor-pointer">
             {t("chat.taskPlan")}
           </summary>
@@ -669,11 +737,9 @@ export function ChatPage() {
         onStop={() => sendMessage({ content: "/stop" })}
         isRunning={Boolean(activeTurn) || isTyping}
         onContextDetail={() => {
-          if (sendMessage({ content: "/context", attachments: [] })) {
-            setInput("")
-          }
+          sendMessage({ content: "/context", attachments: [] })
         }}
-        inputDisabledReason={inputDisabledReason}
+        inputDisabledReason={composerDisabledReason}
         canSend={canSubmit}
         isDragActive={isDragActive}
         contextUsage={contextUsage}

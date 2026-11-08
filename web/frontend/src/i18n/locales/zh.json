@@ -49,7 +49,9 @@
       "websocketConnecting": "正在连接聊天服务，请稍候。",
       "websocketDisconnected": "无法对话：WebSocket 连接已断开。请检查网络与服务状态，然后刷新页面或重启 Launcher。",
       "websocketError": "无法对话：WebSocket 连接失败。请检查网络与服务状态后重试。",
-      "noDefaultModel": "无法对话：尚未设置默认模型。请前往模型页面设置默认模型。"
+      "noDefaultModel": "无法对话：尚未设置默认模型。请前往模型页面设置默认模型。",
+      "modelsLoading": "正在加载模型…",
+      "modelsError": "模型加载失败，请点击重试"
     },
     "newChat": "新建对话",
     "conversation": "对话消息",
@@ -171,7 +173,8 @@
       "apikey": "API Key",
       "oauth": "OAuth",
       "local": "本地模型"
-    }
+    },
+    "modelsLoadFailed": "模型列表加载失败，请重试。"
   },
   "header": {
     "home": "GoGoClaw 控制台",

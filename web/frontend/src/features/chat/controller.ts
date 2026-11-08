@@ -32,6 +32,7 @@ let turnStatusTimer: number | null = null
 let reconnectAttempts = 0
 let shouldMaintainConnection = false
 let sessionSelectionGeneration = 0
+let historyGeneration = 0
 
 function clearReconnectTimer() {
   if (reconnectTimer !== null) {
@@ -530,11 +531,15 @@ export async function loadOlderChatHistory(): Promise<boolean> {
     return false
   }
   const sessionId = state.activeSessionId
+  const selection = historyGeneration
   const cursor = state.historyCursor
   updateChatStore({ isLoadingOlderHistory: true })
   try {
     const history = await loadOlderSessionHistory(sessionId, cursor)
-    if (getChatState().activeSessionId !== sessionId) {
+    if (
+      getChatState().activeSessionId !== sessionId ||
+      selection !== historyGeneration
+    ) {
       return false
     }
     updateChatStore((prev) => ({
@@ -547,6 +552,11 @@ export async function loadOlderChatHistory(): Promise<boolean> {
     return history.messages.length > 0
   } catch (error) {
     console.error("Failed to load earlier messages:", error)
+    if (
+      getChatState().activeSessionId !== sessionId ||
+      selection !== historyGeneration
+    )
+      return false
     updateChatStore({ isLoadingOlderHistory: false })
     toast.error(i18n.t("chat.historyLoadFailed"))
     return false
@@ -609,6 +619,7 @@ export async function switchChatSession(sessionId: string) {
 
     if (selection !== sessionSelectionGeneration) return
 
+    historyGeneration += 1
     disconnectChatInternal({ clearDesiredConnection: false })
     setActiveSessionId(sessionId)
     updateChatStore({
@@ -622,6 +633,8 @@ export async function switchChatSession(sessionId: string) {
       contextUsage: undefined,
       historyCursor: history.nextCursor,
       hasOlderHistory: history.hasOlder,
+      isLoadingOlderHistory: false,
+      historyError: false,
     })
 
     if (store.get(gatewayAtom).status === "running") {
@@ -638,11 +651,7 @@ export async function switchChatSession(sessionId: string) {
 
 export async function newChatSession() {
   sessionSelectionGeneration += 1
-  if (getChatState().messages.length === 0) {
-    updateChatStore({ isHistoryLoading: false })
-    return
-  }
-
+  historyGeneration += 1
   disconnectChatInternal({ clearDesiredConnection: false })
   setActiveSessionId(generateSessionId())
   updateChatStore({
@@ -650,6 +659,8 @@ export async function newChatSession() {
     isTyping: false,
     hasHydratedActiveSession: true,
     isHistoryLoading: false,
+    recentActivities: undefined,
+    recentPlan: undefined,
     turnHistory: undefined,
     contextUsage: undefined,
     historyCursor: undefined,

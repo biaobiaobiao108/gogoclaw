@@ -26,6 +26,8 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
   const [modelList, setModelList] = useState<ModelInfo[]>([])
   const [defaultModelName, setDefaultModelName] = useState("")
   const [settingDefault, setSettingDefault] = useState(false)
+  const [modelsLoading, setModelsLoading] = useState(true)
+  const [modelsError, setModelsError] = useState(false)
   const setDefaultRequestIdRef = useRef(0)
   const loadModelsRequestIdRef = useRef(0)
   const setDefaultQueueRef = useRef<Promise<void>>(Promise.resolve())
@@ -35,8 +37,10 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
   }, [])
 
   const loadModels = useCallback(async () => {
+    const requestId = ++loadModelsRequestIdRef.current
+    setModelsLoading(true)
+    setModelsError(false)
     try {
-      const requestId = ++loadModelsRequestIdRef.current
       await setDefaultQueueRef.current.catch(() => {})
       if (requestId !== loadModelsRequestIdRef.current) return
       const data = await getModels()
@@ -44,7 +48,9 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
       setModelList(data.models)
       syncDefaultModelName(data.default_model)
     } catch {
-      // silently fail
+      if (requestId === loadModelsRequestIdRef.current) setModelsError(true)
+    } finally {
+      if (requestId === loadModelsRequestIdRef.current) setModelsLoading(false)
     }
   }, [syncDefaultModelName])
 
@@ -73,6 +79,8 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
           if (requestId !== setDefaultRequestIdRef.current) return
 
           setModelList(data.models)
+          setModelsError(false)
+          setModelsLoading(false)
           syncDefaultModelName(data.default_model)
           const gateway = await refreshGatewayState({ force: true })
           if (requestId !== setDefaultRequestIdRef.current) return
@@ -93,6 +101,7 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
       } finally {
         if (requestId === setDefaultRequestIdRef.current) {
           setSettingDefault(false)
+          setModelsLoading(false)
         }
       }
     },
@@ -152,5 +161,8 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
     localModels,
     settingDefault,
     handleSetDefault,
+    modelsLoading,
+    modelsError,
+    reloadModels: loadModels,
   }
 }
