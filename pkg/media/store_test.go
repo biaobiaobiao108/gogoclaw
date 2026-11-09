@@ -366,6 +366,74 @@ func newTestStoreWithCleanup(maxAge time.Duration) *FileMediaStore {
 	return s
 }
 
+func TestPinnedMediaSurvivesExpiryAndGetsFreshRetention(t *testing.T) {
+	now := time.Now()
+	store := newTestStoreWithCleanup(time.Minute)
+	store.nowFunc = func() time.Time { return now }
+	path := createTempFile(t, t.TempDir(), "inbound.jpg")
+	ref, err := store.Store(path, MediaMeta{}, "scope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.PinRefs([]string{ref})
+	now = now.Add(2 * time.Minute)
+	if got := store.CleanExpired(); got != 0 {
+		t.Fatalf("removed pinned media: %d", got)
+	}
+	store.UnpinRefs([]string{ref})
+	if got := store.CleanExpired(); got != 0 {
+		t.Fatalf("removed newly unpinned media: %d", got)
+	}
+	now = now.Add(2 * time.Minute)
+	if got := store.CleanExpired(); got != 1 {
+		t.Fatalf("expired media count = %d", got)
+	}
+}
+
+func TestReconfigurePreservesReferences(t *testing.T) {
+	store := NewFileMediaStoreWithCleanup(MediaCleanerConfig{Enabled: true, MaxAge: time.Hour, Interval: time.Hour})
+	store.Start()
+	t.Cleanup(store.Stop)
+	path := createTempFile(t, t.TempDir(), "attachment")
+	ref, err := store.Store(path, MediaMeta{}, "scope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.PinRefs([]string{ref})
+	store.Reconfigure(MediaCleanerConfig{Enabled: true, MaxAge: time.Minute, Interval: time.Hour})
+	if got, err := store.Resolve(ref); err != nil || got != path {
+		t.Fatalf("reference lost after reload: %q, %v", got, err)
+	}
+	store.UnpinRefs([]string{ref})
+}
+
+func TestCleanupAbandonedProcessDirectories(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("TMPDIR", dir)
+	t.Setenv("TEMP", dir)
+	t.Setenv("TMP", dir)
+	root := filepath.Join(dir, TempDirName)
+	dead := filepath.Join(root, "process-2147483647-12345678-1234-1234-1234-123456789abc")
+	live := filepath.Join(root, fmt.Sprintf("process-%d-12345678-1234-1234-1234-123456789abc", os.Getpid()))
+	for _, path := range []string{dead, live} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		createTempFile(t, path, "attachment")
+		old := time.Now().Add(-time.Hour)
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cleanAbandonedTempDirs(time.Minute)
+	if _, err := os.Stat(dead); !os.IsNotExist(err) {
+		t.Fatalf("dead process directory remains: %v", err)
+	}
+	if _, err := os.Stat(live); err != nil {
+		t.Fatalf("live process directory removed: %v", err)
+	}
+}
+
 func TestCleanExpiredRemovesOldEntries(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()

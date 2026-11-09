@@ -2,12 +2,40 @@ package channels
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
 )
+
+func TestInboundMediaIsProtectedWhileQueued(t *testing.T) {
+	msgBus := bus.NewMessageBus()
+	defer msgBus.Close()
+	store := media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{MaxAge: time.Nanosecond})
+	path := filepath.Join(t.TempDir(), "attachment")
+	if err := os.WriteFile(path, []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := store.Store(path, media.MediaMeta{}, "scope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := NewBaseChannel("test", nil, msgBus, nil)
+	ch.SetMediaStore(store)
+	ctx := bus.InboundContext{ChatID: "chat", SenderID: "sender", MessageID: "message"}
+	if err := ch.HandleInboundContext(context.Background(), "chat", "hello", []string{ref}, ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.CleanExpired(); got != 0 {
+		t.Fatalf("queued media expired: %d", got)
+	}
+	msg := <-msgBus.InboundChan()
+	media.Unpin(store, msg.Media)
+}
 
 func TestBaseChannelIsAllowed(t *testing.T) {
 	tests := []struct {

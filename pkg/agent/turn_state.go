@@ -235,11 +235,12 @@ type turnState struct {
 	repeatedFailures  int
 	turnCtx           *TurnContext
 
-	channel     string
-	chatID      string
-	workspace   string
-	userMessage string
-	media       []string
+	channel       string
+	chatID        string
+	workspace     string
+	userMessage   string
+	media         []string
+	steeringMedia []string
 
 	phase        TurnPhase
 	iteration    int

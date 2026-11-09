@@ -51,11 +51,52 @@ type MediaStore interface {
 	ReleaseAll(scope string) error
 }
 
+// Pin and Unpin are optional for custom stores that do not expire references.
+func Pin(store MediaStore, refs []string) {
+	if p, ok := store.(interface{ PinRefs([]string) }); ok {
+		p.PinRefs(refs)
+	}
+}
+
+func Unpin(store MediaStore, refs []string) {
+	if p, ok := store.(interface{ UnpinRefs([]string) }); ok {
+		p.UnpinRefs(refs)
+	}
+}
+
 // mediaEntry holds the path and metadata for a stored media file.
 type mediaEntry struct {
 	path     string
 	meta     MediaMeta
 	storedAt time.Time
+	pins     int
+}
+
+// PinRefs protects queued or in-flight media from expiry. Unknown references are ignored.
+func (s *FileMediaStore) PinRefs(refs []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, ref := range refs {
+		if e, ok := s.refs[ref]; ok {
+			e.pins++
+			s.refs[ref] = e
+		}
+	}
+}
+
+// UnpinRefs starts a fresh retention period after the last consumer finishes.
+func (s *FileMediaStore) UnpinRefs(refs []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, ref := range refs {
+		if e, ok := s.refs[ref]; ok && e.pins > 0 {
+			e.pins--
+			if e.pins == 0 {
+				e.storedAt = s.nowFunc()
+			}
+			s.refs[ref] = e
+		}
+	}
 }
 
 type pathRefState struct {
@@ -81,9 +122,12 @@ type FileMediaStore struct {
 	pathStates  map[string]pathRefState
 
 	cleanerCfg MediaCleanerConfig
+	cleanerMu  sync.Mutex
 	stop       chan struct{}
+	done       chan struct{}
 	startOnce  sync.Once
 	stopOnce   sync.Once
+	started    bool
 	nowFunc    func() time.Time // for testing
 }
 
@@ -109,6 +153,7 @@ func NewFileMediaStoreWithCleanup(cfg MediaCleanerConfig) *FileMediaStore {
 		pathStates:  make(map[string]pathRefState),
 		cleanerCfg:  cfg,
 		stop:        make(chan struct{}),
+		done:        make(chan struct{}),
 		nowFunc:     time.Now,
 	}
 }
@@ -230,7 +275,7 @@ func (s *FileMediaStore) CleanExpired() int {
 	var expired []expiredEntry
 
 	for ref, entry := range s.refs {
-		if entry.storedAt.Before(cutoff) {
+		if entry.pins == 0 && entry.storedAt.Before(cutoff) {
 			if scope, ok := s.refToScope[ref]; ok {
 				if scopeRefs, ok := s.scopeToRefs[scope]; ok {
 					delete(scopeRefs, ref)
@@ -307,6 +352,8 @@ func (s *FileMediaStore) releaseRefLocked(ref, fallbackPath string) (string, boo
 // Start begins the background cleanup goroutine if cleanup is enabled.
 // Safe to call multiple times; only the first call starts the goroutine.
 func (s *FileMediaStore) Start() {
+	s.cleanerMu.Lock()
+	defer s.cleanerMu.Unlock()
 	if !s.cleanerCfg.Enabled || s.stop == nil {
 		return
 	}
@@ -319,18 +366,22 @@ func (s *FileMediaStore) Start() {
 	}
 
 	s.startOnce.Do(func() {
+		s.started = true
+		cleanAbandonedTempDirs(s.cleanerCfg.MaxAge)
 		logger.InfoCF("media", "cleanup enabled", map[string]any{
 			"interval": s.cleanerCfg.Interval.String(),
 			"max_age":  s.cleanerCfg.MaxAge.String(),
 		})
 
 		go func() {
+			defer close(s.done)
 			ticker := time.NewTicker(s.cleanerCfg.Interval)
 			defer ticker.Stop()
 
 			for {
 				select {
 				case <-ticker.C:
+					cleanAbandonedTempDirs(s.cleanerCfg.MaxAge)
 					if n := s.CleanExpired(); n > 0 {
 						logger.InfoCF("media", "cleanup: removed expired entries", map[string]any{
 							"count": n,
@@ -344,13 +395,32 @@ func (s *FileMediaStore) Start() {
 	})
 }
 
+// Reconfigure preserves live references when the gateway reloads its services.
+func (s *FileMediaStore) Reconfigure(cfg MediaCleanerConfig) {
+	s.Stop()
+	s.cleanerMu.Lock()
+	s.cleanerCfg = cfg
+	s.stop = make(chan struct{})
+	s.done = make(chan struct{})
+	s.startOnce = sync.Once{}
+	s.stopOnce = sync.Once{}
+	s.started = false
+	s.cleanerMu.Unlock()
+	s.Start()
+}
+
 // Stop terminates the background cleanup goroutine.
 // Safe to call multiple times; only the first call closes the channel.
 func (s *FileMediaStore) Stop() {
+	s.cleanerMu.Lock()
+	defer s.cleanerMu.Unlock()
 	if s.stop == nil {
 		return
 	}
 	s.stopOnce.Do(func() {
 		close(s.stop)
+		if s.started {
+			<-s.done
+		}
 	})
 }

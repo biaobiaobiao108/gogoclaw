@@ -25,6 +25,40 @@ import (
 
 // --- steeringQueue unit tests ---
 
+func TestSteeringMediaPinnedUntilTurnCompletes(t *testing.T) {
+	store := media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{MaxAge: time.Nanosecond})
+	path := filepath.Join(t.TempDir(), "attachment")
+	if err := os.WriteFile(path, []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := store.Store(path, media.MediaMeta{}, "inbound")
+	if err != nil {
+		t.Fatal(err)
+	}
+	media.Pin(store, []string{ref})
+	al := &AgentLoop{steering: newSteeringQueue(SteeringOneAtATime), mediaStore: store}
+	ts := &turnState{turnID: "turn-1"}
+	al.activeTurnStates.Store("session", ts)
+	if err := al.steering.pushScope("session", providers.Message{Media: []string{ref}}); err != nil {
+		t.Fatal(err)
+	}
+	if store.CleanExpired() != 0 {
+		t.Fatal("queued media expired")
+	}
+	msgs := al.dequeueSteeringMessagesForScope("session")
+	if len(msgs) != 1 || len(ts.steeringMedia) != 1 {
+		t.Fatal("dequeued media was not assigned to the turn")
+	}
+	if store.CleanExpired() != 0 {
+		t.Fatal("in-flight media expired")
+	}
+	media.Unpin(store, ts.steeringMedia)
+	time.Sleep(10 * time.Millisecond)
+	if store.CleanExpired() != 1 {
+		t.Fatal("finished media did not expire")
+	}
+}
+
 func TestSteeringQueue_PushDequeue_OneAtATime(t *testing.T) {
 	sq := newSteeringQueue(SteeringOneAtATime)
 

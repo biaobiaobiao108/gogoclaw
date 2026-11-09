@@ -16,7 +16,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/identity"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
+	mediastore "github.com/biaobiaobiao108/gogoclaw/pkg/media"
 )
 
 var (
@@ -91,7 +91,7 @@ type BaseChannel struct {
 	allowList           []string
 	maxMessageLength    int
 	groupTrigger        config.GroupTriggerConfig
-	mediaStore          media.MediaStore
+	mediaStore          mediastore.MediaStore
 	placeholderRecorder PlaceholderRecorder
 	owner               Channel // the concrete channel that embeds this BaseChannel
 	reasoningChannelID  string
@@ -393,6 +393,8 @@ func (c *BaseChannel) handleMessageWithContext(
 		MediaScope:  scope,
 	}
 	msg = bus.NormalizeInboundMessage(msg)
+	mediaStore := c.GetMediaStore()
+	mediastore.Pin(mediaStore, msg.Media)
 
 	// Auto-trigger typing indicator, message reaction, and placeholder before publishing.
 	// Each capability is independent — all three may fire for the same message.
@@ -427,6 +429,7 @@ func (c *BaseChannel) handleMessageWithContext(
 	}
 
 	if err := c.bus.PublishInbound(ctx, msg); err != nil {
+		mediastore.Unpin(mediaStore, msg.Media)
 		if c.inboundDedup != nil {
 			c.inboundDedup.release(dedupeKey)
 		}
@@ -470,10 +473,10 @@ func (c *BaseChannel) SetRunning(running bool) {
 }
 
 // SetMediaStore injects a MediaStore into the channel.
-func (c *BaseChannel) SetMediaStore(s media.MediaStore) { c.mediaStore = s }
+func (c *BaseChannel) SetMediaStore(s mediastore.MediaStore) { c.mediaStore = s }
 
 // GetMediaStore returns the injected MediaStore (may be nil).
-func (c *BaseChannel) GetMediaStore() media.MediaStore { return c.mediaStore }
+func (c *BaseChannel) GetMediaStore() mediastore.MediaStore { return c.mediaStore }
 
 // SetPlaceholderRecorder injects a PlaceholderRecorder into the channel.
 func (c *BaseChannel) SetPlaceholderRecorder(r PlaceholderRecorder) {

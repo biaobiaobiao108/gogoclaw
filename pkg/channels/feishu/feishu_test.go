@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/larksuite/oapi-sdk-go/v3"
@@ -16,6 +18,27 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
 )
+
+func TestStoreResourceFileRejectsOversizedDownload(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("TMPDIR", dir)
+	t.Setenv("TEMP", dir)
+	t.Setenv("TMP", dir)
+	store := media.NewFileMediaStore()
+	c := &FeishuChannel{}
+	ref := c.storeResourceFile(context.Background(), "message", "file", "file.txt",
+		strings.NewReader(strings.Repeat("x", maxInboundResourceSize+1)), store, "scope")
+	if ref != "" {
+		t.Fatalf("oversized resource registered as %q", ref)
+	}
+	entries, err := os.ReadDir(media.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("oversized resource left %d temporary files", len(entries))
+	}
+}
 
 func TestExtractContent(t *testing.T) {
 	tests := []struct {

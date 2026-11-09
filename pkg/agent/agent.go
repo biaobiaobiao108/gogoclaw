@@ -215,11 +215,25 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 			}
 			if _, loaded := al.activeTurnStates.LoadOrStore(sessionKey, placeholder); loaded {
 				if al.tryHandleStopCommand(ctx, msg, sessionKey) {
+					media.Unpin(al.mediaStore, msg.Media)
 					continue
 				}
 
+				originalMedia := msg.Media
 				msg = al.prepareInboundMessageForAgent(ctx, msg)
+				remainingMedia := make(map[string]int, len(msg.Media))
+				for _, ref := range msg.Media {
+					remainingMedia[ref]++
+				}
+				for _, ref := range originalMedia {
+					if remainingMedia[ref] > 0 {
+						remainingMedia[ref]--
+					} else {
+						media.Unpin(al.mediaStore, []string{ref})
+					}
+				}
 				if isChatBranchMutation(msg) {
+					media.Unpin(al.mediaStore, msg.Media)
 					al.maybePublishError(
 						ctx,
 						msg.Channel,
@@ -237,6 +251,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 					Content: msg.Content,
 					Media:   append([]string(nil), msg.Media...),
 				}); err != nil {
+					media.Unpin(al.mediaStore, msg.Media)
 					logger.WarnCF("agent", "Failed to enqueue steering message",
 						map[string]any{
 							"error":       err.Error(),
@@ -251,6 +266,8 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 						sessionKey,
 						"消息未加入队列：当前会话待处理消息已满。请等待当前任务结束后重试。",
 					)
+				} else {
+					media.Unpin(al.mediaStore, msg.Media)
 				}
 				continue
 			}
@@ -261,6 +278,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 			al.backgroundWG.Add(1)
 			go func(m bus.InboundMessage, ph *turnState) {
 				defer al.backgroundWG.Done()
+				defer media.Unpin(al.mediaStore, m.Media)
 				var releaseSession bool
 				// Acquire semaphore slot (blocks if at capacity)
 				select {
@@ -337,18 +355,6 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				al.runTurnWithSteering(runCtx, m)
 			}(msg, placeholder)
 
-			// TODO: Re-enable media cleanup after inbound media is properly consumed by the agent.
-			// Currently disabled because files are deleted before the LLM can access their content.
-			// defer func() {
-			// 	if al.mediaStore != nil && msg.MediaScope != "" {
-			// 		if releaseErr := al.mediaStore.ReleaseAll(msg.MediaScope); releaseErr != nil {
-			// 			logger.WarnCF("agent", "Failed to release media", map[string]any{
-			// 				"scope": msg.MediaScope,
-			// 				"error": releaseErr.Error(),
-			// 			})
-			// 		}
-			// 	}
-			// }()
 		}
 	}
 }

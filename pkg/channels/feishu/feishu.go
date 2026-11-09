@@ -34,6 +34,9 @@ import (
 // on this error, so we do it ourselves.
 const errCodeTenantTokenInvalid = 99991663
 
+// Bound downloads before they enter the container's limited temporary storage.
+const maxInboundResourceSize = config.DefaultMaxMediaSize
+
 type FeishuChannel struct {
 	*channels.BaseChannel
 	bc         *config.Channel
@@ -1032,11 +1035,16 @@ func (c *FeishuChannel) storeResourceFile(
 		return ""
 	}
 
-	if _, copyErr := io.Copy(out, file); copyErr != nil {
+	written, copyErr := io.Copy(out, io.LimitReader(file, int64(maxInboundResourceSize)+1))
+	if copyErr != nil || written > int64(maxInboundResourceSize) {
 		out.Close()
 		os.Remove(localPath)
+		if copyErr == nil {
+			copyErr = fmt.Errorf("resource exceeds %d bytes", maxInboundResourceSize)
+		}
 		logger.ErrorCF("feishu", "Failed to write resource to file", map[string]any{
-			"error": copyErr.Error(),
+			"error":      copyErr,
+			"size_limit": maxInboundResourceSize,
 		})
 		return ""
 	}

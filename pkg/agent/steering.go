@@ -10,6 +10,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
@@ -156,16 +157,16 @@ func (sq *steeringQueue) lenScope(scope string) int {
 	return len(sq.queues[normalizeSteeringScope(scope)])
 }
 
-func (sq *steeringQueue) clearScope(scope string) int {
+func (sq *steeringQueue) clearScope(scope string) []providers.Message {
 	sq.mu.Lock()
 	defer sq.mu.Unlock()
 
 	scope = normalizeSteeringScope(scope)
-	count := len(sq.queues[scope])
-	if count > 0 {
+	msgs := sq.queues[scope]
+	if len(msgs) > 0 {
 		delete(sq.queues, scope)
 	}
-	return count
+	return msgs
 }
 
 // setMode updates the steering mode.
@@ -201,7 +202,9 @@ func (al *AgentLoop) enqueueSteeringMessage(scope, agentID string, msg providers
 	}
 
 	msg = steeringPromptMessage(msg)
+	media.Pin(al.mediaStore, msg.Media)
 	if err := al.steering.pushScope(scope, msg); err != nil {
+		media.Unpin(al.mediaStore, msg.Media)
 		logger.WarnCF("agent", "Failed to enqueue steering message", map[string]any{
 			"error": err.Error(),
 			"role":  msg.Role,
@@ -285,14 +288,37 @@ func (al *AgentLoop) dequeueSteeringMessagesForScope(scope string) []providers.M
 	if al.steering == nil {
 		return nil
 	}
-	return al.steering.dequeueScope(scope)
+	msgs := al.steering.dequeueScope(scope)
+	al.trackSteeringMedia(scope, msgs)
+	return msgs
 }
 
 func (al *AgentLoop) dequeueSteeringMessagesForScopeWithFallback(scope string) []providers.Message {
 	if al.steering == nil {
 		return nil
 	}
-	return al.steering.dequeueScopeWithFallback(scope)
+	msgs := al.steering.dequeueScopeWithFallback(scope)
+	al.trackSteeringMedia(scope, msgs)
+	return msgs
+}
+
+func (al *AgentLoop) trackSteeringMedia(scope string, msgs []providers.Message) {
+	ts := al.getActiveTurnState(scope)
+	if ts == nil || strings.HasPrefix(ts.turnID, "pending-") {
+		return
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	for _, msg := range msgs {
+		ts.steeringMedia = append(ts.steeringMedia, msg.Media...)
+	}
+}
+
+func (al *AgentLoop) pinTurnMedia(ts *turnState, refs []string) {
+	media.Pin(al.mediaStore, refs)
+	ts.mu.Lock()
+	ts.steeringMedia = append(ts.steeringMedia, refs...)
+	ts.mu.Unlock()
 }
 
 func (al *AgentLoop) pendingSteeringCountForScope(scope string) int {
@@ -306,7 +332,11 @@ func (al *AgentLoop) clearSteeringMessagesForScope(scope string) int {
 	if al.steering == nil {
 		return 0
 	}
-	return al.steering.clearScope(scope)
+	msgs := al.steering.clearScope(scope)
+	for _, msg := range msgs {
+		media.Unpin(al.mediaStore, msg.Media)
+	}
+	return len(msgs)
 }
 
 func (al *AgentLoop) continueWithSteeringMessages(
@@ -395,6 +425,11 @@ func (al *AgentLoop) Continue(ctx context.Context, sessionKey, channel, chatID s
 	}
 
 	steeringMsgs := al.dequeueSteeringMessagesForScopeWithFallback(sessionKey)
+	defer func() {
+		for _, msg := range steeringMsgs {
+			media.Unpin(al.mediaStore, msg.Media)
+		}
+	}()
 	if len(steeringMsgs) == 0 {
 		al.activeTurnStates.Delete(sessionKey)
 		return "", nil

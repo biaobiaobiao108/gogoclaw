@@ -416,6 +416,7 @@ toolLoop:
 						})
 					}
 
+					al.pinTurnMedia(ts, hookResult.Media)
 					if len(hookResult.Media) > 0 && hookResult.ResponseHandled {
 						parts := make([]bus.MediaPart, 0, len(hookResult.Media))
 						for _, ref := range hookResult.Media {
@@ -955,6 +956,7 @@ toolLoop:
 			_ = ts.requestGracefulInterrupt(failureDecision.InterruptHint)
 		}
 
+		al.pinTurnMedia(ts, toolResult.Media)
 		if len(toolResult.Media) > 0 && toolResult.ResponseHandled {
 			parts := make([]bus.MediaPart, 0, len(toolResult.Media))
 			for _, ref := range toolResult.Media {
