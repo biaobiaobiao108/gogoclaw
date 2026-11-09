@@ -36,6 +36,7 @@ type ScenarioSpec struct {
 	ReplayPath           string             `json:"replay_path,omitempty"`
 	RecordPath           string             `json:"record_path,omitempty"`
 	Workspace            string             `json:"workspace,omitempty"`
+	ProductionIngress    bool               `json:"production_ingress,omitempty"`
 	Steps                []ModelStepSpec    `json:"steps"`
 	Tools                []ToolSpec         `json:"tools,omitempty"`
 	SessionFaults        []SessionFaultSpec `json:"session_faults,omitempty"`
@@ -222,6 +223,7 @@ func (s ScenarioSpec) Scenario() (Scenario, error) {
 		ReplayPath:           s.ReplayPath,
 		RecordPath:           s.RecordPath,
 		Workspace:            s.Workspace,
+		ProductionIngress:    s.ProductionIngress,
 		Expectation:          s.Expectation,
 	}
 	for _, step := range s.Steps {

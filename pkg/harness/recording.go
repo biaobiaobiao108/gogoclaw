@@ -1,7 +1,9 @@
 package harness
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -99,8 +101,8 @@ func (p *ReplayProvider) GetDefaultModel() string {
 
 func (p *ReplayProvider) Chat(
 	ctx context.Context,
-	_ []providers.Message,
-	_ []providers.ToolDefinition,
+	messages []providers.Message,
+	toolDefs []providers.ToolDefinition,
 	model string,
 	_ map[string]any,
 ) (*providers.LLMResponse, error) {
@@ -116,6 +118,22 @@ func (p *ReplayProvider) Chat(
 	p.next++
 	if record.Model != "" && model != "" && record.Model != model {
 		return nil, fmt.Errorf("harness: replay model = %s, want %s", model, record.Model)
+	}
+	wantInput, err := json.Marshal(replayInputMessages(record.Messages))
+	if err != nil {
+		return nil, fmt.Errorf("harness: encode replay input: %w", err)
+	}
+	gotInput, err := json.Marshal(replayInputMessages(snapshotMessages(messages)))
+	if err != nil {
+		return nil, fmt.Errorf("harness: encode current input: %w", err)
+	}
+	if !bytes.Equal(gotInput, wantInput) {
+		return nil, fmt.Errorf("harness: replay input messages differ at call %d", p.next)
+	}
+	wantTools, _ := json.Marshal(record.ToolNames)
+	gotTools, _ := json.Marshal(toolNames(toolDefs))
+	if !bytes.Equal(gotTools, wantTools) {
+		return nil, fmt.Errorf("harness: replay tools at call %d differ", p.next)
 	}
 	if record.Error != "" {
 		return nil, errors.New(record.Error)
@@ -134,6 +152,18 @@ func (p *ReplayProvider) Chat(
 		response.Usage = &usage
 	}
 	return response, nil
+}
+
+// Machine-specific system prompts may contain paths and runtime facts. Replay
+// validates the conversational context and tool surface.
+func replayInputMessages(messages []TraceMessage) []TraceMessage {
+	var input []TraceMessage
+	for _, message := range messages {
+		if message.Role != "system" {
+			input = append(input, message)
+		}
+	}
+	return input
 }
 
 func providerToolCalls(calls []TraceToolCall) []providers.ToolCall {

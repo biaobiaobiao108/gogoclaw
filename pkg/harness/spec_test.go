@@ -12,8 +12,9 @@ func TestRunSpecFile(t *testing.T) {
 	data := `{
   "name": "json-scenario",
   "user_message": "hello",
+  "production_ingress": true,
   "steps": [{"content": "json answer"}],
-  "expect": {"final": "json answer"}
+  "expect": {"final": "json answer", "outbound_contains": ["json answer"]}
 }`
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatal(err)

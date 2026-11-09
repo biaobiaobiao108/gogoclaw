@@ -3,8 +3,12 @@ package harness
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -342,6 +346,232 @@ func TestProviderRecordAndReplay(t *testing.T) {
 	}
 	if err := replayed.Verify(Expect{Final: "recorded answer"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestReplayRejectsChangedConversationInput(t *testing.T) {
+	replay := NewReplayProvider("harness-model", Trace{Version: traceVersion, ModelCalls: []TraceModelCall{{
+		Model: "harness-model", Messages: []TraceMessage{{Role: "user", Content: "original"}},
+		Response: &TraceModelResponse{Content: "answer"},
+	}}})
+	_, err := replay.Chat(context.Background(), []providers.Message{{Role: "user", Content: "changed"}}, nil, "harness-model", nil)
+	if err == nil || !strings.Contains(err.Error(), "input messages differ") {
+		t.Fatalf("changed prompt accepted by replay: %v", err)
+	}
+}
+
+func TestExpectedFailuresMustBeDeclared(t *testing.T) {
+	result, err := Run(context.Background(), Scenario{
+		Name: "undeclared-failure", UserMessage: "fail", Steps: []ModelStep{Fail(errors.New("provider unavailable"))},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := result.Verify(Expect{Events: []runtimeevents.Kind{runtimeevents.KindAgentTurnEnd}}); err == nil || !strings.Contains(err.Error(), "unexpected error") {
+		t.Fatalf("undeclared error accepted: %v", err)
+	}
+	if err := result.Verify(Expect{ErrorContains: "provider unavailable"}); err != nil {
+		t.Fatalf("declared expected error rejected: %v", err)
+	}
+}
+
+func TestTokenUsageTotalsAcrossCalls(t *testing.T) {
+	result, err := Run(context.Background(), Scenario{
+		Name: "usage", UserMessage: "count tokens",
+		Steps: []ModelStep{{Response: &providers.LLMResponse{Content: "done", Usage: &providers.UsageInfo{PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10}}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.TokenUsage(); got != (TokenUsage{PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10}) {
+		t.Fatalf("usage = %+v", got)
+	}
+}
+
+func TestWorkspaceSessionSurvivesHarnessRestart(t *testing.T) {
+	workspace := t.TempDir()
+	first, err := Run(context.Background(), Scenario{
+		Name: "restart-recovery", SessionKey: "agent:main:restart-recovery", Workspace: workspace,
+		UserMessage: "save this context", Steps: []ModelStep{Text("persisted marker")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Verify(Expect{Final: "persisted marker"}); err != nil {
+		t.Fatal(err)
+	}
+	second, err := Run(context.Background(), Scenario{
+		Name: "restart-recovery", SessionKey: "agent:main:restart-recovery", Workspace: workspace,
+		UserMessage: "continue after restart", Steps: []ModelStep{Text("recovered")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Verify(Expect{Final: "recovered", HistoryContains: []string{"persisted marker"}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkspaceStateExpectation(t *testing.T) {
+	workspace := t.TempDir()
+	tool := NewToolStub("write_report", func(_ context.Context, _ map[string]any, _ int) *tools.ToolResult {
+		if err := os.WriteFile(filepath.Join(workspace, "report.txt"), []byte("complete: 3 items"), 0o600); err != nil {
+			return tools.ErrorResult(err.Error())
+		}
+		return tools.NewToolResult("report saved")
+	})
+	result, err := Run(context.Background(), Scenario{
+		Name: "state-evaluation", UserMessage: "create report", Workspace: workspace,
+		Steps: []ModelStep{Calls(ToolCall("write-1", "write_report", nil)), Text("created")},
+		Tools: []tools.Tool{tool},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := result.Verify(Expect{Final: "created", WorkspaceFiles: map[string]string{"report.txt": "complete: 3"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := result.Verify(Expect{WorkspaceFiles: map[string]string{"report.txt": "wrong"}}); err == nil {
+		t.Fatal("state mismatch passed")
+	}
+	if err := result.Verify(Expect{WorkspaceFiles: map[string]string{"../outside": "x"}}); err == nil {
+		t.Fatal("path traversal passed")
+	}
+}
+
+type harnessSubTurnTool struct{ spawner tools.SubTurnSpawner }
+
+func (*harnessSubTurnTool) Name() string                                 { return "run_child" }
+func (*harnessSubTurnTool) Description() string                          { return "Run a child turn" }
+func (*harnessSubTurnTool) Parameters() map[string]any                   { return map[string]any{"type": "object"} }
+func (tool *harnessSubTurnTool) SetSpawner(spawner tools.SubTurnSpawner) { tool.spawner = spawner }
+func (tool *harnessSubTurnTool) Execute(ctx context.Context, _ map[string]any) *tools.ToolResult {
+	result, err := tool.spawner.SpawnSubTurn(ctx, tools.SubTurnConfig{Model: "harness-model", SystemPrompt: "child task"})
+	if err != nil {
+		return tools.ErrorResult(err.Error())
+	}
+	return result
+}
+
+func TestSubTurnTracePreservesParentRelationship(t *testing.T) {
+	result, err := Run(context.Background(), Scenario{
+		Name: "parent-child", UserMessage: "run child",
+		Steps: []ModelStep{Calls(ToolCall("parent-call", "run_child", nil)), Text("child answer"), Text("parent answer")},
+		Tools: []tools.Tool{&harnessSubTurnTool{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := result.Verify(Expect{Final: "parent answer", ModelCallsExact: intPtr(3)}); err != nil {
+		t.Fatal(err)
+	}
+	trace := result.Snapshot()
+	var child *TraceEvent
+	for i := range trace.Events {
+		if trace.Events[i].Kind == runtimeevents.KindAgentSubTurnSpawn {
+			child = &trace.Events[i]
+			break
+		}
+	}
+	if child == nil || child.TurnID == "" || child.ParentTurnID == "" || child.TurnID == child.ParentTurnID {
+		t.Fatalf("child turn relationship missing from trace: %+v", child)
+	}
+}
+
+func intPtr(value int) *int { return &value }
+
+func TestProductionIngressUsesBusAndPublishesResponse(t *testing.T) {
+	result, err := Run(context.Background(), Scenario{
+		Name: "production-ingress", UserMessage: "inbound message", ProductionIngress: true,
+		Steps: []ModelStep{Text("bus response")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := result.Verify(Expect{Final: "bus response", NoError: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := result.Verify(Expect{OutboundContains: []string{"bus response"}}); err != nil {
+		t.Fatalf("production ingress failed to deliver response: %v", err)
+	}
+}
+
+type concurrentHarnessProvider struct {
+	mu      sync.Mutex
+	started int
+	release chan struct{}
+	active  atomic.Int32
+	max     atomic.Int32
+}
+
+func (p *concurrentHarnessProvider) GetDefaultModel() string { return "concurrent-harness" }
+func (p *concurrentHarnessProvider) Chat(ctx context.Context, messages []providers.Message, _ []providers.ToolDefinition, _ string, _ map[string]any) (*providers.LLMResponse, error) {
+	content := ""
+	if len(messages) > 0 {
+		content = messages[len(messages)-1].Content
+	}
+	if strings.Contains(content, "parallel-") {
+		active := p.active.Add(1)
+		defer p.active.Add(-1)
+		for current := p.max.Load(); active > current && !p.max.CompareAndSwap(current, active); current = p.max.Load() {
+		}
+		p.mu.Lock()
+		p.started++
+		if p.started == 2 {
+			close(p.release)
+		}
+		p.mu.Unlock()
+		select {
+		case <-p.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return &providers.LLMResponse{Content: "done " + content}, nil
+	}
+	return &providers.LLMResponse{Content: "main response"}, nil
+}
+
+func TestSameLoopConcurrentSessions(t *testing.T) {
+	provider := &concurrentHarnessProvider{release: make(chan struct{})}
+	result, err := Run(context.Background(), Scenario{
+		Name: "same-loop-parallel-sessions", UserMessage: "main", Provider: provider,
+		ConcurrentSetup: func(runtime ToolRuntime) error {
+			var wg sync.WaitGroup
+			errs := make(chan error, 2)
+			for _, item := range []struct{ content, key string }{{"parallel-alpha", "agent:main:session-alpha"}, {"parallel-beta", "agent:main:session-beta"}} {
+				wg.Add(1)
+				go func(content, key string) {
+					defer wg.Done()
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					answer, err := runtime.Loop.ProcessDirectWithChannel(ctx, content, key, "harness", key)
+					if err == nil && answer != "done "+content {
+						err = fmt.Errorf("answer = %q", answer)
+					}
+					errs <- err
+				}(item.content, item.key)
+			}
+			wg.Wait()
+			close(errs)
+			for err := range errs {
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.max.Load() != 2 {
+		t.Fatalf("concurrent provider calls = %d, want 2", provider.max.Load())
+	}
+	if err := result.Verify(Expect{Final: "main response", NoError: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Events) == 0 {
+		t.Fatal("same-loop turns were not captured")
 	}
 }
 

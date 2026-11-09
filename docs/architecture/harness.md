@@ -39,6 +39,13 @@ completion follows the same unified queue and follow-up rules as production.
 - Persisted session history substring assertions (`history_contains`).
 - Emitted outbound bus message assertions (`outbound_contains`, `no_outbound`).
 - Persisted golden-trace comparison.
+- Workspace file-state assertions (`workspace_files`, `workspace_files_absent`)
+  for tasks whose success is an artifact or other observable final state.
+- Provider-reported prompt, completion, and total tokens in suite reports.
+
+Errors fail an expectation by default. Declare an expected failure with
+`error_contains`, or use `allow_error` when the error itself is not being
+matched.
 
 Every `Verify` call also checks structural invariants: one start and end event
 per turn, a `created` lifecycle origin, legal phase transitions, a terminal
@@ -49,11 +56,23 @@ record.
 
 `Result.Snapshot`, `SaveTrace`, `LoadTrace`, and `CompareTrace` produce a
 timestamp-free canonical trace for golden tests. Volatile IDs, durations,
-workspace paths, and timestamps are removed.
+workspace paths, timestamps, and machine-specific runtime details are removed.
 
-`RecordPath` records model responses during a run. A later run can set
-`ReplayPath` to execute the same trajectory through `ReplayProvider` without a
-live provider.
+`RecordPath` records model responses during a run. `ReplayPath` checks the
+model, conversation messages, and tool names before returning each recorded
+response. Machine-specific system prompt text is ignored for this input check;
+conversation history and the tool surface are compared.
+
+Golden traces are timestamp-free and normalize runtime turn IDs and workspace
+paths. Update an intentional golden change with
+`$env:UPDATE_HARNESS_GOLDEN='1'; go test ./pkg/harness -run TestGoldenBasicTurn`.
+
+Go scenarios can supply a real provider. Pair it with a state assertion or a
+custom test expectation to judge task completion from observable effects;
+scripted provider scenarios remain useful for deterministic execution-path
+regressions. `ProductionIngress` sends test messages through the message bus
+and `AgentLoop.Run`, including final outbound delivery. `ConcurrentSetup` can
+exercise multiple sessions on one loop while retaining the runtime event trace.
 
 ## Suites And CLI
 

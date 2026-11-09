@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -45,9 +46,11 @@ type Scenario struct {
 	Tools                []tools.Tool
 	ToolFactory          func(ToolRuntime) ([]tools.Tool, error)
 	Setup                func(*agent.AgentLoop) error
+	ConcurrentSetup      func(ToolRuntime) error
 	Session              session.SessionStore
 	SessionFault         *SessionFault
 	Workspace            string
+	ProductionIngress    bool
 	Expectation          *Expect
 }
 
@@ -174,6 +177,7 @@ type Result struct {
 	Outbound       []string
 	History        []providers.Message
 	AsyncFollowUps []bus.InboundMessage
+	workspace      string
 }
 
 type ToolCallExpectation struct {
@@ -200,38 +204,41 @@ type EventExpectation struct {
 
 // Expect is a declarative trajectory assertion.
 type Expect struct {
-	Final              string                 `json:"final,omitempty"`
-	FinalExact         *string                `json:"final_exact,omitempty"`
-	FinalContains      []string               `json:"final_contains,omitempty"`
-	ErrorContains      string                 `json:"error_contains,omitempty"`
-	NoError            bool                   `json:"no_error,omitempty"`
-	ModelCalls         int                    `json:"model_calls,omitempty"`
-	ModelCallsExact    *int                   `json:"model_calls_exact,omitempty"`
-	MinModelCalls      int                    `json:"min_model_calls,omitempty"`
-	MaxModelCalls      int                    `json:"max_model_calls,omitempty"`
-	MaxModelCallsExact *int                   `json:"max_model_calls_exact,omitempty"`
-	TurnCount          int                    `json:"turn_count,omitempty"`
-	AsyncFollowUps     int                    `json:"async_follow_ups,omitempty"`
-	MinAsyncFollowUps  int                    `json:"min_async_follow_ups,omitempty"`
-	MaxAsyncFollowUps  *int                   `json:"max_async_follow_ups,omitempty"`
-	FollowUpContains   []string               `json:"follow_up_contains,omitempty"`
-	Tools              []string               `json:"tools,omitempty"`
-	ToolCalls          []ToolCallExpectation  `json:"tool_calls,omitempty"`
-	NoTools            []string               `json:"no_tools,omitempty"`
-	TurnStatus         agent.TurnEndStatus    `json:"turn_status,omitempty"`
-	TurnReason         agent.TurnEndReason    `json:"turn_reason,omitempty"`
-	Phases             []agent.TurnPhase      `json:"phases,omitempty"`
-	Events             []runtimeevents.Kind   `json:"events,omitempty"`
-	EventSequence      []runtimeevents.Kind   `json:"event_sequence,omitempty"`
-	ExactEventSequence []runtimeevents.Kind   `json:"exact_event_sequence,omitempty"`
-	EventDetails       []EventExpectation     `json:"event_details,omitempty"`
-	ModelDetails       []ModelCallExpectation `json:"model_details,omitempty"`
-	GoldenTrace        string                 `json:"golden_trace,omitempty"`
-	AllowInvalidTrace  bool                   `json:"allow_invalid_trace,omitempty"`
-	HistoryContains    []string               `json:"history_contains,omitempty"`
-	OutboundContains   []string               `json:"outbound_contains,omitempty"`
-	NoOutbound         bool                   `json:"no_outbound,omitempty"`
-	Iterations         int                    `json:"iterations,omitempty"`
+	Final                string                 `json:"final,omitempty"`
+	FinalExact           *string                `json:"final_exact,omitempty"`
+	FinalContains        []string               `json:"final_contains,omitempty"`
+	ErrorContains        string                 `json:"error_contains,omitempty"`
+	NoError              bool                   `json:"no_error,omitempty"`
+	AllowError           bool                   `json:"allow_error,omitempty"`
+	WorkspaceFiles       map[string]string      `json:"workspace_files,omitempty"`
+	WorkspaceFilesAbsent []string               `json:"workspace_files_absent,omitempty"`
+	ModelCalls           int                    `json:"model_calls,omitempty"`
+	ModelCallsExact      *int                   `json:"model_calls_exact,omitempty"`
+	MinModelCalls        int                    `json:"min_model_calls,omitempty"`
+	MaxModelCalls        int                    `json:"max_model_calls,omitempty"`
+	MaxModelCallsExact   *int                   `json:"max_model_calls_exact,omitempty"`
+	TurnCount            int                    `json:"turn_count,omitempty"`
+	AsyncFollowUps       int                    `json:"async_follow_ups,omitempty"`
+	MinAsyncFollowUps    int                    `json:"min_async_follow_ups,omitempty"`
+	MaxAsyncFollowUps    *int                   `json:"max_async_follow_ups,omitempty"`
+	FollowUpContains     []string               `json:"follow_up_contains,omitempty"`
+	Tools                []string               `json:"tools,omitempty"`
+	ToolCalls            []ToolCallExpectation  `json:"tool_calls,omitempty"`
+	NoTools              []string               `json:"no_tools,omitempty"`
+	TurnStatus           agent.TurnEndStatus    `json:"turn_status,omitempty"`
+	TurnReason           agent.TurnEndReason    `json:"turn_reason,omitempty"`
+	Phases               []agent.TurnPhase      `json:"phases,omitempty"`
+	Events               []runtimeevents.Kind   `json:"events,omitempty"`
+	EventSequence        []runtimeevents.Kind   `json:"event_sequence,omitempty"`
+	ExactEventSequence   []runtimeevents.Kind   `json:"exact_event_sequence,omitempty"`
+	EventDetails         []EventExpectation     `json:"event_details,omitempty"`
+	ModelDetails         []ModelCallExpectation `json:"model_details,omitempty"`
+	GoldenTrace          string                 `json:"golden_trace,omitempty"`
+	AllowInvalidTrace    bool                   `json:"allow_invalid_trace,omitempty"`
+	HistoryContains      []string               `json:"history_contains,omitempty"`
+	OutboundContains     []string               `json:"outbound_contains,omitempty"`
+	NoOutbound           bool                   `json:"no_outbound,omitempty"`
+	Iterations           int                    `json:"iterations,omitempty"`
 }
 
 // ScriptedProvider returns ModelStep responses in order and records every call.
@@ -621,7 +628,8 @@ func Run(ctx context.Context, scenario Scenario) (*Result, error) {
 		events   []runtimeevents.Event
 		outbound []string
 	)
-	turnEnd := make(chan struct{}, 1)
+	turnEnd := make(chan struct{}, 64)
+	outboundFinal := make(chan struct{}, 1)
 	eventsDone := make(chan struct{})
 	go func() {
 		defer close(eventsDone)
@@ -629,7 +637,7 @@ func Run(ctx context.Context, scenario Scenario) (*Result, error) {
 			mu.Lock()
 			events = append(events, evt)
 			mu.Unlock()
-			if evt.Kind == runtimeevents.KindAgentTurnEnd {
+			if evt.Kind == runtimeevents.KindAgentTurnEnd && evt.Correlation.ParentTurnID == "" {
 				select {
 				case turnEnd <- struct{}{}:
 				default:
@@ -644,15 +652,48 @@ func Run(ctx context.Context, scenario Scenario) (*Result, error) {
 			mu.Lock()
 			outbound = append(outbound, msg.Content)
 			mu.Unlock()
+			if msg.Context.Raw["outbound_kind"] == "final" {
+				select {
+				case outboundFinal <- struct{}{}:
+				default:
+				}
+			}
 		}
 	}()
+	if scenario.ConcurrentSetup != nil {
+		if err := scenario.ConcurrentSetup(ToolRuntime{Loop: loop, Bus: msgBus, SessionKey: sessionKey}); err != nil {
+			stopEvents()
+			<-eventsDone
+			msgBus.Close()
+			<-outboundDone
+			return nil, fmt.Errorf("harness: concurrent setup: %w", err)
+		}
+		for {
+			select {
+			case <-turnEnd:
+			default:
+				goto concurrentTurnsCollected
+			}
+		}
+	}
+concurrentTurnsCollected:
 
-	result := &Result{Name: scenario.Name}
+	result := &Result{Name: scenario.Name, workspace: workspace}
+	if scenario.ProductionIngress {
+		ingressCtx, ingressCancel := context.WithCancel(runCtx)
+		ingressDone := make(chan error, 1)
+		go func() { ingressDone <- loop.Run(ingressCtx) }()
+		defer func() {
+			ingressCancel()
+			<-ingressDone
+		}()
+	}
 	modelCursor := 0
 	for _, userMessage := range messages {
 		turn, nextModel, err := runScenarioTurn(
 			ctx, runCtx, loop, provider, msgBus, scenario, registeredTools, userMessage, sessionKey,
 			modelCursor, turnEnd, &mu, &events, &outbound,
+			outboundFinal,
 		)
 		modelCursor = nextModel
 		if err != nil {
@@ -711,6 +752,7 @@ func Run(ctx context.Context, scenario Scenario) (*Result, error) {
 			turn, nextModel, err := runScenarioTurn(
 				ctx, runCtx, loop, provider, msgBus, scenario, registeredTools, followUp.Content, sessionKey,
 				modelCursor, turnEnd, &mu, &events, &outbound,
+				outboundFinal,
 			)
 			modelCursor = nextModel
 			if err != nil {
@@ -789,20 +831,54 @@ func runScenarioTurn(
 	mu *sync.Mutex,
 	events *[]runtimeevents.Event,
 	outbound *[]string,
+	outboundFinal <-chan struct{},
 ) (TurnResult, int, error) {
 	started := time.Now()
-	content, runErr := processTurnSafely(runCtx, loop, userMessage, sessionKey)
+	var content string
+	var runErr error
+	if scenario.ProductionIngress {
+		runErr = msgBus.PublishInbound(runCtx, bus.InboundMessage{
+			Context:    bus.InboundContext{Channel: "pico", ChatID: "harness", SenderID: "harness-user"},
+			Content:    userMessage,
+			SessionKey: sessionKey,
+		})
+	} else {
+		content, runErr = processTurnSafely(runCtx, loop, userMessage, sessionKey)
+	}
 	duration := time.Since(started)
 
+	if scenario.ProductionIngress && runErr != nil {
+		return TurnResult{}, modelCursor, runErr
+	}
 	timer := time.NewTimer(time.Second)
 	defer timer.Stop()
 	select {
 	case <-turnEnd:
 	case <-timer.C:
 		if runErr != nil {
-			return TurnResult{}, modelCursor, fmt.Errorf("harness: turn ended without TurnEnd event: %w", runErr)
+			return TurnResult{}, modelCursor, fmt.Errorf("harness: turn ended without root TurnEnd event: %w", runErr)
 		}
-		return TurnResult{}, modelCursor, errors.New("harness: turn ended without TurnEnd event")
+		return TurnResult{}, modelCursor, errors.New("harness: turn ended without root TurnEnd event")
+	}
+	if scenario.ProductionIngress && runErr == nil {
+		deadline := time.Now().Add(time.Second)
+		for loop.GetActiveTurnBySession(sessionKey) != nil {
+			if !time.Now().Before(deadline) {
+				return TurnResult{}, modelCursor, errors.New("harness: inbound turn did not release its session")
+			}
+			select {
+			case <-runCtx.Done():
+				return TurnResult{}, modelCursor, runCtx.Err()
+			case <-time.After(time.Millisecond):
+			}
+		}
+		select {
+		case <-outboundFinal:
+		case <-runCtx.Done():
+			return TurnResult{}, modelCursor, runCtx.Err()
+		case <-time.After(time.Second):
+			return TurnResult{}, modelCursor, errors.New("harness: production ingress did not publish a final outbound")
+		}
 	}
 
 	calls := callsFromProvider(provider)
@@ -818,6 +894,10 @@ func runScenarioTurn(
 	if len(turnEvents) > 0 {
 		turnEvents = eventsForLastTurn(turnEvents)
 	}
+	turnEndPayload := lastTurnEnd(turnEvents)
+	if scenario.ProductionIngress && turnEndPayload != nil {
+		content = turnEndPayload.FinalContent
+	}
 	if defaultAgent := loop.GetRegistry().GetDefaultAgent(); defaultAgent != nil && defaultAgent.Sessions != nil {
 		turnHistory := snapshotSessionHistory(defaultAgent.Sessions, sessionKey)
 		_ = msgBus
@@ -829,7 +909,7 @@ func runScenarioTurn(
 			ModelCalls:  turnCalls,
 			ToolCalls:   mergeToolObservations(toolCallsFromEvents(turnEvents), scenarioTools),
 			Events:      turnEvents,
-			TurnEnd:     lastTurnEnd(turnEvents),
+			TurnEnd:     turnEndPayload,
 			History:     turnHistory,
 		}, modelCursor, nil
 	}
@@ -841,7 +921,7 @@ func runScenarioTurn(
 		ModelCalls:  turnCalls,
 		ToolCalls:   mergeToolObservations(toolCallsFromEvents(turnEvents), scenarioTools),
 		Events:      turnEvents,
-		TurnEnd:     lastTurnEnd(turnEvents),
+		TurnEnd:     turnEndPayload,
 	}, modelCursor, nil
 }
 
@@ -857,6 +937,18 @@ func processTurnSafely(
 		}
 	}()
 	return loop.ProcessDirectWithChannel(ctx, userMessage, sessionKey, "harness", "harness")
+}
+
+func workspacePath(workspace, path string) (string, error) {
+	if strings.TrimSpace(path) == "" || filepath.IsAbs(path) {
+		return "", fmt.Errorf("workspace path %q must be a non-empty relative path", path)
+	}
+	full := filepath.Join(workspace, filepath.Clean(path))
+	rel, err := filepath.Rel(workspace, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("workspace path %q escapes the scenario workspace", path)
+	}
+	return full, nil
 }
 
 func subscribe(ctx context.Context, loop *agent.AgentLoop, buffer int) (<-chan runtimeevents.Event, func(), error) {
@@ -924,6 +1016,9 @@ func (r *Result) Verify(expect Expect) error {
 		return errors.New("harness: nil result")
 	}
 	var problems []string
+	if r.Err != nil && !expect.AllowError && expect.ErrorContains == "" {
+		problems = append(problems, fmt.Sprintf("unexpected error: %v", r.Err))
+	}
 	if !expect.AllowInvalidTrace {
 		problems = append(problems, r.ValidateTrace()...)
 	}
@@ -943,6 +1038,33 @@ func (r *Result) Verify(expect Expect) error {
 	}
 	if expect.ErrorContains != "" && (r.Err == nil || !strings.Contains(r.Err.Error(), expect.ErrorContains)) {
 		problems = append(problems, fmt.Sprintf("error = %v, want substring %q", r.Err, expect.ErrorContains))
+	}
+	for path, want := range expect.WorkspaceFiles {
+		full, err := workspacePath(r.workspace, path)
+		if err != nil {
+			problems = append(problems, err.Error())
+			continue
+		}
+		contents, err := os.ReadFile(full)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("workspace file %q: %v", path, err))
+		} else if !strings.Contains(string(contents), want) {
+			problems = append(problems, fmt.Sprintf("workspace file %q does not contain %q", path, want))
+		}
+	}
+	for _, path := range expect.WorkspaceFilesAbsent {
+		full, err := workspacePath(r.workspace, path)
+		if err != nil {
+			problems = append(problems, err.Error())
+			continue
+		}
+		if _, err := os.Stat(full); !errors.Is(err, os.ErrNotExist) {
+			if err == nil {
+				problems = append(problems, fmt.Sprintf("workspace file %q exists", path))
+			} else {
+				problems = append(problems, fmt.Sprintf("workspace file %q: %v", path, err))
+			}
+		}
 	}
 	if expect.ModelCalls > 0 && len(r.ModelCalls) != expect.ModelCalls {
 		problems = append(problems, fmt.Sprintf("model calls = %d, want %d", len(r.ModelCalls), expect.ModelCalls))
@@ -1101,19 +1223,33 @@ func (r *Result) ValidateTrace() []string {
 	}
 	turnStarts := make(map[string]int)
 	turnEnds := make(map[string]int)
+	turnParents := make(map[string]string)
+	rootStarts, rootEnds := 0, 0
 	for _, evt := range r.Events {
+		if evt.Scope.TurnID != "" && evt.Correlation.ParentTurnID != "" {
+			if existing := turnParents[evt.Scope.TurnID]; existing != "" && existing != evt.Correlation.ParentTurnID {
+				problems = append(problems, fmt.Sprintf("turn %s has conflicting parents", evt.Scope.TurnID))
+			}
+			turnParents[evt.Scope.TurnID] = evt.Correlation.ParentTurnID
+		}
 		switch evt.Kind {
 		case runtimeevents.KindAgentTurnStart:
 			turnStarts[evt.Scope.TurnID]++
+			if evt.Correlation.ParentTurnID == "" {
+				rootStarts++
+			}
 		case runtimeevents.KindAgentTurnEnd:
 			turnEnds[evt.Scope.TurnID]++
+			if evt.Correlation.ParentTurnID == "" {
+				rootEnds++
+			}
 		}
 	}
-	if len(turnStarts) != len(r.Turns) {
-		problems = append(problems, fmt.Sprintf("turn start events = %d, turns = %d", len(turnStarts), len(r.Turns)))
+	if rootStarts < len(r.Turns) {
+		problems = append(problems, fmt.Sprintf("root turn start events = %d, recorded turns = %d", rootStarts, len(r.Turns)))
 	}
-	if len(turnEnds) != len(r.Turns) {
-		problems = append(problems, fmt.Sprintf("turn end events = %d, turns = %d", len(turnEnds), len(r.Turns)))
+	if rootEnds < len(r.Turns) {
+		problems = append(problems, fmt.Sprintf("root turn end events = %d, recorded turns = %d", rootEnds, len(r.Turns)))
 	}
 	for turnID, count := range turnStarts {
 		if count != 1 {
@@ -1129,6 +1265,19 @@ func (r *Result) ValidateTrace() []string {
 		}
 		if count != 1 {
 			problems = append(problems, fmt.Sprintf("turn %s has %d end events", turnID, count))
+		}
+	}
+	for turnID, parentID := range turnParents {
+		if _, ok := turnStarts[parentID]; !ok {
+			problems = append(problems, fmt.Sprintf("turn %s references missing parent %s", turnID, parentID))
+		}
+		seen := map[string]bool{turnID: true}
+		for current := parentID; current != ""; current = turnParents[current] {
+			if seen[current] {
+				problems = append(problems, fmt.Sprintf("turn hierarchy contains a cycle at %s", current))
+				break
+			}
+			seen[current] = true
 		}
 	}
 	for i, turn := range r.Turns {
@@ -1613,7 +1762,7 @@ func eventsForLastTurn(events []runtimeevents.Event) []runtimeevents.Event {
 	}
 	turnID := ""
 	for i := len(events) - 1; i >= 0; i-- {
-		if events[i].Kind == runtimeevents.KindAgentTurnEnd {
+		if events[i].Kind == runtimeevents.KindAgentTurnEnd && events[i].Correlation.ParentTurnID == "" {
 			turnID = events[i].Scope.TurnID
 			break
 		}
@@ -1633,7 +1782,7 @@ func eventsForLastTurn(events []runtimeevents.Event) []runtimeevents.Event {
 
 func lastTurnEnd(events []runtimeevents.Event) *agent.TurnEndPayload {
 	for i := len(events) - 1; i >= 0; i-- {
-		if events[i].Kind != runtimeevents.KindAgentTurnEnd {
+		if events[i].Kind != runtimeevents.KindAgentTurnEnd || events[i].Correlation.ParentTurnID != "" {
 			continue
 		}
 		if payload, ok := events[i].Payload.(agent.TurnEndPayload); ok {

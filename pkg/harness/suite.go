@@ -25,11 +25,19 @@ type Report struct {
 }
 
 type ScenarioReport struct {
-	Name       string `json:"name"`
-	Passed     bool   `json:"passed"`
-	Error      string `json:"error,omitempty"`
-	DurationMS int64  `json:"duration_ms"`
-	Trace      Trace  `json:"trace"`
+	Name       string     `json:"name"`
+	Passed     bool       `json:"passed"`
+	Error      string     `json:"error,omitempty"`
+	DurationMS int64      `json:"duration_ms"`
+	Trace      Trace      `json:"trace"`
+	Usage      TokenUsage `json:"usage"`
+}
+
+// TokenUsage aggregates provider-reported usage across a scenario.
+type TokenUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
 }
 
 // SuiteOptions configures scenario execution across a suite.
@@ -150,9 +158,26 @@ func runOneScenario(ctx context.Context, scenario Scenario) ScenarioReport {
 	}
 	if result != nil {
 		scenarioReport.Trace = result.Snapshot()
+		scenarioReport.Usage = result.TokenUsage()
 	}
 	scenarioReport.Passed = scenarioReport.Error == ""
 	return scenarioReport
+}
+
+func (r *Result) TokenUsage() TokenUsage {
+	var total TokenUsage
+	if r == nil {
+		return total
+	}
+	for _, call := range r.ModelCalls {
+		if call.Response == nil || call.Response.Usage == nil {
+			continue
+		}
+		total.PromptTokens += call.Response.Usage.PromptTokens
+		total.CompletionTokens += call.Response.Usage.CompletionTokens
+		total.TotalTokens += call.Response.Usage.TotalTokens
+	}
+	return total
 }
 
 func runScenarioSafely(ctx context.Context, scenario Scenario) (result *Result, err error) {

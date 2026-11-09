@@ -94,11 +94,12 @@ type TraceTurnEnd struct {
 }
 
 type TraceEvent struct {
-	Kind    runtimeevents.Kind `json:"kind"`
-	TurnID  string             `json:"turn_id,omitempty"`
-	Source  string             `json:"source,omitempty"`
-	Payload map[string]any     `json:"payload,omitempty"`
-	Attrs   map[string]any     `json:"attrs,omitempty"`
+	Kind         runtimeevents.Kind `json:"kind"`
+	TurnID       string             `json:"turn_id,omitempty"`
+	ParentTurnID string             `json:"parent_turn_id,omitempty"`
+	Source       string             `json:"source,omitempty"`
+	Payload      map[string]any     `json:"payload,omitempty"`
+	Attrs        map[string]any     `json:"attrs,omitempty"`
 }
 
 type TraceInbound struct {
@@ -145,7 +146,66 @@ func (r *Result) Snapshot() Trace {
 			ChatID:     followUp.Context.ChatID,
 		})
 	}
+	canonicalizeWorkspace(&trace, r.workspace)
 	return trace
+}
+
+func canonicalizeWorkspace(trace *Trace, workspace string) {
+	if trace == nil || workspace == "" {
+		return
+	}
+	paths := []string{workspace, filepath.ToSlash(workspace), filepath.FromSlash(workspace)}
+	replace := func(value string) string {
+		for _, path := range paths {
+			if path != "" {
+				value = strings.ReplaceAll(value, path, "{{workspace}}")
+			}
+		}
+		return value
+	}
+	var replaceMessages func([]TraceMessage)
+	replaceMessages = func(messages []TraceMessage) {
+		for i := range messages {
+			messages[i].Content = canonicalizeRuntimeTime(replace(messages[i].Content))
+			for j := range messages[i].Media {
+				messages[i].Media[j] = replace(messages[i].Media[j])
+			}
+			for j := range messages[i].Attachments {
+				messages[i].Attachments[j].URL = replace(messages[i].Attachments[j].URL)
+			}
+		}
+	}
+	var replaceCalls func([]TraceModelCall)
+	replaceCalls = func(calls []TraceModelCall) {
+		for i := range calls {
+			replaceMessages(calls[i].Messages)
+		}
+	}
+	replaceMessages(trace.History)
+	replaceCalls(trace.ModelCalls)
+	for i := range trace.Turns {
+		replaceCalls(trace.Turns[i].ModelCalls)
+	}
+}
+
+func canonicalizeRuntimeTime(content string) string {
+	content = canonicalizeSection(content, "## Current Time", "## Runtime Time\n{{runtime-time}}")
+	return canonicalizeSection(content, "## Runtime\n", "## Runtime Metadata\n{{runtime}}")
+}
+
+func canonicalizeSection(content, marker, replacement string) string {
+	for {
+		start := strings.Index(content, marker)
+		if start < 0 {
+			return content
+		}
+		valueStart := start + len(marker)
+		end := strings.Index(content[valueStart:], "\n## ")
+		if end < 0 {
+			return content
+		}
+		content = content[:start] + replacement + content[valueStart+end:]
+	}
 }
 
 func (r *Result) SaveTrace(path string) error {
@@ -278,12 +338,28 @@ func snapshotTools(records []ToolCallRecord) []TraceToolCall {
 
 func snapshotEvents(events []runtimeevents.Event) []TraceEvent {
 	out := make([]TraceEvent, 0, len(events))
+	turnIDs := make(map[string]string)
+	nextTurn := 0
+	canonicalTurnID := func(id string) string {
+		if id == "" {
+			return ""
+		}
+		if canonical, ok := turnIDs[id]; ok {
+			return canonical
+		}
+		nextTurn++
+		canonical := fmt.Sprintf("turn-%d", nextTurn)
+		turnIDs[id] = canonical
+		return canonical
+	}
 	for _, evt := range events {
 		out = append(out, TraceEvent{
-			Kind:    evt.Kind,
-			Source:  evt.Source.Component,
-			Payload: snapshotPayload(evt.Payload),
-			Attrs:   snapshotMap(evt.Attrs),
+			Kind:         evt.Kind,
+			TurnID:       canonicalTurnID(evt.Scope.TurnID),
+			ParentTurnID: canonicalTurnID(evt.Correlation.ParentTurnID),
+			Source:       evt.Source.Component,
+			Payload:      snapshotPayload(evt.Payload),
+			Attrs:        snapshotMap(evt.Attrs),
 		})
 	}
 	return out
@@ -409,8 +485,8 @@ func sanitizeSlice(values []any) []any {
 
 func volatileKey(key string) bool {
 	switch strings.ToLower(key) {
-	case "at", "time", "timestamp", "duration", "duration_ms", "started_at", "completed_at", "created_at",
-		"workspace", "turn_id", "parent_turn_id", "child_turn_id":
+	case "at", "time", "timestamp", "duration", "duration_ms", "started_at", "completed_at", "created_at", "workspace",
+		"child_turn_id":
 		return true
 	default:
 		return false
