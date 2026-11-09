@@ -4059,9 +4059,40 @@ func TestFetchOpenAICompatibleModelsBlocksPrivateTargetUnlessExplicitlyAllowed(t
 	}
 }
 
-func TestProbeOllamaModelBlocksNonLocalPrivateTargets(t *testing.T) {
-	if probeOllamaModel("http://10.255.255.1:11434/v1", "llama3") {
-		t.Fatal("expected non-local private Ollama target to be blocked")
+func TestHasLocalAPIBase(t *testing.T) {
+	tests := []struct {
+		name   string
+		raw    string
+		wanted bool
+	}{
+		{name: "localhost", raw: "http://localhost:11434/v1", wanted: true},
+		{name: "IPv4 loopback", raw: "http://127.0.0.1:11434/v1", wanted: true},
+		{name: "IPv6 loopback", raw: "http://[::1]:11434/v1", wanted: true},
+		{name: "wildcard bind", raw: "http://0.0.0.0:11434/v1", wanted: true},
+		{name: "private 10/8", raw: "http://10.0.0.1:8000/v1", wanted: true},
+		{name: "docker bridge gateway", raw: "http://172.17.0.1:3425", wanted: true},
+		{name: "private 172/12 upper bound", raw: "http://172.31.255.254:3425", wanted: true},
+		{name: "private 192.168/16", raw: "http://192.168.1.10:8000/v1", wanted: true},
+		{name: "IPv6 ULA", raw: "http://[fd12:3456::1]:8000/v1", wanted: true},
+		{name: "link local", raw: "http://169.254.1.1:8000/v1", wanted: false},
+		{name: "CGNAT", raw: "http://100.64.0.1:8000/v1", wanted: false},
+		{name: "public IP", raw: "http://172.32.0.1:8000/v1", wanted: false},
+		{name: "public hostname", raw: "https://api.example.com/v1", wanted: false},
+		{name: "empty", raw: "", wanted: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasLocalAPIBase(tt.raw); got != tt.wanted {
+				t.Fatalf("hasLocalAPIBase(%q) = %v, want %v", tt.raw, got, tt.wanted)
+			}
+		})
+	}
+}
+
+func TestProbeOllamaModelBlocksLinkLocalTargets(t *testing.T) {
+	if probeOllamaModel("http://169.254.1.1:11434/v1", "llama3") {
+		t.Fatal("expected link-local Ollama target to be blocked")
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -4078,9 +4109,9 @@ func TestProbeOllamaModelBlocksNonLocalPrivateTargets(t *testing.T) {
 	}
 }
 
-func TestProbeTCPServiceBlocksNonLocalPrivateTargets(t *testing.T) {
-	if probeTCPService("http://10.255.255.1:4321") {
-		t.Fatal("expected non-local private TCP target to be blocked")
+func TestProbeTCPServiceBlocksLinkLocalTargets(t *testing.T) {
+	if probeTCPService("http://169.254.1.1:4321") {
+		t.Fatal("expected link-local TCP target to be blocked")
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))

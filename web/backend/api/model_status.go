@@ -529,12 +529,17 @@ func hasLocalAPIBase(raw string) bool {
 		}
 	}
 
-	switch strings.ToLower(u.Hostname()) {
-	case "localhost", "127.0.0.1", "::1", "0.0.0.0":
+	host := strings.ToLower(u.Hostname())
+	if host == "localhost" || host == "0.0.0.0" {
 		return true
-	default:
-		return false
 	}
+
+	// Keep this narrower than the general restricted-IP check: link-local,
+	// metadata, CGNAT, and multicast targets must remain blocked.
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate()
+	}
+	return false
 }
 
 func probeTCPService(raw string) bool {
