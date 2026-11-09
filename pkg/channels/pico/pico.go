@@ -1535,7 +1535,14 @@ func (c *PicoChannel) handleApprovalRespond(pc *picoConn, msg PicoMessage) {
 	approve, _ := msg.Payload["approve"].(bool)
 	scope, _ := msg.Payload["scope"].(string)
 	reason, _ := msg.Payload["reason"].(string)
-	response := approval.Response{ID: approvalID, Approve: approve, Scope: approval.Scope(scope), Reason: reason}
+	response := approval.Response{
+		ID:      approvalID,
+		Approve: approve,
+		Scope:   approval.Scope(scope),
+		Reason:  reason,
+		Channel: "pico",
+		ChatID:  "pico:" + pc.sessionID,
+	}
 	if err := c.approvalHandler(c.ctx, response); err != nil {
 		pc.writeJSON(newErrorWithPayload("approval_failed", err.Error(), map[string]any{"request_id": approvalID}))
 		return

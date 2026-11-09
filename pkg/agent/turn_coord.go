@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
@@ -52,6 +53,35 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 
 	al.registerActiveTurn(ts)
 	defer al.clearActiveTurn(ts)
+	if ts.agent != nil {
+		var providerRefs []providers.LLMProvider
+		addProvider := func(provider providers.LLMProvider) {
+			if !providerRefComparable(provider) {
+				return
+			}
+			for _, existing := range providerRefs {
+				if existing == provider {
+					return
+				}
+			}
+			providerRefs = append(providerRefs, provider)
+			al.acquireProviderRef(provider)
+		}
+		addProvider(ts.agent.Provider)
+		addProvider(ts.agent.LightProvider)
+		defer func() {
+			for _, provider := range providerRefs {
+				al.releaseProviderRef(provider)
+			}
+		}()
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			ts.Finish(true)
+			panic(r)
+		}
+		ts.Finish(ts.hardAbortRequested())
+	}()
 	defer func() {
 		ts.mu.Lock()
 		refs := ts.steeringMedia
@@ -261,6 +291,18 @@ turnLoop:
 				exec.pendingMessages = nil
 			}
 			// Always sync messages into exec.messages so CallLLM sees the updated state
+			if ts.maxContextRunes > 0 {
+				before := len(messages)
+				messages = trimMessagesToRuneLimit(messages, ts.maxContextRunes)
+				if len(messages) != before {
+					logger.DebugCF("agent", "Trimmed SubTurn context to rune limit", map[string]any{
+						"turn_id":           ts.turnID,
+						"messages_before":   before,
+						"messages_after":    len(messages),
+						"max_context_runes": ts.maxContextRunes,
+					})
+				}
+			}
 			exec.messages = messages
 
 			logger.DebugCF("agent", "LLM iteration",
@@ -361,6 +403,75 @@ turnLoop:
 		turnStatus = TurnEndStatusError
 	}
 	return result, err
+}
+
+func trimMessagesToRuneLimit(messages []providers.Message, limit int) []providers.Message {
+	if limit <= 0 || len(messages) == 0 {
+		return messages
+	}
+	total := messagesRuneCount(messages)
+	if total <= limit {
+		return messages
+	}
+
+	out := append([]providers.Message(nil), messages...)
+	for total > limit && len(out) > 1 {
+		start := 0
+		if out[0].Role == "system" {
+			start = 1
+		}
+		if start >= len(out)-1 {
+			break
+		}
+		dropCount := 1
+		switch {
+		case out[start].Role == "assistant" && len(out[start].ToolCalls) > 0:
+			callIDs := make(map[string]struct{}, len(out[start].ToolCalls))
+			for _, call := range out[start].ToolCalls {
+				if strings.TrimSpace(call.ID) != "" {
+					callIDs[call.ID] = struct{}{}
+				}
+			}
+			for start+dropCount < len(out) && out[start+dropCount].Role == "tool" {
+				if _, ok := callIDs[out[start+dropCount].ToolCallID]; !ok {
+					break
+				}
+				dropCount++
+			}
+		case out[start].Role == "tool":
+			for start+dropCount < len(out) && out[start+dropCount].Role == "tool" {
+				dropCount++
+			}
+		}
+		removed := messagesRuneCount(out[start : start+dropCount])
+		out = append(out[:start], out[start+dropCount:]...)
+		total -= removed
+	}
+	if total <= limit || len(out) == 0 {
+		return out
+	}
+
+	last := &out[len(out)-1]
+	runes := []rune(last.Content)
+	excess := total - limit
+	if excess >= len(runes) {
+		last.Content = ""
+		return out
+	}
+	last.Content = string(runes[:len(runes)-excess])
+	return out
+}
+
+func messagesRuneCount(messages []providers.Message) int {
+	total := 0
+	for _, msg := range messages {
+		total += utf8.RuneCountInString(msg.Content)
+		for _, call := range msg.ToolCalls {
+			total += utf8.RuneCountInString(call.Name)
+			total += utf8.RuneCountInString(fmt.Sprint(call.Arguments))
+		}
+	}
+	return total
 }
 
 func (ts *turnState) saveTurnCheckpoint(status, tool string) error {

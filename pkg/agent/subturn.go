@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -107,6 +108,7 @@ type SubTurnConfig struct {
 	Tools        []tools.Tool
 	SystemPrompt string
 	MaxTokens    int
+	Temperature  float64
 
 	// Async controls the result delivery mechanism:
 	//
@@ -231,6 +233,7 @@ func (s *AgentLoopSpawner) SpawnSubTurn(
 		InitialMessages:    cfg.InitialMessages,
 		InitialTokenBudget: cfg.InitialTokenBudget,
 		MaxTokens:          cfg.MaxTokens,
+		Temperature:        cfg.Temperature,
 		Async:              cfg.Async,
 		Critical:           cfg.Critical,
 		Timeout:            cfg.Timeout,
@@ -239,6 +242,23 @@ func (s *AgentLoopSpawner) SpawnSubTurn(
 	}
 
 	return spawnSubTurn(ctx, s.al, parentTS, agentCfg)
+}
+
+// RunBackground implements tools.BackgroundRunner so spawn tool goroutines are
+// included in the agent loop's shutdown wait.
+func (s *AgentLoopSpawner) RunBackground(fn func()) {
+	if fn == nil {
+		return
+	}
+	if s == nil || s.al == nil {
+		go fn()
+		return
+	}
+	s.al.backgroundWG.Add(1)
+	go func() {
+		defer s.al.backgroundWG.Done()
+		fn()
+	}()
 }
 
 // NewSubTurnSpawner creates a SubTurnSpawner for the given AgentLoop.
@@ -361,9 +381,36 @@ func spawnSubTurn(
 	ephemeralStore := newEphemeralSession(nil)
 	agent := *baseAgent // shallow copy
 	agent.Sessions = ephemeralStore
+	if strings.TrimSpace(cfg.Model) != "" {
+		agent.Model = strings.TrimSpace(cfg.Model)
+		agent.Router = nil
+		agent.LightCandidates = nil
+		agent.LightProvider = nil
+		if len(agent.Candidates) > 0 {
+			agent.Candidates = append([]providers.FallbackCandidate(nil), agent.Candidates[:1]...)
+			agent.Candidates[0].Model = agent.Model
+			agent.Candidates[0].DisplayName = ""
+			agent.Candidates[0].IdentityKey = ""
+			agent.Candidates[0].ConfigIndex = 0
+			agent.Candidates[0].ConfigKey = ""
+		}
+	}
+	if cfg.MaxTokens > 0 {
+		agent.MaxTokens = cfg.MaxTokens
+	}
+	if cfg.Temperature != 0 {
+		agent.Temperature = cfg.Temperature
+	}
 	// Clone the tool registry so child turn's tool registrations
 	// don't pollute the parent's registry.
-	if baseAgent.Tools != nil {
+	if len(cfg.Tools) > 0 {
+		agent.Tools = tools.NewToolRegistry()
+		for _, tool := range cfg.Tools {
+			if tool != nil {
+				agent.Tools.Register(tool)
+			}
+		}
+	} else if baseAgent.Tools != nil {
 		agent.Tools = baseAgent.Tools.Clone()
 	}
 
@@ -411,6 +458,18 @@ func spawnSubTurn(
 	childTS.concurrencySem = make(chan struct{}, rtCfg.maxConcurrent)
 	childTS.al = al                  // back-ref for hard abort cascade
 	childTS.session = ephemeralStore // same store as agent.Sessions
+	childTS.maxContextRunes = cfg.MaxContextRunes
+	if childTS.maxContextRunes == 0 && agent.ContextWindow > 0 {
+		childTS.maxContextRunes = int(float64(agent.ContextWindow) * 0.75)
+	}
+	childTS.originAgentID = parentTS.originAgentID
+	if childTS.originAgentID == "" {
+		childTS.originAgentID = parentTS.agentID
+	}
+	childTS.originSessionKey = parentTS.originSessionKey
+	if childTS.originSessionKey == "" {
+		childTS.originSessionKey = parentTS.sessionKey
+	}
 
 	// Token budget initialization/inheritance
 	// If InitialTokenBudget is explicitly provided (e.g., by team tool), use it.

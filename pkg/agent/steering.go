@@ -187,13 +187,30 @@ func (sq *steeringQueue) getMode() SteeringMode {
 // agent loop. The message will be picked up after the current tool finishes
 // executing, causing any remaining tool calls in the batch to be skipped.
 func (al *AgentLoop) Steer(msg providers.Message) error {
-	scope := ""
-	agentID := ""
-	if ts := al.getAnyActiveTurnState(); ts != nil {
-		scope = ts.sessionKey
-		agentID = ts.agentID
+	ts, unique := al.getSoleActiveTurnState()
+	if !unique {
+		return fmt.Errorf("multiple turns are active; use SteerForSession with a session key")
 	}
-	return al.enqueueSteeringMessage(scope, agentID, msg)
+	if ts != nil {
+		return al.SteerForSession(ts.sessionKey, msg)
+	}
+	return al.enqueueSteeringMessage("", "", msg)
+}
+
+// SteerForSession enqueues a steering message for a specific conversation.
+// Unlike Steer, it is safe when multiple turns are running concurrently.
+func (al *AgentLoop) SteerForSession(sessionKey string, msg providers.Message) error {
+	sessionKey = strings.TrimSpace(sessionKey)
+	if sessionKey == "" {
+		return fmt.Errorf("session key is required")
+	}
+	agentID := ""
+	if ts := al.getActiveTurnState(sessionKey); ts != nil {
+		agentID = ts.agentID
+	} else if agent := al.agentForSession(sessionKey); agent != nil {
+		agentID = agent.ID
+	}
+	return al.enqueueSteeringMessage(sessionKey, agentID, msg)
 }
 
 func (al *AgentLoop) enqueueSteeringMessage(scope, agentID string, msg providers.Message) error {
@@ -226,7 +243,7 @@ func (al *AgentLoop) enqueueSteeringMessage(scope, agentID string, msg providers
 		Source:    "Steer",
 		TracePath: "turn.interrupt.received",
 	}
-	if ts := al.getAnyActiveTurnState(); ts != nil {
+	if ts := al.getActiveTurnState(scope); ts != nil {
 		meta = ts.eventMeta("Steer", "turn.interrupt.received")
 	} else {
 		if strings.TrimSpace(agentID) != "" {
@@ -456,9 +473,28 @@ func (al *AgentLoop) Continue(ctx context.Context, sessionKey, channel, chatID s
 }
 
 func (al *AgentLoop) InterruptGraceful(hint string) error {
-	ts := al.getAnyActiveTurnState()
+	ts, unique := al.getSoleActiveTurnState()
+	if !unique {
+		return fmt.Errorf("multiple turns are active; use InterruptGracefulForSession with a session key")
+	}
 	if ts == nil {
 		return fmt.Errorf("no active turn")
+	}
+	return al.InterruptGracefulForSession(ts.sessionKey, hint)
+}
+
+// InterruptGracefulForSession requests a graceful stop for a specific session.
+func (al *AgentLoop) InterruptGracefulForSession(sessionKey, hint string) error {
+	sessionKey = strings.TrimSpace(sessionKey)
+	if sessionKey == "" {
+		return fmt.Errorf("session key is required")
+	}
+	ts := al.getActiveTurnState(sessionKey)
+	if ts == nil {
+		return fmt.Errorf("no active turn for session %s", sessionKey)
+	}
+	if strings.HasPrefix(ts.turnID, pendingTurnPrefix) {
+		return fmt.Errorf("turn is still initializing for session %s", sessionKey)
 	}
 	if !ts.requestGracefulInterrupt(hint) {
 		return fmt.Errorf("turn %s cannot accept graceful interrupt", ts.turnID)

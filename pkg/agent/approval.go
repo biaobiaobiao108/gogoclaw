@@ -408,6 +408,21 @@ func (al *AgentLoop) respondPersistedApproval(ctx context.Context, response appr
 			if err != nil || checkpoint.Approval == nil || checkpoint.Approval.ID != response.ID {
 				continue
 			}
+			if response.SessionKey != "" && checkpoint.Approval.SessionKey != response.SessionKey {
+				continue
+			}
+			if response.Channel != "" && checkpoint.Approval.Channel != response.Channel {
+				continue
+			}
+			if response.ChatID != "" && checkpoint.Approval.ChatID != response.ChatID {
+				continue
+			}
+			if checkpoint.Approval.Status != approval.StatusPending {
+				return errApprovalAlreadyClosed
+			}
+			if !checkpoint.Approval.ExpiresAt.IsZero() && time.Now().After(checkpoint.Approval.ExpiresAt) {
+				return fmt.Errorf("approval request %s has expired", response.ID)
+			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -459,14 +474,19 @@ func (al *AgentLoop) ResumeSession(ctx context.Context, sessionKey string) (stri
 	if checkpoint.Approval != nil && checkpoint.Approval.Status == approval.StatusPending {
 		return "", fmt.Errorf("task is waiting for approval %s", checkpoint.Approval.ID)
 	}
+	placeholder, err := al.claimSessionSlot(sessionKey)
+	if err != nil {
+		return "", err
+	}
+	defer al.releaseSessionTurnState(sessionKey, placeholder)
 	checkpoint.Status = "resuming"
 	checkpoint.UpdatedAt = time.Now().UTC()
 	if err := store.SetTurnCheckpoint(sessionKey, checkpoint); err != nil {
 		return "", err
 	}
-	return al.ProcessDirect(ctx,
+	return al.processDirectWithChannel(ctx,
 		"Continue the interrupted task from the durable checkpoint. Review the existing conversation, preserve completed work, and resume from the first incomplete step. Do not repeat completed tool calls.",
-		sessionKey,
+		sessionKey, "cli", "direct", true,
 	)
 }
 

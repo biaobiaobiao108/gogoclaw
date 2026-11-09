@@ -77,10 +77,10 @@ func (t *SpawnStatusTool) Execute(ctx context.Context, args map[string]any) *Too
 		}
 
 		// Restrict lookup to tasks that belong to this conversation.
-		if callerChannel != "" && taskCopy.OriginChannel != "" && taskCopy.OriginChannel != callerChannel {
+		if callerChannel != "" && taskCopy.OriginChannel != callerChannel {
 			return ErrorResult(fmt.Sprintf("No subagent found with task ID: %s", taskID))
 		}
-		if callerChatID != "" && taskCopy.OriginChatID != "" && taskCopy.OriginChatID != callerChatID {
+		if callerChatID != "" && taskCopy.OriginChatID != callerChatID {
 			return ErrorResult(fmt.Sprintf("No subagent found with task ID: %s", taskID))
 		}
 
@@ -98,10 +98,10 @@ func (t *SpawnStatusTool) Execute(ctx context.Context, args map[string]any) *Too
 		cpy := &origTasks[i]
 
 		// Filter to tasks that originate from the current conversation only.
-		if callerChannel != "" && cpy.OriginChannel != "" && cpy.OriginChannel != callerChannel {
+		if callerChannel != "" && cpy.OriginChannel != callerChannel {
 			continue
 		}
-		if callerChatID != "" && cpy.OriginChatID != "" && cpy.OriginChatID != callerChatID {
+		if callerChatID != "" && cpy.OriginChatID != callerChatID {
 			continue
 		}
 

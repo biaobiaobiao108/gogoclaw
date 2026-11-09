@@ -91,14 +91,20 @@ func (p *Pipeline) Finalize(
 	}
 
 	if !ts.opts.NoHistory && ts.opts.EnableSummary {
-		al.contextManager.Compact(
+		if err := al.contextManager.Compact(
 			turnCtx,
 			&CompactRequest{
 				SessionKey: ts.sessionKey,
 				Reason:     ContextCompressReasonSummarize,
 				Budget:     ts.agent.ContextWindow,
 			},
-		)
+		); err != nil {
+			logger.WarnCF("agent", "Post-turn compaction failed", map[string]any{
+				"session_key": ts.sessionKey,
+				"turn_id":     ts.turnID,
+				"error":       err.Error(),
+			})
+		}
 	}
 
 	contextUsage := ts.contextUsageSnapshot()

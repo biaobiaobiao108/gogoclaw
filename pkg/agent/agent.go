@@ -83,6 +83,7 @@ type AgentLoop struct {
 	activeReqMu    sync.Mutex
 	activeReqCond  *sync.Cond
 	activeReqCount int
+	providerRefs   map[providers.LLMProvider]int
 
 	reloadFunc func() error
 
@@ -716,6 +717,43 @@ func (al *AgentLoop) runAgentLoopResult(
 		content:           result.finalContent,
 		responsePublished: result.responsePublished,
 	}, nil
+}
+
+// runAgentLoopClaimed runs a top-level turn while claiming the session slot so
+// direct API calls cannot race with an inbound turn for the same conversation.
+func (al *AgentLoop) runAgentLoopClaimed(
+	ctx context.Context,
+	agent *AgentInstance,
+	opts processOptions,
+) (agentLoopResult, error) {
+	opts = normalizeProcessOptions(opts)
+	sessionKey := strings.TrimSpace(opts.Dispatch.SessionKey)
+	if sessionKey == "" {
+		return al.runAgentLoopResult(ctx, agent, opts)
+	}
+
+	placeholder, err := al.claimSessionSlot(sessionKey)
+	if err != nil {
+		return agentLoopResult{}, err
+	}
+	defer al.releaseSessionTurnState(sessionKey, placeholder)
+
+	return al.runAgentLoopResult(ctx, agent, opts)
+}
+
+func (al *AgentLoop) claimSessionSlot(sessionKey string) (*turnState, error) {
+	placeholder := &turnState{
+		turnID:     makePendingTurnID(sessionKey, al.turnSeq.Add(1)),
+		phase:      TurnPhaseSetup,
+		sessionKey: sessionKey,
+	}
+	if actual, loaded := al.activeTurnStates.LoadOrStore(sessionKey, placeholder); loaded {
+		if active, ok := actual.(*turnState); ok && active != nil {
+			return nil, fmt.Errorf("turn %s is still active for session %q", active.turnID, sessionKey)
+		}
+		return nil, fmt.Errorf("session %q is still active", sessionKey)
+	}
+	return placeholder, nil
 }
 
 // selectCandidates returns the model candidates and resolved model name to use

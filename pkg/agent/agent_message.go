@@ -10,6 +10,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/constants"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/routing"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
@@ -44,6 +45,14 @@ func (al *AgentLoop) ProcessDirectWithChannel(
 	ctx context.Context,
 	content, sessionKey, channel, chatID string,
 ) (string, error) {
+	return al.processDirectWithChannel(ctx, content, sessionKey, channel, chatID, false)
+}
+
+func (al *AgentLoop) processDirectWithChannel(
+	ctx context.Context,
+	content, sessionKey, channel, chatID string,
+	sessionClaimed bool,
+) (string, error) {
 	if err := al.ensureHooksInitialized(ctx); err != nil {
 		return "", err
 	}
@@ -62,7 +71,7 @@ func (al *AgentLoop) ProcessDirectWithChannel(
 		SessionKey: sessionKey,
 	}
 
-	return al.processMessage(ctx, msg)
+	return al.processMessageWithClaim(ctx, msg, sessionClaimed)
 }
 
 func (al *AgentLoop) ProcessHeartbeat(
@@ -92,7 +101,7 @@ func (al *AgentLoop) ProcessHeartbeat(
 			SenderID: "heartbeat",
 		}
 	}
-	return al.runAgentLoop(ctx, agent, processOptions{
+	result, err := al.runAgentLoopClaimed(ctx, agent, processOptions{
 		Dispatch:             dispatch,
 		DefaultResponse:      defaultResponse,
 		EnableSummary:        false,
@@ -100,6 +109,7 @@ func (al *AgentLoop) ProcessHeartbeat(
 		SuppressToolFeedback: true,
 		NoHistory:            true, // Don't load session history for heartbeat
 	})
+	return result.content, err
 }
 
 func (al *AgentLoop) prepareInboundMessageForAgent(
@@ -126,11 +136,24 @@ type processMessageResult struct {
 }
 
 func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage) (string, error) {
-	result, err := al.processMessageResult(ctx, msg)
+	result, err := al.processMessageResult(ctx, msg, false)
 	return result.content, err
 }
 
-func (al *AgentLoop) processMessageResult(ctx context.Context, msg bus.InboundMessage) (processMessageResult, error) {
+func (al *AgentLoop) processMessageWithClaim(
+	ctx context.Context,
+	msg bus.InboundMessage,
+	sessionClaimed bool,
+) (string, error) {
+	result, err := al.processMessageResult(ctx, msg, sessionClaimed)
+	return result.content, err
+}
+
+func (al *AgentLoop) processMessageResult(
+	ctx context.Context,
+	msg bus.InboundMessage,
+	sessionClaimed bool,
+) (processMessageResult, error) {
 	msg = al.prepareInboundMessageForAgent(ctx, msg)
 
 	// Add message preview to log (show full content for error messages)
@@ -239,7 +262,12 @@ func (al *AgentLoop) processMessageResult(ctx context.Context, msg bus.InboundMe
 			})
 	}
 
-	result, err := al.runAgentLoopResult(ctx, agent, opts)
+	var result agentLoopResult
+	if sessionClaimed {
+		result, err = al.runAgentLoopResult(ctx, agent, opts)
+	} else {
+		result, err = al.runAgentLoopClaimed(ctx, agent, opts)
+	}
 	return processMessageResult{
 		content:           result.content,
 		responsePublished: result.responsePublished,
@@ -315,14 +343,33 @@ func (al *AgentLoop) processSystemMessage(
 		return "", nil
 	}
 
-	// Use default agent for system messages
-	agent := al.GetRegistry().GetDefaultAgent()
+	// Preserve the conversation that scheduled the async work. Falling back to
+	// the default agent's main session would write the result into an unrelated
+	// conversation in multi-agent deployments.
+	sessionKey := strings.TrimSpace(msg.SessionKey)
+	var agent *AgentInstance
+	if sessionKey != "" {
+		agent = al.agentForSession(sessionKey)
+	}
+	if agent == nil {
+		agent = al.GetRegistry().GetDefaultAgent()
+	}
 	if agent == nil {
 		return "", fmt.Errorf("no default agent for system message")
 	}
 
-	// Use the origin session for context
-	sessionKey := session.BuildMainSessionKey(agent.ID)
+	if sessionKey == "" {
+		sessionKey = session.BuildMainSessionKey(agent.ID)
+	}
+	if active := al.getActiveTurnState(sessionKey); active != nil {
+		if err := al.SteerForSession(sessionKey, providers.Message{
+			Role:    "user",
+			Content: fmt.Sprintf("[System: %s] %s", msg.SenderID, msg.Content),
+		}); err != nil {
+			return "", err
+		}
+		return "", nil
+	}
 	dispatch := DispatchRequest{
 		SessionKey:  sessionKey,
 		UserMessage: fmt.Sprintf("[System: %s] %s", msg.SenderID, msg.Content),
@@ -336,10 +383,11 @@ func (al *AgentLoop) processSystemMessage(
 		}
 	}
 
-	return al.runAgentLoop(ctx, agent, processOptions{
+	result, err := al.runAgentLoopClaimed(ctx, agent, processOptions{
 		Dispatch:        dispatch,
 		DefaultResponse: "Background task completed.",
 		EnableSummary:   false,
 		SendResponse:    true,
 	})
+	return result.content, err
 }

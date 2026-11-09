@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -138,12 +139,25 @@ func (sm *SubagentManager) Spawn(
 	task, label, agentID, originChannel, originChatID string,
 	callback AsyncCallback,
 ) (string, error) {
+	subagentTask := sm.beginTask(task, label, agentID, originChannel, originChatID)
+
+	// Start task in background with context cancellation support
+	go sm.runTask(ctx, subagentTask, callback)
+
+	if label != "" {
+		return fmt.Sprintf("Spawned subagent '%s' for task: %s", label, task), nil
+	}
+	return fmt.Sprintf("Spawned subagent for task: %s", task), nil
+}
+
+func (sm *SubagentManager) beginTask(
+	task, label, agentID, originChannel, originChatID string,
+) *SubagentTask {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
 	taskID := fmt.Sprintf("subagent-%d", sm.nextID)
 	sm.nextID++
-
 	subagentTask := &SubagentTask{
 		ID:            taskID,
 		Task:          task,
@@ -155,14 +169,31 @@ func (sm *SubagentManager) Spawn(
 		Created:       time.Now().UnixMilli(),
 	}
 	sm.tasks[taskID] = subagentTask
+	return subagentTask
+}
 
-	// Start task in background with context cancellation support
-	go sm.runTask(ctx, subagentTask, callback)
+func (sm *SubagentManager) finishTask(taskID string, result *ToolResult, err error) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 
-	if label != "" {
-		return fmt.Sprintf("Spawned subagent '%s' for task: %s", label, task), nil
+	task, ok := sm.tasks[taskID]
+	if !ok {
+		return
 	}
-	return fmt.Sprintf("Spawned subagent for task: %s", task), nil
+	switch {
+	case err != nil && errors.Is(err, context.Canceled):
+		task.Status = "canceled"
+	case err != nil || (result != nil && result.IsError):
+		task.Status = "failed"
+	default:
+		task.Status = "completed"
+	}
+	switch {
+	case err != nil:
+		task.Result = fmt.Sprintf("Error: %v", err)
+	case result != nil:
+		task.Result = result.ForLLM
+	}
 }
 
 func (sm *SubagentManager) runTask(
@@ -170,8 +201,6 @@ func (sm *SubagentManager) runTask(
 	task *SubagentTask,
 	callback AsyncCallback,
 ) {
-	task.Status = "running"
-	task.Created = time.Now().UnixMilli()
 	// TODO(eventbus): once subagents are modeled as child turns inside
 	// pkg/agent, emit SubTurnEnd and SubTurnResultDelivered from the parent
 	// AgentLoop instead of this legacy manager.
@@ -179,10 +208,7 @@ func (sm *SubagentManager) runTask(
 	// Check if context is already canceled before starting
 	select {
 	case <-ctx.Done():
-		sm.mu.Lock()
-		task.Status = "canceled"
-		task.Result = "Task canceled before execution"
-		sm.mu.Unlock()
+		sm.finishTask(task.ID, nil, ctx.Err())
 		return
 	default:
 	}
@@ -259,6 +285,9 @@ After completing the task, provide a clear summary of what was done.`
 				Async:   false,
 			}
 		}
+	}
+	if err == nil && result == nil {
+		err = errors.New("subagent returned no result")
 	}
 
 	sm.mu.Lock()

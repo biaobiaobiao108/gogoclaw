@@ -787,10 +787,20 @@ toolLoop:
 			if ts.hardAbortRequested() {
 				return
 			}
+			if result == nil {
+				return
+			}
 			if !result.Silent && result.ForUser != "" {
 				outCtx, outCancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer outCancel()
-				_ = al.bus.PublishOutbound(outCtx, outboundMessageForTurn(ts, result.ForUser))
+				outMsg := outboundMessageForTurn(ts, result.ForUser)
+				if ts.originSessionKey != "" {
+					outMsg.SessionKey = ts.originSessionKey
+				}
+				if ts.originAgentID != "" {
+					outMsg.AgentID = ts.originAgentID
+				}
+				_ = al.bus.PublishOutbound(outCtx, outMsg)
 			}
 
 			content := result.ContentForLLM()
@@ -819,6 +829,10 @@ toolLoop:
 			)
 			pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer pubCancel()
+			originSessionKey := ts.originSessionKey
+			if originSessionKey == "" {
+				originSessionKey = ts.sessionKey
+			}
 			_ = al.bus.PublishInbound(pubCtx, bus.InboundMessage{
 				Context: bus.InboundContext{
 					Channel:  "system",
@@ -826,7 +840,8 @@ toolLoop:
 					ChatType: "direct",
 					SenderID: fmt.Sprintf("async:%s", asyncToolName),
 				},
-				Content: content,
+				Content:    content,
+				SessionKey: originSessionKey,
 			})
 		}
 
@@ -1227,11 +1242,17 @@ toolLoop:
 			}
 		}
 		if !ts.opts.NoHistory && ts.opts.EnableSummary {
-			al.contextManager.Compact(turnCtx, &CompactRequest{
+			if err := al.contextManager.Compact(turnCtx, &CompactRequest{
 				SessionKey: ts.sessionKey,
 				Reason:     ContextCompressReasonSummarize,
 				Budget:     ts.agent.ContextWindow,
-			})
+			}); err != nil {
+				logger.WarnCF("agent", "Post-tool compaction failed", map[string]any{
+					"session_key": ts.sessionKey,
+					"turn_id":     ts.turnID,
+					"error":       err.Error(),
+				})
+			}
 		}
 		ts.setPhase(TurnPhaseCompleted)
 		ts.setFinalContent("")

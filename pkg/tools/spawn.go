@@ -8,6 +8,7 @@ import (
 
 type SpawnTool struct {
 	spawner        SubTurnSpawner
+	manager        *SubagentManager
 	defaultModel   string
 	maxTokens      int
 	temperature    float64
@@ -22,10 +23,17 @@ func NewSpawnTool(manager *SubagentManager) *SpawnTool {
 		return &SpawnTool{}
 	}
 	return &SpawnTool{
+		manager:      manager,
 		defaultModel: manager.defaultModel,
 		maxTokens:    manager.maxTokens,
 		temperature:  manager.temperature,
 	}
+}
+
+// BackgroundRunner lets a spawner keep background work inside its owner's
+// lifecycle (for example, the agent loop's shutdown wait group).
+type BackgroundRunner interface {
+	RunBackground(func())
 }
 
 // SetSpawner sets the SubTurnSpawner for direct sub-turn execution.
@@ -127,27 +135,40 @@ Task: %s`,
 
 	// Use spawner if available (direct SpawnSubTurn call)
 	if t.spawner != nil {
-		// Launch async sub-turn in goroutine
-		go func() {
+		var trackedTask *SubagentTask
+		if t.manager != nil {
+			trackedTask = t.manager.beginTask(
+				task, label, targetAgentID, ToolChannel(ctx), ToolChatID(ctx),
+			)
+		}
+		run := func() {
 			result, err := t.spawner.SpawnSubTurn(ctx, SubTurnConfig{
 				Model:         t.defaultModel,
 				Tools:         nil, // Will inherit from parent via context
 				SystemPrompt:  systemPrompt,
 				MaxTokens:     t.maxTokens,
 				Temperature:   t.temperature,
-				Async:         true, // Async execution
-				Critical:      true, // Background spawn should survive parent turn completion
+				Async:         false, // Result is delivered through the async callback.
+				Critical:      true,  // Background spawn should survive parent turn completion
 				TargetAgentID: targetAgentID,
 			})
 			if err != nil {
 				result = ErrorResult(fmt.Sprintf("Spawn failed: %v", err)).WithError(err)
+			}
+			if trackedTask != nil {
+				t.manager.finishTask(trackedTask.ID, result, err)
 			}
 
 			// Call callback if provided
 			if cb != nil {
 				cb(ctx, result)
 			}
-		}()
+		}
+		if runner, ok := t.spawner.(BackgroundRunner); ok {
+			runner.RunBackground(run)
+		} else {
+			go run()
+		}
 
 		// Return immediate acknowledgment
 		if label != "" {

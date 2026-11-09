@@ -168,3 +168,45 @@ func TestRespondPersistedApprovalMakesInterruptedTurnResumable(t *testing.T) {
 		t.Fatalf("ResumeSession() response = %q", response)
 	}
 }
+
+func TestRespondPersistedApprovalRejectsClosedAndExpiredRequests(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+	store := agent.Sessions.(session.TurnCheckpointStore)
+	sessionKey := "agent:default:cli:persisted-approval-state"
+
+	closed := session.TurnCheckpoint{
+		TurnID: sessionKey,
+		Status: "ready_to_resume",
+		Approval: &approval.Request{
+			ID: "approval-closed", SessionKey: sessionKey, Tool: "exec",
+			Status: approval.StatusApproved,
+		},
+	}
+	if err := store.SetTurnCheckpoint(sessionKey, closed); err != nil {
+		t.Fatal(err)
+	}
+	if err := al.RespondApproval(context.Background(), approval.Response{
+		ID: "approval-closed", Approve: true,
+	}); err == nil {
+		t.Fatal("expected closed approval to be rejected")
+	}
+
+	expired := session.TurnCheckpoint{
+		TurnID: sessionKey,
+		Status: "awaiting_approval",
+		Approval: &approval.Request{
+			ID: "approval-expired", SessionKey: sessionKey, Tool: "exec",
+			Status:    approval.StatusPending,
+			ExpiresAt: time.Now().Add(-time.Minute),
+		},
+	}
+	if err := store.SetTurnCheckpoint(sessionKey, expired); err != nil {
+		t.Fatal(err)
+	}
+	if err := al.RespondApproval(context.Background(), approval.Response{
+		ID: "approval-expired", Approve: true,
+	}); err == nil {
+		t.Fatal("expected expired approval to be rejected")
+	}
+}

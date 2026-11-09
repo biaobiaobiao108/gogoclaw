@@ -93,6 +93,7 @@ func NewAgentLoop(
 		}
 	}
 	al.activeReqCond = sync.NewCond(&al.activeReqMu)
+	al.providerRefs = make(map[providers.LLMProvider]int)
 	al.refreshRuntimeEventLogger(cfg)
 	al.providerFactory = providers.CreateProviderFromConfig
 	al.hooks = NewHookManager(al.runtimeEvents.Channel())
@@ -356,6 +357,9 @@ func registerSharedTools(
 				}
 				if hasMaxTokens {
 					cfg.MaxTokens = maxTokens
+				}
+				if hasTemperature {
+					cfg.Temperature = temperature
 				}
 
 				// 6. Spawn SubTurn

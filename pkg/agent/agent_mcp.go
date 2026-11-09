@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -22,18 +23,23 @@ import (
 
 type mcpRuntime struct {
 	initOnce       sync.Once
+	initMu         sync.Mutex
 	mu             sync.Mutex
 	manager        *mcp.Manager
 	initErr        error
+	lastAttempt    time.Time
 	registrationMu sync.Mutex
 	registered     map[string]map[string]map[string]struct{}
 }
 
 func (r *mcpRuntime) reset() *mcp.Manager {
+	r.initMu.Lock()
+	defer r.initMu.Unlock()
 	r.mu.Lock()
 	manager := r.manager
 	r.manager = nil
 	r.initErr = nil
+	r.lastAttempt = time.Time{}
 	r.initOnce = sync.Once{}
 	r.mu.Unlock()
 	r.registrationMu.Lock()
@@ -52,6 +58,7 @@ func (r *mcpRuntime) setManager(manager *mcp.Manager) {
 func (r *mcpRuntime) setInitErr(err error) {
 	r.mu.Lock()
 	r.initErr = err
+	r.lastAttempt = time.Now()
 	r.mu.Unlock()
 }
 
@@ -59,6 +66,29 @@ func (r *mcpRuntime) getInitErr() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.initErr
+}
+
+const mcpInitRetryInterval = 30 * time.Second
+
+func (r *mcpRuntime) retryDue() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.initErr != nil && !r.lastAttempt.IsZero() &&
+		time.Since(r.lastAttempt) >= mcpInitRetryInterval
+}
+
+func (r *mcpRuntime) prepareRetry() {
+	r.mu.Lock()
+	r.initErr = nil
+	r.initOnce = sync.Once{}
+	r.lastAttempt = time.Now()
+	r.mu.Unlock()
+}
+
+func (r *mcpRuntime) markAttempt() {
+	r.mu.Lock()
+	r.lastAttempt = time.Now()
+	r.mu.Unlock()
 }
 
 func (r *mcpRuntime) takeManager() *mcp.Manager {
@@ -84,6 +114,8 @@ func (r *mcpRuntime) getManager() *mcp.Manager {
 // ensureMCPInitialized loads MCP servers/tools once so both Run() and direct
 // agent mode share the same initialization path.
 func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
+	al.mcp.initMu.Lock()
+	defer al.mcp.initMu.Unlock()
 	if !al.cfg.Tools.IsToolEnabled("mcp") {
 		return nil
 	}
@@ -114,6 +146,13 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 		return nil
 	}
 
+	if err := al.mcp.getInitErr(); err != nil {
+		if !al.mcp.retryDue() {
+			return err
+		}
+		al.mcp.prepareRetry()
+	}
+	al.mcp.markAttempt()
 	al.mcp.initOnce.Do(func() {
 		mcpManager := mcp.NewManager(
 			mcp.WithRuntimeEvents(al.runtimeEvents),

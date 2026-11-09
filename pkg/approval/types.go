@@ -38,10 +38,13 @@ type Request struct {
 }
 
 type Response struct {
-	ID      string `json:"id"`
-	Approve bool   `json:"approve"`
-	Scope   Scope  `json:"scope,omitempty"`
-	Reason  string `json:"reason,omitempty"`
+	ID         string `json:"id"`
+	Approve    bool   `json:"approve"`
+	Scope      Scope  `json:"scope,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	SessionKey string `json:"session_key,omitempty"`
+	Channel    string `json:"channel,omitempty"`
+	ChatID     string `json:"chat_id,omitempty"`
 }
 
 type Decision struct {

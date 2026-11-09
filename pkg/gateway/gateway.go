@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -234,7 +235,15 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go agentLoop.Run(ctx)
+	runDone := make(chan struct{})
+	var agentRunErr error
+	go func() {
+		defer close(runDone)
+		agentRunErr = agentLoop.Run(ctx)
+		if agentRunErr != nil && !errors.Is(agentRunErr, context.Canceled) {
+			logger.Errorf("Agent loop stopped with error: %v", agentRunErr)
+		}
+	}()
 
 	var configReloadChan <-chan *config.Config
 	stopWatch := func() {}
@@ -251,8 +260,20 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 		select {
 		case <-sigChan:
 			logger.Info("Shutting down...")
+			cancel()
+			select {
+			case <-runDone:
+			case <-time.After(gracefulShutdownTimeout):
+				logger.Warn("Agent loop did not stop before shutdown timeout")
+			}
 			shutdownGateway(runningServices, agentLoop, provider, msgBus, true)
 			return nil
+		case <-runDone:
+			shutdownGateway(runningServices, agentLoop, provider, msgBus, true)
+			if agentRunErr != nil {
+				return fmt.Errorf("agent loop stopped unexpectedly: %w", agentRunErr)
+			}
+			return fmt.Errorf("agent loop stopped unexpectedly")
 		case newCfg := <-configReloadChan:
 			if !runningServices.reloading.CompareAndSwap(false, true) {
 				logger.Warn("Config reload skipped: another reload is in progress")

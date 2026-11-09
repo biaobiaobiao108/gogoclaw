@@ -13,6 +13,7 @@ import (
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
@@ -216,6 +217,8 @@ type turnState struct {
 	turnID            string
 	agentID           string
 	sessionKey        string
+	originAgentID     string
+	originSessionKey  string
 	activeSkills      []string
 	attemptedSkills   []string
 	skillContextTrace []SkillContextSnapshot
@@ -275,7 +278,9 @@ type turnState struct {
 	parentTurnState *turnState         // Reference to parent turnState
 	parentEnded     atomic.Bool        // Whether parent has ended
 	closeOnce       sync.Once          // Ensures finishedChan is closed once
+	finishOnce      sync.Once          // Ensures the full finish sequence runs once
 	finishedChan    chan struct{}      // Closed when turn finishes
+	maxContextRunes int                // Optional soft rune limit for SubTurns
 
 	// Token budget tracking
 	tokenBudget      *atomic.Int64 // Shared token budget counter
@@ -415,24 +420,27 @@ func (ts *turnState) toolRegistry() *tools.ToolRegistry {
 
 func newTurnState(agent *AgentInstance, opts processOptions, scope turnEventScope) *turnState {
 	ts := &turnState{
-		agent:        agent,
-		opts:         opts,
-		profile:      opts.TurnProfile,
-		scope:        scope,
-		turnID:       scope.turnID,
-		agentID:      agent.ID,
-		sessionKey:   opts.Dispatch.SessionKey,
-		activeSkills: activeSkillNames(agent, opts),
-		turnCtx:      cloneTurnContext(scope.context),
-		channel:      opts.Dispatch.Channel(),
-		chatID:       opts.Dispatch.ChatID(),
-		workspace:    agent.Workspace,
-		userMessage:  opts.Dispatch.UserMessage,
-		media:        append([]string(nil), opts.Dispatch.Media...),
-		phase:        TurnPhaseSetup,
-		startedAt:    time.Now(),
-		endReason:    TurnEndReasonCompleted,
-		budget:       defaultTurnBudget(agent.MaxIterations),
+		agent:            agent,
+		opts:             opts,
+		profile:          opts.TurnProfile,
+		scope:            scope,
+		turnID:           scope.turnID,
+		agentID:          agent.ID,
+		sessionKey:       opts.Dispatch.SessionKey,
+		originAgentID:    agent.ID,
+		originSessionKey: opts.Dispatch.SessionKey,
+		activeSkills:     activeSkillNames(agent, opts),
+		turnCtx:          cloneTurnContext(scope.context),
+		channel:          opts.Dispatch.Channel(),
+		chatID:           opts.Dispatch.ChatID(),
+		workspace:        agent.Workspace,
+		userMessage:      opts.Dispatch.UserMessage,
+		media:            append([]string(nil), opts.Dispatch.Media...),
+		phase:            TurnPhaseSetup,
+		startedAt:        time.Now(),
+		endReason:        TurnEndReasonCompleted,
+		budget:           defaultTurnBudget(agent.MaxIterations),
+		pendingResults:   make(chan *tools.ToolResult, 16),
 	}
 
 	// Bind session store and capture initial history length for rollback logic
@@ -485,6 +493,25 @@ func (al *AgentLoop) getAnyActiveTurnState() *turnState {
 		return true
 	})
 	return firstTS
+}
+
+// getSoleActiveTurnState returns the only active turn. When more than one turn
+// is active the caller must use a session-scoped API instead of guessing.
+func (al *AgentLoop) getSoleActiveTurnState() (*turnState, bool) {
+	var firstTS *turnState
+	count := 0
+	al.activeTurnStates.Range(func(_, value any) bool {
+		ts, ok := value.(*turnState)
+		if !ok {
+			return true
+		}
+		count++
+		if count == 1 {
+			firstTS = ts
+		}
+		return count < 2
+	})
+	return firstTS, count <= 1
 }
 
 func (al *AgentLoop) GetActiveTurn() *ActiveTurnInfo {
@@ -1089,51 +1116,83 @@ func (ts *turnState) interruptHintMessage() providers.Message {
 // =============================================================================
 
 // Finish marks the turn as finished and signals all waiting SubTurns.
+// It is safe to call more than once; only the first call performs cleanup.
 func (ts *turnState) Finish(isHardAbort bool) {
-	if isHardAbort {
-		ts.requestHardAbort()
+	if ts == nil {
+		return
 	}
-	ts.isFinished.Store(true)
-	if isHardAbort {
-		ts.finishRunningActivities("effects_unknown", "The turn was stopped before the tool result could be verified.")
-	} else {
-		ts.finishRunningActivities("cancelled", "The turn ended before this activity completed.")
-	}
-
-	// Signal completion exactly once. pendingResults stays open: SubTurn producers
-	// may still be racing with Finish, and closing it would turn a late result into
-	// a panic. Producers classify late sends as orphans instead.
-	ts.closeOnce.Do(func() {
-		ts.mu.Lock()
-		if ts.finishedChan == nil {
-			ts.finishedChan = make(chan struct{})
+	ts.finishOnce.Do(func() {
+		if isHardAbort {
+			ts.requestHardAbort()
 		}
-		close(ts.finishedChan)
-		ts.mu.Unlock()
-	})
-
-	// Any graceful finish must signal direct children so nested SubTurns can
-	// observe parent completion and decide whether to stop or continue.
-	if !isHardAbort {
+		ts.isFinished.Store(true)
+		// Both graceful completion and hard abort end the parent from a child's
+		// point of view. Non-critical children stop; critical children may still
+		// run, but must not mistake a completed parent for a live one.
 		ts.parentEnded.Store(true)
-	}
+		if isHardAbort {
+			ts.finishRunningActivities("effects_unknown", "The turn was stopped before the tool result could be verified.")
+		} else {
+			ts.finishRunningActivities("cancelled", "The turn ended before this activity completed.")
+		}
 
-	// Cancel the turn context
-	if ts.cancelFunc != nil {
-		ts.cancelFunc()
-	}
+		// Signal completion exactly once. pendingResults stays open: SubTurn producers
+		// may still be racing with Finish, and closing it would turn a late result into
+		// a panic. Producers classify late sends as orphans instead.
+		ts.closeOnce.Do(func() {
+			ts.mu.Lock()
+			if ts.finishedChan == nil {
+				ts.finishedChan = make(chan struct{})
+			}
+			close(ts.finishedChan)
+			ts.mu.Unlock()
+		})
 
-	// Hard abort cascades to all child turns
-	if isHardAbort && ts.al != nil {
-		ts.mu.RLock()
-		children := append([]string(nil), ts.childTurnIDs...)
-		ts.mu.RUnlock()
-		for _, childID := range children {
-			if val, ok := ts.al.activeTurnStates.Load(childID); ok {
-				if child, ok := val.(*turnState); ok {
-					child.Finish(true)
+		// Results already buffered when the parent ends can no longer reach the
+		// model. Drain them so producers are not left holding stale values.
+		ts.drainPendingResults()
+
+		// Cancel the turn context
+		if ts.cancelFunc != nil {
+			ts.cancelFunc()
+		}
+
+		// Hard abort cascades to all child turns
+		if isHardAbort && ts.al != nil {
+			ts.mu.RLock()
+			children := append([]string(nil), ts.childTurnIDs...)
+			ts.mu.RUnlock()
+			for _, childID := range children {
+				if val, ok := ts.al.activeTurnStates.Load(childID); ok {
+					if child, ok := val.(*turnState); ok {
+						child.Finish(true)
+					}
 				}
 			}
+		}
+	})
+}
+
+func (ts *turnState) drainPendingResults() {
+	if ts.pendingResults == nil {
+		return
+	}
+	for {
+		select {
+		case result := <-ts.pendingResults:
+			if result == nil || ts.al == nil {
+				continue
+			}
+			ts.al.emitEvent(
+				runtimeevents.KindAgentSubTurnOrphan,
+				ts.eventMeta("Finish", "subturn.orphan"),
+				SubTurnOrphanPayload{
+					ParentTurnID: ts.turnID,
+					Reason:       "parent_finished",
+				},
+			)
+		default:
+			return
 		}
 	}
 }

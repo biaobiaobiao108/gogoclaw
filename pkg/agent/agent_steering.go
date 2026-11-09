@@ -22,7 +22,7 @@ func (al *AgentLoop) processMessageSync(ctx context.Context, msg bus.InboundMess
 
 func (al *AgentLoop) runTurnWithSteering(ctx context.Context, initialMsg bus.InboundMessage) {
 	// Process the initial message
-	response, err := al.processMessageResult(ctx, initialMsg)
+	response, err := al.processMessageResult(ctx, initialMsg, true)
 	if err != nil {
 		if !al.maybePublishError(ctx, initialMsg.Channel, initialMsg.ChatID, initialMsg.SessionKey, err) {
 			return // context canceled

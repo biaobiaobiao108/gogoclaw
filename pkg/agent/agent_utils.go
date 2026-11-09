@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
@@ -605,6 +607,9 @@ func closeProviderIfStateful(provider providers.LLMProvider) {
 func (al *AgentLoop) activeRequestsInc() {
 	al.activeReqMu.Lock()
 	al.activeReqCount++
+	if al.activeReqCond == nil {
+		al.activeReqCond = sync.NewCond(&al.activeReqMu)
+	}
 	al.activeReqMu.Unlock()
 }
 
@@ -614,10 +619,98 @@ func (al *AgentLoop) activeRequestsInc() {
 func (al *AgentLoop) activeRequestsDec() {
 	al.activeReqMu.Lock()
 	al.activeReqCount--
+	if al.activeReqCond == nil {
+		al.activeReqCond = sync.NewCond(&al.activeReqMu)
+	}
 	if al.activeReqCount == 0 {
 		al.activeReqCond.Broadcast()
 	}
 	al.activeReqMu.Unlock()
+}
+
+func providerRefComparable(provider providers.LLMProvider) bool {
+	if provider == nil {
+		return false
+	}
+	typ := reflect.TypeOf(provider)
+	return typ != nil && typ.Comparable()
+}
+
+func (al *AgentLoop) acquireProviderRef(provider providers.LLMProvider) {
+	if !providerRefComparable(provider) {
+		return
+	}
+	al.activeReqMu.Lock()
+	if al.providerRefs == nil {
+		al.providerRefs = make(map[providers.LLMProvider]int)
+	}
+	al.providerRefs[provider]++
+	al.activeReqMu.Unlock()
+}
+
+func (al *AgentLoop) releaseProviderRef(provider providers.LLMProvider) {
+	if !providerRefComparable(provider) {
+		return
+	}
+	al.activeReqMu.Lock()
+	refs := al.providerRefs[provider] - 1
+	if refs <= 0 {
+		delete(al.providerRefs, provider)
+		if al.activeReqCond != nil {
+			al.activeReqCond.Broadcast()
+		}
+	} else {
+		al.providerRefs[provider] = refs
+	}
+	al.activeReqMu.Unlock()
+}
+
+func (al *AgentLoop) waitForProviderIdle(
+	ctx context.Context,
+	provider providers.LLMProvider,
+	timeout time.Duration,
+) bool {
+	al.activeReqMu.Lock()
+	if al.activeReqCond == nil {
+		al.activeReqCond = sync.NewCond(&al.activeReqMu)
+	}
+	if al.activeReqCount == 0 && al.providerRefs[provider] == 0 {
+		al.activeReqMu.Unlock()
+		return true
+	}
+
+	var timedOut bool
+	var timer *time.Timer
+	if timeout > 0 {
+		timer = time.AfterFunc(timeout, func() {
+			al.activeReqMu.Lock()
+			timedOut = true
+			al.activeReqCond.Broadcast()
+			al.activeReqMu.Unlock()
+		})
+		defer timer.Stop()
+	}
+	waitCtx := ctx
+	var stopWatch context.CancelFunc
+	if ctx != nil && ctx.Done() != nil {
+		waitCtx, stopWatch = context.WithCancel(ctx)
+		defer stopWatch()
+		go func() {
+			<-waitCtx.Done()
+			al.activeReqMu.Lock()
+			al.activeReqCond.Broadcast()
+			al.activeReqMu.Unlock()
+		}()
+	}
+	for al.activeReqCount > 0 || al.providerRefs[provider] > 0 {
+		if timedOut || (waitCtx != nil && waitCtx.Err() != nil) {
+			break
+		}
+		al.activeReqCond.Wait()
+	}
+	result := al.activeReqCount == 0 && al.providerRefs[provider] == 0
+	al.activeReqMu.Unlock()
+	return result
 }
 
 func (al *AgentLoop) waitForActiveRequests(ctx context.Context, timeout time.Duration) bool {
@@ -658,7 +751,7 @@ func (al *AgentLoop) closeReloadedProvider(ctx context.Context, provider provide
 		waitCtx = context.Background()
 	}
 
-	drained := al.waitForActiveRequests(waitCtx, providerReloadGracePeriod)
+	drained := al.waitForProviderIdle(waitCtx, provider, providerReloadGracePeriod)
 	if !drained {
 		fields := map[string]any{"grace_period": providerReloadGracePeriod.String()}
 		if err := waitCtx.Err(); err != nil {
@@ -667,6 +760,13 @@ func (al *AgentLoop) closeReloadedProvider(ctx context.Context, provider provide
 		} else {
 			logger.WarnCF("agent", "Provider reload grace period expired with in-flight requests still running", fields)
 		}
+		go func() {
+			if !al.waitForProviderIdle(context.Background(), provider, 10*time.Minute) {
+				logger.WarnCF("agent", "Closing reloaded provider after maximum idle wait", nil)
+			}
+			provider.Close()
+		}()
+		return
 	}
 
 	provider.Close()

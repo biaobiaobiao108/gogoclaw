@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 // mockSpawner implements SubTurnSpawner for testing.
@@ -96,6 +97,43 @@ func TestSpawnTool_Execute_ValidTask(t *testing.T) {
 	}
 	if !spawner.lastConfig.Critical {
 		t.Error("SpawnTool should mark background subturns as critical")
+	}
+	if spawner.lastConfig.Async {
+		t.Error("SpawnTool must use callback delivery instead of pendingResults delivery")
+	}
+}
+
+func TestSpawnToolTracksStatusAndScopesByConversation(t *testing.T) {
+	provider := &MockLLMProvider{}
+	manager := NewSubagentManager(provider, "test-model", "/tmp/test")
+	tool := NewSpawnTool(manager)
+	spawner := &mockSpawner{done: make(chan struct{})}
+	tool.SetSpawner(spawner)
+
+	ctx := WithToolContext(context.Background(), "test", "chat-1")
+	completed := make(chan *ToolResult, 1)
+	result := tool.ExecuteAsync(ctx, map[string]any{"task": "background work"}, func(_ context.Context, result *ToolResult) {
+		completed <- result
+	})
+	if result == nil || result.IsError {
+		t.Fatalf("ExecuteAsync() = %+v", result)
+	}
+	select {
+	case <-completed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("spawned task did not complete")
+	}
+
+	status := NewSpawnStatusTool(manager).Execute(ctx, map[string]any{})
+	if status.IsError || !strings.Contains(status.ForLLM, "subagent-1") ||
+		!strings.Contains(status.ForLLM, "status=completed") {
+		t.Fatalf("spawn status = %q", status.ForLLM)
+	}
+
+	otherConversation := WithToolContext(context.Background(), "test", "chat-2")
+	other := NewSpawnStatusTool(manager).Execute(otherConversation, map[string]any{})
+	if !strings.Contains(other.ForLLM, "No subagents found") {
+		t.Fatalf("cross-conversation task leaked: %q", other.ForLLM)
 	}
 }
 
