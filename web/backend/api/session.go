@@ -1459,6 +1459,15 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func sessionTurnMayBeActive(status string) bool {
+	switch status {
+	case "running", "awaiting_approval", "resuming":
+		return true
+	default:
+		return false
+	}
+}
+
 // handleDeleteSession deletes a specific session.
 //
 //	DELETE /api/sessions/{id}
@@ -1481,7 +1490,7 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		if sess, _, err := h.readJSONLSessionInfo(dir, ref.Key); err != nil {
 			http.Error(w, "failed to read session", http.StatusInternalServerError)
 			return
-		} else if sess.Turn.Status == "running" && h.gatewayAvailableForProxy() {
+		} else if sessionTurnMayBeActive(sess.Turn.Status) && h.gatewayAvailableForProxy() {
 			http.Error(w, "stop the active task before deleting this session", http.StatusConflict)
 			return
 		}
@@ -1508,7 +1517,7 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to read session", http.StatusInternalServerError)
 			return
 		}
-		if legacy.Turn.Status == "running" && h.gatewayAvailableForProxy() {
+		if sessionTurnMayBeActive(legacy.Turn.Status) && h.gatewayAvailableForProxy() {
 			http.Error(w, "stop the active task before deleting this session", http.StatusConflict)
 			return
 		}

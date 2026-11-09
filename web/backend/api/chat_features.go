@@ -579,7 +579,6 @@ func (h *Handler) searchJSONLSession(
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxSessionJSONLLineSize)
-	normalizedBytes := []byte(normalizedQuery)
 	lineNumber := 0
 	for scanner.Scan() {
 		lineNumber++
@@ -590,7 +589,7 @@ func (h *Handler) searchJSONLSession(
 			return sessionSearchResult{}, false, ctx.Err()
 		}
 		line := scanner.Bytes()
-		if len(line) == 0 || !bytes.Contains(bytes.ToLower(line), normalizedBytes) {
+		if len(line) == 0 {
 			continue
 		}
 		var message providers.Message
@@ -814,7 +813,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if contentType == "" {
 		contentType = mime.TypeByExtension(filepath.Ext(filename))
 	}
-	attachmentType := attachmentTypeFor("", filename)
+	attachmentType := attachmentTypeFor(contentType, filename)
 	urlValue := "/api/attachments/" + url.PathEscape(sessionID) + "/" + url.PathEscape(storedName)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id": storedName, "type": attachmentType, "url": urlValue,
@@ -848,7 +847,12 @@ func (h *Handler) handleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 	h.attachmentMu.Lock()
 	defer h.attachmentMu.Unlock()
 	for _, dir := range dirs {
-		if h.attachmentReferencedBySession(dir, sessionID, attachmentID) {
+		referenced, err := h.attachmentReferencedBySession(dir, sessionID, attachmentID)
+		if err != nil {
+			http.Error(w, "failed to inspect attachment references", http.StatusInternalServerError)
+			return
+		}
+		if referenced {
 			http.Error(w, "attachment is already referenced by a message", http.StatusConflict)
 			return
 		}
@@ -958,24 +962,63 @@ func (h *Handler) cleanupOrphanedSessionAttachments(sessionsDir, sessionID strin
 	return errors.Join(cleanupErrs...)
 }
 
-func (h *Handler) attachmentReferencedBySession(sessionsDir, sessionID, attachmentID string) bool {
+func (h *Handler) attachmentReferencedBySession(sessionsDir, sessionID, attachmentID string) (bool, error) {
 	references, err := h.sessionAttachmentReferences(sessionsDir, sessionID)
 	if err != nil {
-		return false
+		return false, err
 	}
 	_, ok := references[attachmentID]
-	return ok
+	return ok, nil
 }
 
 func (h *Handler) sessionAttachmentReferences(sessionsDir, sessionID string) (map[string]struct{}, error) {
+	references := make(map[string]struct{})
+	addMessages := func(messages []providers.Message) {
+		for _, message := range messages {
+			for _, attachment := range message.Attachments {
+				if id := durableAttachmentID(attachment); id != "" {
+					references[id] = struct{}{}
+				}
+			}
+		}
+	}
 	if ref, err := h.findPicoJSONLSession(sessionsDir, sessionID); err == nil {
 		base := filepath.Join(sessionsDir, sanitizeSessionKey(ref.Key))
-		return readSessionAttachmentReferences(base + ".jsonl")
+		stored, err := readSessionAttachmentReferences(base + ".jsonl")
+		if err != nil {
+			return nil, err
+		}
+		for id := range stored {
+			references[id] = struct{}{}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
 	if ref, err := h.findLegacyPicoSession(sessionsDir, sessionID); err == nil {
-		return readSessionAttachmentReferences(ref.Path)
+		sess, err := h.readLegacySession(ref.Path)
+		if err != nil {
+			return nil, err
+		}
+		addMessages(sess.Messages)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
-	return nil, os.ErrNotExist
+	// Inactive answers still own their attachments even when the live history
+	// has been replaced by a different branch.
+	root := chatmeta.BranchStoreRoot(config.GetHome())
+	if err := chatmeta.MigrateLegacyBranches(chatmeta.LegacyBranchStorePath(sessionsDir), root); err != nil {
+		return nil, err
+	}
+	branches, err := chatmeta.LoadBranches(chatmeta.BranchStorePath(root, sessionID))
+	if err != nil {
+		return nil, err
+	}
+	for _, group := range branches.Sessions[sessionID].Groups {
+		for _, version := range group.Versions {
+			addMessages(version.Messages)
+		}
+	}
+	return references, nil
 }
 
 func readSessionAttachmentReferences(path string) (map[string]struct{}, error) {

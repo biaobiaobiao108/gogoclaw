@@ -35,6 +35,7 @@ let reconnectAttempts = 0
 let shouldMaintainConnection = false
 let sessionSelectionGeneration = 0
 let historyGeneration = 0
+let historyRefreshGeneration = 0
 let pendingStatusWatchUntil = 0
 let branchRequestCounter = 0
 let branchSwitchTimer: number | null = null
@@ -531,6 +532,7 @@ export function sendChatMessage({
   if (action !== "send" && previousTargetIndex < 0) {
     return false
   }
+  historyRefreshGeneration += 1
   const restoreOptimisticState = () =>
     updateChatStore((prev) => ({
       ...prev,
@@ -560,7 +562,7 @@ export function sendChatMessage({
         messages:
           targetIndex >= 0
             ? [
-                ...prev.messages.slice(0, targetIndex + 1),
+                ...prev.messages.slice(0, targetIndex),
                 {
                   ...prev.messages[targetIndex],
                   content: normalizedContent,
@@ -649,6 +651,7 @@ export function sendChatMessage({
 export function retryChatMessage(id: string) {
   const message = getChatState().messages.find((item) => item.id === id)
   if (!message || !wsRef || wsRef.readyState !== WebSocket.OPEN) return false
+  historyRefreshGeneration += 1
   try {
     wsRef.send(
       JSON.stringify({
@@ -685,11 +688,20 @@ export function retryChatMessage(id: string) {
 export async function refreshActiveSessionHistory(sessionId?: string) {
   const expectedSessionId = sessionId ?? activeSessionIdRef
   const selection = sessionSelectionGeneration
+  const refresh = ++historyRefreshGeneration
+  const initialState = getChatState()
   try {
     const history = await loadSessionHistory(expectedSessionId)
+    const current = getChatState()
     if (
-      getChatState().activeSessionId !== expectedSessionId ||
-      selection !== sessionSelectionGeneration
+      current.activeSessionId !== expectedSessionId ||
+      selection !== sessionSelectionGeneration ||
+      refresh !== historyRefreshGeneration ||
+      current.messages !== initialState.messages ||
+      current.activeTurn ||
+      (current.isTyping && !initialState.isTyping) ||
+      (current.pendingApproval &&
+        current.pendingApproval !== initialState.pendingApproval)
     ) {
       return
     }

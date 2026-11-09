@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -18,7 +19,9 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/chatmeta"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
+	ppid "github.com/biaobiaobiao108/gogoclaw/pkg/pid"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
 
 func setupChatFeatureTest(t *testing.T) (*Handler, *http.ServeMux, string) {
@@ -659,5 +662,160 @@ func TestSearchSnippetUsesRuneIndexes(t *testing.T) {
 	snippet := searchSnippet(content, "目标关键字", 18)
 	if !strings.Contains(snippet, "目标关键字") {
 		t.Fatalf("snippet = %q", snippet)
+	}
+}
+
+func TestUploadPreservesMediaTypes(t *testing.T) {
+	_, mux, _ := setupChatFeatureTest(t)
+	for _, tc := range []struct{ filename, contentType, kind string }{
+		{"photo.png", "image/png", "image"},
+		{"recording.mp3", "audio/mpeg", "audio"},
+		{"movie.mp4", "video/mp4", "video"},
+		{"fallback.png", "", "image"},
+		{"diagram.svg", "image/svg+xml", "file"},
+		{"page.html", "text/html", "file"},
+	} {
+		t.Run(tc.filename, func(t *testing.T) {
+			uploaded := uploadChatAttachment(t, mux, "media-types", tc.filename, tc.contentType, "content")
+			if uploaded.Type != tc.kind {
+				t.Fatalf("type = %q, want %q", uploaded.Type, tc.kind)
+			}
+		})
+	}
+}
+
+func TestBranchAttachmentsSurviveCleanupAndCannotBeDeleted(t *testing.T) {
+	h, mux, dir := setupChatFeatureTest(t)
+	const sessionID = "branch-attachment"
+	seedChatFeatureSession(t, dir, sessionID)
+	uploaded := uploadChatAttachment(t, mux, sessionID, "photo.png", "image/png", "image")
+	path := filepath.Join(dir, ".attachments", sessionID, uploaded.ID)
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	branchPath := chatmeta.BranchStorePath(chatmeta.BranchStoreRoot(config.GetHome()), sessionID)
+	branches := chatmeta.BranchStore{Sessions: map[string]chatmeta.BranchSession{
+		sessionID: {Groups: map[string]chatmeta.BranchGroup{
+			"root": {Versions: []chatmeta.BranchVersion{{ID: "old-answer", Messages: []providers.Message{{
+				Role: "user", Attachments: []providers.Attachment{{Ref: path, Type: "image"}},
+			}}}}},
+		}},
+	}}
+	if err := chatmeta.SaveBranches(branchPath, branches); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.cleanupOrphanedSessionAttachments(dir, sessionID, 24*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("branch attachment was removed: %v", err)
+	}
+	rec := performJSONRequest(t, mux, http.MethodDelete, "/api/uploads?session_id="+sessionID+"&id="+uploaded.ID, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("delete status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	// Unreadable branch data must not authorize deletion of its attachments.
+	if err := os.WriteFile(branchPath, []byte("invalid JSON"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rec = performJSONRequest(t, mux, http.MethodDelete, "/api/uploads?session_id="+sessionID+"&id="+uploaded.ID, nil)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("corrupt branch delete status = %d", rec.Code)
+	}
+	if err := h.cleanupOrphanedSessionAttachments(dir, sessionID, 24*time.Hour); err == nil {
+		t.Fatal("cleanup must report unreadable branch references")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("attachment was removed after reference read failure: %v", err)
+	}
+}
+
+func TestCachedSessionSearchMatchesEscapedContent(t *testing.T) {
+	_, mux, dir := setupChatFeatureTest(t)
+	const sessionID = "escaped-search"
+	seedChatFeatureSession(t, dir, sessionID)
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddFullMessage(nil, legacyPicoSessionPrefix+sessionID, providers.Message{
+		Role: "assistant", Content: "Example: <div> & \"quoted\" C:\\path\nnext line",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Populate the session list cache so search uses its streaming reader.
+	rec := performJSONRequest(t, mux, http.MethodGet, "/api/sessions", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d", rec.Code)
+	}
+	for _, query := range []string{"<div>", "&", `"quoted"`, `C:\path`, "path\nnext"} {
+		rec := performJSONRequest(t, mux, http.MethodGet, "/api/sessions/search?q="+url.QueryEscape(query), nil)
+		var results []sessionSearchResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &results); err != nil {
+			t.Fatal(err)
+		}
+		if len(results) != 1 || results[0].ID != sessionID {
+			t.Fatalf("search %q = %s", query, rec.Body.String())
+		}
+	}
+}
+
+func TestDeleteSessionProtectsLiveTurnStates(t *testing.T) {
+	resetGatewayTestState(t)
+	_, mux, dir := setupChatFeatureTest(t)
+	cmd := startLongRunningProcess(t)
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	gateway.mu.Lock()
+	gateway.cmd = cmd
+	gateway.pidData = &ppid.PidFileData{PID: cmd.Process.Pid}
+	gateway.mu.Unlock()
+	for _, legacy := range []bool{false, true} {
+		for _, status := range []string{"running", "awaiting_approval", "resuming", "completed", "interrupted"} {
+			t.Run(fmt.Sprintf("legacy=%t/%s", legacy, status), func(t *testing.T) {
+				id := fmt.Sprintf("delete-%t-%s", legacy, status)
+				key := legacyPicoSessionPrefix + id
+				checkpoint := session.TurnCheckpoint{TurnID: "turn", Status: status}
+				var path string
+				if legacy {
+					manager := session.NewSessionManager(dir)
+					manager.AddMessage(key, "user", "keep this history")
+					if err := manager.SetTurnCheckpoint(key, checkpoint); err != nil {
+						t.Fatal(err)
+					}
+					if err := manager.Save(key); err != nil {
+						t.Fatal(err)
+					}
+					path = filepath.Join(dir, sanitizeSessionKey(key)+".json")
+				} else {
+					seedChatFeatureSession(t, dir, id)
+					store, err := memory.NewJSONLStore(dir)
+					if err != nil {
+						t.Fatal(err)
+					}
+					backend := session.NewJSONLBackend(store)
+					if err := backend.SetTurnCheckpoint(key, checkpoint); err != nil {
+						t.Fatal(err)
+					}
+					path = filepath.Join(dir, sanitizeSessionKey(key)+".jsonl")
+				}
+				rec := performJSONRequest(t, mux, http.MethodDelete, "/api/sessions/"+id, nil)
+				want := http.StatusConflict
+				if status == "completed" || status == "interrupted" {
+					want = http.StatusNoContent
+				}
+				if rec.Code != want {
+					t.Fatalf("status = %d, want %d, body = %s", rec.Code, want, rec.Body.String())
+				}
+				if want == http.StatusConflict {
+					if _, err := os.Stat(path); err != nil {
+						t.Fatalf("active history removed: %v", err)
+					}
+				}
+			})
+		}
 	}
 }
