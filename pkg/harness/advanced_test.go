@@ -367,3 +367,105 @@ func TestRunSuiteProducesStructuredReport(t *testing.T) {
 		t.Fatalf("unexpected report: %+v", report)
 	}
 }
+
+func TestSteeringInjectedMidTurnViaHarness(t *testing.T) {
+	tool := TextTool("search", "search result")
+	result, err := Run(context.Background(), Scenario{
+		Name:        "steering-mid-turn",
+		UserMessage: "initial prompt",
+		Steps: []ModelStep{
+			SteerOnCall("change task to focus on logs", Calls(ToolCall("call-s1", "search", nil))),
+			Text("handled redirected task"),
+		},
+		Tools: []tools.Tool{tool},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := result.Verify(Expect{
+		Final:      "handled redirected task",
+		ModelCalls: 2,
+		TurnStatus: agent.TurnEndStatusCompleted,
+		EventDetails: []EventExpectation{{
+			Kind: runtimeevents.KindAgentSteeringInjected,
+		}},
+		HistoryContains: []string{"change task to focus on logs"},
+		ModelDetails: []ModelCallExpectation{
+			{Contains: []string{"initial prompt"}},
+			{Contains: []string{"change task to focus on logs"}},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGracefulInterruptMidTurnViaHarness(t *testing.T) {
+	tool := TextTool("long_search", "search result")
+	result, err := Run(context.Background(), Scenario{
+		Name:        "interrupt-mid-turn",
+		UserMessage: "start work",
+		Steps: []ModelStep{
+			InterruptOnCall("stop immediately after search", Calls(ToolCall("call-i1", "long_search", nil))),
+			Text("graceful summary"),
+		},
+		Tools: []tools.Tool{tool},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := result.Verify(Expect{
+		Final:      "graceful summary",
+		TurnStatus: agent.TurnEndStatusCompleted,
+		TurnReason: agent.TurnEndReasonUserInterrupted,
+		EventDetails: []EventExpectation{{
+			Kind:            runtimeevents.KindAgentInterruptReceived,
+			PayloadContains: []string{"graceful"},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestParallelSuiteWithOptions(t *testing.T) {
+	scenarios := []Scenario{
+		{
+			Name:        "par-1",
+			UserMessage: "hello 1",
+			Steps:       []ModelStep{Text("ans 1")},
+			Expectation: &Expect{Final: "ans 1"},
+		},
+		{
+			Name:        "par-2",
+			UserMessage: "hello 2",
+			Steps:       []ModelStep{Text("ans 2")},
+			Expectation: &Expect{Final: "ans 2"},
+		},
+		{
+			Name:        "par-3",
+			UserMessage: "hello 3",
+			Steps:       []ModelStep{Text("ans 3")},
+			Expectation: &Expect{Final: "ans 3"},
+		},
+	}
+	report := RunSuiteWithOptions(context.Background(), scenarios, SuiteOptions{
+		Parallel:    true,
+		Concurrency: 3,
+	})
+	if !report.Passed || len(report.Scenarios) != 3 {
+		t.Fatalf("unexpected parallel report: %+v", report)
+	}
+	if report.Scenarios[0].Name != "par-1" || report.Scenarios[1].Name != "par-2" || report.Scenarios[2].Name != "par-3" {
+		t.Fatalf("scenario order mismatch in parallel report: %+v", report.Scenarios)
+	}
+
+	// Filter test
+	filteredReport := RunSuiteWithOptions(context.Background(), scenarios, SuiteOptions{
+		Filter: "par-[13]",
+	})
+	if !filteredReport.Passed || len(filteredReport.Scenarios) != 2 {
+		t.Fatalf("filter failed: %+v", filteredReport)
+	}
+	if filteredReport.Scenarios[0].Name != "par-1" || filteredReport.Scenarios[1].Name != "par-3" {
+		t.Fatalf("filter result mismatch: %+v", filteredReport.Scenarios)
+	}
+}

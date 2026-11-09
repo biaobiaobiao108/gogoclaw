@@ -68,6 +68,10 @@ type ModelStep struct {
 	Delay          time.Duration
 	Panic          any
 	WaitForContext bool
+	InjectSteering string
+	InterruptKind  string
+	InterruptHint  string
+	OnCall         func(runtime ToolRuntime) error
 }
 
 // Text returns a final-answer step.
@@ -88,6 +92,25 @@ func Fail(err error) ModelStep {
 // Panic returns a provider panic step.
 func Panic(value any) ModelStep {
 	return ModelStep{Panic: value}
+}
+
+// SteerOnCall returns a step that injects steering input to the turn when called.
+func SteerOnCall(steering string, step ModelStep) ModelStep {
+	step.InjectSteering = steering
+	return step
+}
+
+// InterruptOnCall returns a step that requests graceful interruption when called.
+func InterruptOnCall(hint string, step ModelStep) ModelStep {
+	step.InterruptKind = "graceful"
+	step.InterruptHint = hint
+	return step
+}
+
+// HardAbortOnCall returns a step that requests hard abortion when called.
+func HardAbortOnCall(step ModelStep) ModelStep {
+	step.InterruptKind = "hard"
+	return step
 }
 
 // ToolCall builds a provider tool call.
@@ -205,19 +228,30 @@ type Expect struct {
 	ModelDetails       []ModelCallExpectation `json:"model_details,omitempty"`
 	GoldenTrace        string                 `json:"golden_trace,omitempty"`
 	AllowInvalidTrace  bool                   `json:"allow_invalid_trace,omitempty"`
+	HistoryContains    []string               `json:"history_contains,omitempty"`
+	OutboundContains   []string               `json:"outbound_contains,omitempty"`
+	NoOutbound         bool                   `json:"no_outbound,omitempty"`
+	Iterations         int                    `json:"iterations,omitempty"`
 }
 
 // ScriptedProvider returns ModelStep responses in order and records every call.
 type ScriptedProvider struct {
-	mu    sync.Mutex
-	model string
-	steps []ModelStep
-	next  int
-	calls []ModelCall
+	mu      sync.Mutex
+	model   string
+	steps   []ModelStep
+	next    int
+	calls   []ModelCall
+	runtime ToolRuntime
 }
 
 func NewScriptedProvider(model string, steps ...ModelStep) *ScriptedProvider {
 	return &ScriptedProvider{model: model, steps: append([]ModelStep(nil), steps...)}
+}
+
+func (p *ScriptedProvider) bindRuntime(rt ToolRuntime) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.runtime = rt
 }
 
 func (p *ScriptedProvider) GetDefaultModel() string {
@@ -250,7 +284,26 @@ func (p *ScriptedProvider) Chat(
 		At:        time.Now().UTC(),
 	}
 	p.calls = append(p.calls, call)
+	runtime := p.runtime
 	p.mu.Unlock()
+
+	if step.InjectSteering != "" && runtime.Loop != nil && runtime.SessionKey != "" {
+		_ = runtime.Loop.SteerForSession(runtime.SessionKey, providers.Message{
+			Role:    "user",
+			Content: step.InjectSteering,
+		})
+	}
+	if step.InterruptKind == "graceful" && runtime.Loop != nil && runtime.SessionKey != "" {
+		_ = runtime.Loop.InterruptGracefulForSession(runtime.SessionKey, step.InterruptHint)
+	} else if step.InterruptKind == "hard" && runtime.Loop != nil && runtime.SessionKey != "" {
+		_ = runtime.Loop.HardAbort(runtime.SessionKey)
+	}
+	if step.OnCall != nil {
+		if err := step.OnCall(runtime); err != nil {
+			p.finishCall(index, nil, err)
+			return nil, err
+		}
+	}
 
 	if step.Delay > 0 {
 		timer := time.NewTimer(step.Delay)
@@ -533,6 +586,15 @@ func Run(ctx context.Context, scenario Scenario) (*Result, error) {
 			return nil, fmt.Errorf("harness: scenario setup: %w", err)
 		}
 	}
+	rt := ToolRuntime{Loop: loop, Bus: msgBus, SessionKey: sessionKey}
+	if binder, ok := provider.(interface{ bindRuntime(ToolRuntime) }); ok {
+		binder.bindRuntime(rt)
+	}
+	if recorder != nil {
+		if binder, ok := recorder.inner.(interface{ bindRuntime(ToolRuntime) }); ok {
+			binder.bindRuntime(rt)
+		}
+	}
 	registeredTools := append([]tools.Tool(nil), scenario.Tools...)
 	if scenario.ToolFactory != nil {
 		created, factoryErr := scenario.ToolFactory(ToolRuntime{Loop: loop, Bus: msgBus, SessionKey: sessionKey})
@@ -542,6 +604,9 @@ func Run(ctx context.Context, scenario Scenario) (*Result, error) {
 		registeredTools = append(registeredTools, created...)
 	}
 	for _, tool := range registeredTools {
+		if spawnerAware, ok := tool.(interface{ SetSpawner(tools.SubTurnSpawner) }); ok {
+			spawnerAware.SetSpawner(agent.NewSubTurnSpawner(loop))
+		}
 		loop.RegisterTool(tool)
 	}
 
@@ -989,6 +1054,33 @@ func (r *Result) Verify(expect Expect) error {
 			problems = append(problems, fmt.Sprintf("load golden trace: %v", err))
 		} else if err := CompareTrace(r.Snapshot(), want); err != nil {
 			problems = append(problems, err.Error())
+		}
+	}
+	for _, needle := range expect.HistoryContains {
+		if !messagesContainAll(r.History, []string{needle}) {
+			problems = append(problems, fmt.Sprintf("history does not contain %q", needle))
+		}
+	}
+	for _, needle := range expect.OutboundContains {
+		found := false
+		for _, msg := range r.Outbound {
+			if strings.Contains(msg, needle) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			problems = append(problems, fmt.Sprintf("outbound messages do not contain %q", needle))
+		}
+	}
+	if expect.NoOutbound && len(r.Outbound) > 0 {
+		problems = append(problems, fmt.Sprintf("expected no outbound messages, got %d", len(r.Outbound)))
+	}
+	if expect.Iterations > 0 {
+		if r.TurnEnd == nil {
+			problems = append(problems, "missing turn end event for iterations check")
+		} else if r.TurnEnd.Iterations != expect.Iterations {
+			problems = append(problems, fmt.Sprintf("iterations = %d, want %d", r.TurnEnd.Iterations, expect.Iterations))
 		}
 	}
 	if len(problems) > 0 {

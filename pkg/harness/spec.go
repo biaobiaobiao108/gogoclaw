@@ -44,8 +44,11 @@ type ScenarioSpec struct {
 
 // SuiteSpec groups multiple scenario specs in one JSON file.
 type SuiteSpec struct {
-	Name      string         `json:"name,omitempty"`
-	Scenarios []ScenarioSpec `json:"scenarios"`
+	Name        string         `json:"name,omitempty"`
+	Parallel    bool           `json:"parallel,omitempty"`
+	Concurrency int            `json:"concurrency,omitempty"`
+	Filter      string         `json:"filter,omitempty"`
+	Scenarios   []ScenarioSpec `json:"scenarios"`
 }
 
 type ModelStepSpec struct {
@@ -55,6 +58,9 @@ type ModelStepSpec struct {
 	Panic          string         `json:"panic,omitempty"`
 	DelayMS        int64          `json:"delay_ms,omitempty"`
 	WaitForContext bool           `json:"wait_for_context,omitempty"`
+	InjectSteering string         `json:"inject_steering,omitempty"`
+	InterruptKind  string         `json:"interrupt_kind,omitempty"`
+	InterruptHint  string         `json:"interrupt_hint,omitempty"`
 	Response       *ResponseSpec  `json:"response,omitempty"`
 }
 
@@ -86,7 +92,7 @@ type SessionFaultSpec struct {
 }
 
 func LoadScenarioSpec(path string) (Scenario, error) {
-	scenarios, err := loadScenarioFile(path)
+	scenarios, _, err := loadScenarioFile(path)
 	if err != nil {
 		return Scenario{}, err
 	}
@@ -99,14 +105,20 @@ func LoadScenarioSpec(path string) (Scenario, error) {
 // LoadScenarios loads scenarios from a scenario file, suite file, or a directory
 // containing JSON scenario files.
 func LoadScenarios(path string) ([]Scenario, error) {
+	scenarios, _, err := LoadScenariosWithOptions(path)
+	return scenarios, err
+}
+
+// LoadScenariosWithOptions loads scenarios and suite execution options.
+func LoadScenariosWithOptions(path string) ([]Scenario, SuiteOptions, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return nil, fmt.Errorf("harness: stat %s: %w", path, err)
+		return nil, SuiteOptions{}, fmt.Errorf("harness: stat %s: %w", path, err)
 	}
 	if info.IsDir() {
 		entries, err := os.ReadDir(path)
 		if err != nil {
-			return nil, fmt.Errorf("harness: read dir %s: %w", path, err)
+			return nil, SuiteOptions{}, fmt.Errorf("harness: read dir %s: %w", path, err)
 		}
 		var files []string
 		for _, entry := range entries {
@@ -117,59 +129,64 @@ func LoadScenarios(path string) ([]Scenario, error) {
 		}
 		sort.Strings(files)
 		if len(files) == 0 {
-			return nil, fmt.Errorf("harness: no JSON scenario files found in %s", path)
+			return nil, SuiteOptions{}, fmt.Errorf("harness: no JSON scenario files found in %s", path)
 		}
 		var all []Scenario
 		for _, file := range files {
-			scenarios, err := loadScenarioFile(file)
+			scenarios, _, err := loadScenarioFile(file)
 			if err != nil {
-				return nil, err
+				return nil, SuiteOptions{}, err
 			}
 			all = append(all, scenarios...)
 		}
-		return all, nil
+		return all, SuiteOptions{}, nil
 	}
 	return loadScenarioFile(path)
 }
 
-func loadScenarioFile(path string) ([]Scenario, error) {
+func loadScenarioFile(path string) ([]Scenario, SuiteOptions, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("harness: read scenario spec %s: %w", path, err)
+		return nil, SuiteOptions{}, fmt.Errorf("harness: read scenario spec %s: %w", path, err)
 	}
 	var probe struct {
 		Scenarios json.RawMessage `json:"scenarios"`
 	}
 	if err := json.Unmarshal(data, &probe); err != nil {
-		return nil, fmt.Errorf("harness: decode scenario spec %s: %w", path, err)
+		return nil, SuiteOptions{}, fmt.Errorf("harness: decode scenario spec %s: %w", path, err)
 	}
 	if probe.Scenarios != nil {
 		var suite SuiteSpec
 		if err := decodeStrictJSON(data, &suite); err != nil {
-			return nil, fmt.Errorf("harness: decode suite spec %s: %w", path, err)
+			return nil, SuiteOptions{}, fmt.Errorf("harness: decode suite spec %s: %w", path, err)
 		}
 		if len(suite.Scenarios) == 0 {
-			return nil, fmt.Errorf("harness: suite spec %s contains no scenarios", path)
+			return nil, SuiteOptions{}, fmt.Errorf("harness: suite spec %s contains no scenarios", path)
 		}
 		scenarios := make([]Scenario, 0, len(suite.Scenarios))
 		for i, spec := range suite.Scenarios {
 			scenario, err := spec.Scenario()
 			if err != nil {
-				return nil, fmt.Errorf("harness: suite spec %s scenario %d: %w", path, i+1, err)
+				return nil, SuiteOptions{}, fmt.Errorf("harness: suite spec %s scenario %d: %w", path, i+1, err)
 			}
 			scenarios = append(scenarios, scenario)
 		}
-		return scenarios, nil
+		opts := SuiteOptions{
+			Parallel:    suite.Parallel,
+			Concurrency: suite.Concurrency,
+			Filter:      suite.Filter,
+		}
+		return scenarios, opts, nil
 	}
 	var spec ScenarioSpec
 	if err := decodeStrictJSON(data, &spec); err != nil {
-		return nil, fmt.Errorf("harness: decode scenario spec %s: %w", path, err)
+		return nil, SuiteOptions{}, fmt.Errorf("harness: decode scenario spec %s: %w", path, err)
 	}
 	scenario, err := spec.Scenario()
 	if err != nil {
-		return nil, fmt.Errorf("harness: scenario spec %s: %w", path, err)
+		return nil, SuiteOptions{}, fmt.Errorf("harness: scenario spec %s: %w", path, err)
 	}
-	return []Scenario{scenario}, nil
+	return []Scenario{scenario}, SuiteOptions{}, nil
 }
 
 func decodeStrictJSON(data []byte, target any) error {
@@ -212,6 +229,9 @@ func (s ScenarioSpec) Scenario() (Scenario, error) {
 			Content:        step.Content,
 			Delay:          time.Duration(step.DelayMS) * time.Millisecond,
 			WaitForContext: step.WaitForContext,
+			InjectSteering: step.InjectSteering,
+			InterruptKind:  step.InterruptKind,
+			InterruptHint:  step.InterruptHint,
 		}
 		for _, call := range step.ToolCalls {
 			modelStep.ToolCalls = append(modelStep.ToolCalls, ToolCall(call.ID, call.Name, call.Arguments))
@@ -332,9 +352,24 @@ func RunSpecFile(ctx context.Context, path string) (Report, error) {
 
 // RunSpecPath runs scenarios from a file, suite, or directory and returns a structured report.
 func RunSpecPath(ctx context.Context, path string) (Report, error) {
-	scenarios, err := LoadScenarios(path)
+	return RunSpecPathWithOptions(ctx, path, SuiteOptions{})
+}
+
+// RunSpecPathWithOptions runs scenarios with additional execution options.
+func RunSpecPathWithOptions(ctx context.Context, path string, opts SuiteOptions) (Report, error) {
+	scenarios, fileOpts, err := LoadScenariosWithOptions(path)
 	if err != nil {
 		return Report{}, err
 	}
-	return RunSuite(ctx, scenarios), nil
+	mergedOpts := opts
+	if !mergedOpts.Parallel && fileOpts.Parallel {
+		mergedOpts.Parallel = true
+		if mergedOpts.Concurrency <= 0 {
+			mergedOpts.Concurrency = fileOpts.Concurrency
+		}
+	}
+	if mergedOpts.Filter == "" && fileOpts.Filter != "" {
+		mergedOpts.Filter = fileOpts.Filter
+	}
+	return RunSuiteWithOptions(ctx, scenarios, mergedOpts), nil
 }

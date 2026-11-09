@@ -98,3 +98,37 @@ func TestRunSpecWithSessionFault(t *testing.T) {
 		t.Fatalf("unexpected report for fault scenario: %+v", report)
 	}
 }
+
+func TestRunSpecWithSteeringAndInterrupt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "steering.json")
+	data := `{
+  "name": "json-steering-scenario",
+  "user_message": "start",
+  "steps": [
+    {
+      "tool_calls": [{"id": "c1", "name": "echo_tool"}],
+      "inject_steering": "new task"
+    },
+    {
+      "content": "done steering"
+    }
+  ],
+  "tools": [
+    {"name": "echo_tool", "kind": "text", "content": "echo result"}
+  ],
+  "expect": {
+    "final": "done steering",
+    "history_contains": ["new task"]
+  }
+}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := RunSpecFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Passed || len(report.Scenarios) != 1 {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+}
