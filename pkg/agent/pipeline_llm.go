@@ -40,14 +40,19 @@ func (p *Pipeline) CallLLM(
 	exec.providerToolDefs = ts.toolRegistry().ToProviderDefs()
 	exec.providerToolDefs = filterToolsByTurnProfile(exec.providerToolDefs, ts.profile)
 	if iteration >= 1 {
-		var fit bool
-		exec.messages, exec.currentTurnStart, fit = fitActiveTurn(exec.messages, exec.currentTurnStart, ts.agent.ContextWindow, exec.providerToolDefs, ts.agent.MaxTokens)
-		if !fit {
-			var compactErr error
-			exec.messages, compactErr = compactActiveTurn(turnCtx, exec.activeProvider, exec.activeModel, exec.messages, exec.currentTurnStart, ts.agent.ContextWindow, ts.agent.MaxTokens, exec.providerToolDefs)
-			if compactErr != nil {
-				return ControlBreak, compactErr
-			}
+		var fitErr error
+		exec.messages, exec.currentTurnStart, fitErr = fitContextForRequest(
+			turnCtx,
+			exec.activeProvider,
+			exec.activeModel,
+			exec.messages,
+			exec.currentTurnStart,
+			ts.agent.ContextWindow,
+			ts.agent.MaxTokens,
+			exec.providerToolDefs,
+		)
+		if fitErr != nil {
+			return ControlBreak, fitErr
 		}
 	}
 
@@ -592,8 +597,9 @@ func (p *Pipeline) CallLLM(
 		exec.response.ReasoningContent = ""
 		exec.response.ReasoningDetails = nil
 	}
+	exec.normalizedResponse = providers.NormalizeLLMResponse(exec.response)
 	reasoningContent := responseReasoningContent(exec.response)
-	shouldPublishPicoToolCallInterim := ts.channel == "pico" && len(exec.response.ToolCalls) > 0
+	shouldPublishPicoToolCallInterim := ts.channel == "pico" && len(exec.normalizedResponse.ToolCalls()) > 0
 	if shouldPublishPicoToolCallInterim {
 		// Pico tool-call turns publish their reasoning/content/tool summary as a
 		// structured sequence after the tool-call payload is normalized below.
@@ -624,9 +630,12 @@ func (p *Pipeline) CallLLM(
 		runtimeevents.KindAgentLLMResponse,
 		ts.eventMeta("runTurn", "turn.llm.response"),
 		LLMResponsePayload{
-			ContentLen:   len(exec.response.Content),
-			ToolCalls:    len(exec.response.ToolCalls),
-			HasReasoning: exec.response.Reasoning != "" || exec.response.ReasoningContent != "",
+			ContentLen:         len(exec.response.Content),
+			ToolCalls:          len(exec.response.ToolCalls),
+			HasReasoning:       exec.response.Reasoning != "" || exec.response.ReasoningContent != "",
+			ItemCount:          len(exec.normalizedResponse.Items),
+			StopReason:         string(exec.normalizedResponse.StopReason),
+			ProviderStopReason: exec.normalizedResponse.ProviderStopReason,
 		},
 	)
 
@@ -646,16 +655,16 @@ func (p *Pipeline) CallLLM(
 	}
 	logger.DebugCF("agent", "LLM response", llmResponseFields)
 
-	finishReason := strings.ToLower(strings.TrimSpace(exec.response.FinishReason))
-	terminalFinish := terminalProviderFinishReason(finishReason)
+	stopReason := exec.normalizedResponse.StopReason
+	terminalFinish := stopReason.Terminal()
 
 	// No-tool-call path: steering check and direct response. A terminal provider
 	// stop must not execute tool calls whose arguments may be incomplete or from
 	// a refused/paused turn.
-	if len(exec.response.ToolCalls) == 0 || exec.gracefulTerminal || terminalFinish {
-		responseContent := exec.response.Content
-		if responseContent == "" && exec.response.ReasoningContent != "" && ts.channel != "pico" {
-			responseContent = exec.response.ReasoningContent
+	if !exec.normalizedResponse.AllowsToolExecution() || exec.gracefulTerminal || terminalFinish {
+		responseContent := exec.normalizedResponse.Text()
+		if responseContent == "" && exec.normalizedResponse.ReasoningText() != "" && ts.channel != "pico" {
+			responseContent = exec.normalizedResponse.ReasoningText()
 		}
 		if steerMsgs := al.dequeueSteeringMessagesForScope(ts.sessionKey); len(steerMsgs) > 0 {
 			cancelConfiguredStreamingLLM(turnCtx, exec)
@@ -669,24 +678,20 @@ func (p *Pipeline) CallLLM(
 			return ControlContinue, nil
 		}
 
-		switch finishReason {
-		case "length", "truncated":
+		switch stopReason {
+		case providers.StopReasonLength:
 			ts.setEndReason(TurnEndReasonTruncated)
 			responseContent = appendTerminalResponseNotice(responseContent,
 				"The response reached the model's output limit and may be incomplete.")
-		case "content_filter":
+		case providers.StopReasonContentFilter:
 			ts.setEndReason(TurnEndReasonContentFiltered)
 			responseContent = appendTerminalResponseNotice(responseContent,
 				"The response was truncated by the model's safety policy.")
-		case "safety", "blocklist", "prohibited_content", "spii", "image_safety", "recitation":
-			ts.setEndReason(TurnEndReasonContentFiltered)
-			responseContent = appendTerminalResponseNotice(responseContent,
-				"The response was stopped by the model provider's safety policy.")
-		case "pause_turn":
+		case providers.StopReasonPaused:
 			ts.setEndReason(TurnEndReasonProviderPaused)
 			responseContent = appendTerminalResponseNotice(responseContent,
 				"The model paused this long-running turn. Continue the task to resume it.")
-		case "error", "failed", "canceled", "cancelled", "malformed_function_call", "unexpected_tool_call", "too_many_tool_calls", "language", "other":
+		case providers.StopReasonError:
 			ts.setEndReason(TurnEndReasonProviderError)
 			responseContent = appendTerminalResponseNotice(responseContent,
 				"The model provider ended the response before it could complete the task.")
@@ -707,8 +712,9 @@ func (p *Pipeline) CallLLM(
 	cancelConfiguredStreamingLLM(turnCtx, exec)
 
 	// Tool-call path: normalize and prepare for tool execution
-	exec.normalizedToolCalls = make([]providers.ToolCall, 0, len(exec.response.ToolCalls))
-	for _, tc := range exec.response.ToolCalls {
+	responseToolCalls := exec.normalizedResponse.ToolCalls()
+	exec.normalizedToolCalls = make([]providers.ToolCall, 0, len(responseToolCalls))
+	for _, tc := range responseToolCalls {
 		exec.normalizedToolCalls = append(exec.normalizedToolCalls, providers.NormalizeToolCall(tc))
 	}
 
@@ -804,18 +810,6 @@ func appendTerminalResponseNotice(content, notice string) string {
 	return content + "\n\n" + notice
 }
 
-func terminalProviderFinishReason(reason string) bool {
-	switch reason {
-	case "length", "truncated", "content_filter", "pause_turn", "error", "failed",
-		"canceled", "cancelled", "safety", "blocklist", "prohibited_content", "spii",
-		"image_safety", "recitation", "malformed_function_call", "unexpected_tool_call",
-		"too_many_tool_calls", "language", "other":
-		return true
-	default:
-		return false
-	}
-}
-
 func firstMessageContentLen(messages []providers.Message) int {
 	if len(messages) == 0 {
 		return 0
@@ -838,28 +832,18 @@ func validatePostHookContext(
 		return messages, currentTurnStart, nil
 	}
 
-	trimmed, nextStart, fit := fitActiveTurn(
+	trimmed, nextStart, err := fitContextForRequest(
+		ctx,
+		provider,
+		model,
 		messages,
 		currentTurnStart,
 		contextWindow,
-		toolDefs,
 		maxTokens,
+		toolDefs,
 	)
-	if !fit {
-		compacted, err := compactActiveTurn(
-			ctx,
-			provider,
-			model,
-			trimmed,
-			nextStart,
-			contextWindow,
-			maxTokens,
-			toolDefs,
-		)
-		if err != nil {
-			return nil, currentTurnStart, fmt.Errorf("LLM hook expanded context beyond budget: %w", err)
-		}
-		trimmed = compacted
+	if err != nil {
+		return nil, currentTurnStart, fmt.Errorf("LLM hook expanded context beyond budget: %w", err)
 	}
 	if isOverContextBudget(contextWindow, trimmed, toolDefs, maxTokens) {
 		return nil, currentTurnStart, fmt.Errorf("LLM hook expanded context beyond the model budget")

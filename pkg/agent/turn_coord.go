@@ -15,6 +15,16 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
 
+const maxTurnCheckpointEvents = 128
+
+type turnLoopState uint8
+
+const (
+	turnLoopModel turnLoopState = iota
+	turnLoopTools
+	turnLoopDone
+)
+
 func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipeline) (result turnResult, retErr error) {
 	if ts.al == nil {
 		ts.al = al
@@ -130,189 +140,187 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 	maxMediaSize := pipeline.Cfg.Agents.Defaults.GetMaxMediaSize()
 	finalContent := exec.finalContent
 
-	for ts.currentIteration() < ts.agent.MaxIterations || len(exec.pendingMessages) > 0 || func() bool {
-		graceful, _ := ts.gracefulInterruptRequested()
-		return graceful
-	}() {
-		if ts.hardAbortRequested() {
-			turnStatus = TurnEndStatusAborted
-			return al.abortTurn(ts)
-		}
+	loopState := turnLoopModel
+	finalizedEarly := false
 
-		iteration := ts.currentIteration() + 1
-		ts.setIteration(iteration)
-		ts.setPhase(TurnPhaseRunning)
-		if !ts.opts.NoHistory {
-			if err := ts.saveTurnCheckpoint("running", ""); err != nil {
-				turnStatus = TurnEndStatusError
-				return turnResult{}, fmt.Errorf("save turn checkpoint: %w", err)
-			}
-		}
+turnLoop:
+	for {
+		switch loopState {
+		case turnLoopDone:
+			break turnLoop
 
-		if iteration > 1 {
-			// For subsequent iterations, read from exec.pendingMessages which
-			// is where ExecuteTools (or initial poll) deposits steering.
-			// We do NOT call dequeueSteeringMessagesForScope here because
-			// steering was already consumed from al.steering by ExecuteTools.
-			if len(exec.pendingMessages) > 0 {
-				pendingMessages = append(pendingMessages, exec.pendingMessages...)
-				exec.pendingMessages = nil
+		case turnLoopModel:
+			if !ts.canStartModelCall(len(exec.pendingMessages) > 0) {
+				break turnLoop
 			}
-		} else if !ts.opts.SkipInitialSteeringPoll {
-			if steerMsgs := al.dequeueSteeringMessagesForScopeWithFallback(ts.sessionKey); len(steerMsgs) > 0 {
-				pendingMessages = append(pendingMessages, steerMsgs...)
+			if ts.hardAbortRequested() {
+				turnStatus = TurnEndStatusAborted
+				return al.abortTurn(ts)
 			}
-		}
 
-		// Check if parent turn has ended (SubTurn support from HEAD)
-		if ts.parentTurnState != nil && ts.IsParentEnded() {
-			if !ts.critical {
-				logger.InfoCF("agent", "Parent turn ended, non-critical SubTurn exiting gracefully", map[string]any{
+			iteration := ts.currentIteration() + 1
+			ts.setIteration(iteration)
+			ts.setPhase(TurnPhaseRunning)
+			if !ts.opts.NoHistory {
+				if err := ts.saveTurnCheckpoint("running", ""); err != nil {
+					turnStatus = TurnEndStatusError
+					return turnResult{}, fmt.Errorf("save turn checkpoint: %w", err)
+				}
+			}
+
+			if iteration > 1 {
+				// For subsequent iterations, read from exec.pendingMessages which
+				// is where ExecuteTools (or initial poll) deposits steering.
+				// We do NOT call dequeueSteeringMessagesForScope here because
+				// steering was already consumed from al.steering by ExecuteTools.
+				if len(exec.pendingMessages) > 0 {
+					pendingMessages = append(pendingMessages, exec.pendingMessages...)
+					exec.pendingMessages = nil
+				}
+			} else if !ts.opts.SkipInitialSteeringPoll {
+				if steerMsgs := al.dequeueSteeringMessagesForScopeWithFallback(ts.sessionKey); len(steerMsgs) > 0 {
+					pendingMessages = append(pendingMessages, steerMsgs...)
+				}
+			}
+
+			// Check if parent turn has ended (SubTurn support from HEAD)
+			if ts.parentTurnState != nil && ts.IsParentEnded() {
+				if !ts.critical {
+					logger.InfoCF("agent", "Parent turn ended, non-critical SubTurn exiting gracefully", map[string]any{
+						"agent_id":  ts.agentID,
+						"iteration": iteration,
+						"turn_id":   ts.turnID,
+					})
+					break turnLoop
+				}
+				logger.InfoCF("agent", "Parent turn ended, critical SubTurn continues running", map[string]any{
 					"agent_id":  ts.agentID,
 					"iteration": iteration,
 					"turn_id":   ts.turnID,
 				})
-				break
 			}
-			logger.InfoCF("agent", "Parent turn ended, critical SubTurn continues running", map[string]any{
-				"agent_id":  ts.agentID,
-				"iteration": iteration,
-				"turn_id":   ts.turnID,
-			})
-		}
 
-		// Poll for pending SubTurn results (from HEAD)
-		if ts.pendingResults != nil {
-			select {
-			case result, ok := <-ts.pendingResults:
-				if ok && result != nil && result.ForLLM != "" {
-					content := al.cfg.FilterSensitiveData(result.ForLLM)
-					msg := subTurnResultPromptMessage(content)
-					pendingMessages = append(pendingMessages, msg)
-				}
-			default:
-				// No results available
-			}
-		}
-
-		// Inject pending steering messages
-		if len(pendingMessages) > 0 {
-			resolvedPending := resolveMediaRefs(pendingMessages, al.mediaStore, maxMediaSize, 0)
-			totalContentLen := 0
-			for i, pm := range pendingMessages {
-				messages = append(messages, resolvedPending[i])
-				totalContentLen += len(pm.Content)
-				if !ts.opts.NoHistory {
-					if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, pm); err != nil {
-						turnStatus = TurnEndStatusError
-						return turnResult{}, fmt.Errorf("write steering message: %w", err)
+			// Poll for pending SubTurn results (from HEAD)
+			if ts.pendingResults != nil {
+				select {
+				case result, ok := <-ts.pendingResults:
+					if ok && result != nil && result.ForLLM != "" {
+						content := al.cfg.FilterSensitiveData(result.ForLLM)
+						msg := subTurnResultPromptMessage(content)
+						pendingMessages = append(pendingMessages, msg)
 					}
-					ts.recordPersistedMessage(pm)
-					if err := ts.ingestMessage(turnCtx, al, pm); err != nil {
-						turnStatus = TurnEndStatusError
-						return turnResult{}, err
+				default:
+					// No results available
+				}
+			}
+
+			// Inject pending steering messages
+			if len(pendingMessages) > 0 {
+				resolvedPending := resolveMediaRefs(pendingMessages, al.mediaStore, maxMediaSize, 0)
+				totalContentLen := 0
+				for i, pm := range pendingMessages {
+					messages = append(messages, resolvedPending[i])
+					totalContentLen += len(pm.Content)
+					if !ts.opts.NoHistory {
+						if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, pm); err != nil {
+							turnStatus = TurnEndStatusError
+							return turnResult{}, fmt.Errorf("write steering message: %w", err)
+						}
+						ts.recordPersistedMessage(pm)
+						if err := ts.ingestMessage(turnCtx, al, pm); err != nil {
+							turnStatus = TurnEndStatusError
+							return turnResult{}, err
+						}
 					}
+					logger.InfoCF("agent", "Injected steering message into context",
+						map[string]any{
+							"agent_id":    ts.agent.ID,
+							"iteration":   iteration,
+							"content_len": len(pm.Content),
+							"media_count": len(pm.Media),
+						})
 				}
-				logger.InfoCF("agent", "Injected steering message into context",
-					map[string]any{
-						"agent_id":    ts.agent.ID,
-						"iteration":   iteration,
-						"content_len": len(pm.Content),
-						"media_count": len(pm.Media),
-					})
+				al.emitEvent(
+					runtimeevents.KindAgentSteeringInjected,
+					ts.eventMeta("runTurn", "turn.steering.injected"),
+					SteeringInjectedPayload{
+						Count:           len(pendingMessages),
+						TotalContentLen: totalContentLen,
+					},
+				)
+				// Clear exec.pendingMessages after injection so InitialSteeringMessages
+				// are not re-injected on subsequent iterations (Issue 2 fix).
+				exec.pendingMessages = nil
 			}
-			al.emitEvent(
-				runtimeevents.KindAgentSteeringInjected,
-				ts.eventMeta("runTurn", "turn.steering.injected"),
-				SteeringInjectedPayload{
-					Count:           len(pendingMessages),
-					TotalContentLen: totalContentLen,
-				},
-			)
-			// Clear exec.pendingMessages after injection so InitialSteeringMessages
-			// are not re-injected on subsequent iterations (Issue 2 fix).
-			exec.pendingMessages = nil
-		}
-		// Always sync messages into exec.messages so CallLLM sees the updated state
-		exec.messages = messages
+			// Always sync messages into exec.messages so CallLLM sees the updated state
+			exec.messages = messages
 
-		logger.DebugCF("agent", "LLM iteration",
-			map[string]any{
-				"agent_id":  ts.agent.ID,
-				"iteration": iteration,
-				"max":       ts.agent.MaxIterations,
-			})
+			logger.DebugCF("agent", "LLM iteration",
+				map[string]any{
+					"agent_id":  ts.agent.ID,
+					"iteration": iteration,
+					"max":       ts.budget.MaxIterations,
+				})
 
-		// Execute LLM call via Pipeline
-		ts.setPhase(TurnPhaseRunning)
-		ctrl, callErr := pipeline.CallLLM(ctx, turnCtx, ts, exec, iteration)
-		if callErr != nil {
-			ts.setEndReason(TurnEndReasonProviderError)
-			turnStatus = TurnEndStatusError
-			return turnResult{}, callErr
-		}
-		messages = exec.messages
-		pendingMessages = exec.pendingMessages
-		finalContent = exec.finalContent
-
-		switch ctrl {
-		case ControlContinue:
-			continue
-		case ControlBreak:
-			// Hard abort: delegate to abortTurn (sets TurnEndStatusAborted)
-			if exec.abortedByHardAbort {
-				turnStatus = TurnEndStatusAborted
-				return al.abortTurn(ts)
-			}
-			// Hook abort (HookActionAbortTurn): sets TurnEndStatusError, returns error
-			if exec.abortedByHook {
+			ts.setPhase(TurnPhaseRunning)
+			ctrl, callErr := pipeline.CallLLM(ctx, turnCtx, ts, exec, iteration)
+			if callErr != nil {
+				ts.setEndReason(TurnEndReasonProviderError)
 				turnStatus = TurnEndStatusError
-				return turnResult{}, fmt.Errorf("hook requested turn abort")
+				return turnResult{}, callErr
 			}
-			// Ensure empty response falls back to DefaultResponse
-			if finalContent == "" {
-				finalContent = ts.opts.DefaultResponse
-			}
-			result, finalizeErr := pipeline.Finalize(ctx, turnCtx, ts, exec, turnStatus, finalContent)
-			if finalizeErr != nil {
-				turnStatus = TurnEndStatusError
-			}
-			return result, finalizeErr
-		case ControlToolLoop:
-			// Execute tools via Pipeline
-			toolCtrl := pipeline.ExecuteTools(ctx, turnCtx, ts, exec, iteration)
-			switch toolCtrl {
-			case ToolControlContinue:
-				// Re-read exec.messages since ExecuteTools may have updated it
-				// (added tool results/skipped messages) before returning ControlContinue
-				messages = exec.messages
-				continue
-			case ToolControlBreak:
-				if exec.executionErr != nil {
-					turnStatus = TurnEndStatusError
-					return turnResult{}, exec.executionErr
-				}
-				// Hard abort: delegate to abortTurn (sets TurnEndStatusAborted)
+			messages = exec.messages
+			pendingMessages = exec.pendingMessages
+			finalContent = exec.finalContent
+
+			switch ctrl {
+			case ControlContinue:
+				loopState = turnLoopModel
+			case ControlBreak:
 				if exec.abortedByHardAbort {
 					turnStatus = TurnEndStatusAborted
 					return al.abortTurn(ts)
 				}
-				// Hook abort (HookActionAbortTurn): sets TurnEndStatusError, returns error
 				if exec.abortedByHook {
 					turnStatus = TurnEndStatusError
 					return turnResult{}, fmt.Errorf("hook requested turn abort")
 				}
-				// ExecuteTools returned ControlBreak:
-				// - allResponsesHandled=true: finalize without DefaultResponse (exec.finalContent empty)
-				// - allResponsesHandled=false: coordinator applies DefaultResponse before finalize
+				if finalContent == "" {
+					finalContent = ts.opts.DefaultResponse
+				}
+				finalizedEarly = true
+				loopState = turnLoopDone
+			case ControlToolLoop:
+				loopState = turnLoopTools
+			}
+
+		case turnLoopTools:
+			toolCtrl := pipeline.ExecuteTools(ctx, turnCtx, ts, exec, ts.currentIteration())
+			switch toolCtrl {
+			case ToolControlContinue:
+				messages = exec.messages
+				loopState = turnLoopModel
+			case ToolControlBreak, ToolControlFinalize:
+				if exec.executionErr != nil {
+					turnStatus = TurnEndStatusError
+					return turnResult{}, exec.executionErr
+				}
+				if exec.abortedByHardAbort {
+					turnStatus = TurnEndStatusAborted
+					return al.abortTurn(ts)
+				}
+				if exec.abortedByHook {
+					turnStatus = TurnEndStatusError
+					return turnResult{}, fmt.Errorf("hook requested turn abort")
+				}
 				if exec.allResponsesHandled {
 					finalContent = ""
 				}
-				result, finalizeErr := pipeline.Finalize(ctx, turnCtx, ts, exec, turnStatus, finalContent)
-				if finalizeErr != nil {
-					turnStatus = TurnEndStatusError
-				}
-				return result, finalizeErr
+				finalizedEarly = true
+				loopState = turnLoopDone
+			default:
+				turnStatus = TurnEndStatusError
+				return turnResult{}, fmt.Errorf("unknown tool control state %d", toolCtrl)
 			}
 		}
 	}
@@ -322,11 +330,11 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		return al.abortTurn(ts)
 	}
 
-	maxIterationsReached := ts.currentIteration() >= ts.agent.MaxIterations && ts.agent.MaxIterations > 0
+	maxIterationsReached := !finalizedEarly && ts.iterationBudgetReached()
 	if maxIterationsReached {
 		ts.setEndReason(TurnEndReasonMaxIterations)
 	}
-	if finalContent == "" {
+	if finalContent == "" && !(finalizedEarly && exec.allResponsesHandled) {
 		if maxIterationsReached {
 			finalContent = toolLimitResponse
 		} else {
@@ -361,6 +369,7 @@ func (ts *turnState) saveTurnCheckpoint(status, tool string) error {
 		EndReason: string(ts.endReasonSnapshot()),
 		StartedAt: ts.startedAt.UTC(), UpdatedAt: time.Now().UTC(),
 		Activities: ts.activitiesSnapshot(),
+		ToolItems:  ts.toolItemsSnapshot(),
 		Usage:      ts.contextUsageSnapshot(),
 	}
 	checkpoint.Deliveries = append([]session.TurnDelivery(nil), previous.Deliveries...)
@@ -382,6 +391,9 @@ func (ts *turnState) saveTurnCheckpoint(status, tool string) error {
 	}
 	checkpoint.Plan = plan
 	checkpoint.Events = append(checkpoint.Events, session.TurnCheckpointEvent{Status: status, Iteration: checkpoint.Iteration, Tool: checkpoint.Tool, At: time.Now().UTC(), Plan: plan})
+	if overflow := len(checkpoint.Events) - maxTurnCheckpointEvents; overflow > 0 {
+		checkpoint.Events = append([]session.TurnCheckpointEvent(nil), checkpoint.Events[overflow:]...)
+	}
 	return store.SetTurnCheckpoint(ts.sessionKey, checkpoint)
 }
 

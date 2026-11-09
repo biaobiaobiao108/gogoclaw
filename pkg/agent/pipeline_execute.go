@@ -55,11 +55,6 @@ func canExecuteInParallel(al *AgentLoop, ts *turnState, toolCalls []providers.To
 	return true
 }
 
-const retrievalStallWarningAfter = 3
-const retrievalStallStopAfter = 5
-const noProgressWarningAfter = 5
-const noProgressStopAfter = 8
-
 func toolResultHasUsableContent(result *tools.ToolResult) bool {
 	if result == nil || result.IsError {
 		return false
@@ -92,6 +87,49 @@ func toolErrorSummary(result *tools.ToolResult) string {
 		content = strings.TrimSpace(result.Err.Error())
 	}
 	return utils.Truncate(content, 200)
+}
+
+func toolItemResultFields(
+	al *AgentLoop,
+	policy tools.ToolPolicy,
+	result *tools.ToolResult,
+	duplicate bool,
+) (status, sideEffect, summary, errorSummary string) {
+	status = toolItemStatusCompleted
+	sideEffect = toolItemSideEffectPossible
+	if policy.ReadOnly {
+		sideEffect = toolItemSideEffectNone
+	}
+	if duplicate {
+		status = toolItemStatusSkipped
+		sideEffect = toolItemSideEffectNone
+	} else if result != nil && result.IsError {
+		status = toolItemStatusFailed
+		if !policy.ReadOnly {
+			sideEffect = toolItemSideEffectUnknown
+		}
+	}
+	if result != nil {
+		content := al.cfg.FilterSensitiveData(result.ContentForLLM())
+		summary = utils.Truncate(content, 300)
+		errorSummary = utils.Truncate(toolErrorSummary(result), 200)
+		if errorSummary != "" {
+			errorSummary = al.cfg.FilterSensitiveData(errorSummary)
+		}
+	}
+	return status, sideEffect, summary, errorSummary
+}
+
+func (ts *turnState) finishToolItemFromResult(
+	al *AgentLoop,
+	batchID string,
+	index int,
+	policy tools.ToolPolicy,
+	result *tools.ToolResult,
+	duplicate bool,
+) {
+	status, sideEffect, summary, errorSummary := toolItemResultFields(al, policy, result, duplicate)
+	ts.finishToolItem(batchID, index, status, sideEffect, summary, errorSummary)
 }
 
 func inferSkillNamesFromToolCall(ts *turnState, toolName string, toolArgs map[string]any) []string {
@@ -184,6 +222,7 @@ func (p *Pipeline) ExecuteTools(
 	ts.setPhase(TurnPhaseTools)
 	messages := exec.messages
 	handledAttachments := make([]providers.Attachment, 0)
+	toolBatchID := ts.beginToolBatch(iteration, normalizedToolCalls)
 
 	var preExecutedResults []*tools.ToolResult
 	var parallelActivities []string
@@ -195,6 +234,7 @@ func (p *Pipeline) ExecuteTools(
 		for i, call := range normalizedToolCalls {
 			args, _ := json.Marshal(call.Arguments)
 			parallelActivities[i] = ts.startTurnActivity("tool", call.Name, call.ID, call.Name, al.cfg.FilterSensitiveData(utils.Truncate(string(args), 200)))
+			ts.markToolItemRunning(toolBatchID, i, call.Name, call.Arguments)
 		}
 		if !ts.opts.NoHistory {
 			if err := ts.saveTurnCheckpoint("running", "parallel_tools"); err != nil {
@@ -212,6 +252,7 @@ func (p *Pipeline) ExecuteTools(
 				for i := range jobs {
 					call := normalizedToolCalls[i]
 					if turnCtx.Err() != nil || ts.hardAbortRequested() {
+						ts.markToolItemTerminal(toolBatchID, i, toolItemStatusCancelled, toolItemSideEffectNone, "Tool cancelled before execution.")
 						preExecutedResults[i] = tools.ErrorResult("Tool cancelled before execution.")
 						ts.finishTurnActivity(parallelActivities[i], func(a *session.TurnActivity) { a.Status = "cancelled"; a.Detail = "Tool cancelled before execution." })
 						continue
@@ -231,6 +272,7 @@ func (p *Pipeline) ExecuteTools(
 					if result == nil {
 						result = tools.ErrorResult("tool returned nil result")
 					}
+					ts.finishToolItemFromResult(al, toolBatchID, i, ts.toolPolicy(call.Name), result, false)
 					preExecutedResults[i] = result
 					parallelDurations[i] = time.Since(start)
 					al.emitEvent(runtimeevents.KindAgentToolExecEnd, ts.eventMeta("runTurn", "turn.tool.end"), ToolExecEndPayload{Tool: call.Name, Duration: parallelDurations[i], ForLLMLen: len(result.ContentForLLM()), ForUserLen: len(result.ForUser), IsError: result.IsError, Async: result.Async})
@@ -254,6 +296,7 @@ func (p *Pipeline) ExecuteTools(
 toolLoop:
 	for i, tc := range normalizedToolCalls {
 		if ts.hardAbortRequested() {
+			ts.markToolItemTerminal(toolBatchID, i, toolItemStatusCancelled, toolItemSideEffectNone, "Tool cancelled before execution.")
 			exec.abortedByHardAbort = true
 			return ToolControlBreak
 		}
@@ -266,6 +309,7 @@ toolLoop:
 			}
 			exec.allResponsesHandled = false
 			denyContent := fmt.Sprintf("Tool %q is not allowed by the active turn profile.", toolName)
+			ts.markToolItemTerminal(toolBatchID, i, toolItemStatusDenied, toolItemSideEffectNone, denyContent)
 			al.emitEvent(
 				runtimeevents.KindAgentToolExecSkipped,
 				ts.eventMeta("runTurn", "turn.tool.skipped"),
@@ -313,6 +357,8 @@ toolLoop:
 			case HookActionRespond:
 				if toolReq != nil && toolReq.HookResult != nil {
 					hookResult := toolReq.HookResult
+					toolPolicy := ts.toolPolicy(toolName)
+					ts.markToolItemRunning(toolBatchID, i, toolName, toolArgs)
 
 					argsJSON, _ := json.Marshal(toolArgs)
 					argsPreview := utils.Truncate(string(argsJSON), 200)
@@ -459,6 +505,7 @@ toolLoop:
 						toolErrorSummary(hookResult),
 						inferSkillNamesFromToolCall(ts, toolName, toolArgs),
 					)
+					ts.finishToolItemFromResult(al, toolBatchID, i, toolPolicy, hookResult, false)
 
 					messages = append(messages, toolResultMsg)
 					if !ts.opts.NoHistory {
@@ -503,6 +550,7 @@ toolLoop:
 								})
 							for j := i + 1; j < len(normalizedToolCalls); j++ {
 								skippedTC := normalizedToolCalls[j]
+								ts.markToolItemTerminal(toolBatchID, j, toolItemStatusSkipped, toolItemSideEffectNone, skipMessage)
 								al.emitEvent(
 									runtimeevents.KindAgentToolExecSkipped,
 									ts.eventMeta("runTurn", "turn.tool.skipped"),
@@ -558,6 +606,7 @@ toolLoop:
 			case HookActionDenyTool:
 				exec.allResponsesHandled = false
 				denyContent := hookDeniedToolContent("Tool execution denied by hook", decision.Reason)
+				ts.markToolItemTerminal(toolBatchID, i, toolItemStatusDenied, toolItemSideEffectNone, denyContent)
 				al.emitEvent(
 					runtimeevents.KindAgentToolExecSkipped,
 					ts.eventMeta("runTurn", "turn.tool.skipped"),
@@ -581,9 +630,11 @@ toolLoop:
 				}
 				continue
 			case HookActionAbortTurn:
+				ts.markToolItemTerminal(toolBatchID, i, toolItemStatusCancelled, toolItemSideEffectNone, "Tool cancelled by hook.")
 				exec.abortedByHook = true
 				return ToolControlBreak
 			case HookActionHardAbort:
+				ts.markToolItemTerminal(toolBatchID, i, toolItemStatusCancelled, toolItemSideEffectNone, "Tool cancelled by hook.")
 				_ = ts.requestHardAbort()
 				exec.abortedByHardAbort = true
 				return ToolControlBreak
@@ -606,6 +657,7 @@ toolLoop:
 			} else if !approval.Approved {
 				exec.allResponsesHandled = false
 				denyContent := hookDeniedToolContent("Tool execution denied by approval hook", approval.Reason)
+				ts.markToolItemTerminal(toolBatchID, i, toolItemStatusDenied, toolItemSideEffectNone, denyContent)
 				al.emitEvent(
 					runtimeevents.KindAgentToolExecSkipped,
 					ts.eventMeta("runTurn", "turn.tool.skipped"),
@@ -631,6 +683,13 @@ toolLoop:
 			}
 		}
 		if humanApprovalRequired {
+			ts.markToolItemAwaitingApproval(toolBatchID, i, toolName, toolArgs)
+			if !ts.opts.NoHistory {
+				if err := ts.saveTurnCheckpoint("awaiting_approval", toolName); err != nil {
+					exec.executionErr = fmt.Errorf("save approval checkpoint: %w", err)
+					return ToolControlBreak
+				}
+			}
 			decision, err := al.requestHumanApproval(turnCtx, ts, toolName, tc.ID, toolArgs, humanApprovalReason)
 			if err != nil {
 				exec.executionErr = fmt.Errorf("wait for human approval: %w", err)
@@ -639,6 +698,7 @@ toolLoop:
 			if !decision.Approved {
 				exec.allResponsesHandled = false
 				denyContent := hookDeniedToolContent("Tool execution denied by human approval", decision.Reason)
+				ts.markToolItemTerminal(toolBatchID, i, toolItemStatusDenied, toolItemSideEffectNone, denyContent)
 				al.emitEvent(
 					runtimeevents.KindAgentToolExecSkipped,
 					ts.eventMeta("runTurn", "turn.tool.skipped"),
@@ -668,6 +728,7 @@ toolLoop:
 		argsPreview := utils.Truncate(string(argsJSON), 200)
 		executedToolName := toolName
 		toolPolicy := ts.toolPolicy(executedToolName)
+		ts.markToolItemRunning(toolBatchID, i, toolName, toolArgs)
 		readOnlyKey := toolCallFingerprint(executedToolName, toolArgs)
 		duplicateReadOnly := false
 		duplicateRepeat := 0
@@ -813,6 +874,7 @@ toolLoop:
 		}
 
 		if ts.hardAbortRequested() {
+			ts.markToolItemTerminal(toolBatchID, i, toolItemStatusEffectsUnknown, toolItemSideEffectUnknown, "The turn was stopped during tool execution; external effects could not be verified.")
 			ts.finishTurnActivity(activityID, func(activity *session.TurnActivity) {
 				activity.Status = "effects_unknown"
 				if toolResult != nil {
@@ -848,9 +910,11 @@ toolLoop:
 					}
 				}
 			case HookActionAbortTurn:
+				ts.finishToolItemFromResult(al, toolBatchID, i, ts.toolPolicy(toolName), toolResult, duplicateReadOnly)
 				exec.abortedByHook = true
 				return ToolControlBreak
 			case HookActionHardAbort:
+				ts.finishToolItemFromResult(al, toolBatchID, i, ts.toolPolicy(toolName), toolResult, duplicateReadOnly)
 				_ = ts.requestHardAbort()
 				exec.abortedByHardAbort = true
 				return ToolControlBreak
@@ -860,40 +924,35 @@ toolLoop:
 		if toolResult == nil {
 			toolResult = tools.ErrorResult("hook returned nil tool result")
 		}
+		ts.finishToolItemFromResult(al, toolBatchID, i, ts.toolPolicy(toolName), toolResult, duplicateReadOnly)
 		if !duplicateReadOnly && !toolResult.IsError && toolPolicy.ReadOnly && toolPolicy.Idempotent {
 			ts.recordReadOnlyCall(readOnlyKey)
 		}
 		if !toolPolicy.ReadOnly {
 			ts.invalidateReadOnlyCalls()
 		}
-		if duplicateReadOnly && duplicateRepeat >= 2 {
+		if duplicateReadOnly && duplicateRepeat >= ts.budget.Progress.ReadOnlyReplayStopAfter {
 			ts.setEndReason(TurnEndReasonReadOnlyReplay)
 			ts.requestGracefulInterrupt("The model repeated the same read-only tool call. Use the evidence already collected or explain the blocker instead of retrying it.")
 		}
 		progress := ts.recordToolProgress(readOnlyKey, toolPolicy, toolResult, duplicateReadOnly)
-		if !duplicateReadOnly && toolPolicy.Retrieval {
-			if progress.RetrievalStalls == retrievalStallWarningAfter {
-				toolResult.ForLLM = toolResult.ContentForLLM() + "\n\nThree consecutive web retrieval attempts returned no usable results. Do not keep rephrasing the same searches. Use the evidence already collected, try a materially different source, or explain what could not be verified."
-			} else if progress.RetrievalStalls >= retrievalStallStopAfter {
-				ts.setEndReason(TurnEndReasonRetrievalStalled)
-				_ = ts.requestGracefulInterrupt("Web retrieval repeatedly returned no usable results. Stop retrying and summarize the available evidence and limitations.")
-			}
+		progressDecision := ts.evaluateToolProgress(progress, !duplicateReadOnly && toolPolicy.Retrieval)
+		if progressDecision.Hint != "" {
+			toolResult.ForLLM = toolResult.ContentForLLM() + progressDecision.Hint
 		}
-		if !toolPolicy.Retrieval {
-			if progress.NoProgressStreak == noProgressWarningAfter {
-				toolResult.ForLLM = toolResult.ContentForLLM() + "\n\nSeveral tool calls produced no new evidence or state changes. Stop exploring in circles. Use the existing findings or explain what is still missing."
-			} else if progress.NoProgressStreak >= noProgressStopAfter {
-				ts.setEndReason(TurnEndReasonNoProgress)
-				_ = ts.requestGracefulInterrupt("The turn produced no new evidence or state changes across repeated tool calls. Stop retrying and summarize the available findings and limitations.")
-			}
+		if progressDecision.EndReason != "" {
+			ts.setEndReason(progressDecision.EndReason)
+			_ = ts.requestGracefulInterrupt(progressDecision.InterruptHint)
 		}
 		failureKey := toolName + "\x00" + string(argsJSON)
 		failures := ts.recordRepeatedFailure(failureKey, toolResult.IsError)
-		if failures == 3 {
-			toolResult.ForLLM = toolResult.ContentForLLM() + "\n\nThis same tool call has failed three times. Change the approach or explain the blocker instead of repeating it."
-		} else if failures >= 4 {
-			ts.setEndReason(TurnEndReasonRepeatedFailure)
-			ts.requestGracefulInterrupt("The same tool call repeatedly failed. Explain the blocker, completed work, and what is needed to continue.")
+		failureDecision := ts.evaluateRepeatedFailure(failures)
+		if failureDecision.Hint != "" {
+			toolResult.ForLLM = toolResult.ContentForLLM() + failureDecision.Hint
+		}
+		if failureDecision.EndReason != "" {
+			ts.setEndReason(failureDecision.EndReason)
+			_ = ts.requestGracefulInterrupt(failureDecision.InterruptHint)
 		}
 
 		if len(toolResult.Media) > 0 && toolResult.ResponseHandled {
@@ -1069,6 +1128,7 @@ toolLoop:
 					})
 				for j := i + 1; j < len(normalizedToolCalls); j++ {
 					skippedTC := normalizedToolCalls[j]
+					ts.markToolItemTerminal(toolBatchID, j, toolItemStatusSkipped, toolItemSideEffectNone, skipMessage)
 					al.emitEvent(
 						runtimeevents.KindAgentToolExecSkipped,
 						ts.eventMeta("runTurn", "turn.tool.skipped"),

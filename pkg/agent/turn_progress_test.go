@@ -8,9 +8,9 @@ import (
 )
 
 func TestToolProgressDistinguishesSourcesWithMatchingContent(t *testing.T) {
-	ts := &turnState{}
+	ts := &turnState{budget: defaultTurnBudget(0)}
 	policy := tools.ReadPolicy()
-	for i := 0; i < noProgressWarningAfter; i++ {
+	for i := 0; i < ts.budget.Progress.NoProgressWarningAfter; i++ {
 		outcome := ts.recordToolProgress(
 			fmt.Sprintf("read-file-%d", i),
 			policy,
@@ -24,9 +24,9 @@ func TestToolProgressDistinguishesSourcesWithMatchingContent(t *testing.T) {
 }
 
 func TestToolProgressAccumulatesInvalidResults(t *testing.T) {
-	ts := &turnState{}
+	ts := &turnState{budget: defaultTurnBudget(0)}
 	policy := tools.ReadPolicy()
-	for i := 0; i < noProgressStopAfter; i++ {
+	for i := 0; i < ts.budget.Progress.NoProgressStopAfter; i++ {
 		outcome := ts.recordToolProgress(
 			fmt.Sprintf("empty-%d", i),
 			policy,
@@ -40,7 +40,7 @@ func TestToolProgressAccumulatesInvalidResults(t *testing.T) {
 }
 
 func TestToolProgressTreatsDuplicateEvidenceAsNoProgress(t *testing.T) {
-	ts := &turnState{}
+	ts := &turnState{budget: defaultTurnBudget(0)}
 	policy := tools.ReadPolicy()
 	result := tools.SilentResult("unchanged")
 	first := ts.recordToolProgress("same-call", policy, result, false)
@@ -49,10 +49,10 @@ func TestToolProgressTreatsDuplicateEvidenceAsNoProgress(t *testing.T) {
 	}
 
 	var last toolProgressOutcome
-	for i := 0; i < noProgressWarningAfter; i++ {
+	for i := 0; i < ts.budget.Progress.NoProgressWarningAfter; i++ {
 		last = ts.recordToolProgress("same-call", policy, result, false)
 	}
-	if last.NoProgressStreak != noProgressWarningAfter {
-		t.Fatalf("duplicate evidence streak = %d, want %d", last.NoProgressStreak, noProgressWarningAfter)
+	if want := ts.budget.Progress.NoProgressWarningAfter; last.NoProgressStreak != want {
+		t.Fatalf("duplicate evidence streak = %d, want %d", last.NoProgressStreak, want)
 	}
 }

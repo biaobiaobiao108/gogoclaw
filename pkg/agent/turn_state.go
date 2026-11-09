@@ -146,6 +146,7 @@ type turnExecution struct {
 
 	// LLM call per-iteration state
 	response            *providers.LLMResponse
+	normalizedResponse  providers.NormalizedResponse
 	normalizedToolCalls []providers.ToolCall
 	allResponsesHandled bool
 	streamingPublisher  *streamingChunkPublisher
@@ -210,6 +211,7 @@ type turnState struct {
 	opts    processOptions
 	profile config.EffectiveTurnProfile
 	scope   turnEventScope
+	budget  TurnBudget
 
 	turnID            string
 	agentID           string
@@ -219,6 +221,8 @@ type turnState struct {
 	skillContextTrace []SkillContextSnapshot
 	toolKinds         []string
 	toolExecutions    []ToolExecutionRecord
+	toolItems         []session.TurnToolItem
+	toolBatchSeq      int
 	readOnlyCalls     map[string]struct{}
 	readOnlyRepeats   map[string]int
 	retrievalStalls   int
@@ -427,6 +431,7 @@ func newTurnState(agent *AgentInstance, opts processOptions, scope turnEventScop
 		phase:        TurnPhaseSetup,
 		startedAt:    time.Now(),
 		endReason:    TurnEndReasonCompleted,
+		budget:       defaultTurnBudget(agent.MaxIterations),
 	}
 
 	// Bind session store and capture initial history length for rollback logic

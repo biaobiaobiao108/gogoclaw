@@ -23,6 +23,7 @@ type TurnCheckpoint struct {
 	Approval   *approval.Request     `json:"approval,omitempty"`
 	Delivery   *TurnDelivery         `json:"delivery,omitempty"`
 	Deliveries []TurnDelivery        `json:"deliveries,omitempty"`
+	ToolItems  []TurnToolItem        `json:"tool_items,omitempty"`
 	Events     []TurnCheckpointEvent `json:"events,omitempty"`
 }
 
@@ -73,6 +74,26 @@ type TurnCheckpointEvent struct {
 	Tool      string         `json:"tool,omitempty"`
 	At        time.Time      `json:"at"`
 	Plan      []TurnPlanStep `json:"plan,omitempty"`
+}
+
+// TurnToolItem is the durable lifecycle record for one model-requested tool
+// call. It stores bounded summaries rather than raw arguments or results.
+type TurnToolItem struct {
+	BatchID              string     `json:"batch_id"`
+	Index                int        `json:"index"`
+	CallID               string     `json:"call_id"`
+	Tool                 string     `json:"tool"`
+	ArgumentsFingerprint string     `json:"arguments_fingerprint,omitempty"`
+	Status               string     `json:"status"`
+	SideEffect           string     `json:"side_effect,omitempty"`
+	ReadOnly             bool       `json:"read_only,omitempty"`
+	Idempotent           bool       `json:"idempotent,omitempty"`
+	Destructive          bool       `json:"destructive,omitempty"`
+	ResultSummary        string     `json:"result_summary,omitempty"`
+	ErrorSummary         string     `json:"error_summary,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	StartedAt            *time.Time `json:"started_at,omitempty"`
+	CompletedAt          *time.Time `json:"completed_at,omitempty"`
 }
 
 type TurnPlanStep struct {

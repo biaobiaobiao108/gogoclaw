@@ -151,8 +151,8 @@ func TestExecuteToolsStopsRepeatedEmptyRetrieval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if searchTool.calls != retrievalStallStopAfter {
-		t.Fatalf("search calls=%d, want %d", searchTool.calls, retrievalStallStopAfter)
+	if want := ts.budget.Progress.RetrievalStopAfter; searchTool.calls != want {
+		t.Fatalf("search calls=%d, want %d", searchTool.calls, want)
 	}
 	if result.finalContent != "检索没有找到可用结果。" {
 		t.Fatalf("unexpected final response: %q", result.finalContent)

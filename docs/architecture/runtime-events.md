@@ -190,7 +190,7 @@ Agent events add safe payload summaries:
 | `agent.turn.end` | `status`, `iterations_total`, `duration_ms`, `final_len` |
 | `agent.llm.request` | `model`, `messages`, `tools`, `max_tokens` |
 | `agent.llm.delta` | `content_delta_len`, `reasoning_delta_len` |
-| `agent.llm.response` | `content_len`, `tool_calls`, `has_reasoning` |
+| `agent.llm.response` | `content_len`, `tool_calls`, `has_reasoning`, `item_count`, `stop_reason`, `provider_stop_reason` |
 | `agent.llm.retry` | `attempt`, `max_retries`, `reason`, `error`, `backoff_ms` |
 | `agent.context.compress` | `reason`, `dropped_messages`, `remaining_messages` |
 | `agent.session.summarize` | `summarized_messages`, `kept_messages`, `summary_len`, `omitted_oversized` |
