@@ -130,6 +130,24 @@ function estimateChatStreamRow(row: ChatStreamRow): number {
       return 56
     case "activity":
       return 180
+    case "process": {
+      const count = row.messages.length
+      const totalChars = row.messages.reduce(
+        (acc, m) => acc + (m.content?.length || 0),
+        0,
+      )
+      return Math.max(
+        64,
+        Math.min(600, 48 + count * 24 + Math.floor(totalChars / 8)),
+      )
+    }
+    case "message": {
+      const chars = row.message.content?.length || 0
+      if (row.message.role === "user") {
+        return Math.max(56, Math.min(300, 48 + Math.floor(chars / 5)))
+      }
+      return Math.max(80, Math.min(1200, 64 + Math.floor(chars / 3)))
+    }
     default:
       return 112
   }
@@ -720,13 +738,20 @@ export function ChatPage() {
                     {row.kind === "process" && (
                       <ProcessMessage
                         messages={row.messages}
+                        streamingMessageId={streamingMessageId}
                         expanded={
-                          expandedProcesses[row.messages[0].id] ?? false
+                          expandedProcesses[row.messages[0].id] ??
+                          row.messages.some((m) => m.id === streamingMessageId)
                         }
                         onToggle={() =>
                           setExpandedProcesses((previous) => ({
                             ...previous,
-                            [row.messages[0].id]: !previous[row.messages[0].id],
+                            [row.messages[0].id]: !(
+                              previous[row.messages[0].id] ??
+                              row.messages.some(
+                                (m) => m.id === streamingMessageId,
+                              )
+                            ),
                           }))
                         }
                       />

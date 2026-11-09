@@ -195,33 +195,37 @@ export function ChatComposer({
                   onDetailClick={onContextDetail}
                 />
               )}
-              {isRunning && canInput ? (
+              {isRunning && canInput && (
                 <button
                   type="button"
                   onClick={onStop}
-                  className="bg-foreground text-background hover:bg-foreground/90 flex size-8 items-center justify-center rounded-full transition-all active:scale-95"
+                  className={cn(
+                    "flex size-8 items-center justify-center rounded-full transition-all active:scale-95",
+                    canSend
+                      ? "bg-muted hover:bg-muted/80 text-foreground cursor-pointer shadow-xs"
+                      : "bg-foreground text-background hover:bg-foreground/90 shadow-xs",
+                  )}
                   aria-label={t("chat.stopTask")}
                   title={t("chat.stopTask")}
                 >
                   <IconPlayerStopFilled className="size-3.5" />
                 </button>
-              ) : (
-                canInput && (
-                  <button
-                    type="button"
-                    onClick={onSend}
-                    disabled={!canSend}
-                    aria-label={t("chat.sendMessage")}
-                    className={cn(
-                      "flex size-8 items-center justify-center rounded-full transition-all duration-150 active:scale-95",
-                      canSend
-                        ? "bg-foreground text-background hover:bg-foreground/90 cursor-pointer shadow-xs"
-                        : "bg-muted text-muted-foreground/35 cursor-not-allowed",
-                    )}
-                  >
-                    <IconArrowUp className="size-4 stroke-[2.5]" />
-                  </button>
-                )
+              )}
+              {canInput && (!isRunning || canSend) && (
+                <button
+                  type="button"
+                  onClick={onSend}
+                  disabled={!canSend}
+                  aria-label={t("chat.sendMessage")}
+                  className={cn(
+                    "flex size-8 items-center justify-center rounded-full transition-all duration-150 active:scale-95",
+                    canSend
+                      ? "bg-foreground text-background hover:bg-foreground/90 cursor-pointer shadow-xs"
+                      : "bg-muted text-muted-foreground/35 cursor-not-allowed",
+                  )}
+                >
+                  <IconArrowUp className="size-4 stroke-[2.5]" />
+                </button>
               )}
             </div>
           </div>
