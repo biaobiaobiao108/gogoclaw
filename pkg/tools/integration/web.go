@@ -1924,6 +1924,10 @@ func (t *WebSearchTool) Name() string {
 	return "web_search"
 }
 
+func (t *WebSearchTool) Policy() ToolPolicy {
+	return RetrievalPolicy()
+}
+
 func (t *WebSearchTool) Description() string {
 	return "Search the web for current information. Supports query, count, and an optional temporal range filter. Returns titles, URLs, and snippets from search results."
 }
@@ -2072,6 +2076,10 @@ func NewWebFetchToolWithConfig(
 
 func (t *WebFetchTool) Name() string {
 	return "web_fetch"
+}
+
+func (t *WebFetchTool) Policy() ToolPolicy {
+	return RetrievalPolicy()
 }
 
 func (t *WebFetchTool) Description() string {

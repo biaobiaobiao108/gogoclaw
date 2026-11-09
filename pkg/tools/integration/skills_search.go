@@ -28,6 +28,10 @@ func (t *FindSkillsTool) Name() string {
 	return "find_skills"
 }
 
+func (t *FindSkillsTool) Policy() ToolPolicy {
+	return ReadPolicy()
+}
+
 func (t *FindSkillsTool) Description() string {
 	return "Search for installable skills from skill registries. Returns skill slugs, descriptions, versions, and relevance scores. Use this to discover skills before installing them with install_skill."
 }

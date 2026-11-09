@@ -339,6 +339,9 @@ func (t *ReadFileLinesTool) Name() string {
 	return "read_file"
 }
 
+func (t *ReadFileTool) Policy() ToolPolicy      { return ReadPolicy() }
+func (t *ReadFileLinesTool) Policy() ToolPolicy { return ReadPolicy() }
+
 func (t *ReadFileTool) Description() string {
 	return "Read the contents of a file. Supports pagination via `offset` and `length`."
 }
@@ -1003,6 +1006,8 @@ func NewListDirTool(workspace string, restrict bool, allowPaths ...[]*regexp.Reg
 func (t *ListDirTool) Name() string {
 	return "list_dir"
 }
+
+func (t *ListDirTool) Policy() ToolPolicy { return ReadPolicy() }
 
 func (t *ListDirTool) Description() string {
 	return "List files and directories in a path"

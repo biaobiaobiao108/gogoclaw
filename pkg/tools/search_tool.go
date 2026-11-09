@@ -41,6 +41,12 @@ func (t *BM25SearchTool) Name() string {
 	return BM25SearchToolName
 }
 
+func (t *BM25SearchTool) Policy() ToolPolicy {
+	policy := ReadPolicy()
+	policy.Idempotent = false // discovery changes hidden-tool visibility
+	return policy
+}
+
 func (t *BM25SearchTool) Description() string {
 	return "Search available hidden tools on-demand using natural language query describing the action you need to perform. Exposes matching tools for the next model call. Search by the action and English tool identifiers, then use the original user query as the discovered tool’s input."
 }

@@ -428,6 +428,7 @@ func (al *AgentLoop) InterruptGraceful(hint string) error {
 	if !ts.requestGracefulInterrupt(hint) {
 		return fmt.Errorf("turn %s cannot accept graceful interrupt", ts.turnID)
 	}
+	ts.setEndReason(TurnEndReasonUserInterrupted)
 
 	al.emitEvent(
 		runtimeevents.KindAgentInterruptReceived,

@@ -14,6 +14,26 @@ const (
 	TurnEndStatusAborted TurnEndStatus = "aborted"
 )
 
+// TurnEndReason explains why a turn reached its terminal status. A completed
+// turn may still have a non-default reason, such as exhausting its tool budget.
+type TurnEndReason string
+
+const (
+	TurnEndReasonCompleted        TurnEndReason = "completed"
+	TurnEndReasonUserInterrupted  TurnEndReason = "user_interrupted"
+	TurnEndReasonMaxIterations    TurnEndReason = "max_iterations"
+	TurnEndReasonNoProgress       TurnEndReason = "no_progress"
+	TurnEndReasonRetrievalStalled TurnEndReason = "retrieval_stalled"
+	TurnEndReasonReadOnlyReplay   TurnEndReason = "read_only_replay"
+	TurnEndReasonRepeatedFailure  TurnEndReason = "repeated_failure"
+	TurnEndReasonTruncated        TurnEndReason = "truncated"
+	TurnEndReasonContentFiltered  TurnEndReason = "content_filtered"
+	TurnEndReasonEmptyResponse    TurnEndReason = "empty_response"
+	TurnEndReasonProviderError    TurnEndReason = "provider_error"
+	TurnEndReasonProviderPaused   TurnEndReason = "provider_paused"
+	TurnEndReasonError            TurnEndReason = "error"
+)
+
 // TurnStartPayload describes the start of a turn.
 type TurnStartPayload struct {
 	UserMessage string
@@ -41,6 +61,7 @@ type ToolExecutionRecord struct {
 // TurnEndPayload describes the completion of a turn.
 type TurnEndPayload struct {
 	Status                TurnEndStatus
+	Reason                TurnEndReason
 	Workspace             string
 	Iterations            int
 	Duration              time.Duration

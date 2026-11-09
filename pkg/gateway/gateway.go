@@ -464,6 +464,11 @@ func setupAndStartServices(
 					if pending := agentLoop.PendingApprovalByConversation(config.ChannelPico, chatID); pending != nil {
 						result["approval"] = pending
 					}
+					if completion, ok, err := agentLoop.ConversationTurnCompletion(config.ChannelPico, chatID, "pico-user"); err != nil {
+						result["error"] = "Unable to read task completion state"
+					} else if ok {
+						result["last_turn"] = completion
+					}
 					if includeRecovery {
 						interrupted, err := agentLoop.ConversationInterrupted(config.ChannelPico, chatID, "pico-user")
 						if err != nil {

@@ -22,28 +22,6 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
 
-func isReadOnlyToolName(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "read_file", "list_dir", "web_search", "web_fetch", "fetch", "load_image", "tool_search", "find_skills", "memory_search":
-		return true
-	default:
-		return false
-	}
-}
-
-func isReplaySafeToolName(name string) bool {
-	return isReadOnlyToolName(name) && strings.ToLower(strings.TrimSpace(name)) != "tool_search"
-}
-
-func isRetrievalToolName(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "web_search", "web_fetch", "fetch":
-		return true
-	default:
-		return false
-	}
-}
-
 func toolCallFingerprint(name string, args map[string]any) string {
 	argsJSON, _ := json.Marshal(args)
 	return strings.ToLower(strings.TrimSpace(name)) + "\x00" + string(argsJSON)
@@ -58,16 +36,15 @@ func canExecuteInParallel(al *AgentLoop, ts *turnState, toolCalls []providers.To
 	}
 	seenFingerprints := make(map[string]struct{}, len(toolCalls))
 	for _, tc := range toolCalls {
-		if !isReadOnlyToolName(tc.Name) {
+		policy := ts.toolPolicy(tc.Name)
+		if !policy.ReadOnly || !policy.Idempotent {
 			return false
 		}
-		if isReplaySafeToolName(tc.Name) {
-			fingerprint := toolCallFingerprint(tc.Name, tc.Arguments)
-			if _, duplicate := seenFingerprints[fingerprint]; duplicate || ts.readOnlyCallSeen(fingerprint) {
-				return false
-			}
-			seenFingerprints[fingerprint] = struct{}{}
+		fingerprint := toolCallFingerprint(tc.Name, tc.Arguments)
+		if _, duplicate := seenFingerprints[fingerprint]; duplicate || ts.readOnlyCallSeen(fingerprint) {
+			return false
 		}
+		seenFingerprints[fingerprint] = struct{}{}
 		if al.cfg != nil && al.cfg.Tools.Approval.Requires(tc.Name) {
 			return false
 		}
@@ -80,8 +57,10 @@ func canExecuteInParallel(al *AgentLoop, ts *turnState, toolCalls []providers.To
 
 const retrievalStallWarningAfter = 3
 const retrievalStallStopAfter = 5
+const noProgressWarningAfter = 5
+const noProgressStopAfter = 8
 
-func toolResultHasUsableRetrieval(result *tools.ToolResult) bool {
+func toolResultHasUsableContent(result *tools.ToolResult) bool {
 	if result == nil || result.IsError {
 		return false
 	}
@@ -688,10 +667,11 @@ toolLoop:
 		argsJSON, _ := json.Marshal(toolArgs)
 		argsPreview := utils.Truncate(string(argsJSON), 200)
 		executedToolName := toolName
+		toolPolicy := ts.toolPolicy(executedToolName)
 		readOnlyKey := toolCallFingerprint(executedToolName, toolArgs)
 		duplicateReadOnly := false
 		duplicateRepeat := 0
-		if preExecutedResults == nil && isReplaySafeToolName(executedToolName) && ts.readOnlyCallSeen(readOnlyKey) {
+		if preExecutedResults == nil && toolPolicy.ReadOnly && toolPolicy.Idempotent && ts.readOnlyCallSeen(readOnlyKey) {
 			duplicateReadOnly = true
 			duplicateRepeat = ts.recordReadOnlyRepeat(readOnlyKey)
 		}
@@ -880,21 +860,31 @@ toolLoop:
 		if toolResult == nil {
 			toolResult = tools.ErrorResult("hook returned nil tool result")
 		}
-		if !duplicateReadOnly && !toolResult.IsError && isReplaySafeToolName(executedToolName) {
+		if !duplicateReadOnly && !toolResult.IsError && toolPolicy.ReadOnly && toolPolicy.Idempotent {
 			ts.recordReadOnlyCall(readOnlyKey)
 		}
-		if !isReadOnlyToolName(executedToolName) {
-			ts.recordToolStateChange()
+		if !toolPolicy.ReadOnly {
+			ts.invalidateReadOnlyCalls()
 		}
 		if duplicateReadOnly && duplicateRepeat >= 2 {
+			ts.setEndReason(TurnEndReasonReadOnlyReplay)
 			ts.requestGracefulInterrupt("The model repeated the same read-only tool call. Use the evidence already collected or explain the blocker instead of retrying it.")
 		}
-		if !duplicateReadOnly && isRetrievalToolName(executedToolName) {
-			stalls := ts.recordRetrievalOutcome(toolResultHasUsableRetrieval(toolResult))
-			if stalls == retrievalStallWarningAfter {
+		progress := ts.recordToolProgress(readOnlyKey, toolPolicy, toolResult, duplicateReadOnly)
+		if !duplicateReadOnly && toolPolicy.Retrieval {
+			if progress.RetrievalStalls == retrievalStallWarningAfter {
 				toolResult.ForLLM = toolResult.ContentForLLM() + "\n\nThree consecutive web retrieval attempts returned no usable results. Do not keep rephrasing the same searches. Use the evidence already collected, try a materially different source, or explain what could not be verified."
-			} else if stalls >= retrievalStallStopAfter {
+			} else if progress.RetrievalStalls >= retrievalStallStopAfter {
+				ts.setEndReason(TurnEndReasonRetrievalStalled)
 				_ = ts.requestGracefulInterrupt("Web retrieval repeatedly returned no usable results. Stop retrying and summarize the available evidence and limitations.")
+			}
+		}
+		if !toolPolicy.Retrieval {
+			if progress.NoProgressStreak == noProgressWarningAfter {
+				toolResult.ForLLM = toolResult.ContentForLLM() + "\n\nSeveral tool calls produced no new evidence or state changes. Stop exploring in circles. Use the existing findings or explain what is still missing."
+			} else if progress.NoProgressStreak >= noProgressStopAfter {
+				ts.setEndReason(TurnEndReasonNoProgress)
+				_ = ts.requestGracefulInterrupt("The turn produced no new evidence or state changes across repeated tool calls. Stop retrying and summarize the available findings and limitations.")
 			}
 		}
 		failureKey := toolName + "\x00" + string(argsJSON)
@@ -902,6 +892,7 @@ toolLoop:
 		if failures == 3 {
 			toolResult.ForLLM = toolResult.ContentForLLM() + "\n\nThis same tool call has failed three times. Change the approach or explain the blocker instead of repeating it."
 		} else if failures >= 4 {
+			ts.setEndReason(TurnEndReasonRepeatedFailure)
 			ts.requestGracefulInterrupt("The same tool call repeatedly failed. Explain the blocker, completed work, and what is needed to continue.")
 		}
 

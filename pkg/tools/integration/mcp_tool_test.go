@@ -148,6 +148,37 @@ func TestNewMCPTool(t *testing.T) {
 	}
 }
 
+func TestMCPToolPolicyUsesAnnotations(t *testing.T) {
+	readOnly := NewMCPTool(nil, "search", &mcp.Tool{
+		Name: "search_notes",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint: true,
+		},
+	})
+	policy := readOnly.Policy()
+	if !policy.ReadOnly || !policy.Idempotent || !policy.Retrieval || policy.Progress != "evidence" {
+		t.Fatalf("read-only policy = %+v", policy)
+	}
+
+	destructive := false
+	additive := NewMCPTool(nil, "notes", &mcp.Tool{
+		Name: "create_note",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: &destructive,
+			IdempotentHint:  true,
+		},
+	})
+	policy = additive.Policy()
+	if policy.ReadOnly || !policy.Idempotent || policy.Destructive || policy.Progress != "state" {
+		t.Fatalf("additive policy = %+v", policy)
+	}
+
+	policy = NewMCPTool(nil, "notes", &mcp.Tool{Name: "update_note"}).Policy()
+	if policy.ReadOnly || policy.Idempotent || !policy.Destructive || policy.Progress != "state" {
+		t.Fatalf("unannotated policy = %+v", policy)
+	}
+}
+
 // TestMCPTool_Name verifies tool name with server prefix
 func TestMCPTool_Name(t *testing.T) {
 	tests := []struct {

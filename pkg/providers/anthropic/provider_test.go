@@ -249,6 +249,9 @@ func TestParseResponse_StopReasons(t *testing.T) {
 	}{
 		{anthropic.StopReasonEndTurn, "stop"},
 		{anthropic.StopReasonMaxTokens, "length"},
+		{anthropic.StopReasonModelContextWindowExceeded, "length"},
+		{anthropic.StopReasonRefusal, "content_filter"},
+		{anthropic.StopReasonPauseTurn, "pause_turn"},
 		{anthropic.StopReasonToolUse, "tool_calls"},
 	}
 	for _, tt := range tests {

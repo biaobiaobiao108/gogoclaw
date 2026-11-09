@@ -735,6 +735,22 @@ func TestBuildRequestBody_ToolCallFunctionFallback(t *testing.T) {
 }
 
 // TestParseResponseBodyEdgeCases tests edge cases for parseResponseBody.
+func TestMapStopReason(t *testing.T) {
+	tests := map[string]string{
+		"end_turn":                      "stop",
+		"max_tokens":                    "length",
+		"model_context_window_exceeded": "length",
+		"refusal":                       "content_filter",
+		"pause_turn":                    "pause_turn",
+		"tool_use":                      "tool_calls",
+	}
+	for input, want := range tests {
+		if got := mapStopReason(input); got != want {
+			t.Errorf("mapStopReason(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestParseResponseBodyEdgeCases(t *testing.T) {
 	tests := []struct {
 		name    string

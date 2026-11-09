@@ -508,6 +508,12 @@ func parseResponseBody(body []byte) (*LLMResponse, error) {
 		finishReason = "tool_calls"
 	case "max_tokens":
 		finishReason = "length"
+	case "model_context_window_exceeded":
+		finishReason = "length"
+	case "refusal":
+		finishReason = "content_filter"
+	case "pause_turn":
+		finishReason = "pause_turn"
 	case "end_turn":
 		finishReason = "stop"
 	case "stop_sequence":
@@ -743,8 +749,12 @@ func mapStopReason(reason string) string {
 	switch reason {
 	case "tool_use":
 		return "tool_calls"
-	case "max_tokens":
+	case "max_tokens", "model_context_window_exceeded":
 		return "length"
+	case "refusal":
+		return "content_filter"
+	case "pause_turn":
+		return "pause_turn"
 	default:
 		return "stop"
 	}

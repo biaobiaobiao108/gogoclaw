@@ -628,14 +628,13 @@ func parseGeminiStreamResponse(
 }
 
 func normalizeGeminiFinishReason(reason string, toolCalls int) string {
-	if toolCalls > 0 {
-		return "tool_calls"
-	}
-
 	switch strings.ToUpper(strings.TrimSpace(reason)) {
 	case "MAX_TOKENS":
 		return "length"
-	case "", "STOP":
+	case "", "STOP", "FINISH_REASON_UNSPECIFIED":
+		if toolCalls > 0 {
+			return "tool_calls"
+		}
 		return "stop"
 	default:
 		return strings.ToLower(strings.TrimSpace(reason))

@@ -61,6 +61,32 @@ func NewMCPTool(manager MCPManager, serverName string, tool *mcp.Tool) *MCPTool 
 	}
 }
 
+// Policy uses the server's MCP annotations when present. Unannotated tools are
+// treated as potentially state-changing rather than assuming they are safe.
+func (t *MCPTool) Policy() ToolPolicy {
+	if t == nil || t.tool == nil {
+		return StatePolicy()
+	}
+
+	name := strings.ToLower(strings.TrimSpace(t.tool.Name))
+	if t.tool.Annotations != nil && t.tool.Annotations.ReadOnlyHint {
+		policy := ReadPolicy()
+		policy.Retrieval = strings.Contains(name, "search") ||
+			strings.Contains(name, "fetch") ||
+			strings.Contains(name, "browse")
+		return policy
+	}
+
+	policy := StatePolicy()
+	if t.tool.Annotations != nil {
+		policy.Idempotent = t.tool.Annotations.IdempotentHint
+		if t.tool.Annotations.DestructiveHint != nil {
+			policy.Destructive = *t.tool.Annotations.DestructiveHint
+		}
+	}
+	return policy
+}
+
 func (t *MCPTool) SetMediaStore(store media.MediaStore) {
 	t.mediaStore = store
 }

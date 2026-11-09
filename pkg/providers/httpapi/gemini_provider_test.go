@@ -12,6 +12,25 @@ import (
 	"time"
 )
 
+func TestNormalizeGeminiFinishReason(t *testing.T) {
+	tests := []struct {
+		reason    string
+		toolCalls int
+		want      string
+	}{
+		{reason: "STOP", toolCalls: 2, want: "tool_calls"},
+		{reason: "STOP", want: "stop"},
+		{reason: "MAX_TOKENS", toolCalls: 1, want: "length"},
+		{reason: "SAFETY", toolCalls: 1, want: "safety"},
+		{reason: "MALFORMED_FUNCTION_CALL", toolCalls: 1, want: "malformed_function_call"},
+	}
+	for _, tt := range tests {
+		if got := normalizeGeminiFinishReason(tt.reason, tt.toolCalls); got != tt.want {
+			t.Errorf("normalizeGeminiFinishReason(%q, %d) = %q, want %q", tt.reason, tt.toolCalls, got, tt.want)
+		}
+	}
+}
+
 func TestGeminiProvider_ChatSeparatesThoughtAndToolCall(t *testing.T) {
 	var capturedBody map[string]any
 

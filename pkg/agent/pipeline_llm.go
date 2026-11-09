@@ -646,8 +646,13 @@ func (p *Pipeline) CallLLM(
 	}
 	logger.DebugCF("agent", "LLM response", llmResponseFields)
 
-	// No-tool-call path: steering check and direct response
-	if len(exec.response.ToolCalls) == 0 || exec.gracefulTerminal {
+	finishReason := strings.ToLower(strings.TrimSpace(exec.response.FinishReason))
+	terminalFinish := terminalProviderFinishReason(finishReason)
+
+	// No-tool-call path: steering check and direct response. A terminal provider
+	// stop must not execute tool calls whose arguments may be incomplete or from
+	// a refused/paused turn.
+	if len(exec.response.ToolCalls) == 0 || exec.gracefulTerminal || terminalFinish {
 		responseContent := exec.response.Content
 		if responseContent == "" && exec.response.ReasoningContent != "" && ts.channel != "pico" {
 			responseContent = exec.response.ReasoningContent
@@ -662,6 +667,32 @@ func (p *Pipeline) CallLLM(
 				})
 			exec.pendingMessages = append(exec.pendingMessages, steerMsgs...)
 			return ControlContinue, nil
+		}
+
+		switch finishReason {
+		case "length", "truncated":
+			ts.setEndReason(TurnEndReasonTruncated)
+			responseContent = appendTerminalResponseNotice(responseContent,
+				"The response reached the model's output limit and may be incomplete.")
+		case "content_filter":
+			ts.setEndReason(TurnEndReasonContentFiltered)
+			responseContent = appendTerminalResponseNotice(responseContent,
+				"The response was truncated by the model's safety policy.")
+		case "safety", "blocklist", "prohibited_content", "spii", "image_safety", "recitation":
+			ts.setEndReason(TurnEndReasonContentFiltered)
+			responseContent = appendTerminalResponseNotice(responseContent,
+				"The response was stopped by the model provider's safety policy.")
+		case "pause_turn":
+			ts.setEndReason(TurnEndReasonProviderPaused)
+			responseContent = appendTerminalResponseNotice(responseContent,
+				"The model paused this long-running turn. Continue the task to resume it.")
+		case "error", "failed", "canceled", "cancelled", "malformed_function_call", "unexpected_tool_call", "too_many_tool_calls", "language", "other":
+			ts.setEndReason(TurnEndReasonProviderError)
+			responseContent = appendTerminalResponseNotice(responseContent,
+				"The model provider ended the response before it could complete the task.")
+		}
+		if strings.TrimSpace(responseContent) == "" {
+			ts.setEndReason(TurnEndReasonEmptyResponse)
 		}
 
 		exec.finalContent = responseContent
@@ -760,6 +791,29 @@ func (p *Pipeline) CallLLM(
 	}
 
 	return ControlToolLoop, nil
+}
+
+func appendTerminalResponseNotice(content, notice string) string {
+	if strings.Contains(content, notice) {
+		return content
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return notice
+	}
+	return content + "\n\n" + notice
+}
+
+func terminalProviderFinishReason(reason string) bool {
+	switch reason {
+	case "length", "truncated", "content_filter", "pause_turn", "error", "failed",
+		"canceled", "cancelled", "safety", "blocklist", "prohibited_content", "spii",
+		"image_safety", "recitation", "malformed_function_call", "unexpected_tool_call",
+		"too_many_tool_calls", "language", "other":
+		return true
+	default:
+		return false
+	}
 }
 
 func firstMessageContentLen(messages []providers.Message) int {

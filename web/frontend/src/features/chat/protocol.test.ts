@@ -1,4 +1,6 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
+
+import { toast } from "sonner"
 
 import { getChatState, updateChatStore } from "../../store/chat"
 import { handlePicoMessage } from "./protocol"
@@ -68,6 +70,56 @@ describe("turn status", () => {
     )
     expect(getChatState().activeTurn).toBeUndefined()
     expect(getChatState().interrupted).toBe(true)
+  })
+})
+
+describe("turn completion", () => {
+  test("only warns for noteworthy terminal reasons", () => {
+    const warning = spyOn(toast, "warning").mockImplementation(() => 0)
+    try {
+      updateChatStore({
+        activeTurn: { turnId: "done", phase: "thinking", iteration: 1 },
+      })
+      handlePicoMessage(
+        {
+          type: "turn.status",
+          session_id: "session-completion",
+          payload: {
+            active: false,
+            last_turn: {
+              turn_id: "turn-done",
+              status: "completed",
+              end_reason: "completed",
+            },
+          },
+        },
+        "session-completion",
+      )
+      expect(warning).not.toHaveBeenCalled()
+
+      updateChatStore({
+        activeTurn: { turnId: "stalled", phase: "tools", iteration: 3 },
+      })
+      handlePicoMessage(
+        {
+          type: "turn.status",
+          session_id: "session-completion",
+          payload: {
+            active: false,
+            last_turn: {
+              turn_id: "turn-stalled",
+              status: "interrupted",
+              end_reason: "no_progress",
+            },
+          },
+        },
+        "session-completion",
+      )
+      expect(warning).toHaveBeenCalledTimes(1)
+    } finally {
+      warning.mockRestore()
+      updateChatStore({ activeTurn: undefined })
+    }
   })
 })
 

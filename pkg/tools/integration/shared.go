@@ -11,7 +11,13 @@ type (
 	Tool          = toolshared.Tool
 	ToolResult    = toolshared.ToolResult
 	AsyncCallback = toolshared.AsyncCallback
+	ToolPolicy    = toolshared.ToolPolicy
+	ToolProgress  = toolshared.ToolProgress
 )
+
+func ReadPolicy() ToolPolicy      { return toolshared.ReadPolicy() }
+func RetrievalPolicy() ToolPolicy { return toolshared.RetrievalPolicy() }
+func StatePolicy() ToolPolicy     { return toolshared.StatePolicy() }
 
 func WithToolContext(ctx context.Context, channel, chatID string) context.Context {
 	return toolshared.WithToolContext(ctx, channel, chatID)

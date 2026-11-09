@@ -60,6 +60,9 @@ func runtimeSeverityForAgentEvent(kind runtimeevents.Kind, payload any) runtimee
 		case TurnEndStatusAborted:
 			return runtimeevents.SeverityWarn
 		default:
+			if payload.Reason != "" && payload.Reason != TurnEndReasonCompleted {
+				return runtimeevents.SeverityWarn
+			}
 			return runtimeevents.SeverityInfo
 		}
 	case runtimeevents.KindAgentToolExecEnd:

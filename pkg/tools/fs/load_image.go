@@ -57,6 +57,8 @@ func NewLoadImageTool(
 
 func (t *LoadImageTool) Name() string { return "load_image" }
 
+func (t *LoadImageTool) Policy() ToolPolicy { return ReadPolicy() }
+
 func (t *LoadImageTool) Description() string {
 	return "Load a local image file so you can analyze its contents with vision. " +
 		"Supported formats: JPEG, PNG, GIF, WebP, BMP. " +

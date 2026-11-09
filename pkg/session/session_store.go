@@ -13,6 +13,7 @@ type TurnCheckpoint struct {
 	Usage      *bus.ContextUsage     `json:"usage,omitempty"`
 	TurnID     string                `json:"turn_id"`
 	Status     string                `json:"status"`
+	EndReason  string                `json:"end_reason,omitempty"`
 	Iteration  int                   `json:"iteration"`
 	Tool       string                `json:"tool,omitempty"`
 	StartedAt  time.Time             `json:"started_at,omitempty"`

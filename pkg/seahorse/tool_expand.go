@@ -21,6 +21,10 @@ func (t *ExpandTool) Name() string {
 	return "short_expand"
 }
 
+func (t *ExpandTool) Policy() tools.ToolPolicy {
+	return tools.ReadPolicy()
+}
+
 func (t *ExpandTool) Description() string {
 	return `Get full message content by ID.
 

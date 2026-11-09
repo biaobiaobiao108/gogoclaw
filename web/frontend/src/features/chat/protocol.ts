@@ -30,6 +30,26 @@ export interface PicoMessage {
 }
 
 let lastTurnErrorSignature = ""
+let lastTurnCompletionSignature = ""
+
+const subtleTurnEndReasons = new Set(["completed", "user_interrupted"])
+
+function parseTurnCompletion(raw: unknown) {
+  if (!raw || typeof raw !== "object") return undefined
+  const value = raw as Record<string, unknown>
+  if (
+    typeof value.turn_id !== "string" ||
+    typeof value.status !== "string" ||
+    typeof value.end_reason !== "string"
+  ) {
+    return undefined
+  }
+  return {
+    turnId: value.turn_id,
+    status: value.status,
+    endReason: value.end_reason,
+  }
+}
 
 function parseActivities(raw: unknown): ChatActivity[] | undefined {
   if (!Array.isArray(raw)) return undefined
@@ -252,6 +272,25 @@ export function handlePicoMessage(
       const activities = parseActivities(payload.activities)
       const activity = parseActivities([payload.activity])?.[0]
       const hadActiveTurn = Boolean(getChatState().activeTurn)
+      const completion = parseTurnCompletion(payload.last_turn)
+      if (active) {
+        lastTurnCompletionSignature = ""
+      } else if (
+        completion &&
+        hadActiveTurn &&
+        !subtleTurnEndReasons.has(completion.endReason)
+      ) {
+        const reasonKey = `chat.turnEndReason.${completion.endReason}`
+        const reasonMessage = i18n.t(reasonKey)
+        const completionSignature = `${expectedSessionId}\u0000${completion.turnId}\u0000${completion.endReason}`
+        if (
+          reasonMessage !== reasonKey &&
+          completionSignature !== lastTurnCompletionSignature
+        ) {
+          toast.warning(reasonMessage)
+          lastTurnCompletionSignature = completionSignature
+        }
+      }
       updateChatStore({
         ...(contextUsage ? { contextUsage } : {}),
         activeTurn: active

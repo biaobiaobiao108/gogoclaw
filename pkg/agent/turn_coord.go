@@ -53,10 +53,13 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		}
 		defer func() {
 			status := "completed"
-			if turnStatus == TurnEndStatusAborted || result.finalContent == toolLimitResponse {
+			reason := ts.endReasonSnapshot()
+			if turnStatus == TurnEndStatusAborted {
 				status = "interrupted"
 			} else if turnStatus == TurnEndStatusError || retErr != nil || result.status == "" {
 				status = "failed"
+			} else if reason != TurnEndReasonCompleted {
+				status = "interrupted"
 			}
 			if err := ts.saveTurnCheckpoint(status, ""); err != nil && retErr == nil {
 				retErr = fmt.Errorf("save turn checkpoint: %w", err)
@@ -64,6 +67,9 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		}()
 	}
 	defer func() {
+		if retErr != nil {
+			ts.setEndReason(TurnEndReasonError)
+		}
 		attemptedSkills := ts.attemptedSkillsSnapshot()
 		skillContextSnapshots := ts.skillContextSnapshotsSnapshot()
 		finalSuccessfulPath := []string(nil)
@@ -79,6 +85,7 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 			ts.eventMeta("runTurn", "turn.end"),
 			TurnEndPayload{
 				Status:                turnStatus,
+				Reason:                ts.endReasonSnapshot(),
 				Workspace:             ts.workspace,
 				Iterations:            ts.currentIteration(),
 				Duration:              time.Since(ts.startedAt),
@@ -240,6 +247,7 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		ts.setPhase(TurnPhaseRunning)
 		ctrl, callErr := pipeline.CallLLM(ctx, turnCtx, ts, exec, iteration)
 		if callErr != nil {
+			ts.setEndReason(TurnEndReasonProviderError)
 			turnStatus = TurnEndStatusError
 			return turnResult{}, callErr
 		}
@@ -314,8 +322,12 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		return al.abortTurn(ts)
 	}
 
+	maxIterationsReached := ts.currentIteration() >= ts.agent.MaxIterations && ts.agent.MaxIterations > 0
+	if maxIterationsReached {
+		ts.setEndReason(TurnEndReasonMaxIterations)
+	}
 	if finalContent == "" {
-		if ts.currentIteration() >= ts.agent.MaxIterations && ts.agent.MaxIterations > 0 {
+		if maxIterationsReached {
 			finalContent = toolLimitResponse
 		} else {
 			finalContent = ts.opts.DefaultResponse
@@ -346,6 +358,7 @@ func (ts *turnState) saveTurnCheckpoint(status, tool string) error {
 	}
 	checkpoint := session.TurnCheckpoint{
 		TurnID: ts.turnID, Status: status, Iteration: ts.currentIteration(), Tool: tool,
+		EndReason: string(ts.endReasonSnapshot()),
 		StartedAt: ts.startedAt.UTC(), UpdatedAt: time.Now().UTC(),
 		Activities: ts.activitiesSnapshot(),
 		Usage:      ts.contextUsageSnapshot(),

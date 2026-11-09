@@ -6,7 +6,12 @@ import (
 	toolshared "github.com/biaobiaobiao108/gogoclaw/pkg/tools/shared"
 )
 
-type ToolResult = toolshared.ToolResult
+type (
+	ToolResult = toolshared.ToolResult
+	ToolPolicy = toolshared.ToolPolicy
+)
+
+func ReadPolicy() ToolPolicy { return toolshared.ReadPolicy() }
 
 func WithToolContext(ctx context.Context, channel, chatID string) context.Context {
 	return toolshared.WithToolContext(ctx, channel, chatID)

@@ -22,6 +22,10 @@ func (t *GrepTool) Name() string {
 	return "short_grep"
 }
 
+func (t *GrepTool) Policy() tools.ToolPolicy {
+	return tools.ReadPolicy()
+}
+
 func (t *GrepTool) Description() string {
 	return `Search summaries and messages for matching content.
 

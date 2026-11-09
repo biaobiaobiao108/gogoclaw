@@ -24,6 +24,9 @@ type (
 	AsyncExecutor          = toolshared.AsyncExecutor
 	PromptMetadata         = toolshared.PromptMetadata
 	PromptMetadataProvider = toolshared.PromptMetadataProvider
+	ToolPolicy             = toolshared.ToolPolicy
+	ToolPolicyProvider     = toolshared.ToolPolicyProvider
+	ToolProgress           = toolshared.ToolProgress
 	ToolResult             = toolshared.ToolResult
 )
 
@@ -36,7 +39,15 @@ const (
 	ToolPromptSlotMCP         = toolshared.ToolPromptSlotMCP
 	ToolPromptSourceRegistry  = toolshared.ToolPromptSourceRegistry
 	ToolPromptSourceDiscovery = toolshared.ToolPromptSourceDiscovery
+
+	ToolProgressNone     = toolshared.ToolProgressNone
+	ToolProgressEvidence = toolshared.ToolProgressEvidence
+	ToolProgressState    = toolshared.ToolProgressState
 )
+
+func ReadPolicy() ToolPolicy      { return toolshared.ReadPolicy() }
+func RetrievalPolicy() ToolPolicy { return toolshared.RetrievalPolicy() }
+func StatePolicy() ToolPolicy     { return toolshared.StatePolicy() }
 
 func WithToolContext(ctx context.Context, channel, chatID string) context.Context {
 	return toolshared.WithToolContext(ctx, channel, chatID)

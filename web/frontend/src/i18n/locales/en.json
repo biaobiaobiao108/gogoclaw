@@ -139,6 +139,21 @@
       "completed": "Completed"
     },
     "taskInterrupted": "The previous task was interrupted.",
+    "turnEndReason": {
+      "completed": "The task completed.",
+      "user_interrupted": "The task was stopped and completed work was retained.",
+      "max_iterations": "The task reached its tool-call limit and retained its current results.",
+      "no_progress": "Tool calls stopped producing new progress, so the task was closed early.",
+      "retrieval_stalled": "Retrieval kept returning no useful results, so the task was concluded from the available evidence.",
+      "read_only_replay": "The model repeated an already completed read-only call, so the task was closed early.",
+      "repeated_failure": "The same tool kept failing, so retries were stopped.",
+      "truncated": "The model output reached its length limit and may be incomplete.",
+      "content_filtered": "The model output was truncated by its safety policy.",
+      "empty_response": "The model returned no usable content. Retry or adjust the model settings.",
+      "provider_error": "The model provider failed before the task could complete.",
+      "provider_paused": "The model paused a long-running task. Continue to resume it.",
+      "error": "The task failed before it could complete."
+    },
     "continueTask": "Continue",
     "continuePrompt": "Continue the interrupted task. Check the current state before repeating any action whose result is unknown.",
     "composeHint": "Press Enter to send, Shift + Enter for a new line",

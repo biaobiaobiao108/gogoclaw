@@ -119,8 +119,9 @@ func TestSetupFailureEmitsFailedTurnAndInitializesRoot(t *testing.T) {
 	}
 	select {
 	case event := <-events:
-		if payload := event.Payload.(TurnEndPayload); payload.Status != TurnEndStatusError {
-			t.Fatalf("got status %s", payload.Status)
+		payload := event.Payload.(TurnEndPayload)
+		if payload.Status != TurnEndStatusError || payload.Reason != TurnEndReasonError {
+			t.Fatalf("got status %s reason %s", payload.Status, payload.Reason)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("missing turn end event")
@@ -1144,8 +1145,9 @@ func TestRunTurn_MaxIterations(t *testing.T) {
 	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
 	defer cleanup()
 
-	// Override max iterations to 2
-	agent.MaxIterations = 2
+	// One tool iteration is enough to exhaust the budget because this provider
+	// always asks for another tool call.
+	agent.MaxIterations = 1
 
 	pipeline := NewPipeline(al)
 	opts := makeTestProcessOpts("test-session-maxiter")
@@ -1162,6 +1164,110 @@ func TestRunTurn_MaxIterations(t *testing.T) {
 	// Should complete due to max iterations
 	if result.status != TurnEndStatusCompleted {
 		t.Errorf("expected status Completed, got %v", result.status)
+	}
+	if reason := ts.endReasonSnapshot(); reason != TurnEndReasonMaxIterations {
+		t.Errorf("end reason = %s, want %s", reason, TurnEndReasonMaxIterations)
+	}
+}
+
+func TestRunTurnRecordsTerminalFinishReason(t *testing.T) {
+	tests := []struct {
+		name    string
+		finish  string
+		reason  TurnEndReason
+		content string
+		notice  bool
+	}{
+		{name: "truncated", finish: "length", reason: TurnEndReasonTruncated, content: "partial answer", notice: true},
+		{name: "content filtered", finish: "content_filter", reason: TurnEndReasonContentFiltered, content: "blocked output", notice: true},
+		{name: "provider paused", finish: "pause_turn", reason: TurnEndReasonProviderPaused, content: "starting", notice: true},
+		{name: "empty response", finish: "stop", reason: TurnEndReasonEmptyResponse},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := &sequenceProvider{responses: []*providers.LLMResponse{{Content: tt.content, FinishReason: tt.finish}}}
+			al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+			defer cleanup()
+
+			inbound := bus.InboundMessage{
+				Channel: "pico", ChatID: "terminal-chat", SenderID: "pico-user",
+				Context: bus.InboundContext{Channel: "pico", ChatID: "terminal-chat", SenderID: "pico-user", ChatType: "direct"},
+			}
+			key, _, ok := al.resolveSteeringTarget(inbound)
+			if !ok {
+				t.Fatal("failed to resolve test session")
+			}
+			opts := makeTestProcessOpts(key)
+			inboundContext := inbound.Context
+			opts.Dispatch = DispatchRequest{
+				SessionKey: key, InboundContext: &inboundContext, UserMessage: "test terminal reason",
+			}
+			ts := newTurnState(agent, opts, turnEventScope{
+				turnID: "terminal-" + tt.name, context: newTurnContext(nil, nil, nil),
+			})
+
+			result, err := al.runTurn(context.Background(), ts, NewPipeline(al))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := ts.endReasonSnapshot(); got != tt.reason {
+				t.Fatalf("end reason = %s, want %s", got, tt.reason)
+			}
+			if tt.notice && result.finalContent == tt.content {
+				t.Fatalf("terminal notice was not appended: %q", result.finalContent)
+			}
+			completion, ok, err := al.ConversationTurnCompletion("pico", "terminal-chat", "pico-user")
+			if err != nil || !ok {
+				t.Fatalf("completion = %+v, ok=%v, err=%v", completion, ok, err)
+			}
+			if completion.EndReason != tt.reason || completion.Status != "interrupted" {
+				t.Fatalf("completion = %+v", completion)
+			}
+		})
+	}
+}
+
+func TestRunTurnDoesNotExecuteToolsAfterTerminalProviderStop(t *testing.T) {
+	tests := []struct {
+		finish string
+		reason TurnEndReason
+	}{
+		{finish: "length", reason: TurnEndReasonTruncated},
+		{finish: "content_filter", reason: TurnEndReasonContentFiltered},
+		{finish: "safety", reason: TurnEndReasonContentFiltered},
+		{finish: "pause_turn", reason: TurnEndReasonProviderPaused},
+		{finish: "error", reason: TurnEndReasonProviderError},
+		{finish: "malformed_function_call", reason: TurnEndReasonProviderError},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.finish, func(t *testing.T) {
+			provider := &sequenceProvider{responses: []*providers.LLMResponse{{
+				Content:      "The task was interrupted.",
+				FinishReason: tt.finish,
+				ToolCalls: []providers.ToolCall{{
+					ID: "unsafe-call", Name: "side_effect", Arguments: map[string]any{"value": "incomplete"},
+				}},
+			}}}
+			al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+			defer cleanup()
+			tool := &countingHarnessTool{name: "side_effect"}
+			agent.Tools.Register(tool)
+			ts := newTurnState(agent, makeTestProcessOpts("terminal-stop-"+tt.finish), turnEventScope{
+				turnID: "terminal-stop-" + tt.finish, context: newTurnContext(nil, nil, nil),
+			})
+
+			if _, err := al.runTurn(context.Background(), ts, NewPipeline(al)); err != nil {
+				t.Fatal(err)
+			}
+			if tool.calls != 0 {
+				t.Fatalf("tool executed %d times after terminal provider stop", tool.calls)
+			}
+			if got := ts.endReasonSnapshot(); got != tt.reason {
+				t.Fatalf("end reason = %s, want %s", got, tt.reason)
+			}
+		})
 	}
 }
 

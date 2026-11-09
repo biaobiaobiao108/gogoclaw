@@ -111,6 +111,13 @@ type ActiveTurnInfo struct {
 	Activities   []session.TurnActivity
 }
 
+// TurnCompletionInfo is the latest durable terminal state for a conversation.
+type TurnCompletionInfo struct {
+	TurnID    string        `json:"turn_id"`
+	Status    string        `json:"status"`
+	EndReason TurnEndReason `json:"end_reason"`
+}
+
 // =============================================================================
 // turnExecution - mutable state that persists across turn loop iterations
 // =============================================================================
@@ -215,6 +222,8 @@ type turnState struct {
 	readOnlyCalls     map[string]struct{}
 	readOnlyRepeats   map[string]int
 	retrievalStalls   int
+	evidenceSeen      map[string]struct{}
+	noProgressStreak  int
 	activities        []session.TurnActivity
 	activitySeq       int
 	plan              []planStep
@@ -266,6 +275,7 @@ type turnState struct {
 	// Token budget tracking
 	tokenBudget      *atomic.Int64 // Shared token budget counter
 	lastFinishReason string        // Last LLM finish_reason
+	endReason        TurnEndReason
 	usage            providers.UsageInfo
 	summaryUsage     providers.UsageInfo
 	requestUsage     *bus.ContextUsage
@@ -317,11 +327,42 @@ func (ts *turnState) recordReadOnlyRepeat(key string) int {
 	return ts.readOnlyRepeats[key]
 }
 
+func (ts *turnState) invalidateReadOnlyCalls() {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.readOnlyCalls = nil
+	ts.readOnlyRepeats = nil
+}
+
 func (ts *turnState) recordToolStateChange() {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 	ts.readOnlyCalls = nil
 	ts.readOnlyRepeats = nil
+	ts.noProgressStreak = 0
+}
+
+func (ts *turnState) setEndReason(reason TurnEndReason) {
+	if ts == nil || reason == "" {
+		return
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.endReason == "" || ts.endReason == TurnEndReasonCompleted {
+		ts.endReason = reason
+	}
+}
+
+func (ts *turnState) endReasonSnapshot() TurnEndReason {
+	if ts == nil {
+		return TurnEndReasonCompleted
+	}
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	if ts.endReason == "" {
+		return TurnEndReasonCompleted
+	}
+	return ts.endReason
 }
 
 func (ts *turnState) recordRetrievalOutcome(usable bool) int {
@@ -333,6 +374,27 @@ func (ts *turnState) recordRetrievalOutcome(usable bool) int {
 	}
 	ts.retrievalStalls++
 	return ts.retrievalStalls
+}
+
+func (ts *turnState) recordNoProgress() int {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.noProgressStreak++
+	return ts.noProgressStreak
+}
+
+func (ts *turnState) recordEvidence(hash string) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.evidenceSeen == nil {
+		ts.evidenceSeen = make(map[string]struct{})
+	}
+	if _, exists := ts.evidenceSeen[hash]; exists {
+		ts.noProgressStreak++
+		return
+	}
+	ts.evidenceSeen[hash] = struct{}{}
+	ts.noProgressStreak = 0
 }
 
 func (ts *turnState) toolRegistry() *tools.ToolRegistry {
@@ -364,6 +426,7 @@ func newTurnState(agent *AgentInstance, opts processOptions, scope turnEventScop
 		media:        append([]string(nil), opts.Dispatch.Media...),
 		phase:        TurnPhaseSetup,
 		startedAt:    time.Now(),
+		endReason:    TurnEndReasonCompleted,
 	}
 
 	// Bind session store and capture initial history length for rollback logic
@@ -496,6 +559,43 @@ func (al *AgentLoop) ConversationInterrupted(channel, chatID, senderID string) (
 	last := history[len(history)-1]
 	return last.Role == "user" || last.Role == "tool" ||
 		(last.Role == "assistant" && (len(last.ToolCalls) > 0 || strings.HasPrefix(last.Content, "Task stopped. Completed work is retained;"))), nil
+}
+
+// ConversationTurnCompletion returns the latest durable completion metadata
+// for a conversation. It is available after the active turn has been cleared.
+func (al *AgentLoop) ConversationTurnCompletion(channel, chatID, senderID string) (TurnCompletionInfo, bool, error) {
+	msg := bus.InboundMessage{
+		Channel: channel, ChatID: chatID, SenderID: senderID,
+		Context: bus.InboundContext{Channel: channel, ChatID: chatID, SenderID: senderID, ChatType: "direct"},
+	}
+	key, agentID, ok := al.resolveSteeringTarget(msg)
+	if !ok {
+		return TurnCompletionInfo{}, false, nil
+	}
+	agent, ok := al.registry.GetAgent(agentID)
+	if !ok || agent.Sessions == nil {
+		return TurnCompletionInfo{}, false, nil
+	}
+	store, ok := agent.Sessions.(session.TurnCheckpointStore)
+	if !ok {
+		return TurnCompletionInfo{}, false, nil
+	}
+	checkpoint, err := store.GetTurnCheckpoint(key)
+	if err != nil {
+		return TurnCompletionInfo{}, false, err
+	}
+	if checkpoint.TurnID == "" {
+		return TurnCompletionInfo{}, false, nil
+	}
+	reason := TurnEndReason(checkpoint.EndReason)
+	if reason == "" {
+		reason = TurnEndReasonCompleted
+	}
+	return TurnCompletionInfo{
+		TurnID:    checkpoint.TurnID,
+		Status:    checkpoint.Status,
+		EndReason: reason,
+	}, true, nil
 }
 
 // =============================================================================
@@ -826,6 +926,9 @@ func (ts *turnState) requestHardAbort() bool {
 		return false
 	}
 	ts.hardAbort = true
+	if ts.endReason == "" || ts.endReason == TurnEndReasonCompleted {
+		ts.endReason = TurnEndReasonUserInterrupted
+	}
 	turnCancel := ts.turnCancel
 	providerCancel := ts.providerCancel
 	ts.mu.Unlock()

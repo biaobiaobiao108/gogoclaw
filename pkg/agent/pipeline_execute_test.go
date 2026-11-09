@@ -168,11 +168,32 @@ func TestExecuteToolsStopsRepeatedEmptyRetrieval(t *testing.T) {
 	}
 }
 
-func TestReadOnlyToolNameAllowsWebFetchAndFindSkills(t *testing.T) {
+func TestCompatibilityPolicyAllowsKnownReadOnlyTools(t *testing.T) {
 	for _, name := range []string{"web_fetch", "find_skills", "read_file", "web_search"} {
-		if !isReadOnlyToolName(name) {
-			t.Fatalf("%s should be read-only", name)
+		policy := tools.PolicyFor(&countingHarnessTool{name: name})
+		if !policy.ReadOnly || !policy.Idempotent {
+			t.Fatalf("%s policy = %+v, want replay-safe read-only", name, policy)
 		}
+	}
+	policy := tools.PolicyFor(&countingHarnessTool{name: "tool_search"})
+	if !policy.ReadOnly || policy.Idempotent {
+		t.Fatalf("tool_search policy = %+v, want read-only but stateful", policy)
+	}
+}
+
+func TestParallelExecutionRejectsStatefulReadOnlyTools(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &sequenceProvider{})
+	defer cleanup()
+	agent.Tools.Register(&countingHarnessTool{name: "tool_search"})
+	ts := newTurnState(agent, makeTestProcessOpts("stateful-read-only"), turnEventScope{
+		turnID: "stateful-read-only", context: newTurnContext(nil, nil, nil),
+	})
+	calls := []providers.ToolCall{
+		{ID: "search-1", Name: "tool_search", Arguments: map[string]any{"query": "calendar"}},
+		{ID: "search-2", Name: "tool_search", Arguments: map[string]any{"query": "notes"}},
+	}
+	if canExecuteInParallel(al, ts, calls) {
+		t.Fatal("stateful read-only tools must execute sequentially")
 	}
 }
 

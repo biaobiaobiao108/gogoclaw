@@ -379,6 +379,12 @@ func parseResponse(resp *anthropic.Message) *LLMResponse {
 		finishReason = "tool_calls"
 	case anthropic.StopReasonMaxTokens:
 		finishReason = "length"
+	case anthropic.StopReasonModelContextWindowExceeded:
+		finishReason = "length"
+	case anthropic.StopReasonRefusal:
+		finishReason = "content_filter"
+	case anthropic.StopReasonPauseTurn:
+		finishReason = "pause_turn"
 	case anthropic.StopReasonEndTurn:
 		finishReason = "stop"
 	}
