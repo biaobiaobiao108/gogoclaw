@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"runtime/debug"
@@ -42,8 +41,6 @@ type ExecTool struct {
 	denyPatterns        []*regexp.Regexp
 	allowPatterns       []*regexp.Regexp
 	customAllowPatterns []*regexp.Regexp
-	allowedPathPatterns []*regexp.Regexp
-	restrictToWorkspace bool
 	allowRemote         bool
 	sessionManager      *SessionManager
 }
@@ -118,41 +115,19 @@ var (
 		// Matches \uXXXX format used to represent characters like i = "i"
 		regexp.MustCompile(`\\u[0-9a-fA-F]{4}`),
 	}
-
-	// absolutePathPattern matches absolute file paths in commands (Unix and Windows).
-	absolutePathPattern = regexp.MustCompile(`[A-Za-z]:\\[^\\\"']+|/[^\s\"']+`)
-
-	// safePaths are kernel pseudo-devices that are always safe to reference in
-	// commands, regardless of workspace restriction. They contain no user data
-	// and cannot cause destructive writes.
-	safePaths = map[string]bool{
-		"/dev/null":    true,
-		"/dev/zero":    true,
-		"/dev/random":  true,
-		"/dev/urandom": true,
-		"/dev/stdin":   true,
-		"/dev/stdout":  true,
-		"/dev/stderr":  true,
-	}
 )
 
-func NewExecTool(workingDir string, restrict bool, allowPaths ...[]*regexp.Regexp) (*ExecTool, error) {
-	return NewExecToolWithConfig(workingDir, restrict, nil, allowPaths...)
+func NewExecTool(workingDir string) (*ExecTool, error) {
+	return NewExecToolWithConfig(workingDir, nil)
 }
 
 func NewExecToolWithConfig(
 	workingDir string,
-	restrict bool,
 	cfg *config.Config,
-	allowPaths ...[]*regexp.Regexp,
 ) (*ExecTool, error) {
 	denyPatterns := make([]*regexp.Regexp, 0)
 	customAllowPatterns := make([]*regexp.Regexp, 0)
-	var allowedPathPatterns []*regexp.Regexp
 	allowRemote := true
-	if len(allowPaths) > 0 {
-		allowedPathPatterns = allowPaths[0]
-	}
 
 	if cfg != nil {
 		execConfig := cfg.Tools.Exec
@@ -204,8 +179,6 @@ func NewExecToolWithConfig(
 		denyPatterns:        denyPatterns,
 		allowPatterns:       nil,
 		customAllowPatterns: customAllowPatterns,
-		allowedPathPatterns: allowedPathPatterns,
-		restrictToWorkspace: restrict,
 		allowRemote:         allowRemote,
 		sessionManager:      getSessionManager(),
 	}, nil
@@ -339,15 +312,7 @@ func (t *ExecTool) executeRun(ctx context.Context, args map[string]any) *ToolRes
 
 	cwd := t.workingDir
 	if wd, ok := args["cwd"].(string); ok && wd != "" {
-		if t.restrictToWorkspace && t.workingDir != "" {
-			resolvedWD, err := validatePathWithAllowPaths(wd, t.workingDir, true, t.allowedPathPatterns)
-			if err != nil {
-				return ErrorResult("Command blocked by safety guard (" + err.Error() + ")")
-			}
-			cwd = resolvedWD
-		} else {
-			cwd = wd
-		}
+		cwd = wd
 	}
 
 	if cwd == "" {
@@ -357,31 +322,8 @@ func (t *ExecTool) executeRun(ctx context.Context, args map[string]any) *ToolRes
 		}
 	}
 
-	if guardError := t.guardCommand(command, cwd); guardError != "" {
+	if guardError := t.guardCommand(command); guardError != "" {
 		return ErrorResult(guardError)
-	}
-
-	// Re-resolve symlinks immediately before execution to shrink the TOCTOU window
-	// between validation and cmd.Dir assignment.
-	if t.restrictToWorkspace && t.workingDir != "" && cwd != t.workingDir {
-		resolved, err := filepath.EvalSymlinks(cwd)
-		if err != nil {
-			return ErrorResult(fmt.Sprintf("Command blocked by safety guard (path resolution failed: %v)", err))
-		}
-		if isAllowedPath(resolved, t.allowedPathPatterns) {
-			cwd = resolved
-		} else {
-			absWorkspace, _ := filepath.Abs(t.workingDir)
-			wsResolved, _ := filepath.EvalSymlinks(absWorkspace)
-			if wsResolved == "" {
-				wsResolved = absWorkspace
-			}
-			rel, err := filepath.Rel(wsResolved, resolved)
-			if err != nil || !filepath.IsLocal(rel) {
-				return ErrorResult("Command blocked by safety guard (working directory escaped workspace)")
-			}
-			cwd = resolved
-		}
 	}
 
 	if isBackground {
@@ -1135,30 +1077,6 @@ func (t *ExecTool) executeSendKeys(args map[string]any) *ToolResult {
 	}
 }
 
-// expandPowerShellEnvVars expands environment variable syntax used by both
-// PowerShell ($env:VAR) and CMD (%VAR%) to their actual values.
-func expandPowerShellEnvVars(cmd string) string {
-	// Handle PowerShell style: $env:VAR and ${env:VAR}
-	rePs := regexp.MustCompile(`\$\{?env:(\w+)\}?`)
-	cmd = rePs.ReplaceAllStringFunc(cmd, func(match string) string {
-		varName := rePs.FindStringSubmatch(match)[1]
-		if val := os.Getenv(varName); val != "" {
-			return val
-		}
-		return match
-	})
-
-	// Handle CMD style: %VAR%
-	reCmd := regexp.MustCompile(`%([^%]+)%`)
-	return reCmd.ReplaceAllStringFunc(cmd, func(match string) string {
-		varName := reCmd.FindStringSubmatch(match)[1]
-		if val := os.Getenv(varName); val != "" {
-			return val
-		}
-		return match
-	})
-}
-
 func (t *ExecTool) commandMatchesAllowPattern(lower string) bool {
 	for _, pattern := range t.allowPatterns {
 		if pattern.MatchString(lower) {
@@ -1173,269 +1091,25 @@ func (t *ExecTool) commandMatchesAllowPattern(lower string) bool {
 	return false
 }
 
-func (t *ExecTool) guardCommand(command, cwd string) string {
+func (t *ExecTool) guardCommand(command string) string {
 	cmd := strings.TrimSpace(command)
 	lower := strings.ToLower(cmd)
 
 	// Deny patterns always apply, even when a command matches a custom allow rule.
-	// Custom allow rules can permit a command, but must not disable secret-safety
-	// deny rules such as jq env access checks (#3079).
 	for _, pattern := range t.denyPatterns {
 		if pattern.MatchString(lower) {
 			return "Command blocked by safety guard (dangerous pattern detected)"
 		}
 	}
 
-	if len(t.allowPatterns) > 0 {
-		if !t.commandMatchesAllowPattern(lower) {
-			return "Command blocked by safety guard (not in allowlist)"
-		}
-	}
-
-	if t.restrictToWorkspace {
-		// Block path traversal patterns including .../.../ variants
-		if regexp.MustCompile(`\.\.(?:[\\/]\.\.)*[\\/]`).MatchString(cmd) {
-			return "Command blocked by safety guard (path traversal detected)"
-		}
-
-		cwdPath, err := filepath.Abs(cwd)
-		if err != nil {
-			return ""
-		}
-
-		// Web URL schemes whose path components (starting with //) should be exempt
-		// from workspace sandbox checks. file: is intentionally excluded so that
-		// file:// URIs are still validated against the workspace boundary.
-		webSchemes := []string{"http:", "https:", "ftp:", "ftps:", "sftp:", "ssh:", "git:"}
-
-		// On Windows, expand ~ and PowerShell environment variables ($env:VAR) before path checking
-		if runtime.GOOS == "windows" {
-			// Expand PowerShell environment variables ($env:VAR and ${env:VAR})
-			cmd = expandPowerShellEnvVars(cmd)
-			// Also expand ~ for completeness
-			if home, err := os.UserHomeDir(); err == nil {
-				cmd = strings.ReplaceAll(cmd, "~", filepath.FromSlash(home))
-			}
-		}
-
-		matchIndices := absolutePathPattern.FindAllStringIndex(cmd, -1)
-
-		for _, loc := range matchIndices {
-			raw := cmd[loc[0]:loc[1]]
-
-			// Skip URL path components that look like they're from web URLs.
-			// When a URL like "https://github.com" is parsed, the regex captures
-			// "//github.com" as a match (the path portion after "https:").
-			// Use the exact match position (loc[0]) so that duplicate //path substrings
-			// in the same command are each evaluated at their own position.
-			if strings.HasPrefix(raw, "//") && loc[0] > 0 {
-				before := cmd[:loc[0]]
-				isWebURL := false
-
-				for _, scheme := range webSchemes {
-					if strings.HasSuffix(before, scheme) {
-						isWebURL = true
-						break
-					}
-				}
-
-				if isWebURL {
-					continue
-				}
-			}
-
-			// Skip scheme-less URL paths like "wttr.in/Beijing".
-			// When a /path is immediately preceded by a token that looks
-			// like a domain name and that token does NOT exist as a local
-			// filesystem entry, treat the path as part of a URL and skip
-			// workspace sandbox validation.
-			//
-			// The local-path-exists guard prevents symlink bypass: if
-			// "foo.bar" exists as a local symlink or directory, the path
-			// still undergoes full workspace validation (see #2965).
-			if loc[0] > 0 && raw[0] == '/' {
-				// Find the token immediately before the "/".
-				j := loc[0] - 1
-				for j >= 0 && !isShellTokenBoundary(cmd[j]) {
-					j--
-				}
-				token := cmd[j+1 : loc[0]]
-				if looksLikeDomain(token) && !localPathExists(cwd, token) {
-					continue
-				}
-			}
-
-			p, err := commandPathAbs(commandPathTextFromMatch(cmd, loc[0], loc[1]), cwdPath)
-			if err != nil {
-				continue
-			}
-
-			// Windows-specific: normalize paths to block ADS and extended-length paths
-			if runtime.GOOS == "windows" {
-				// Strip \\?\ prefix (extended-length path)
-				p = strings.TrimPrefix(p, `\\?\`)
-				// Strip NTFS alternate data streams (only if colon is not at position 1 = drive letter)
-				if idx := strings.Index(p, ":"); idx > 1 {
-					p = p[:idx]
-				}
-			}
-
-			// Check symlinks and junctions
-			resolved, err := filepath.EvalSymlinks(p)
-			if err == nil {
-				p = resolved
-			}
-
-			if safePaths[p] {
-				continue
-			}
-			if isAllowedPath(p, t.allowedPathPatterns) {
-				continue
-			}
-
-			rel, err := filepath.Rel(cwdPath, p)
-			if err != nil {
-				continue
-			}
-
-			if strings.HasPrefix(rel, "..") {
-				return "Command blocked by safety guard (path outside working dir)"
-			}
-		}
+	if len(t.allowPatterns) > 0 && !t.commandMatchesAllowPattern(lower) {
+		return "Command blocked by safety guard (not in allowlist)"
 	}
 
 	return ""
 }
-
-func commandPathAbs(pathText, cwdPath string) (string, error) {
-	if filepath.IsAbs(pathText) {
-		return filepath.Abs(pathText)
-	}
-	return filepath.Abs(filepath.Join(cwdPath, pathText))
-}
-
-func commandPathTextFromMatch(cmd string, start, end int) string {
-	raw := cmd[start:end]
-	if !strings.HasPrefix(raw, "/") || isUnixAbsolutePathMatchStart(cmd, start) {
-		return raw
-	}
-
-	tokenStart, tokenEnd := shellTokenBounds(cmd, start)
-	prefix := cmd[tokenStart:start]
-	// For --flag=rel/path, validate the value. For ambiguous attached option
-	// forms like -isystem/path, keep the slash-starting path conservative.
-	if eq := strings.IndexByte(prefix, '='); eq >= 0 {
-		return cmd[tokenStart+eq+1 : tokenEnd]
-	}
-	if strings.HasPrefix(prefix, "-") {
-		return raw
-	}
-	return cmd[tokenStart:tokenEnd]
-}
-
-func shellTokenBounds(cmd string, idx int) (int, int) {
-	start := idx
-	for start > 0 && !isShellTokenBoundary(cmd[start-1]) {
-		start--
-	}
-	end := idx
-	for end < len(cmd) && !isShellTokenBoundary(cmd[end]) {
-		end++
-	}
-	return start, end
-}
-
-// isUnixAbsolutePathMatchStart returns true when a regex match beginning with
-// "/" is actually an absolute path token, not the separator inside a relative
-// path such as "skills/foo.py".
-func isUnixAbsolutePathMatchStart(cmd string, idx int) bool {
-	if idx <= 0 {
-		return true
-	}
-
-	prev := cmd[idx-1]
-	if isShellTokenBoundary(prev) || prev == '=' || prev == ',' || prev == '(' || prev == '[' || prev == '{' {
-		return true
-	}
-
-	j := idx - 1
-	for j >= 0 && !isShellTokenBoundary(cmd[j]) {
-		j--
-	}
-	prefix := cmd[j+1 : idx]
-
-	return strings.HasPrefix(prefix, "-") && !strings.Contains(prefix, "=")
-}
-
-// isShellTokenBoundary returns true when b is a byte that separates
-// tokens in a shell command (space, tab, colon, semicolon, pipe, etc.).
-func isShellTokenBoundary(b byte) bool {
-	switch b {
-	case ' ', '\t', ':', ';', '|', '&', '<', '>', '\'', '"', '`', '\n', '\r':
-		return true
-	}
-	return false
-}
-
-// looksLikeDomain returns true when s looks like a DNS domain name:
-// it contains at least one dot, starts with an alphanumeric character,
-// and does not end with a common file extension.
-func looksLikeDomain(s string) bool {
-	if len(s) < 3 || !strings.ContainsRune(s, '.') {
-		return false
-	}
-	first := s[0]
-	if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || (first >= '0' && first <= '9')) {
-		return false
-	}
-	// Exclude tokens ending with common file/programming extensions,
-	// e.g. "script.py", "main.go", "app.exe".
-	if idx := strings.LastIndexByte(s, '.'); idx >= 0 {
-		ext := strings.ToLower(s[idx+1:])
-		if commonFileExtension(ext) {
-			return false
-		}
-	}
-	return true
-}
-
-// commonFileExtension returns true when ext is a file extension that
-// strongly indicates a local file rather than a domain TLD.
-func commonFileExtension(ext string) bool {
-	switch ext {
-	case "py", "js", "ts", "tsx", "jsx", "go", "rs", "rb", "php",
-		"java", "c", "cpp", "h", "hpp", "cs", "swift", "kt", "scala",
-		"sh", "bash", "zsh", "fish", "ps1", "bat", "cmd",
-		"txt", "md", "rst", "log", "json", "yaml", "yml", "toml",
-		"xml", "html", "css", "scss", "ini", "cfg", "conf", "env",
-		"exe", "dll", "so", "dylib", "lib", "a", "o", "obj",
-		"zip", "tar", "gz", "bz2", "xz", "7z", "rar",
-		"png", "jpg", "jpeg", "gif", "svg", "ico", "bmp", "webp",
-		"mp3", "mp4", "wav", "avi", "mov", "mkv", "flac",
-		"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-		"pub", "pem", "key", "crt", "cer", "p12", "pfx",
-		"bak", "tmp", "swp", "lock",
-		"ttf", "otf", "woff", "woff2", "eot",
-		"deb", "rpm", "apk", "msi", "dmg",
-		"sql", "sqlite", "db":
-		return true
-	}
-	return false
-}
-
-// localPathExists returns true when the given token resolves to an
-// existing filesystem entry relative to cwd.
-func localPathExists(cwd, token string) bool {
-	info, err := os.Lstat(filepath.Join(cwd, token))
-	return err == nil && info != nil
-}
-
 func (t *ExecTool) SetTimeout(timeout time.Duration) {
 	t.timeout = timeout
-}
-
-func (t *ExecTool) SetRestrictToWorkspace(restrict bool) {
-	t.restrictToWorkspace = restrict
 }
 
 func (t *ExecTool) SetAllowPatterns(patterns []string) error {

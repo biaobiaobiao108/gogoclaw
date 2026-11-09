@@ -131,16 +131,6 @@ export function AgentDefaultsSection({
       </Field>
 
       <SwitchCardField
-        label={t("pages.config.restrict_workspace")}
-        hint={t("pages.config.restrict_workspace_hint")}
-        layout="setting-row"
-        checked={form.restrictToWorkspace}
-        onCheckedChange={(checked) =>
-          onFieldChange("restrictToWorkspace", checked)
-        }
-      />
-
-      <SwitchCardField
         label={t("pages.config.split_on_marker")}
         hint={t("pages.config.split_on_marker_hint")}
         layout="setting-row"
@@ -892,17 +882,17 @@ export function ExecSection({ form, onFieldChange }: ExecSectionProps) {
               {testResult && (
                 <div
                   className={`rounded-md p-2 text-sm ${
-                    testResult.allowed
-                      ? "bg-success/10 text-success"
-                      : testResult.blocked
-                        ? "bg-destructive/10 text-destructive"
+                    testResult.blocked
+                      ? "bg-destructive/10 text-destructive"
+                      : testResult.allowed
+                        ? "bg-success/10 text-success"
                         : "bg-muted text-muted-foreground"
                   }`}
                 >
-                  {testResult.allowed
-                    ? `${t("pages.config.pattern_detector_result_allowed")}${testResult.matchedWhitelist ? ` (${testResult.matchedWhitelist})` : ""}`
-                    : testResult.blocked
-                      ? `${t("pages.config.pattern_detector_result_blocked")}${testResult.matchedBlacklist ? ` (${testResult.matchedBlacklist})` : ""}`
+                  {testResult.blocked
+                    ? `${t("pages.config.pattern_detector_result_blocked")}${testResult.matchedBlacklist ? ` (${testResult.matchedBlacklist})` : ""}`
+                    : testResult.allowed
+                      ? `${t("pages.config.pattern_detector_result_allowed")}${testResult.matchedWhitelist ? ` (${testResult.matchedWhitelist})` : ""}`
                       : t("pages.config.pattern_detector_result_no_match")}
                 </div>
               )}
@@ -1060,6 +1050,24 @@ export function LauncherSection({
       title={t("pages.config.sections.launcher")}
       description={t("pages.config.launcher_section_hint")}
     >
+      <Field
+        label={t("pages.config.dashboard_current_password")}
+        hint={t("pages.config.dashboard_current_password_hint")}
+        layout="setting-row"
+        controlClassName="md:max-w-md"
+      >
+        <Input
+          type="password"
+          value={launcherForm.dashboardCurrentPassword}
+          disabled={disabled}
+          autoComplete="current-password"
+          placeholder={t("pages.config.dashboard_current_password_placeholder")}
+          onChange={(e) =>
+            onFieldChange("dashboardCurrentPassword", e.target.value)
+          }
+        />
+      </Field>
+
       <Field
         label={t("pages.config.dashboard_password")}
         hint={t("pages.config.dashboard_password_hint")}

@@ -58,7 +58,7 @@ export function UserMessage({
         <div className="relative max-w-[85%] sm:max-w-[75%]">
           <div
             className={cn(
-              "px-4.5 py-3 text-[15px] leading-relaxed break-words whitespace-pre-wrap shadow-xs",
+              "px-4.5 py-3 text-base leading-relaxed break-words whitespace-pre-wrap shadow-xs",
               isCommand
                 ? "border-border/80 bg-muted/40 text-foreground rounded-2xl border font-mono text-sm"
                 : "text-foreground rounded-[24px] bg-[var(--chat-user)] font-normal",

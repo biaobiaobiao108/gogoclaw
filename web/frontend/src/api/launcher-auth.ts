@@ -55,14 +55,25 @@ export type SetupResult = { ok: true } | { ok: false; error: string }
 export async function postLauncherDashboardSetup(
   password: string,
   confirm: string,
+  currentPassword?: string,
 ): Promise<SetupResult> {
+  const setupToken = new URLSearchParams(globalThis.location.hash.slice(1)).get(
+    "setup_token",
+  )
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  }
+  if (setupToken) headers["X-Launcher-Setup-Token"] = setupToken
   const res = await fetch("/api/auth/setup", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     credentials: "same-origin",
     body: JSON.stringify({
       password: password.trim(),
       confirm: confirm.trim(),
+      ...(currentPassword === undefined
+        ? {}
+        : { current_password: currentPassword.trim() }),
     }),
   })
   if (res.ok) return { ok: true }

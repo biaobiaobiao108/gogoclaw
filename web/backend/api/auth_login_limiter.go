@@ -16,9 +16,10 @@ const (
 
 // loginRateLimiter limits POST /api/auth/login attempts per IP per minute.
 type loginRateLimiter struct {
-	mu   sync.Mutex
-	now  func() time.Time
-	byIP map[string][]time.Time
+	mu          sync.Mutex
+	now         func() time.Time
+	byIP        map[string][]time.Time
+	lastCleanup time.Time
 }
 
 func newLoginRateLimiter() *loginRateLimiter {
@@ -34,6 +35,22 @@ func (l *loginRateLimiter) allow(ip string) bool {
 	defer l.mu.Unlock()
 	now := l.now()
 	cutoff := now.Add(-loginAttemptWindow)
+	if l.lastCleanup.IsZero() || now.Sub(l.lastCleanup) >= loginAttemptWindow {
+		for key, timestamps := range l.byIP {
+			kept := timestamps[:0]
+			for _, ts := range timestamps {
+				if ts.After(cutoff) {
+					kept = append(kept, ts)
+				}
+			}
+			if len(kept) == 0 {
+				delete(l.byIP, key)
+			} else {
+				l.byIP[key] = kept
+			}
+		}
+		l.lastCleanup = now
+	}
 	times := l.byIP[ip]
 	var kept []time.Time
 	for _, ts := range times {

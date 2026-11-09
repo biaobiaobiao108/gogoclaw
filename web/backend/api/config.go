@@ -298,30 +298,31 @@ func (h *Handler) handleTestCommandPatterns(w http.ResponseWriter, r *http.Reque
 
 	resp := result{Allowed: false, Blocked: false}
 
-	// Check whitelist first
-	for _, pattern := range req.AllowPatterns {
+	// The runtime guard checks deny patterns first. The tester must report the
+	// same outcome so an allow rule never appears to override a blocked command.
+	for _, pattern := range req.DenyPatterns {
 		re, err := regexp.Compile(pattern)
 		if err != nil {
 			continue // skip invalid patterns
 		}
 		if re.MatchString(lower) {
-			resp.Allowed = true
-			resp.MatchedWhitelist = &pattern
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
-			return
+			resp.Blocked = true
+			resp.MatchedBlacklist = &pattern
+			break
 		}
 	}
 
-	// Check blacklist
-	for _, pattern := range req.DenyPatterns {
+	for _, pattern := range req.AllowPatterns {
+		if resp.Blocked {
+			break
+		}
 		re, err := regexp.Compile(pattern)
 		if err != nil {
 			continue
 		}
 		if re.MatchString(lower) {
-			resp.Blocked = true
-			resp.MatchedBlacklist = &pattern
+			resp.Allowed = true
+			resp.MatchedWhitelist = &pattern
 			break
 		}
 	}

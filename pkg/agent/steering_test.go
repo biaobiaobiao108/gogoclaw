@@ -513,7 +513,6 @@ func (p *blockingDirectProvider) Chat(
 	finalResp := p.finalResp
 	if call == 1 && p.firstStarted != nil {
 		close(p.firstStarted)
-		p.firstStarted = nil
 	}
 	p.mu.Unlock()
 
@@ -532,6 +531,12 @@ func (p *blockingDirectProvider) Chat(
 
 func (p *blockingDirectProvider) GetDefaultModel() string {
 	return "blocking-direct-mock"
+}
+
+func (p *blockingDirectProvider) callCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
 }
 
 type interruptibleTool struct {
@@ -1222,9 +1227,7 @@ func TestAgentLoop_Steering_DirectResponseContinuesWithQueuedMessage(t *testing.
 		t.Fatal("timeout waiting for ProcessDirectWithChannel")
 	}
 
-	provider.mu.Lock()
-	calls := provider.calls
-	provider.mu.Unlock()
+	calls := provider.callCount()
 	if calls != 2 {
 		t.Fatalf("expected 2 provider calls, got %d", calls)
 	}

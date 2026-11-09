@@ -1,26 +1,68 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 )
 
-func TestNewLauncherDashboardSessionCookie(t *testing.T) {
-	a, err := NewLauncherDashboardSessionCookie()
+func newTestLauncherSession(t *testing.T, sessions *LauncherDashboardSessions) string {
+	t.Helper()
+	value, err := sessions.Create()
 	if err != nil {
-		t.Fatalf("NewLauncherDashboardSessionCookie() error = %v", err)
+		t.Fatalf("Create() error = %v", err)
 	}
-	b, err := NewLauncherDashboardSessionCookie()
-	if err != nil {
-		t.Fatalf("NewLauncherDashboardSessionCookie() second error = %v", err)
+	if value == "" {
+		t.Fatal("session value should be non-empty")
 	}
-	if a == "" || b == "" {
-		t.Fatalf("session cookie values should be non-empty: %q %q", a, b)
+	return value
+}
+
+func TestLauncherDashboardSessionsAreIndependentAndRevocable(t *testing.T) {
+	sessions := NewLauncherDashboardSessions()
+	first := newTestLauncherSession(t, sessions)
+	second := newTestLauncherSession(t, sessions)
+	if first == second {
+		t.Fatal("session values should be random")
 	}
-	if a == b {
-		t.Fatal("session cookie values should be random")
+	if !sessions.Validate(first) || !sessions.Validate(second) {
+		t.Fatal("new sessions should validate")
+	}
+	sessions.Revoke(first)
+	if sessions.Validate(first) {
+		t.Fatal("revoked session still validates")
+	}
+	if !sessions.Validate(second) {
+		t.Fatal("revoking one session must not revoke another")
+	}
+	sessions.RevokeAll()
+	if sessions.Validate(second) {
+		t.Fatal("RevokeAll did not revoke session")
+	}
+}
+
+func TestLauncherDashboardSessionsExpire(t *testing.T) {
+	sessions := NewLauncherDashboardSessions()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	sessions.now = func() time.Time { return now }
+	value := newTestLauncherSession(t, sessions)
+	now = now.Add(sessions.ttl)
+	if sessions.Validate(value) {
+		t.Fatal("expired session still validates")
+	}
+}
+
+func TestLauncherDashboardSessionsGenerationPreventsStaleLogin(t *testing.T) {
+	sessions := NewLauncherDashboardSessions()
+	generation := sessions.Generation()
+	sessions.RevokeAll()
+	if _, err := sessions.CreateIfGeneration(generation); !errors.Is(err, ErrLauncherDashboardSessionsChanged) {
+		t.Fatalf("CreateIfGeneration() error = %v, want %v", err, ErrLauncherDashboardSessionsChanged)
+	}
+	if _, err := sessions.CreateIfGeneration(sessions.Generation()); err != nil {
+		t.Fatalf("CreateIfGeneration() with current generation error = %v", err)
 	}
 }
 
@@ -34,8 +76,9 @@ func mustLocalAutoLogin(t *testing.T, ttl time.Duration) *LauncherDashboardLocal
 }
 
 func TestLauncherDashboardAuth_AllowsPublicPaths(t *testing.T) {
-	cfg := LauncherDashboardAuthConfig{ExpectedCookie: "deadbeef"}
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	sessions := NewLauncherDashboardSessions()
+	cfg := LauncherDashboardAuthConfig{Sessions: sessions}
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
 	})
 	h := LauncherDashboardAuth(cfg, next)
@@ -46,6 +89,7 @@ func TestLauncherDashboardAuth_AllowsPublicPaths(t *testing.T) {
 	}{
 		{http.MethodGet, "/launcher-login", http.StatusTeapot},
 		{http.MethodGet, "/launcher-setup", http.StatusTeapot},
+		{http.MethodGet, "/theme-init.js", http.StatusTeapot},
 		{http.MethodGet, "/assets/index.js", http.StatusTeapot},
 		{http.MethodPost, "/api/auth/login", http.StatusTeapot},
 		{http.MethodGet, "/api/auth/status", http.StatusTeapot},
@@ -65,7 +109,7 @@ func TestLauncherDashboardAuth_AllowsPublicPaths(t *testing.T) {
 }
 
 func TestLauncherDashboardAuth_QueryTokenDoesNotAuthenticate(t *testing.T) {
-	cfg := LauncherDashboardAuthConfig{ExpectedCookie: "deadbeef"}
+	cfg := LauncherDashboardAuthConfig{Sessions: NewLauncherDashboardSessions()}
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		t.Fatal("next handler should not run without session cookie")
 	})
@@ -80,10 +124,9 @@ func TestLauncherDashboardAuth_QueryTokenDoesNotAuthenticate(t *testing.T) {
 }
 
 func TestLauncherDashboardAuth_LocalAutoLogin(t *testing.T) {
-	const cookieVal = "session-cookie-value"
 	autoLogin := mustLocalAutoLogin(t, time.Minute)
 	cfg := LauncherDashboardAuthConfig{
-		ExpectedCookie: cookieVal,
+		Sessions:       NewLauncherDashboardSessions(),
 		LocalAutoLogin: autoLogin,
 	}
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -137,7 +180,7 @@ func TestLauncherDashboardAuth_LocalAutoLogin(t *testing.T) {
 		t.Fatalf("local auto-login code=%d loc=%q", rec.Code, rec.Header().Get("Location"))
 	}
 	cookies := rec.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != LauncherDashboardCookieName || cookies[0].Value != cookieVal {
+	if len(cookies) != 1 || cookies[0].Name != LauncherDashboardCookieName || !cfg.Sessions.Validate(cookies[0].Value) {
 		t.Fatalf("cookies = %#v", cookies)
 	}
 	if cookies[0].MaxAge != 31*24*3600 {
@@ -146,7 +189,7 @@ func TestLauncherDashboardAuth_LocalAutoLogin(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: LauncherDashboardCookieName, Value: cookieVal})
+	req.AddCookie(cookies[0])
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("cookie auth after auto-login status = %d", rec.Code)
@@ -154,7 +197,7 @@ func TestLauncherDashboardAuth_LocalAutoLogin(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, autoLogin.URLPath(), nil)
-	req.AddCookie(&http.Cookie{Name: LauncherDashboardCookieName, Value: cookieVal})
+	req.AddCookie(cookies[0])
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/" {
 		t.Fatalf("auto-login path with existing session code=%d loc=%q", rec.Code, rec.Header().Get("Location"))
@@ -169,10 +212,9 @@ func TestLauncherDashboardAuth_LocalAutoLogin(t *testing.T) {
 }
 
 func TestLauncherDashboardAuth_LocalAutoLoginRequiresValidNonceAndUnexpired(t *testing.T) {
-	const cookieVal = "session-cookie-value"
 	newHandler := func(autoLogin *LauncherDashboardLocalAutoLogin) http.Handler {
 		return LauncherDashboardAuth(LauncherDashboardAuthConfig{
-			ExpectedCookie: cookieVal,
+			Sessions:       NewLauncherDashboardSessions(),
 			LocalAutoLogin: autoLogin,
 		}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -200,7 +242,7 @@ func TestLauncherDashboardAuth_LocalAutoLoginRequiresValidNonceAndUnexpired(t *t
 }
 
 func TestLauncherDashboardAuth_DotDotCannotBypass(t *testing.T) {
-	cfg := LauncherDashboardAuthConfig{ExpectedCookie: "deadbeef"}
+	cfg := LauncherDashboardAuthConfig{Sessions: NewLauncherDashboardSessions()}
 	next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("next handler should not run without auth")
 	})
@@ -221,9 +263,10 @@ func TestLauncherDashboardAuth_DotDotCannotBypass(t *testing.T) {
 }
 
 func TestLauncherDashboardAuth_CookieOnly(t *testing.T) {
-	cookieVal := "session-cookie-value"
-	cfg := LauncherDashboardAuthConfig{ExpectedCookie: cookieVal}
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	sessions := NewLauncherDashboardSessions()
+	cookieVal := newTestLauncherSession(t, sessions)
+	cfg := LauncherDashboardAuthConfig{Sessions: sessions}
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	h := LauncherDashboardAuth(cfg, next)
@@ -246,7 +289,7 @@ func TestLauncherDashboardAuth_CookieOnly(t *testing.T) {
 }
 
 func TestLauncherDashboardAuth_WebSocketUnauthorizedDoesNotRedirect(t *testing.T) {
-	cfg := LauncherDashboardAuthConfig{ExpectedCookie: "deadbeef"}
+	cfg := LauncherDashboardAuthConfig{Sessions: NewLauncherDashboardSessions()}
 	next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("next handler should not run without auth")
 	})
@@ -261,5 +304,35 @@ func TestLauncherDashboardAuth_WebSocketUnauthorizedDoesNotRedirect(t *testing.T
 	}
 	if got := rec.Header().Get("Location"); got != "" {
 		t.Fatalf("Location = %q, want empty", got)
+	}
+}
+
+func TestLauncherDashboardAuth_WebSocketRejectsCrossOrigin(t *testing.T) {
+	sessions := NewLauncherDashboardSessions()
+	value := newTestLauncherSession(t, sessions)
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusSwitchingProtocols)
+	})
+	h := LauncherDashboardAuth(LauncherDashboardAuthConfig{Sessions: sessions}, next)
+	cookie := &http.Cookie{Name: LauncherDashboardCookieName, Value: value}
+
+	req := httptest.NewRequest(http.MethodGet, "http://launcher.local/pico/ws", nil)
+	req.Host = "launcher.local"
+	req.AddCookie(cookie)
+	req.Header.Set("Origin", "http://evil.local")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin websocket status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "http://launcher.local/pico/ws", nil)
+	req.Host = "launcher.local"
+	req.AddCookie(cookie)
+	req.Header.Set("Origin", "http://launcher.local")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSwitchingProtocols {
+		t.Fatalf("same-origin websocket status = %d, want %d", rec.Code, http.StatusSwitchingProtocols)
 	}
 }

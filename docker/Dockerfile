@@ -30,8 +30,6 @@ FROM oven/bun:1.4.4-alpine AS bun
 
 FROM alpine:3.24.4
 
-ARG UV_VERSION=0.13.7
-
 RUN apk add --no-cache \
       bash \
       ca-certificates \
@@ -43,8 +41,6 @@ RUN apk add --no-cache \
       py3-pip \
       tini \
       tzdata && \
-    curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | env UV_INSTALL_DIR=/usr/local sh && \
-    ln -sf /usr/local/bin/uv /usr/local/bin/uvx && \
     addgroup -S -g 10001 bun && \
     adduser -S -D -H -u 10001 -G bun bun && \
     mkdir -p /data && \
@@ -53,6 +49,7 @@ RUN apk add --no-cache \
 COPY --from=builder /src/build/gogoclaw /usr/local/bin/gogoclaw
 COPY --from=builder /src/build/gogoclaw-launcher /usr/local/bin/gogoclaw-launcher
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=ghcr.io/astral-sh/uv:0.13.7 /uv /uvx /usr/local/bin/
 COPY docker/entrypoint.sh /usr/local/bin/gogoclaw-entrypoint
 RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx && \
     chmod 0755 /usr/local/bin/gogoclaw /usr/local/bin/gogoclaw-launcher /usr/local/bin/gogoclaw-entrypoint

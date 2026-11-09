@@ -16,7 +16,10 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
+
+const maxModelResponseBytes = 4 << 20
 
 // registerModelRoutes binds model list management endpoints to the ServeMux.
 func (h *Handler) registerModelRoutes(mux *http.ServeMux) {
@@ -1265,6 +1268,7 @@ type upstreamModel struct {
 func fetchUpstreamModels(ctx context.Context, provider, apiBase, apiKey string) ([]upstreamModel, error) {
 	apiBase = strings.TrimRight(strings.TrimSpace(apiBase), "/")
 	provider = providers.NormalizeProvider(provider)
+	allowPrivate := hasLocalAPIBase(apiBase)
 
 	var fetchURL string
 	switch provider {
@@ -1276,18 +1280,39 @@ func fetchUpstreamModels(ctx context.Context, provider, apiBase, apiKey string) 
 		}
 		root = strings.TrimRight(root, "/")
 		fetchURL = root + "/api/tags"
-		return fetchOllamaModels(ctx, fetchURL)
+		return fetchOllamaModels(ctx, fetchURL, allowPrivate)
 	case "nearai":
 		fetchURL = apiBase + "/model/list"
-		return fetchNearAIModels(ctx, fetchURL, apiKey)
+		return fetchNearAIModels(ctx, fetchURL, apiKey, allowPrivate)
 	default:
 		// OpenAI-compatible: /v1/models
 		fetchURL = apiBase + "/models"
-		return fetchOpenAICompatibleModels(ctx, fetchURL, apiKey)
+		return fetchOpenAICompatibleModels(ctx, fetchURL, apiKey, allowPrivate)
 	}
 }
 
-func fetchNearAIModels(ctx context.Context, fetchURL, apiKey string) ([]upstreamModel, error) {
+func newModelHTTPClient(allowPrivate bool) (*http.Client, error) {
+	return utils.CreateSafeHTTPClient(utils.SafeHTTPClientOptions{
+		Timeout: 10 * time.Second,
+		AllowPrivateHosts: func() bool {
+			return allowPrivate
+		},
+		MaxRedirects: 5,
+	})
+}
+
+func readModelResponse(body io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(body, maxModelResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxModelResponseBytes {
+		return nil, fmt.Errorf("upstream response exceeds %d bytes", maxModelResponseBytes)
+	}
+	return data, nil
+}
+
+func fetchNearAIModels(ctx context.Context, fetchURL, apiKey string, allowPrivate bool) ([]upstreamModel, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
 	if err != nil {
 		return nil, err
@@ -1296,7 +1321,12 @@ func fetchNearAIModels(ctx context.Context, fetchURL, apiKey string) ([]upstream
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	client, err := newModelHTTPClient(allowPrivate)
+	if err != nil {
+		return nil, err
+	}
+	utils.AllowConfiguredProxyFirstHop(req, client.Transport)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -1315,7 +1345,11 @@ func fetchNearAIModels(ctx context.Context, fetchURL, apiKey string) ([]upstream
 			} `json:"metadata"`
 		} `json:"models"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+	body, err := readModelResponse(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil, err
 	}
 
@@ -1334,7 +1368,7 @@ func fetchNearAIModels(ctx context.Context, fetchURL, apiKey string) ([]upstream
 	return models, nil
 }
 
-func fetchOpenAICompatibleModels(ctx context.Context, fetchURL, apiKey string) ([]upstreamModel, error) {
+func fetchOpenAICompatibleModels(ctx context.Context, fetchURL, apiKey string, allowPrivate bool) ([]upstreamModel, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
 	if err != nil {
 		return nil, err
@@ -1343,7 +1377,12 @@ func fetchOpenAICompatibleModels(ctx context.Context, fetchURL, apiKey string) (
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	client, err := newModelHTTPClient(allowPrivate)
+	if err != nil {
+		return nil, err
+	}
+	utils.AllowConfiguredProxyFirstHop(req, client.Transport)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -1353,7 +1392,7 @@ func fetchOpenAICompatibleModels(ctx context.Context, fetchURL, apiKey string) (
 		return nil, fmt.Errorf("upstream returned status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readModelResponse(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
@@ -1399,13 +1438,18 @@ func fetchOpenAICompatibleModels(ctx context.Context, fetchURL, apiKey string) (
 	return nil, fmt.Errorf("decode response: unrecognized shape: %s", strings.TrimSpace(string(preview)))
 }
 
-func fetchOllamaModels(ctx context.Context, fetchURL string) ([]upstreamModel, error) {
+func fetchOllamaModels(ctx context.Context, fetchURL string, allowPrivate bool) ([]upstreamModel, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	client, err := newModelHTTPClient(allowPrivate)
+	if err != nil {
+		return nil, err
+	}
+	utils.AllowConfiguredProxyFirstHop(req, client.Transport)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -1421,7 +1465,11 @@ func fetchOllamaModels(ctx context.Context, fetchURL string) ([]upstreamModel, e
 			Model string `json:"model"`
 		} `json:"models"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+	body, err := readModelResponse(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil, err
 	}
 

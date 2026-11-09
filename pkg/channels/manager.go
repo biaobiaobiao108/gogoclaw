@@ -79,6 +79,15 @@ type channelWorker struct {
 	done       chan struct{}
 	mediaDone  chan struct{}
 	limiter    *rate.Limiter
+	cancel     context.CancelFunc
+	ctx        context.Context
+}
+
+func (w *channelWorker) stopped() <-chan struct{} {
+	if w == nil || w.ctx == nil {
+		return nil
+	}
+	return w.ctx.Done()
 }
 
 type Manager struct {
@@ -1248,10 +1257,13 @@ func (m *Manager) StartAll(ctx context.Context) error {
 				channelType = bc.Type
 			}
 		}
+		workerCtx, workerCancel := context.WithCancel(dispatchCtx)
 		w := newChannelWorker(name, channel, channelType)
+		w.cancel = workerCancel
+		w.ctx = workerCtx
 		m.workers[name] = w
-		go m.runWorker(dispatchCtx, name, w)
-		go m.runMediaWorker(dispatchCtx, name, w)
+		go m.runWorker(workerCtx, name, w)
+		go m.runMediaWorker(workerCtx, name, w)
 		m.publishChannelEvent(
 			runtimeevents.KindChannelLifecycleStarted,
 			name,
@@ -1382,21 +1394,18 @@ func (m *Manager) StopAll(ctx context.Context) error {
 		m.dispatchTask = nil
 	}
 
-	// Close all worker queues and wait for them to drain
+	// Workers stop from the canceled dispatch context. Do not close their
+	// queues here: the dispatcher may already be sending to one.
 	for _, w := range m.workers {
 		if w != nil {
-			close(w.queue)
+			if w.cancel != nil {
+				w.cancel()
+			}
 		}
 	}
 	for _, w := range m.workers {
 		if w != nil {
 			<-w.done
-		}
-	}
-	// Close all media worker queues and wait for them to drain
-	for _, w := range m.workers {
-		if w != nil {
-			close(w.mediaQueue)
 		}
 	}
 	for _, w := range m.workers {
@@ -1706,6 +1715,8 @@ func (m *Manager) dispatchOutbound(ctx context.Context) {
 			case w.queue <- msg:
 				m.publishOutboundQueued(outboundMessageChannel(msg), msg)
 				return true
+			case <-w.stopped():
+				return true
 			case <-ctx.Done():
 				return false
 			}
@@ -1726,6 +1737,8 @@ func (m *Manager) dispatchOutboundMedia(ctx context.Context) {
 			select {
 			case w.mediaQueue <- msg:
 				m.publishOutboundMediaQueued(outboundMediaChannel(msg), msg)
+				return true
+			case <-w.stopped():
 				return true
 			case <-ctx.Done():
 				return false
@@ -1962,20 +1975,16 @@ func (m *Manager) Reload(ctx context.Context, cfg *config.Config) error {
 			m.UnregisterChannel(name)
 		})
 	}
-	dispatchCtx, cancel := context.WithCancel(ctx)
-	m.dispatchTask = &asyncTask{cancel: cancel}
 	cc, err := toChannelConfig(cfg, added)
 	if err != nil {
 		logger.ErrorC("channels", fmt.Sprintf("toChannelConfig error: %v", err))
 		m.config = oldConfig
-		cancel()
 		return err
 	}
 	err = m.initChannels(cc)
 	if err != nil {
 		logger.ErrorC("channels", fmt.Sprintf("initChannels error: %v", err))
 		m.config = oldConfig
-		cancel()
 		return err
 	}
 	for _, name := range added {
@@ -2004,10 +2013,13 @@ func (m *Manager) Reload(ctx context.Context, cfg *config.Config) error {
 				channelType = bc.Type
 			}
 		}
+		workerCtx, workerCancel := context.WithCancel(ctx)
 		w := newChannelWorker(name, channel, channelType)
+		w.cancel = workerCancel
+		w.ctx = workerCtx
 		m.workers[name] = w
-		go m.runWorker(dispatchCtx, name, w)
-		go m.runMediaWorker(dispatchCtx, name, w)
+		go m.runWorker(workerCtx, name, w)
+		go m.runMediaWorker(workerCtx, name, w)
 		m.publishChannelEvent(
 			runtimeevents.KindChannelLifecycleStarted,
 			name,
@@ -2055,9 +2067,10 @@ func (m *Manager) UnregisterChannel(name string) {
 		m.unregisterChannelHTTPHandler(name, ch)
 	}
 	if w, ok := m.workers[name]; ok && w != nil {
-		close(w.queue)
+		if w.cancel != nil {
+			w.cancel()
+		}
 		<-w.done
-		close(w.mediaQueue)
 		<-w.mediaDone
 	}
 	delete(m.workers, name)

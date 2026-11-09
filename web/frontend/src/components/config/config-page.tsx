@@ -156,6 +156,7 @@ export function ConfigPage() {
       trustedProxyCIDRsText: (launcherConfig.trusted_proxy_cidrs ?? []).join(
         "\n",
       ),
+      dashboardCurrentPassword: "",
       dashboardPassword: "",
       dashboardPasswordConfirm: "",
     }
@@ -173,6 +174,7 @@ export function ConfigPage() {
     launcherForm.trustedProxyCIDRsText !==
       launcherBaseline.trustedProxyCIDRsText
   const launcherPasswordDirty =
+    launcherForm.dashboardCurrentPassword.trim() !== "" ||
     launcherForm.dashboardPassword.trim() !== "" ||
     launcherForm.dashboardPasswordConfirm.trim() !== ""
   const launcherDirty = launcherSettingsDirty || launcherPasswordDirty
@@ -266,9 +268,13 @@ export function ConfigPage() {
   const handleSave = async () => {
     try {
       setSaving(true)
+      const currentPassword = launcherForm.dashboardCurrentPassword.trim()
       const password = launcherForm.dashboardPassword.trim()
       const confirm = launcherForm.dashboardPasswordConfirm.trim()
       if (launcherPasswordDirty) {
+        if (!currentPassword) {
+          throw new Error(t("pages.config.dashboard_current_password_required"))
+        }
         if (!password) {
           throw new Error(t("pages.config.dashboard_password_required"))
         }
@@ -515,7 +521,6 @@ export function ConfigPage() {
           agents: {
             defaults: {
               workspace,
-              restrict_to_workspace: form.restrictToWorkspace,
               split_on_marker: form.splitOnMarker,
               tool_feedback: {
                 enabled: form.toolFeedbackEnabled,
@@ -600,6 +605,7 @@ export function ConfigPage() {
           trustedProxyCIDRsText: (
             savedLauncherConfig.trusted_proxy_cidrs ?? []
           ).join("\n"),
+          dashboardCurrentPassword: "",
           dashboardPassword: "",
           dashboardPasswordConfirm: "",
         }
@@ -613,13 +619,18 @@ export function ConfigPage() {
       }
 
       if (launcherPasswordDirty) {
-        const result = await postLauncherDashboardSetup(password, confirm)
+        const result = await postLauncherDashboardSetup(
+          password,
+          confirm,
+          currentPassword,
+        )
         if (!result.ok) {
           throw new Error(result.error)
         }
 
         const clearedLauncherForm = savedLauncherForm ?? {
           ...launcherForm,
+          dashboardCurrentPassword: "",
           dashboardPassword: "",
           dashboardPasswordConfirm: "",
         }

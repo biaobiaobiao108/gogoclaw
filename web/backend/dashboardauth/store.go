@@ -14,6 +14,8 @@ import (
 	_ "modernc.org/sqlite" // register "sqlite" driver
 )
 
+const bcryptMaxPasswordBytes = 72
+
 // Store holds a handle to the SQLite database that stores the bcrypt hash.
 type Store struct {
 	db   *sql.DB
@@ -36,6 +38,13 @@ func New(dir string) (*Store, error) {
 func Open(path string) (*Store, error) {
 	db, err := sql.Open(sqliteDriver, path)
 	if err != nil {
+		return nil, err
+	}
+	// This database has a single tiny credential row. Serializing access avoids
+	// SQLite write-lock failures during first-run setup races.
+	db.SetMaxOpenConns(1)
+	if _, err = db.Exec(`PRAGMA busy_timeout = 5000`); err != nil {
+		_ = db.Close()
 		return nil, err
 	}
 	if _, err = db.Exec(sqlCreateTable); err != nil {
@@ -67,6 +76,9 @@ func (s *Store) SetPassword(ctx context.Context, plain string) error {
 	if len([]rune(plain)) == 0 {
 		return errors.New("password must not be empty")
 	}
+	if len([]byte(plain)) > bcryptMaxPasswordBytes {
+		return errors.New("password must not exceed 72 bytes")
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(plain), bcryptCost)
 	if err != nil {
 		return err
@@ -75,9 +87,35 @@ func (s *Store) SetPassword(ctx context.Context, plain string) error {
 	return err
 }
 
+// SetPasswordIfUninitialized stores the first dashboard password atomically.
+func (s *Store) SetPasswordIfUninitialized(ctx context.Context, plain string) (bool, error) {
+	if len([]rune(plain)) == 0 {
+		return false, errors.New("password must not be empty")
+	}
+	if len([]byte(plain)) > bcryptMaxPasswordBytes {
+		return false, errors.New("password must not exceed 72 bytes")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(plain), bcryptCost)
+	if err != nil {
+		return false, err
+	}
+	result, err := s.db.ExecContext(ctx, sqlInsertHashIfMissing, string(hash))
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows == 1, nil
+}
+
 // VerifyPassword returns true iff plain matches the stored bcrypt hash.
 // Returns (false, nil) when no password has been set yet.
 func (s *Store) VerifyPassword(ctx context.Context, plain string) (bool, error) {
+	if len([]byte(plain)) > bcryptMaxPasswordBytes {
+		return false, nil
+	}
 	var hash string
 	err := s.db.QueryRowContext(ctx, sqlSelectHash).Scan(&hash)
 	if errors.Is(err, sql.ErrNoRows) {

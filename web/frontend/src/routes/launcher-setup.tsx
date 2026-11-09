@@ -3,7 +3,10 @@ import { createFileRoute } from "@tanstack/react-router"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 
-import { postLauncherDashboardSetup } from "@/api/launcher-auth"
+import {
+  getLauncherAuthStatus,
+  postLauncherDashboardSetup,
+} from "@/api/launcher-auth"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -29,6 +32,19 @@ function LauncherSetupPage() {
   const [confirm, setConfirm] = React.useState("")
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState("")
+
+  React.useEffect(() => {
+    void getLauncherAuthStatus()
+      .then((status) => {
+        if (!status.initialized) return
+        globalThis.location.assign(
+          status.authenticated ? "/" : "/launcher-login",
+        )
+      })
+      .catch(() => {
+        /* Keep setup available if status cannot be checked. */
+      })
+  }, [])
 
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()

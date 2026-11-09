@@ -582,7 +582,6 @@ type AgentsConfig struct {
 
 type AgentDefaults struct {
 	Workspace           string   `json:"workspace"`
-	RestrictToWorkspace bool     `json:"restrict_to_workspace"`
 	Provider            string   `json:"provider"`
 	ModelName           string   `json:"model_name"`
 	Model               string   `json:"model,omitempty"`

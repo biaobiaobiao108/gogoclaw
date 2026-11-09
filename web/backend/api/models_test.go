@@ -3705,7 +3705,7 @@ func TestFetchOpenAICompatibleModels_ResponseShapes(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			models, err := fetchOpenAICompatibleModels(t.Context(), srv.URL+"/models", tt.apiKey)
+			models, err := fetchOpenAICompatibleModels(t.Context(), srv.URL+"/models", tt.apiKey, true)
 			if err != nil {
 				t.Fatalf("error = %v", err)
 			}
@@ -3729,7 +3729,7 @@ func TestFetchOpenAICompatibleModels_EmptyEnvelopeReturnsEmptySlice(t *testing.T
 	}))
 	defer srv.Close()
 
-	models, err := fetchOpenAICompatibleModels(t.Context(), srv.URL+"/models", "k")
+	models, err := fetchOpenAICompatibleModels(t.Context(), srv.URL+"/models", "k", true)
 	if err != nil {
 		t.Fatalf("error = %v", err)
 	}
@@ -3745,7 +3745,7 @@ func TestFetchOpenAICompatibleModels_EmptyBareArrayReturnsEmptySlice(t *testing.
 	}))
 	defer srv.Close()
 
-	models, err := fetchOpenAICompatibleModels(t.Context(), srv.URL+"/models", "k")
+	models, err := fetchOpenAICompatibleModels(t.Context(), srv.URL+"/models", "k", true)
 	if err != nil {
 		t.Fatalf("error = %v", err)
 	}
@@ -3761,7 +3761,7 @@ func TestFetchOpenAICompatibleModels_UnrecognizedShape(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := fetchOpenAICompatibleModels(t.Context(), srv.URL+"/models", "k")
+	_, err := fetchOpenAICompatibleModels(t.Context(), srv.URL+"/models", "k", true)
 	if err == nil {
 		t.Fatal("error = nil, want unrecognized shape error")
 	}
@@ -3780,7 +3780,7 @@ func TestFetchOpenAICompatibleModels_FiltersEmptyIDs(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	models, err := fetchOpenAICompatibleModels(t.Context(), srv.URL+"/models", "k")
+	models, err := fetchOpenAICompatibleModels(t.Context(), srv.URL+"/models", "k", true)
 	if err != nil {
 		t.Fatalf("error = %v", err)
 	}
@@ -3804,7 +3804,7 @@ func TestFetchOpenAICompatibleModels_SetsAuthorizationHeader(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := fetchOpenAICompatibleModels(t.Context(), srv.URL+"/models", "my-secret-key"); err != nil {
+	if _, err := fetchOpenAICompatibleModels(t.Context(), srv.URL+"/models", "my-secret-key", true); err != nil {
 		t.Fatalf("error = %v", err)
 	}
 	if gotAuth != "Bearer my-secret-key" {
@@ -3821,7 +3821,7 @@ func TestFetchOpenAICompatibleModels_NoAuthHeaderWhenKeyEmpty(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := fetchOpenAICompatibleModels(t.Context(), srv.URL+"/models", ""); err != nil {
+	if _, err := fetchOpenAICompatibleModels(t.Context(), srv.URL+"/models", "", true); err != nil {
 		t.Fatalf("error = %v", err)
 	}
 	if gotAuth != "" {
@@ -4042,4 +4042,63 @@ func TestHandleFetchModels_ModelIndexProviderMismatchRejectsKey(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/models/fetch", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	mux.ServeHTTP(rec, req)
+}
+
+func TestFetchOpenAICompatibleModelsBlocksPrivateTargetUnlessExplicitlyAllowed(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer server.Close()
+
+	if _, err := fetchOpenAICompatibleModels(t.Context(), server.URL+"/models", "", false); err == nil {
+		t.Fatal("expected private target to be blocked")
+	}
+	if _, err := fetchOpenAICompatibleModels(t.Context(), server.URL+"/models", "", true); err != nil {
+		t.Fatalf("explicit local target should be allowed: %v", err)
+	}
+}
+
+func TestProbeOllamaModelBlocksNonLocalPrivateTargets(t *testing.T) {
+	if probeOllamaModel("http://10.255.255.1:11434/v1", "llama3") {
+		t.Fatal("expected non-local private Ollama target to be blocked")
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tags" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"llama3:latest"}]}`))
+	}))
+	defer server.Close()
+	if !probeOllamaModel(server.URL+"/v1", "llama3") {
+		t.Fatal("expected loopback Ollama target to be allowed")
+	}
+}
+
+func TestProbeTCPServiceBlocksNonLocalPrivateTargets(t *testing.T) {
+	if probeTCPService("http://10.255.255.1:4321") {
+		t.Fatal("expected non-local private TCP target to be blocked")
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+	if !probeTCPService(server.URL) {
+		t.Fatal("expected loopback TCP target to be allowed")
+	}
+}
+
+func TestFetchOpenAICompatibleModelsRejectsOversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(bytes.Repeat([]byte("x"), maxModelResponseBytes+1))
+	}))
+	defer server.Close()
+
+	_, err := fetchOpenAICompatibleModels(t.Context(), server.URL+"/models", "", true)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected oversized response error, got %v", err)
+	}
 }

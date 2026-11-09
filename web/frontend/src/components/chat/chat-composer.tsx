@@ -105,7 +105,7 @@ export function ChatComposer({
       <div className="mx-auto flex w-full max-w-3xl flex-col">
         <div
           className={cn(
-            "border-border/80 focus-within:border-muted-foreground/60 relative flex w-full flex-col rounded-[28px] border bg-[var(--chat-composer)] shadow-[0_4px_20px_-4px_rgba(0,0,0,0.06)] transition-[background-color,border-color,box-shadow] duration-150 ease-out dark:shadow-[0_4px_24px_-4px_rgba(0,0,0,0.3)]",
+            "border-border/80 focus-within:border-muted-foreground/60 relative flex w-full flex-col rounded-[24px] border bg-[var(--chat-composer)] shadow-[0_4px_20px_-4px_rgba(0,0,0,0.06)] transition-[background-color,border-color,box-shadow] duration-150 ease-out dark:shadow-[0_4px_24px_-4px_rgba(0,0,0,0.3)]",
             isDragActive &&
               "border-accent/80 bg-accent/5 ring-accent/20 ring-2",
           )}
@@ -115,7 +115,7 @@ export function ChatComposer({
           onDrop={onDrop}
         >
           {isDragActive && (
-            <div className="border-accent/60 bg-card/95 pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[28px] border-2 border-dashed">
+            <div className="border-accent/60 bg-card/95 pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[24px] border-2 border-dashed">
               <div className="text-foreground font-mono text-xs font-medium">
                 {t("chat.dropImagesActive")}
               </div>
@@ -164,8 +164,8 @@ export function ChatComposer({
             disabled={!canInput}
             title={disabledMessage || undefined}
             className={cn(
-              "placeholder:text-muted-foreground/50 max-h-[220px] min-h-[48px] resize-none border-0 bg-transparent px-5 pt-3.5 pb-2 text-[15px] leading-relaxed shadow-none focus-visible:outline-none dark:bg-transparent",
-              !canInput && "cursor-not-allowed opacity-60",
+              "placeholder:text-muted-foreground max-h-[220px] min-h-[48px] resize-none border-0 bg-transparent px-5 pt-3.5 pb-2 text-base leading-relaxed shadow-none focus-visible:outline-none dark:bg-transparent",
+              !canInput && "text-muted-foreground cursor-not-allowed",
             )}
             minRows={1}
             maxRows={8}
@@ -200,7 +200,7 @@ export function ChatComposer({
                   type="button"
                   onClick={onStop}
                   className={cn(
-                    "flex size-8 items-center justify-center rounded-full transition-all active:scale-95",
+                    "flex size-8 items-center justify-center rounded-full transition-[color,background-color,transform] duration-150 ease-out active:scale-95",
                     canSend
                       ? "bg-muted hover:bg-muted/80 text-foreground cursor-pointer shadow-xs"
                       : "bg-foreground text-background hover:bg-foreground/90 shadow-xs",
@@ -218,7 +218,7 @@ export function ChatComposer({
                   disabled={!canSend}
                   aria-label={t("chat.sendMessage")}
                   className={cn(
-                    "flex size-8 items-center justify-center rounded-full transition-all duration-150 active:scale-95",
+                    "flex size-8 items-center justify-center rounded-full transition-[color,background-color,transform] duration-150 ease-out active:scale-95",
                     canSend
                       ? "bg-foreground text-background hover:bg-foreground/90 cursor-pointer shadow-xs"
                       : "bg-muted text-muted-foreground/35 cursor-not-allowed",
@@ -232,7 +232,7 @@ export function ChatComposer({
         </div>
 
         {/* Minimal ChatGPT-like subtle disclaimer at the bottom */}
-        <p className="text-muted-foreground/60 pt-2 text-center text-[11px] select-none">
+        <p className="text-muted-foreground pt-2 text-center text-xs select-none">
           {t("chat.composerDisclaimer")}
         </p>
       </div>

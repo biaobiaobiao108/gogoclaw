@@ -16,14 +16,17 @@ concurrency:
 jobs:
   go:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
+      - run: go vet -tags goolm,stdjson ./...
       - run: go test -tags goolm,stdjson ./...
+      - run: go test -race -tags goolm,stdjson ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
   web:
     runs-on: ubuntu-latest
@@ -32,11 +35,20 @@ jobs:
       run:
         working-directory: web/frontend
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
+      - run: bun audit
       - run: bun run fmt:check
       - run: bun test --reporter=dots
       - run: bun run build
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: docker build --file docker/Dockerfile --tag gogoclaw:ci .
+      - run: docker run --rm --entrypoint /usr/local/bin/gogoclaw gogoclaw:ci --help

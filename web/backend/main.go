@@ -76,10 +76,11 @@ func isLoopbackLaunchHost(host string) bool {
 
 func launcherBrowserLaunchSuffix(
 	needsSetup bool,
+	setupToken string,
 	localAutoLogin *middleware.LauncherDashboardLocalAutoLogin,
 ) string {
 	if needsSetup {
-		return middleware.LauncherDashboardSetupPath
+		return middleware.LauncherDashboardSetupPath + "#setup_token=" + setupToken
 	}
 	if localAutoLogin != nil {
 		return localAutoLogin.URLPath()
@@ -608,10 +609,7 @@ func main() {
 	}
 	listeners := openResult.Listeners
 
-	dashboardSessionCookie, dashErr := middleware.NewLauncherDashboardSessionCookie()
-	if dashErr != nil {
-		logger.Fatalf("Dashboard auth setup failed: %v", dashErr)
-	}
+	dashboardSessions := middleware.NewLauncherDashboardSessions()
 
 	// Open the bcrypt password store (creates the DB file on first run).
 	authStore, authStoreErr := dashboardauth.New(picoHome)
@@ -646,12 +644,17 @@ func main() {
 
 	var localAutoLogin *middleware.LauncherDashboardLocalAutoLogin
 	needsInitialSetup := false
+	setupToken := ""
 	if passwordStore != nil {
 		initialized, initErr := passwordStore.IsInitialized(context.Background())
 		if initErr != nil {
 			logger.ErrorC("web", fmt.Sprintf("Warning: could not check dashboard password state: %v", initErr))
 		} else if !initialized {
 			needsInitialSetup = true
+			setupToken, err = middleware.NewLauncherDashboardSetupToken()
+			if err != nil {
+				logger.Fatalf("Failed to create dashboard setup token: %v", err)
+			}
 		} else if shouldEnableLocalAutoLogin(*noBrowser, openResult.ProbeHost) {
 			localAutoLogin, err = middleware.NewLauncherDashboardLocalAutoLogin(5 * time.Minute)
 			if err != nil {
@@ -664,7 +667,8 @@ func main() {
 	mux := http.NewServeMux()
 
 	api.RegisterLauncherAuthRoutes(mux, api.LauncherAuthRouteOpts{
-		SessionCookie: dashboardSessionCookie,
+		Sessions:      dashboardSessions,
+		SetupToken:    setupToken,
 		PasswordStore: passwordStore,
 	})
 
@@ -695,15 +699,17 @@ func main() {
 	}
 
 	dashAuth := middleware.LauncherDashboardAuth(middleware.LauncherDashboardAuthConfig{
-		ExpectedCookie: dashboardSessionCookie,
+		Sessions:       dashboardSessions,
 		LocalAutoLogin: localAutoLogin,
 	}, accessControlledMux)
 
 	// Apply middleware stack
 	handler := middleware.Recoverer(
 		middleware.Logger(
-			middleware.ReferrerPolicyNoReferrer(
-				middleware.JSONContentType(dashAuth),
+			middleware.SecurityHeaders(
+				middleware.ReferrerPolicyNoReferrer(
+					middleware.JSONContentType(dashAuth),
+				),
 			),
 		),
 	)
@@ -713,8 +719,9 @@ func main() {
 	fmt.Print(utils.Banner)
 	fmt.Println()
 	if needsInitialSetup {
+		setupURL := middleware.LauncherDashboardSetupPath + "#setup_token=" + setupToken
 		if *noBrowser {
-			fmt.Println("  First-time setup: open /launcher-setup to create the dashboard password.")
+			fmt.Printf("  First-time setup: open %s to create the dashboard password.\n", setupURL)
 		} else {
 			fmt.Println("  Launcher will open /launcher-setup automatically.")
 		}
@@ -739,7 +746,7 @@ func main() {
 
 	// Share the local URL with the launcher runtime.
 	serverAddr = fmt.Sprintf("http://%s", net.JoinHostPort(openResult.ProbeHost, effectivePort))
-	browserLaunchURL = serverAddr + launcherBrowserLaunchSuffix(needsInitialSetup, localAutoLogin)
+	browserLaunchURL = serverAddr + launcherBrowserLaunchSuffix(needsInitialSetup, setupToken, localAutoLogin)
 
 	// Auto-open browser will be handled by the launcher runtime.
 
@@ -752,7 +759,14 @@ func main() {
 	// Start the server(s) in goroutines.
 	servers = make([]*http.Server, 0, len(listeners))
 	for _, ln := range listeners {
-		srv := &http.Server{Handler: handler}
+		srv := &http.Server{
+			Handler:           handler,
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       60 * time.Second,
+			WriteTimeout:      10 * time.Minute,
+			IdleTimeout:       2 * time.Minute,
+			MaxHeaderBytes:    1 << 20,
+		}
 		servers = append(servers, srv)
 
 		go func(s *http.Server, l net.Listener) {

@@ -328,9 +328,8 @@ func TestNewAgentInstance_AllowsMediaTempDirForReadListAndExec(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
-				Workspace:           workspace,
-				ModelName:           "test-model",
-				RestrictToWorkspace: true,
+				Workspace: workspace,
+				ModelName: "test-model",
 			},
 		},
 		Tools: config.ToolsConfig{

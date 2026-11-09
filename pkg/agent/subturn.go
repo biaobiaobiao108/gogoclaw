@@ -533,33 +533,19 @@ func spawnSubTurn(
 //
 // Thread safety:
 //   - Reads parent state under lock, then releases lock before channel send
-//   - Small race window exists but is acceptable (worst case: result becomes orphan)
 //
 // Event emissions:
 //   - agent.subturn.result_delivered: successful delivery to channel
 //   - agent.subturn.orphan: delivery failed (parent finished or channel full)
 func deliverSubTurnResult(al *AgentLoop, parentTS *turnState, childID string, result *tools.ToolResult) {
-	// Let GC clean up the pendingResults channel; parent Finish will no longer close it.
-	// We use defer/recover to catch any unlikely channel panics if it were ever closed.
-	defer func() {
-		if r := recover(); r != nil {
-			logger.RecoverPanicNoExit(r)
-			logger.WarnCF("subturn", "recovered panic sending to pendingResults", map[string]any{
-				"parent_id": parentTS.turnID,
-				"child_id":  childID,
-				"recover":   r,
-			})
-			if result != nil && al != nil {
-				al.emitEvent(runtimeevents.KindAgentSubTurnOrphan,
-					parentTS.eventMeta("deliverSubTurnResult", "subturn.orphan"),
-					SubTurnOrphanPayload{ParentTurnID: parentTS.turnID, ChildTurnID: childID, Reason: "panic"},
-				)
-			}
-		}
-	}()
 	parentTS.mu.Lock()
 	isFinished := parentTS.isFinished.Load()
 	resultChan := parentTS.pendingResults
+	finishedChan := parentTS.finishedChan
+	if finishedChan == nil {
+		finishedChan = make(chan struct{})
+		parentTS.finishedChan = finishedChan
+	}
 	parentTS.mu.Unlock()
 
 	// If parent turn has already finished, treat this as an orphan result
@@ -572,21 +558,37 @@ func deliverSubTurnResult(al *AgentLoop, parentTS *turnState, childID string, re
 		}
 		return
 	}
-
 	// Parent Turn is still running → attempt to deliver result
 	// We use a select statement with parentTS.Finished() to ensure that if the
 	// parent turn finishes while we are waiting to send the result (e.g. channel
 	// is full), we don't leak this goroutine by blocking forever.
 	select {
 	case resultChan <- result:
-		// Successfully delivered
+		if parentTS.isFinished.Load() {
+			if result != nil && al != nil {
+				al.emitEvent(runtimeevents.KindAgentSubTurnOrphan,
+					parentTS.eventMeta("deliverSubTurnResult", "subturn.orphan"),
+					SubTurnOrphanPayload{
+						ParentTurnID: parentTS.turnID,
+						ChildTurnID:  childID,
+						Reason:       "parent_finished_after_send",
+					},
+				)
+			}
+			return
+		}
+		// Successfully delivered to a running parent.
 		if al != nil {
+			contentLen := 0
+			if result != nil {
+				contentLen = len(result.ForLLM)
+			}
 			al.emitEvent(runtimeevents.KindAgentSubTurnResultDelivered,
 				parentTS.eventMeta("deliverSubTurnResult", "subturn.result_delivered"),
-				SubTurnResultDeliveredPayload{ContentLen: len(result.ForLLM)},
+				SubTurnResultDeliveredPayload{ContentLen: contentLen},
 			)
 		}
-	case <-parentTS.Finished():
+	case <-finishedChan:
 		// Parent finished while we were waiting to deliver.
 		// The result cannot be delivered to the LLM, so it becomes an orphan.
 		logger.WarnCF("subturn", "parent finished before result could be delivered", map[string]any{

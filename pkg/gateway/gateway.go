@@ -401,7 +401,6 @@ func setupAndStartServices(
 		agentLoop,
 		msgBus,
 		cfg.WorkspacePath(),
-		cfg.Agents.Defaults.RestrictToWorkspace,
 		execTimeout,
 		cfg,
 	)
@@ -691,7 +690,6 @@ func restartServices(
 		al,
 		msgBus,
 		cfg.WorkspacePath(),
-		cfg.Agents.Defaults.RestrictToWorkspace,
 		execTimeout,
 		cfg,
 	)
@@ -862,7 +860,6 @@ func setupCronTool(
 	agentLoop *agent.AgentLoop,
 	msgBus *bus.MessageBus,
 	workspace string,
-	restrict bool,
 	execTimeout time.Duration,
 	cfg *config.Config,
 ) (*cron.CronService, error) {
@@ -873,7 +870,7 @@ func setupCronTool(
 	var cronTool *tools.CronTool
 	if cfg.Tools.IsToolEnabled("cron") {
 		var err error
-		cronTool, err = tools.NewCronTool(cronService, agentLoop, msgBus, workspace, restrict, execTimeout, cfg)
+		cronTool, err = tools.NewCronTool(cronService, agentLoop, msgBus, workspace, execTimeout, cfg)
 		if err != nil {
 			return nil, fmt.Errorf("critical error during CronTool initialization: %w", err)
 		}

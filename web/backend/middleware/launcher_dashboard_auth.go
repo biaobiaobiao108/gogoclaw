@@ -30,11 +30,6 @@ const (
 	LauncherDashboardSetupPath = "/launcher-setup"
 )
 
-// NewLauncherDashboardSessionCookie creates the per-process session cookie value.
-func NewLauncherDashboardSessionCookie() (string, error) {
-	return randomURLToken(launcherSessionCookieBytes)
-}
-
 func randomURLToken(n int) (string, error) {
 	buf := make([]byte, n)
 	if _, err := rand.Read(buf); err != nil {
@@ -45,7 +40,7 @@ func randomURLToken(n int) (string, error) {
 
 // LauncherDashboardAuthConfig holds runtime material for dashboard access checks.
 type LauncherDashboardAuthConfig struct {
-	ExpectedCookie string
+	Sessions *LauncherDashboardSessions
 	// LocalAutoLogin enables one-shot startup auto-login.
 	LocalAutoLogin *LauncherDashboardLocalAutoLogin
 	// SecureCookie sets the session cookie's Secure flag. If nil, DefaultLauncherDashboardSecureCookie is used.
@@ -85,10 +80,30 @@ func (a *LauncherDashboardLocalAutoLogin) URLPath() string {
 
 // DefaultLauncherDashboardSecureCookie mirrors typical production HTTPS detection (TLS or X-Forwarded-Proto).
 func DefaultLauncherDashboardSecureCookie(r *http.Request) bool {
-	if r.TLS != nil {
-		return true
+	return launcherRequestScheme(r) == "https"
+}
+
+func launcherRequestScheme(r *http.Request) string {
+	if r == nil {
+		return "http"
 	}
-	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	if r.TLS != nil {
+		return "https"
+	}
+	proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+	if i := strings.IndexByte(proto, ','); i >= 0 {
+		proto = proto[:i]
+	}
+	switch strings.ToLower(strings.TrimSpace(proto)) {
+	case "http":
+		return "http"
+	case "https":
+		return "https"
+	}
+	if r.URL != nil && strings.EqualFold(r.URL.Scheme, "https") {
+		return "https"
+	}
+	return "http"
 }
 
 // SetLauncherDashboardSessionCookie writes the HttpOnly session cookie after successful dashboard password login.
@@ -134,6 +149,10 @@ func ClearLauncherDashboardSessionCookie(w http.ResponseWriter, r *http.Request,
 func LauncherDashboardAuth(cfg LauncherDashboardAuthConfig, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := canonicalAuthPath(r.URL.Path)
+		if p == "/pico/ws" && !launcherWebSocketOriginAllowed(r) {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
 		if p == LauncherDashboardLocalAutoLoginPath {
 			handleLauncherLocalAutoLogin(w, r, cfg)
 			return
@@ -148,6 +167,24 @@ func LauncherDashboardAuth(cfg LauncherDashboardAuthConfig, next http.Handler) h
 		}
 		rejectLauncherDashboardAuth(w, r, p)
 	})
+}
+
+func launcherWebSocketOriginAllowed(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+
+	u, err := url.Parse(origin)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+	wantHost := r.Host
+	if wantHost == "" && r.URL != nil {
+		wantHost = r.URL.Host
+	}
+	wantScheme := launcherRequestScheme(r)
+	return strings.EqualFold(u.Scheme, wantScheme) && strings.EqualFold(u.Host, wantHost)
 }
 
 // canonicalAuthPath matches path cleaning used for routing decisions so
@@ -168,7 +205,12 @@ func handleLauncherLocalAutoLogin(w http.ResponseWriter, r *http.Request, cfg La
 		return
 	}
 	if cfg.LocalAutoLogin != nil && cfg.LocalAutoLogin.consume(r.URL.Query().Get("nonce")) {
-		SetLauncherDashboardSessionCookie(w, r, cfg.ExpectedCookie, cfg.SecureCookie)
+		sessionValue, err := cfg.Sessions.Create()
+		if err != nil {
+			http.Error(w, "session unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		SetLauncherDashboardSessionCookie(w, r, sessionValue, cfg.SecureCookie)
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
@@ -280,7 +322,7 @@ func isPublicLauncherDashboardStatic(method, p string) bool {
 	}
 	switch p {
 	case "/favicon.ico", "/favicon.svg", "/favicon-96x96.png",
-		"/apple-touch-icon.png", "/site.webmanifest", "/robots.txt":
+		"/apple-touch-icon.png", "/site.webmanifest", "/robots.txt", "/theme-init.js":
 		return true
 	default:
 		return false
@@ -288,10 +330,11 @@ func isPublicLauncherDashboardStatic(method, p string) bool {
 }
 
 func validLauncherDashboardAuth(r *http.Request, cfg LauncherDashboardAuthConfig) bool {
+	if cfg.Sessions == nil {
+		return false
+	}
 	if c, err := r.Cookie(LauncherDashboardCookieName); err == nil {
-		if subtle.ConstantTimeCompare([]byte(c.Value), []byte(cfg.ExpectedCookie)) == 1 {
-			return true
-		}
+		return cfg.Sessions.Validate(c.Value)
 	}
 	return false
 }

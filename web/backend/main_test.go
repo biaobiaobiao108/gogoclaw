@@ -54,13 +54,13 @@ func TestLauncherBrowserLaunchSuffix(t *testing.T) {
 		t.Fatalf("NewLauncherDashboardLocalAutoLogin() error = %v", err)
 	}
 
-	if got := launcherBrowserLaunchSuffix(true, autoLogin); got != middleware.LauncherDashboardSetupPath {
+	if got := launcherBrowserLaunchSuffix(true, "setup-token", autoLogin); got != middleware.LauncherDashboardSetupPath+"#setup_token=setup-token" {
 		t.Fatalf("setup suffix = %q", got)
 	}
-	if got := launcherBrowserLaunchSuffix(false, autoLogin); !strings.HasPrefix(got, "/launcher-auto-login?nonce=") {
+	if got := launcherBrowserLaunchSuffix(false, "", autoLogin); !strings.HasPrefix(got, "/launcher-auto-login?nonce=") {
 		t.Fatalf("auto-login suffix = %q", got)
 	}
-	if got := launcherBrowserLaunchSuffix(false, nil); got != "" {
+	if got := launcherBrowserLaunchSuffix(false, "", nil); got != "" {
 		t.Fatalf("empty suffix = %q, want empty", got)
 	}
 }

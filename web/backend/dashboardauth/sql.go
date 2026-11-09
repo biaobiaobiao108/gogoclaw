@@ -20,5 +20,9 @@ const (
 		INSERT INTO dashboard_credentials (id, bcrypt_hash) VALUES (1, ?)
 		ON CONFLICT(id) DO UPDATE SET bcrypt_hash = excluded.bcrypt_hash`
 
+	sqlInsertHashIfMissing = `
+		INSERT INTO dashboard_credentials (id, bcrypt_hash) VALUES (1, ?)
+		ON CONFLICT(id) DO NOTHING`
+
 	sqlSelectHash = `SELECT bcrypt_hash FROM dashboard_credentials WHERE id = 1`
 )

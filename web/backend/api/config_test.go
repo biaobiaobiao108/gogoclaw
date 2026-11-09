@@ -1110,6 +1110,26 @@ func TestHandleTestCommandPatterns_MatchesBlacklistNotWhitelist(t *testing.T) {
 	}
 }
 
+func TestHandleTestCommandPatterns_BlacklistOverridesWhitelist(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	rec := testCommandPatterns(t, configPath, `{
+		"allow_patterns": ["^echo"],
+		"deny_patterns": ["secret"],
+		"command": "echo secret"
+	}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"blocked":true`)) {
+		t.Fatalf("expected blocked=true, body=%s", rec.Body.String())
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte(`"allowed":true`)) {
+		t.Fatalf("expected allowed=false, body=%s", rec.Body.String())
+	}
+}
+
 func TestHandleTestCommandPatterns_MatchesNeither(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

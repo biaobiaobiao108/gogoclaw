@@ -2885,6 +2885,64 @@ func TestDispatcherExitsOnCancel(t *testing.T) {
 	}
 }
 
+func TestDispatcherDoesNotBlockOnStoppedWorker(t *testing.T) {
+	m := newTestManager()
+	defer m.bus.Close()
+
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	w := &channelWorker{
+		ch:         &mockChannel{},
+		queue:      make(chan bus.OutboundMessage, 1),
+		mediaQueue: make(chan bus.OutboundMediaMessage, 1),
+		done:       make(chan struct{}),
+		mediaDone:  make(chan struct{}),
+		limiter:    rate.NewLimiter(rate.Inf, 1),
+		ctx:        workerCtx,
+	}
+	w.queue <- testOutboundMessage(bus.OutboundMessage{Channel: "test", ChatID: "1", Content: "full"})
+	m.channels["test"] = w.ch
+	m.workers["test"] = w
+	stopWorker()
+
+	dispatchCtx, stopDispatch := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		m.dispatchOutbound(dispatchCtx)
+		close(done)
+	}()
+
+	pubCtx, pubCancel := context.WithTimeout(context.Background(), time.Second)
+	defer pubCancel()
+	if err := m.bus.PublishOutbound(pubCtx, testOutboundMessage(bus.OutboundMessage{
+		Channel: "test",
+		ChatID:  "1",
+		Content: "skipped",
+	})); err != nil {
+		t.Fatalf("PublishOutbound() error = %v", err)
+	}
+	stopDispatch()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("dispatcher blocked on a stopped worker")
+	}
+}
+
+func TestReloadPreservesDispatcherTask(t *testing.T) {
+	m := newTestManager()
+	original := &asyncTask{cancel: func() {}}
+	m.dispatchTask = original
+	m.channelHashes = map[string]string{}
+
+	if err := m.Reload(t.Context(), &config.Config{Channels: config.ChannelsConfig{}}); err != nil {
+		t.Fatalf("Reload() error = %v", err)
+	}
+	if m.dispatchTask != original {
+		t.Fatal("Reload replaced the active dispatcher cancellation handle")
+	}
+}
+
 func TestDispatcherMediaExitsOnCancel(t *testing.T) {
 	mb := bus.NewMessageBus()
 	defer mb.Close()

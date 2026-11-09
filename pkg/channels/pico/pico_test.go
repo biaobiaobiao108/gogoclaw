@@ -2,6 +2,7 @@ package pico
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -21,6 +22,13 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
 )
+
+func TestPicoMessageLimitAccommodatesMaxInlineImage(t *testing.T) {
+	maxEncoded := base64.StdEncoding.EncodedLen(config.DefaultMaxMediaSize)
+	if maxPicoMessageBytes < maxEncoded+1024 {
+		t.Fatalf("max message bytes = %d, want at least %d", maxPicoMessageBytes, maxEncoded+1024)
+	}
+}
 
 func TestApprovalRequestAndResponseRoundTrip(t *testing.T) {
 	ch := newTestPicoChannel(t)
@@ -165,7 +173,7 @@ func TestHandleMessageSend_ForwardsMessageMetadata(t *testing.T) {
 	ch.handleMessageSend(&picoConn{id: "conn-1", sessionID: "sess-1"}, PicoMessage{
 		Type:      TypeMessageSend,
 		ID:        "msg-1",
-		SessionID: "sess-1",
+		SessionID: "another-session",
 		Payload: map[string]any{
 			PayloadKeyContent: "hello",
 		},

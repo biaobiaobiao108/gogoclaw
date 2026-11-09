@@ -1356,6 +1356,21 @@ func TestConfigExample_WebProviderIsAuto(t *testing.T) {
 	}
 }
 
+func TestConfigExample_LoadsWithCurrentSchema(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "config", "config.example.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(config.example.json) error: %v", err)
+	}
+
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatalf("WriteFile(config.example.json) error: %v", err)
+	}
+	if _, err := LoadConfig(configPath); err != nil {
+		t.Fatalf("LoadConfig(config.example.json) error: %v", err)
+	}
+}
+
 func TestDefaultConfig_ToolFeedbackDisabled(t *testing.T) {
 	cfg := DefaultConfig()
 	if cfg.Agents.Defaults.ToolFeedback.Enabled {

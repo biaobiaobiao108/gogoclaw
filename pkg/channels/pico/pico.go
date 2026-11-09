@@ -48,6 +48,10 @@ var allowedInlineImageMIMETypes = map[string]struct{}{
 	"image/bmp":  {},
 }
 
+// maxPicoMessageBytes must accommodate one maximum-size inline image after
+// base64 expansion, plus the surrounding message and JSON overhead.
+const maxPicoMessageBytes = 32 << 20
+
 func outboundMessageIsThought(msg bus.OutboundMessage) bool {
 	if len(msg.Context.Raw) == 0 {
 		return false
@@ -1308,6 +1312,7 @@ func (c *PicoChannel) readLoop(pc *picoConn) {
 	}
 
 	_ = pc.conn.SetReadDeadline(time.Now().Add(readTimeout))
+	pc.conn.SetReadLimit(maxPicoMessageBytes)
 	pc.conn.SetPongHandler(func(appData string) error {
 		_ = pc.conn.SetReadDeadline(time.Now().Add(readTimeout))
 		return nil
@@ -1530,10 +1535,7 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		return
 	}
 
-	sessionID := msg.SessionID
-	if sessionID == "" {
-		sessionID = pc.sessionID
-	}
+	sessionID := pc.sessionID
 
 	chatID := "pico:" + sessionID
 	senderID := "pico-user"

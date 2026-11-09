@@ -18,6 +18,7 @@ import (
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
 
 const (
@@ -545,8 +546,11 @@ func probeTCPService(raw string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), modelProbeTimeout)
 	defer cancel()
 
-	dialer := &net.Dialer{}
-	conn, err := dialer.DialContext(ctx, "tcp", hostPort)
+	dialer := &net.Dialer{Timeout: modelProbeTimeout}
+	dialContext := utils.NewSafeDialContext(dialer, nil, func() bool {
+		return hasLocalAPIBase(raw)
+	})
+	conn, err := dialContext(ctx, "tcp", hostPort)
 	if err != nil {
 		return false
 	}
@@ -566,7 +570,7 @@ func probeOllamaModel(apiBase, modelID string) bool {
 			Model string `json:"model"`
 		} `json:"models"`
 	}
-	if err := getJSON(root+"/api/tags", &resp, ""); err != nil {
+	if err := getJSON(root+"/api/tags", &resp, "", hasLocalAPIBase(apiBase)); err != nil {
 		return false
 	}
 
@@ -589,7 +593,8 @@ func probeOpenAICompatibleModel(apiBase, modelID, apiKey string) bool {
 		} `json:"data"`
 	}
 	fetchURL := strings.TrimRight(strings.TrimSpace(apiBase), "/") + "/models"
-	if err := getJSON(fetchURL, &respEnvelope, apiKey); err == nil {
+	allowPrivate := hasLocalAPIBase(apiBase)
+	if err := getJSON(fetchURL, &respEnvelope, apiKey, allowPrivate); err == nil {
 		for _, model := range respEnvelope.Data {
 			if strings.EqualFold(strings.TrimSpace(model.ID), modelID) {
 				return true
@@ -601,7 +606,7 @@ func probeOpenAICompatibleModel(apiBase, modelID, apiKey string) bool {
 	var respArray []struct {
 		ID string `json:"id"`
 	}
-	if err := getJSON(fetchURL, &respArray, apiKey); err != nil {
+	if err := getJSON(fetchURL, &respArray, apiKey, allowPrivate); err != nil {
 		return false
 	}
 
@@ -613,7 +618,7 @@ func probeOpenAICompatibleModel(apiBase, modelID, apiKey string) bool {
 	return false
 }
 
-func getJSON(rawURL string, out any, apiKey string) error {
+func getJSON(rawURL string, out any, apiKey string, allowPrivate bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), modelProbeTimeout)
 	defer cancel()
 
@@ -625,7 +630,17 @@ func getJSON(rawURL string, out any, apiKey string) error {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
-	client := &http.Client{}
+	client, err := utils.CreateSafeHTTPClient(utils.SafeHTTPClientOptions{
+		Timeout: 5 * time.Second,
+		AllowPrivateHosts: func() bool {
+			return allowPrivate
+		},
+		MaxRedirects: 3,
+	})
+	if err != nil {
+		return err
+	}
+	utils.AllowConfiguredProxyFirstHop(req, client.Transport)
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -636,7 +651,11 @@ func getJSON(rawURL string, out any, apiKey string) error {
 		return fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
 
-	return json.NewDecoder(resp.Body).Decode(out)
+	body, err := readModelResponse(resp.Body)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(body, out)
 }
 
 func apiRootFromAPIBase(raw string) (string, error) {

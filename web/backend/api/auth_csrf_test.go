@@ -9,11 +9,7 @@ import (
 
 func TestLauncherAuthSetupRejectsCrossSiteFirstRun(t *testing.T) {
 	store := &fakePasswordStore{}
-	mux := http.NewServeMux()
-	RegisterLauncherAuthRoutes(mux, LauncherAuthRouteOpts{
-		SessionCookie: "session-cookie-value",
-		PasswordStore: store,
-	})
+	mux, _ := newLauncherAuthTestHandler(t, store)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(
@@ -25,6 +21,7 @@ func TestLauncherAuthSetupRejectsCrossSiteFirstRun(t *testing.T) {
 	req.Header.Set("Referer", "https://evil.example/attack")
 	req.Header.Set("Sec-Fetch-Site", "cross-site")
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Launcher-Setup-Token", testLauncherSetupToken)
 	mux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusForbidden {
@@ -37,11 +34,7 @@ func TestLauncherAuthSetupRejectsCrossSiteFirstRun(t *testing.T) {
 
 func TestLauncherAuthSetupAllowsSameOriginFirstRun(t *testing.T) {
 	store := &fakePasswordStore{}
-	mux := http.NewServeMux()
-	RegisterLauncherAuthRoutes(mux, LauncherAuthRouteOpts{
-		SessionCookie: "session-cookie-value",
-		PasswordStore: store,
-	})
+	mux, _ := newLauncherAuthTestHandler(t, store)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(
@@ -52,6 +45,7 @@ func TestLauncherAuthSetupAllowsSameOriginFirstRun(t *testing.T) {
 	req.Header.Set("Origin", "http://127.0.0.1:18800")
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Launcher-Setup-Token", testLauncherSetupToken)
 	mux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {

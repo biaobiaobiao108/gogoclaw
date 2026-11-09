@@ -161,6 +161,7 @@ func (c *PicoClientChannel) readLoop(connCtx context.Context, pc *picoConn) {
 	}
 
 	_ = pc.conn.SetReadDeadline(time.Now().Add(readTimeout))
+	pc.conn.SetReadLimit(maxPicoMessageBytes)
 	pc.conn.SetPongHandler(func(string) error {
 		return pc.conn.SetReadDeadline(time.Now().Add(readTimeout))
 	})

@@ -11,12 +11,13 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 )
 
-// JSONContentType sets the Content-Type header to application/json for
-// API requests handled by the wrapped handler.
+// JSONContentType sets JSON content and prevents API responses from being
+// cached by browsers or shared proxies.
 func JSONContentType(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if len(r.URL.Path) >= 5 && r.URL.Path[:5] == "/api/" {
 			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
 		}
 		next.ServeHTTP(w, r)
 	})

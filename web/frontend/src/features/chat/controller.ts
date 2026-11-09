@@ -179,13 +179,14 @@ export async function connectChat() {
       isConnecting = false
       let firstStatusRequest = true
       const requestTurnStatus = () => {
+        const activeTurn = Boolean(getChatState().activeTurn)
+        if (!firstStatusRequest && !activeTurn) return
         if (socket.readyState === WebSocket.OPEN) {
           socket.send(
             JSON.stringify({
               type: "turn.status.get",
               payload: {
-                include_recovery:
-                  firstStatusRequest || Boolean(getChatState().activeTurn),
+                include_recovery: firstStatusRequest || activeTurn,
               },
             }),
           )

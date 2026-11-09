@@ -172,7 +172,7 @@ export const AssistantMessage = memo(function AssistantMessage({
 
           {/* Normal Assistant Markdown Text */}
           {!isCollapsedBlock && hasVisibleText && (
-            <div className="prose dark:prose-invert max-w-none text-[15px] leading-7 [overflow-wrap:anywhere] break-words">
+            <div className="prose dark:prose-invert max-w-none text-base leading-7 [overflow-wrap:anywhere] break-words">
               <StreamingMarkdown content={content} isStreaming={isStreaming} />
               {isStreaming && (
                 <span className="streaming-dot ml-1" aria-hidden="true" />

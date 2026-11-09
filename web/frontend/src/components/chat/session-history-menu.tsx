@@ -110,7 +110,7 @@ export function SessionHistoryMenu({
       <label className="bg-card border-input focus-within:ring-ring/40 flex items-center gap-2 rounded-md border px-3 py-2 focus-within:ring-2">
         <IconSearch className="text-muted-foreground size-4 shrink-0" />
         <input
-          className="w-full min-w-0 bg-transparent text-sm outline-none"
+          className="placeholder:text-muted-foreground w-full min-w-0 bg-transparent text-sm outline-none"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={t("chat.filterHistory")}
