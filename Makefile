@@ -1,4 +1,4 @@
-.PHONY: all build build-launcher build-launcher-frontend clean help deps update-deps test integration-test check fmt
+.PHONY: all build build-launcher build-launcher-frontend clean help deps update-deps test harness-test integration-test check fmt
 
 # Build variables
 BINARY_NAME=gogoclaw
@@ -193,6 +193,10 @@ endif
 test: generate
 	@$(GO) test $(GOFLAGS) $$($(GO) list $(GOFLAGS) ./... | grep -v github.com/biaobiaobiao108/gogoclaw/web/)
 	@cd web && make test
+
+## harness-test: Run trajectory-level evaluation and fault-injection scenarios
+harness-test:
+	@$(GO) test $(GOFLAGS) ./pkg/harness/...
 
 ## integration-test: Run Docker-backed integration test suites
 integration-test:

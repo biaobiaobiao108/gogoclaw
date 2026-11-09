@@ -138,7 +138,7 @@ func TestSpawnSubTurnAppliesOverrides(t *testing.T) {
 		originAgentID:    agent.ID,
 		originSessionKey: "parent",
 		concurrencySem:   make(chan struct{}, 2),
-		pendingResults:   make(chan *tools.ToolResult, 4),
+		deliveries:       newAsyncDeliveryQueue(4),
 		opts:             normalizeProcessOptions(makeTestProcessOpts("parent")),
 	}
 	result, err := spawnSubTurn(context.Background(), al, parent, SubTurnConfig{

@@ -13,25 +13,9 @@ import (
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
-	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
-)
-
-// =============================================================================
-// TurnPhase - represents the current phase of a turn
-// =============================================================================
-
-type TurnPhase string
-
-const (
-	TurnPhaseSetup      TurnPhase = "setup"
-	TurnPhaseRunning    TurnPhase = "running"
-	TurnPhaseTools      TurnPhase = "tools"
-	TurnPhaseFinalizing TurnPhase = "finalizing"
-	TurnPhaseCompleted  TurnPhase = "completed"
-	TurnPhaseAborted    TurnPhase = "aborted"
 )
 
 // =============================================================================
@@ -62,21 +46,6 @@ const (
 	// ToolControlFinalize tells the coordinator that all tool responses were
 	// handled and the turn should finalize without another LLM call.
 	ToolControlFinalize
-)
-
-// LLMPhase indicates which phase the turn is executing in.
-type LLMPhase int
-
-const (
-	LLMPhaseSetup LLMPhase = iota
-	LLMPhasePreLLM
-	LLMPhaseLLMCall
-	LLMPhaseProcessing
-	LLMPhaseToolLoop
-	LLMPhaseTools
-	LLMPhaseFinalizing
-	LLMPhaseCompleted
-	LLMPhaseAborted
 )
 
 // =============================================================================
@@ -110,6 +79,7 @@ type ActiveTurnInfo struct {
 	ChildTurnIDs []string
 	Plan         []planStep
 	Activities   []session.TurnActivity
+	PhaseHistory []TurnPhaseTransition
 }
 
 // TurnCompletionInfo is the latest durable terminal state for a conversation.
@@ -164,9 +134,6 @@ type turnExecution struct {
 	useNativeSearch     bool
 	ownedProviders      []providers.LLMProvider
 
-	// Phase tracking
-	phase LLMPhase
-
 	// Abort signaling for coordinator (set by Pipeline methods)
 	abortedByHardAbort bool // true when hard abort triggered during LLM/tools
 	abortedByHook      bool // true when HookActionAbortTurn triggered
@@ -195,7 +162,6 @@ func newTurnExecution(
 		pendingMessages:  append([]providers.Message(nil), opts.InitialSteeringMessages...),
 		currentTurnStart: len(messages),
 		iteration:        0,
-		phase:            LLMPhaseSetup,
 		thinkingLevel:    strings.TrimSpace(opts.ThinkingLevel),
 	}
 }
@@ -245,7 +211,7 @@ type turnState struct {
 	media         []string
 	steeringMedia []string
 
-	phase        TurnPhase
+	lifecycle    *turnLifecycle
 	iteration    int
 	startedAt    time.Time
 	finalContent string
@@ -262,25 +228,27 @@ type turnState struct {
 	persistedMessages []providers.Message
 
 	// SubTurn support (from HEAD)
-	depth                int                    // SubTurn depth (0 for root turn)
-	parentTurnID         string                 // Parent turn ID (empty for root turn)
-	childTurnIDs         []string               // Child turn IDs
-	pendingResults       chan *tools.ToolResult // Channel for SubTurn results
-	concurrencySem       chan struct{}          // Semaphore for limiting concurrent SubTurns
-	isFinished           atomic.Bool            // Whether this turn has finished
-	session              session.SessionStore   // Session store reference
-	initialHistoryLength int                    // Snapshot of history length at turn start
+	depth                int                  // SubTurn depth (0 for root turn)
+	parentTurnID         string               // Parent turn ID (empty for root turn)
+	childTurnIDs         []string             // Child turn IDs
+	deliveries           *asyncDeliveryQueue  // Unified queue for async SubTurn/tool results
+	concurrencySem       chan struct{}        // Semaphore for limiting concurrent SubTurns
+	isFinished           atomic.Bool          // Whether this turn has finished
+	session              session.SessionStore // Session store reference
+	initialHistoryLength int                  // Snapshot of history length at turn start
 
 	// Additional SubTurn fields
-	ctx             context.Context    // Context for this turn
-	cancelFunc      context.CancelFunc // Cancel function for this turn's context
-	critical        bool               // Whether this SubTurn should continue after parent ends
-	parentTurnState *turnState         // Reference to parent turnState
-	parentEnded     atomic.Bool        // Whether parent has ended
-	closeOnce       sync.Once          // Ensures finishedChan is closed once
-	finishOnce      sync.Once          // Ensures the full finish sequence runs once
-	finishedChan    chan struct{}      // Closed when turn finishes
-	maxContextRunes int                // Optional soft rune limit for SubTurns
+	ctx               context.Context    // Context for this turn
+	cancelFunc        context.CancelFunc // Cancel function for this turn's context
+	critical          bool               // Whether this SubTurn should continue after parent ends
+	parentTurnState   *turnState         // Reference to parent turnState
+	parentEnded       atomic.Bool        // Whether parent has ended
+	closeOnce         sync.Once          // Ensures finishedChan is closed once
+	finishOnce        sync.Once          // Ensures the full finish sequence runs once
+	finishedChan      chan struct{}      // Closed when turn finishes
+	maxContextRunes   int                // Optional soft rune limit for SubTurns
+	deferredFollowUps []asyncDelivery    // Async results that arrived after the turn stopped consuming
+	followUpsFlushed  bool               // True once runTurn has handed deferred results back to the bus
 
 	// Token budget tracking
 	tokenBudget      *atomic.Int64 // Shared token budget counter
@@ -436,11 +404,11 @@ func newTurnState(agent *AgentInstance, opts processOptions, scope turnEventScop
 		workspace:        agent.Workspace,
 		userMessage:      opts.Dispatch.UserMessage,
 		media:            append([]string(nil), opts.Dispatch.Media...),
-		phase:            TurnPhaseSetup,
+		lifecycle:        newTurnLifecycleAt(TurnPhaseSetup),
 		startedAt:        time.Now(),
 		endReason:        TurnEndReasonCompleted,
 		budget:           defaultTurnBudget(agent.MaxIterations),
-		pendingResults:   make(chan *tools.ToolResult, 16),
+		deliveries:       newAsyncDeliveryQueue(defaultAsyncDeliveryCapacity),
 	}
 
 	// Bind session store and capture initial history length for rollback logic
@@ -637,6 +605,16 @@ func (al *AgentLoop) ConversationTurnCompletion(channel, chatID, senderID string
 
 func (ts *turnState) snapshot() ActiveTurnInfo {
 	ts.mu.RLock()
+	lifecycle := ts.lifecycle
+	ts.mu.RUnlock()
+	phase := TurnPhaseCreated
+	var phaseHistory []TurnPhaseTransition
+	if lifecycle != nil {
+		phase = lifecycle.Phase()
+		phaseHistory = lifecycle.History()
+	}
+
+	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
 	return ActiveTurnInfo{
@@ -646,7 +624,7 @@ func (ts *turnState) snapshot() ActiveTurnInfo {
 		Channel:      ts.channel,
 		ChatID:       ts.chatID,
 		UserMessage:  ts.userMessage,
-		Phase:        ts.phase,
+		Phase:        phase,
 		Iteration:    ts.iteration,
 		StartedAt:    ts.startedAt,
 		Depth:        ts.depth,
@@ -654,13 +632,50 @@ func (ts *turnState) snapshot() ActiveTurnInfo {
 		ChildTurnIDs: append([]string(nil), ts.childTurnIDs...),
 		Plan:         append([]planStep(nil), ts.plan...),
 		Activities:   append([]session.TurnActivity(nil), ts.activities...),
+		PhaseHistory: phaseHistory,
 	}
 }
 
-func (ts *turnState) setPhase(phase TurnPhase) {
+// transitionPhase moves the turn through its explicit lifecycle. Invalid
+// transitions are implementation bugs; record them on the turn so callers can
+// return a useful error instead of silently drifting into a terminal state.
+func (ts *turnState) transitionPhase(phase TurnPhase) error {
+	if ts == nil {
+		return fmt.Errorf("turn state is nil")
+	}
 	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	ts.phase = phase
+	if ts.lifecycle == nil {
+		ts.lifecycle = newTurnLifecycle()
+	}
+	lifecycle := ts.lifecycle
+	ts.mu.Unlock()
+	return lifecycle.Transition(phase)
+}
+
+func (ts *turnState) phaseSnapshot() TurnPhase {
+	if ts == nil {
+		return TurnPhaseCreated
+	}
+	ts.mu.RLock()
+	lifecycle := ts.lifecycle
+	ts.mu.RUnlock()
+	if lifecycle == nil {
+		return TurnPhaseCreated
+	}
+	return lifecycle.Phase()
+}
+
+func (ts *turnState) phaseHistory() []TurnPhaseTransition {
+	if ts == nil {
+		return nil
+	}
+	ts.mu.RLock()
+	lifecycle := ts.lifecycle
+	ts.mu.RUnlock()
+	if lifecycle == nil {
+		return nil
+	}
+	return lifecycle.History()
 }
 
 func (ts *turnState) setIteration(iteration int) {
@@ -1136,9 +1151,9 @@ func (ts *turnState) Finish(isHardAbort bool) {
 			ts.finishRunningActivities("cancelled", "The turn ended before this activity completed.")
 		}
 
-		// Signal completion exactly once. pendingResults stays open: SubTurn producers
-		// may still be racing with Finish, and closing it would turn a late result into
-		// a panic. Producers classify late sends as orphans instead.
+		// Signal completion exactly once. The delivery queue accepts no new items
+		// after this point; producers that race with Finish fall back to a follow-up
+		// inbound turn instead of blocking or panicking.
 		ts.closeOnce.Do(func() {
 			ts.mu.Lock()
 			if ts.finishedChan == nil {
@@ -1148,9 +1163,10 @@ func (ts *turnState) Finish(isHardAbort bool) {
 			ts.mu.Unlock()
 		})
 
-		// Results already buffered when the parent ends can no longer reach the
-		// model. Drain them so producers are not left holding stale values.
-		ts.drainPendingResults()
+		// Results already buffered when the parent ends can no longer reach this
+		// turn's model. Graceful completion turns them into follow-up turns; a
+		// hard abort reports them as orphans because the user stopped the work.
+		ts.drainDeliveriesOnFinish(isHardAbort)
 
 		// Cancel the turn context
 		if ts.cancelFunc != nil {
@@ -1173,27 +1189,24 @@ func (ts *turnState) Finish(isHardAbort bool) {
 	})
 }
 
-func (ts *turnState) drainPendingResults() {
-	if ts.pendingResults == nil {
+func (ts *turnState) drainDeliveriesOnFinish(isHardAbort bool) {
+	if ts == nil {
 		return
 	}
-	for {
-		select {
-		case result := <-ts.pendingResults:
-			if result == nil || ts.al == nil {
-				continue
-			}
-			ts.al.emitEvent(
-				runtimeevents.KindAgentSubTurnOrphan,
-				ts.eventMeta("Finish", "subturn.orphan"),
-				SubTurnOrphanPayload{
-					ParentTurnID: ts.turnID,
-					Reason:       "parent_finished",
-				},
-			)
-		default:
-			return
+	ts.mu.Lock()
+	if ts.deliveries == nil {
+		ts.deliveries = newAsyncDeliveryQueue(defaultAsyncDeliveryCapacity)
+	}
+	queue := ts.deliveries
+	ts.mu.Unlock()
+	for _, delivery := range queue.close() {
+		if ts.al == nil {
+			continue
 		}
+		if !isHardAbort && ts.deferAsyncFollowUp(delivery) {
+			continue
+		}
+		ts.al.emitAsyncOrphan(ts, delivery, "parent_finished")
 	}
 }
 

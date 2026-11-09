@@ -64,6 +64,7 @@ func newEventCollector(t *testing.T, al *AgentLoop) (*eventCollector, func()) {
 		runtimeevents.KindAgentSubTurnEnd,
 		runtimeevents.KindAgentSubTurnResultDelivered,
 		runtimeevents.KindAgentSubTurnOrphan,
+		runtimeevents.KindAgentFollowUpQueued,
 	)
 	done := make(chan struct{})
 	go func() {
@@ -158,13 +159,13 @@ func TestSpawnSubTurn(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Prepare parent Turn
 			parent := &turnState{
-				ctx:            context.Background(),
-				turnID:         "parent-1",
-				depth:          tt.parentDepth,
-				childTurnIDs:   []string{},
-				pendingResults: make(chan *tools.ToolResult, 10),
-				session:        &ephemeralSessionStore{},
-				agent:          al.registry.GetDefaultAgent(),
+				ctx:          context.Background(),
+				turnID:       "parent-1",
+				depth:        tt.parentDepth,
+				childTurnIDs: []string{},
+				deliveries:   newAsyncDeliveryQueue(10),
+				session:      &ephemeralSessionStore{},
+				agent:        al.registry.GetDefaultAgent(),
 			}
 
 			// Subscribe to runtime events to capture sub-turn lifecycle.
@@ -210,8 +211,8 @@ func TestSpawnSubTurn(t *testing.T) {
 			}
 
 			// For synchronous calls (Async=false, the default), result is returned directly
-			// and should NOT be in pendingResults. The result was already verified above.
-			// Only async calls (Async=true) would place results in pendingResults.
+			// and should NOT be in the async delivery queue. The result was already verified above.
+			// Only async calls (Async=true) would place results in the async delivery queue.
 		})
 	}
 }
@@ -229,7 +230,7 @@ func TestSpawnSubTurn_EphemeralSessionIsolation(t *testing.T) {
 		ctx:            context.Background(),
 		turnID:         "parent-1",
 		depth:          0,
-		pendingResults: make(chan *tools.ToolResult, 4),
+		deliveries:     newAsyncDeliveryQueue(4),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 		session:        parentSession,
 	}
@@ -266,26 +267,22 @@ func TestSpawnSubTurn_ResultDelivery(t *testing.T) {
 	defer cleanup()
 
 	parent := &turnState{
-		ctx:            context.Background(),
-		turnID:         "parent-1",
-		depth:          0,
-		pendingResults: make(chan *tools.ToolResult, 1),
-		session:        &ephemeralSessionStore{},
+		ctx:        context.Background(),
+		turnID:     "parent-1",
+		depth:      0,
+		deliveries: newAsyncDeliveryQueue(1),
+		session:    &ephemeralSessionStore{},
 	}
 
-	// Set Async=true to test async result delivery via pendingResults channel
+	// Set Async=true to test async result delivery through the unified queue.
 	cfg := SubTurnConfig{Model: "gpt-4o-mini", Tools: []tools.Tool{}, Async: true}
 
 	_, _ = spawnSubTurn(context.Background(), al, parent, cfg)
 
-	// Check if pendingResults received the result (only for async calls)
-	select {
-	case res := <-parent.pendingResults:
-		if res == nil {
-			t.Error("received nil result in pendingResults")
-		}
-	default:
-		t.Error("result did not enter pendingResults for async call")
+	// Check if the unified delivery queue received the result.
+	delivery, ok := parent.nextAsyncDelivery()
+	if !ok || delivery.Result == nil {
+		t.Error("result did not enter the async delivery queue for async call")
 	}
 }
 
@@ -296,11 +293,11 @@ func TestSpawnSubTurn_ResultDeliverySync(t *testing.T) {
 	defer cleanup()
 
 	parent := &turnState{
-		ctx:            context.Background(),
-		turnID:         "parent-sync-1",
-		depth:          0,
-		pendingResults: make(chan *tools.ToolResult, 1),
-		session:        &ephemeralSessionStore{},
+		ctx:        context.Background(),
+		turnID:     "parent-sync-1",
+		depth:      0,
+		deliveries: newAsyncDeliveryQueue(1),
+		session:    &ephemeralSessionStore{},
 	}
 
 	// Sync call (Async=false, the default) - result should be returned directly
@@ -316,12 +313,9 @@ func TestSpawnSubTurn_ResultDeliverySync(t *testing.T) {
 		t.Error("expected non-nil result from sync call")
 	}
 
-	// pendingResults should NOT contain the result (no double delivery)
-	select {
-	case <-parent.pendingResults:
-		t.Error("sync call should not place result in pendingResults (double delivery)")
-	default:
-		// Expected - channel should be empty
+	// The delivery queue should NOT contain the result (no double delivery).
+	if _, ok := parent.nextAsyncDelivery(); ok {
+		t.Error("sync call should not place result in the async delivery queue (double delivery)")
 	}
 }
 
@@ -336,24 +330,32 @@ func TestSpawnSubTurn_OrphanResultRouting(t *testing.T) {
 
 	parentCtx, cancelParent := context.WithCancel(context.Background())
 	parent := &turnState{
-		ctx:            parentCtx,
-		cancelFunc:     cancelParent,
-		turnID:         "parent-1",
-		depth:          0,
-		pendingResults: make(chan *tools.ToolResult, 1),
-		session:        &ephemeralSessionStore{},
+		ctx:        parentCtx,
+		cancelFunc: cancelParent,
+		turnID:     "parent-1",
+		depth:      0,
+		deliveries: newAsyncDeliveryQueue(1),
+		session:    &ephemeralSessionStore{},
 	}
 
 	// Simulate parent finishing before child delivers result
 	parent.Finish(false)
 
-	// Call deliverSubTurnResult directly to simulate a delayed child
-	deliverSubTurnResult(al, parent, "delayed-child", &tools.ToolResult{ForLLM: "late result"})
+	// Deliver directly to simulate a child finishing after its parent.
+	al.deliverAsyncResult(parent, asyncDelivery{
+		Origin: asyncOriginSubTurn,
+		Source: "delayed-child",
+		Result: &tools.ToolResult{ForLLM: "late result"},
+	})
+	// runTurn flushes deferred follow-ups after unregistering the turn; this
+	// test calls Finish directly, so run that phase explicitly.
+	al.flushDeferredFollowUps(parent)
 
 	time.Sleep(10 * time.Millisecond) // let event goroutine flush
-	// Verify Orphan event is emitted
-	if !collector.hasEventOfKind(runtimeevents.KindAgentSubTurnOrphan) {
-		t.Error("agent.subturn.orphan not emitted for finished parent")
+	// A finished parent converts the late result into a follow-up turn rather
+	// than dropping it.
+	if !collector.hasEventOfKind(runtimeevents.KindAgentFollowUpQueued) {
+		t.Error("late result was not queued as a follow-up")
 	}
 
 	// Verify history is NOT polluted
@@ -369,11 +371,11 @@ func TestSubTurnResultChannelRegistration(t *testing.T) {
 	defer cleanup()
 
 	parent := &turnState{
-		ctx:            context.Background(),
-		turnID:         "parent-reg-1",
-		depth:          0,
-		pendingResults: make(chan *tools.ToolResult, 4),
-		session:        &ephemeralSessionStore{},
+		ctx:        context.Background(),
+		turnID:     "parent-reg-1",
+		depth:      0,
+		deliveries: newAsyncDeliveryQueue(4),
+		session:    &ephemeralSessionStore{},
 	}
 
 	cfg := SubTurnConfig{Model: "gpt-4o-mini", Tools: []tools.Tool{}}
@@ -401,19 +403,19 @@ func TestDequeuePendingSubTurnResults(t *testing.T) {
 
 	// Register a turnState so dequeuePendingSubTurnResults can find it
 	ts := &turnState{
-		ctx:            context.Background(),
-		turnID:         sessionKey,
-		depth:          0,
-		session:        &ephemeralSessionStore{},
-		pendingResults: make(chan *tools.ToolResult, 4),
+		ctx:        context.Background(),
+		turnID:     sessionKey,
+		depth:      0,
+		session:    &ephemeralSessionStore{},
+		deliveries: newAsyncDeliveryQueue(4),
 	}
 	al.activeTurnStates.Store(sessionKey, ts)
 	defer al.activeTurnStates.Delete(sessionKey)
 
 	// Put 3 results in
-	ts.pendingResults <- &tools.ToolResult{ForLLM: "result-1"}
-	ts.pendingResults <- &tools.ToolResult{ForLLM: "result-2"}
-	ts.pendingResults <- &tools.ToolResult{ForLLM: "result-3"}
+	for _, content := range []string{"result-1", "result-2", "result-3"} {
+		ts.enqueueAsyncDelivery(asyncDelivery{Origin: asyncOriginSubTurn, Result: &tools.ToolResult{ForLLM: content}})
+	}
 
 	results := al.dequeuePendingSubTurnResults(sessionKey)
 	if len(results) != 3 {
@@ -445,7 +447,7 @@ func TestSubTurnConcurrencySemaphore(t *testing.T) {
 		ctx:            context.Background(),
 		turnID:         "parent-concurrency",
 		depth:          0,
-		pendingResults: make(chan *tools.ToolResult, 10),
+		deliveries:     newAsyncDeliveryQueue(10),
 		session:        &ephemeralSessionStore{},
 		concurrencySem: make(chan struct{}, 2), // Only allow 2 concurrent children
 	}
@@ -493,7 +495,7 @@ func TestHardAbortCascading(t *testing.T) {
 		turnID:         sessionKey,
 		depth:          0,
 		session:        &ephemeralSessionStore{},
-		pendingResults: make(chan *tools.ToolResult, 16),
+		deliveries:     newAsyncDeliveryQueue(16),
 		concurrencySem: make(chan struct{}, 5),
 		al:             al,
 	}
@@ -506,11 +508,11 @@ func TestHardAbortCascading(t *testing.T) {
 	childCtx, childCancel := context.WithCancel(context.Background())
 	childID := "child-independent"
 	childTS := &turnState{
-		ctx:            childCtx,
-		cancelFunc:     childCancel,
-		turnID:         childID,
-		pendingResults: make(chan *tools.ToolResult, 4),
-		al:             al,
+		ctx:        childCtx,
+		cancelFunc: childCancel,
+		turnID:     childID,
+		deliveries: newAsyncDeliveryQueue(4),
+		al:         al,
 	}
 	al.activeTurnStates.Store(childID, childTS)
 	defer al.activeTurnStates.Delete(childID)
@@ -577,7 +579,7 @@ func TestHardAbortPreservesSessionHistory(t *testing.T) {
 		depth:                0,
 		session:              sess,
 		initialHistoryLength: 2, // Snapshot: 2 messages
-		pendingResults:       make(chan *tools.ToolResult, 16),
+		deliveries:           newAsyncDeliveryQueue(16),
 		concurrencySem:       make(chan struct{}, 5),
 	}
 
@@ -654,7 +656,7 @@ func TestNestedSubTurnHierarchy(t *testing.T) {
 		turnID:         "root-turn",
 		depth:          0,
 		session:        rootSession,
-		pendingResults: make(chan *tools.ToolResult, 16),
+		deliveries:     newAsyncDeliveryQueue(16),
 		concurrencySem: make(chan struct{}, 5),
 	}
 
@@ -685,14 +687,14 @@ func TestNestedSubTurnHierarchy(t *testing.T) {
 	rootTS.mu.Unlock()
 }
 
-// TestDeliverSubTurnResultNoDeadlock verifies that deliverSubTurnResult doesn't
-// deadlock when multiple goroutines are accessing the parent turnState concurrently.
-func TestDeliverSubTurnResultNoDeadlock(t *testing.T) {
+// TestAsyncDeliveryQueueNoDeadlock verifies that concurrent producers never
+// block when the queue is full; overflow is handled by the follow-up path.
+func TestAsyncDeliveryQueueNoDeadlock(t *testing.T) {
 	parent := &turnState{
-		ctx:            context.Background(),
-		turnID:         "parent-deadlock-test",
-		depth:          0,
-		pendingResults: make(chan *tools.ToolResult, 2), // Small buffer to test blocking
+		ctx:        context.Background(),
+		turnID:     "parent-deadlock-test",
+		depth:      0,
+		deliveries: newAsyncDeliveryQueue(2),
 	}
 
 	// Simulate multiple child turns delivering results concurrently
@@ -703,23 +705,13 @@ func TestDeliverSubTurnResultNoDeadlock(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			result := &tools.ToolResult{ForLLM: fmt.Sprintf("result-%d", id)}
-			deliverSubTurnResult(nil, parent, fmt.Sprintf("child-%d", id), result)
+			parent.enqueueAsyncDelivery(asyncDelivery{
+				Origin: asyncOriginSubTurn,
+				Source: fmt.Sprintf("child-%d", id),
+				Result: &tools.ToolResult{ForLLM: fmt.Sprintf("result-%d", id)},
+			})
 		}(i)
 	}
-
-	// Concurrently read from the channel to prevent blocking
-	// and to actually retrieve the matched number of results
-	go func() {
-		for i := 0; i < numChildren; i++ {
-			select {
-			case <-parent.pendingResults:
-			case <-time.After(5 * time.Second):
-				t.Error("timeout waiting for result")
-				return
-			}
-		}
-	}()
 
 	// Wait for all deliveries to complete (with timeout)
 	done := make(chan struct{})
@@ -732,7 +724,10 @@ func TestDeliverSubTurnResultNoDeadlock(t *testing.T) {
 	case <-done:
 		// Success - no deadlock
 	case <-time.After(3 * time.Second):
-		t.Fatal("deadlock detected: deliverSubTurnResult blocked")
+		t.Fatal("deadlock detected: async delivery queue blocked")
+	}
+	if got := parent.pendingAsyncDeliveryCount(); got != 2 {
+		t.Fatalf("queue capacity not enforced: %d", got)
 	}
 }
 
@@ -760,7 +755,7 @@ func TestHardAbortOrderOfOperations(t *testing.T) {
 		depth:                0,
 		session:              sess,
 		initialHistoryLength: 1, // Snapshot: 1 message
-		pendingResults:       make(chan *tools.ToolResult, 16),
+		deliveries:           newAsyncDeliveryQueue(16),
 		concurrencySem:       make(chan struct{}, 5),
 	}
 
@@ -798,11 +793,11 @@ func TestFinishedChannelClosedState(t *testing.T) {
 	defer cancel()
 
 	ts := &turnState{
-		ctx:            ctx,
-		cancelFunc:     cancel,
-		turnID:         "test-finished-channel",
-		depth:          0,
-		pendingResults: make(chan *tools.ToolResult, 2),
+		ctx:        ctx,
+		cancelFunc: cancel,
+		turnID:     "test-finished-channel",
+		depth:      0,
+		deliveries: newAsyncDeliveryQueue(2),
 	}
 
 	// Verify Finished channel is blocking initially
@@ -829,9 +824,14 @@ func TestFinishedChannelClosedState(t *testing.T) {
 	// Verify Finish() is idempotent
 	ts.Finish(false) // Should not panic
 
-	// Verify deliverSubTurnResult correctly uses Finished() channel and treats as orphan
-	result := &tools.ToolResult{ForLLM: "late result"}
-	deliverSubTurnResult(nil, ts, "child-1", result) // Will emit orphan due to <-ts.Finished() case
+	// A finished turn must not accept new asynchronous deliveries.
+	if ts.enqueueAsyncDelivery(asyncDelivery{
+		Origin: asyncOriginSubTurn,
+		Source: "child-1",
+		Result: &tools.ToolResult{ForLLM: "late result"},
+	}) {
+		t.Error("finished turn accepted an async delivery")
+	}
 }
 
 // TestFinalPollCapturesLateResults verifies that the final poll before Finish()
@@ -845,18 +845,18 @@ func TestFinalPollCapturesLateResults(t *testing.T) {
 
 	// Register a turnState
 	ts := &turnState{
-		ctx:            context.Background(),
-		turnID:         sessionKey,
-		depth:          0,
-		session:        &ephemeralSessionStore{},
-		pendingResults: make(chan *tools.ToolResult, 4),
+		ctx:        context.Background(),
+		turnID:     sessionKey,
+		depth:      0,
+		session:    &ephemeralSessionStore{},
+		deliveries: newAsyncDeliveryQueue(4),
 	}
 	al.activeTurnStates.Store(sessionKey, ts)
 	defer al.activeTurnStates.Delete(sessionKey)
 
 	// Simulate results arriving after last iteration poll
-	ts.pendingResults <- &tools.ToolResult{ForLLM: "result 1"}
-	ts.pendingResults <- &tools.ToolResult{ForLLM: "result 2"}
+	ts.enqueueAsyncDelivery(asyncDelivery{Origin: asyncOriginSubTurn, Result: &tools.ToolResult{ForLLM: "result 1"}})
+	ts.enqueueAsyncDelivery(asyncDelivery{Origin: asyncOriginSubTurn, Result: &tools.ToolResult{ForLLM: "result 2"}})
 
 	// Dequeue should capture both results
 	results := al.dequeuePendingSubTurnResults(sessionKey)
@@ -890,11 +890,11 @@ func TestSpawnSubTurn_PanicRecovery(t *testing.T) {
 	al := NewAgentLoop(cfg, bus.NewMessageBus(), panicProvider)
 
 	parent := &turnState{
-		ctx:            context.Background(),
-		turnID:         "parent-panic",
-		depth:          0,
-		pendingResults: make(chan *tools.ToolResult, 1),
-		session:        &ephemeralSessionStore{},
+		ctx:        context.Background(),
+		turnID:     "parent-panic",
+		depth:      0,
+		deliveries: newAsyncDeliveryQueue(1),
+		session:    &ephemeralSessionStore{},
 	}
 
 	collector, collectCleanup := newEventCollector(t, al)
@@ -920,13 +920,10 @@ func TestSpawnSubTurn_PanicRecovery(t *testing.T) {
 		t.Error("SubTurnEndEvent not emitted after panic")
 	}
 
-	// For async call, result should still be delivered to channel (even if nil)
-	select {
-	case res := <-parent.pendingResults:
-		// Result was delivered (nil due to panic)
-		_ = res
-	default:
-		t.Error("async result should be delivered to channel even after panic")
+	// Async calls must still report the panic through the delivery queue.
+	delivery, ok := parent.nextAsyncDelivery()
+	if !ok || delivery.Result == nil {
+		t.Error("async panic result should be delivered")
 	}
 }
 
@@ -991,7 +988,7 @@ func TestGetActiveTurn(t *testing.T) {
 		depth:          0,
 		childTurnIDs:   []string{},
 		session:        newEphemeralSession(nil),
-		pendingResults: make(chan *tools.ToolResult, 16),
+		deliveries:     newAsyncDeliveryQueue(16),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 	}
 
@@ -1048,7 +1045,7 @@ func TestGetActiveTurn_WithChildren(t *testing.T) {
 		depth:          0,
 		childTurnIDs:   []string{"child-1", "child-2"},
 		session:        newEphemeralSession(nil),
-		pendingResults: make(chan *tools.ToolResult, 16),
+		deliveries:     newAsyncDeliveryQueue(16),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 	}
 
@@ -1080,7 +1077,7 @@ func TestTurnStateInfo_ThreadSafety(t *testing.T) {
 		depth:          1,
 		childTurnIDs:   []string{},
 		session:        newEphemeralSession(nil),
-		pendingResults: make(chan *tools.ToolResult, 16),
+		deliveries:     newAsyncDeliveryQueue(16),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 	}
 
@@ -1196,7 +1193,7 @@ func TestInterruptHard_Alias(t *testing.T) {
 		depth:                0,
 		session:              newEphemeralSession(nil),
 		initialHistoryLength: 0,
-		pendingResults:       make(chan *tools.ToolResult, 16),
+		deliveries:           newAsyncDeliveryQueue(16),
 		concurrencySem:       make(chan struct{}, testMaxConcurrentSubTurns),
 	}
 
@@ -1222,7 +1219,7 @@ func TestFinish_ConcurrentCalls(t *testing.T) {
 		ctx:            ctx,
 		turnID:         "parent-concurrent-finish",
 		depth:          0,
-		pendingResults: make(chan *tools.ToolResult, 16),
+		deliveries:     newAsyncDeliveryQueue(16),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 	}
 	parentTS.ctx, parentTS.cancelFunc = context.WithCancel(ctx)
@@ -1260,20 +1257,21 @@ func TestFinish_ConcurrentCalls(t *testing.T) {
 	parentTS.mu.Unlock()
 }
 
-// TestDeliverSubTurnResult_RaceWithFinish verifies that deliverSubTurnResult handles
-// the race condition where Finish() is called while results are being delivered.
+// TestDeliverSubTurnResult_RaceWithFinish verifies that the unified delivery
+// path handles Finish() racing with concurrent producers.
 func TestDeliverSubTurnResult_RaceWithFinish(t *testing.T) {
 	al, _, _, _, cleanup := newTestAgentLoop(t)
 	defer cleanup()
 
 	var mu sync.Mutex
-	var deliveredCount, orphanCount int
+	var deliveredCount, orphanCount, followUpCount int
 	runtimeCh, closeRuntimeEvents := subscribeRuntimeEventsForTest(
 		t,
 		al,
 		64,
 		runtimeevents.KindAgentSubTurnResultDelivered,
 		runtimeevents.KindAgentSubTurnOrphan,
+		runtimeevents.KindAgentFollowUpQueued,
 	)
 	defer closeRuntimeEvents()
 	go func() {
@@ -1284,6 +1282,8 @@ func TestDeliverSubTurnResult_RaceWithFinish(t *testing.T) {
 				deliveredCount++
 			case runtimeevents.KindAgentSubTurnOrphan:
 				orphanCount++
+			case runtimeevents.KindAgentFollowUpQueued:
+				followUpCount++
 			}
 			mu.Unlock()
 		}
@@ -1294,7 +1294,7 @@ func TestDeliverSubTurnResult_RaceWithFinish(t *testing.T) {
 		ctx:            ctx,
 		turnID:         "parent-race-test",
 		depth:          0,
-		pendingResults: make(chan *tools.ToolResult, 16),
+		deliveries:     newAsyncDeliveryQueue(16),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 	}
 	parentTS.ctx, parentTS.cancelFunc = context.WithCancel(ctx)
@@ -1318,37 +1318,32 @@ func TestDeliverSubTurnResult_RaceWithFinish(t *testing.T) {
 			result := &tools.ToolResult{
 				ForLLM: fmt.Sprintf("result-%d", id),
 			}
-			// This should not panic, even if Finish() is called concurrently
-			deliverSubTurnResult(al, parentTS, fmt.Sprintf("child-%d", id), result)
+			// This should not panic, even if Finish() is called concurrently.
+			al.deliverAsyncResult(parentTS, asyncDelivery{
+				Origin: asyncOriginSubTurn,
+				Source: fmt.Sprintf("child-%d", id),
+				Result: result,
+			})
 		}(i)
 	}
 
 	wg.Wait()
+	al.flushDeferredFollowUps(parentTS)
 	time.Sleep(20 * time.Millisecond) // let event goroutine flush
 
 	// Get final counts
 	mu.Lock()
 	finalDelivered := deliveredCount
 	finalOrphan := orphanCount
+	finalFollowUp := followUpCount
 	mu.Unlock()
 
-	t.Logf("Delivered: %d, Orphan: %d, Total: %d", finalDelivered, finalOrphan, finalDelivered+finalOrphan)
+	t.Logf("Delivered: %d, Orphan: %d, FollowUp: %d", finalDelivered, finalOrphan, finalFollowUp)
 
-	// With the new drainPendingResults behavior, the total events may be >= numResults
-	// because Finish() drains remaining results from the channel and emits them as orphans.
-	// So we expect:
-	// - Some results were delivered successfully (before Finish())
-	// - Some results became orphans (after Finish() or channel full)
-	// - Some results were in the channel when Finish() was called and got drained as orphans
-	// The total should be at least numResults (could be more due to drain)
-	if finalDelivered+finalOrphan < numResults {
-		t.Errorf("Expected at least %d total events, got %d delivered + %d orphan = %d",
-			numResults, finalDelivered, finalOrphan, finalDelivered+finalOrphan)
-	}
-
-	// Should have at least some orphan results (those that arrived after Finish() or were drained)
-	if finalOrphan == 0 {
-		t.Error("Expected at least some orphan results after Finish()")
+	// Every result ends in exactly one terminal path: queued, drained as an
+	// orphan, or converted into a follow-up turn.
+	if total := finalDelivered + finalOrphan + finalFollowUp; total < numResults {
+		t.Errorf("Expected at least %d terminal deliveries, got %d", numResults, total)
 	}
 }
 
@@ -1377,7 +1372,7 @@ func TestConcurrencySemaphore_Timeout(t *testing.T) {
 		turnID:         "parent-timeout-test",
 		depth:          0,
 		session:        newEphemeralSession(nil),
-		pendingResults: make(chan *tools.ToolResult, 16),
+		deliveries:     newAsyncDeliveryQueue(16),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 	}
 	parentTS.ctx, parentTS.cancelFunc = context.WithCancel(ctx)
@@ -1477,7 +1472,7 @@ func TestContextWrapping_SingleLayer(t *testing.T) {
 		turnID:         "parent-context-test",
 		depth:          0,
 		session:        newEphemeralSession(nil),
-		pendingResults: make(chan *tools.ToolResult, 16),
+		deliveries:     newAsyncDeliveryQueue(16),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 	}
 	parentTS.ctx, parentTS.cancelFunc = context.WithCancel(ctx)
@@ -1504,7 +1499,7 @@ func TestContextWrapping_SingleLayer(t *testing.T) {
 }
 
 // TestSyncSubTurn_NoChannelDelivery verifies that synchronous sub-turns
-// do NOT deliver results to the pendingResults channel (only return directly).
+// do NOT queue results for async delivery (only return directly).
 func TestSyncSubTurn_NoChannelDelivery(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
@@ -1523,7 +1518,7 @@ func TestSyncSubTurn_NoChannelDelivery(t *testing.T) {
 		turnID:         "parent-sync-test",
 		depth:          0,
 		session:        newEphemeralSession(nil),
-		pendingResults: make(chan *tools.ToolResult, 16),
+		deliveries:     newAsyncDeliveryQueue(16),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 	}
 	parentTS.ctx, parentTS.cancelFunc = context.WithCancel(ctx)
@@ -1544,24 +1539,14 @@ func TestSyncSubTurn_NoChannelDelivery(t *testing.T) {
 		t.Error("Expected non-nil result from synchronous sub-turn")
 	}
 
-	// Verify the pendingResults channel is EMPTY
-	// (synchronous sub-turns should not deliver to channel)
-	select {
-	case r := <-parentTS.pendingResults:
-		t.Errorf("Expected empty channel for sync sub-turn, but got result: %v", r)
-	default:
-		// Expected: channel is empty
-		t.Log("Verified: synchronous sub-turn did not deliver to channel")
-	}
-
-	// Verify channel length is 0
-	if len(parentTS.pendingResults) != 0 {
-		t.Errorf("Expected channel length 0, got %d", len(parentTS.pendingResults))
+	// Synchronous sub-turns must not queue a second delivery.
+	if got := parentTS.pendingAsyncDeliveryCount(); got != 0 {
+		t.Errorf("Expected empty delivery queue for sync sub-turn, got %d", got)
 	}
 }
 
 // TestAsyncSubTurn_ChannelDelivery verifies that asynchronous sub-turns
-// DO deliver results to the pendingResults channel.
+// DO queue results for async delivery.
 func TestAsyncSubTurn_ChannelDelivery(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
@@ -1580,7 +1565,7 @@ func TestAsyncSubTurn_ChannelDelivery(t *testing.T) {
 		turnID:         "parent-async-test",
 		depth:          0,
 		session:        newEphemeralSession(nil),
-		pendingResults: make(chan *tools.ToolResult, 16),
+		deliveries:     newAsyncDeliveryQueue(16),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 	}
 	parentTS.ctx, parentTS.cancelFunc = context.WithCancel(ctx)
@@ -1601,15 +1586,9 @@ func TestAsyncSubTurn_ChannelDelivery(t *testing.T) {
 		t.Error("Expected non-nil result from asynchronous sub-turn")
 	}
 
-	// Verify the pendingResults channel has the result
-	select {
-	case r := <-parentTS.pendingResults:
-		if r == nil {
-			t.Error("Expected non-nil result from channel")
-		}
-		t.Log("Verified: asynchronous sub-turn delivered to channel")
-	case <-time.After(100 * time.Millisecond):
-		t.Error("Expected result in channel for async sub-turn, but channel was empty")
+	delivery, ok := parentTS.nextAsyncDelivery()
+	if !ok || delivery.Result == nil {
+		t.Error("Expected result in the async delivery queue")
 	}
 }
 
@@ -1645,7 +1624,7 @@ func TestGrandchildAbort_CascadingCancellation(t *testing.T) {
 		turnID:         "grandparent",
 		depth:          0,
 		session:        newEphemeralSession(nil),
-		pendingResults: make(chan *tools.ToolResult, 16),
+		deliveries:     newAsyncDeliveryQueue(16),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 		childTurnIDs:   []string{"parent"},
 		al:             al,
@@ -1695,10 +1674,10 @@ func TestGrandchildAbort_CascadingCancellation(t *testing.T) {
 func TestNestedSubTurn_GracefulFinishSignalsDirectChildren(t *testing.T) {
 	parentCtx := context.Background()
 	parentTS := &turnState{
-		ctx:            parentCtx,
-		turnID:         "parent-graceful",
-		depth:          1,
-		pendingResults: make(chan *tools.ToolResult, 16),
+		ctx:        parentCtx,
+		turnID:     "parent-graceful",
+		depth:      1,
+		deliveries: newAsyncDeliveryQueue(16),
 	}
 	parentTS.ctx, parentTS.cancelFunc = context.WithCancel(parentCtx)
 
@@ -1707,7 +1686,7 @@ func TestNestedSubTurn_GracefulFinishSignalsDirectChildren(t *testing.T) {
 		turnID:          "child-graceful",
 		depth:           2,
 		parentTurnState: parentTS,
-		pendingResults:  make(chan *tools.ToolResult, 16),
+		deliveries:      newAsyncDeliveryQueue(16),
 	}
 
 	if childTS.IsParentEnded() {
@@ -1744,7 +1723,7 @@ func TestSpawnDuringAbort_RaceCondition(t *testing.T) {
 		turnID:         "parent-abort-race",
 		depth:          0,
 		session:        newEphemeralSession(nil),
-		pendingResults: make(chan *tools.ToolResult, 16),
+		deliveries:     newAsyncDeliveryQueue(16),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 	}
 	parentTS.ctx, parentTS.cancelFunc = context.WithCancel(ctx)
@@ -1863,7 +1842,7 @@ func TestAsyncSubTurn_ParentFinishesEarly(t *testing.T) {
 		turnID:         "parent-fast",
 		depth:          0,
 		session:        newEphemeralSession(nil),
-		pendingResults: make(chan *tools.ToolResult, 16),
+		deliveries:     newAsyncDeliveryQueue(16),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 	}
 	parentTS.ctx, parentTS.cancelFunc = context.WithCancel(ctx)
@@ -1936,7 +1915,7 @@ func TestAsyncSubTurn_ParentWaitsForChild(t *testing.T) {
 		turnID:         "parent-wait",
 		depth:          0,
 		session:        newEphemeralSession(nil),
-		pendingResults: make(chan *tools.ToolResult, 16),
+		deliveries:     newAsyncDeliveryQueue(16),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 	}
 	parentTS.ctx, parentTS.cancelFunc = context.WithCancel(ctx)
@@ -1978,14 +1957,9 @@ func TestAsyncSubTurn_ParentWaitsForChild(t *testing.T) {
 		}
 	}
 
-	// Check channel delivery
-	select {
-	case r := <-parentTS.pendingResults:
-		if r != nil {
-			t.Logf("✓ Result delivered to channel: %s", r.ForLLM)
-		}
-	case <-time.After(100 * time.Millisecond):
-		t.Log("No result in channel (expected since we waited)")
+	// Check unified delivery queue.
+	if delivery, ok := parentTS.nextAsyncDelivery(); ok && delivery.Result != nil {
+		t.Logf("Result queued for delivery: %s", delivery.Result.ForLLM)
 	}
 }
 
@@ -2001,10 +1975,10 @@ func TestFinish_GracefulVsHard(t *testing.T) {
 		defer cancel()
 
 		ts := &turnState{
-			ctx:            ctx,
-			turnID:         "graceful-test",
-			depth:          0,
-			pendingResults: make(chan *tools.ToolResult, 16),
+			ctx:        ctx,
+			turnID:     "graceful-test",
+			depth:      0,
+			deliveries: newAsyncDeliveryQueue(16),
 		}
 		ts.ctx, ts.cancelFunc = context.WithCancel(ctx)
 
@@ -2029,10 +2003,10 @@ func TestFinish_GracefulVsHard(t *testing.T) {
 		ctx := context.Background()
 
 		ts := &turnState{
-			ctx:            ctx,
-			turnID:         "hard-test",
-			depth:          0,
-			pendingResults: make(chan *tools.ToolResult, 16),
+			ctx:        ctx,
+			turnID:     "hard-test",
+			depth:      0,
+			deliveries: newAsyncDeliveryQueue(16),
 		}
 		ts.ctx, ts.cancelFunc = context.WithCancel(ctx)
 
@@ -2053,10 +2027,10 @@ func TestFinish_GracefulVsHard(t *testing.T) {
 		ctx := context.Background()
 
 		parentTS := &turnState{
-			ctx:            ctx,
-			turnID:         "parent-isended-test",
-			depth:          0,
-			pendingResults: make(chan *tools.ToolResult, 16),
+			ctx:        ctx,
+			turnID:     "parent-isended-test",
+			depth:      0,
+			deliveries: newAsyncDeliveryQueue(16),
 		}
 		parentTS.ctx, parentTS.cancelFunc = context.WithCancel(ctx)
 
@@ -2065,7 +2039,7 @@ func TestFinish_GracefulVsHard(t *testing.T) {
 			turnID:          "child-isended-test",
 			depth:           1,
 			parentTurnState: parentTS,
-			pendingResults:  make(chan *tools.ToolResult, 16),
+			deliveries:      newAsyncDeliveryQueue(16),
 		}
 
 		// Before parent finishes
@@ -2103,7 +2077,7 @@ func TestSubTurn_IndependentContext(t *testing.T) {
 		turnID:         "parent-independent",
 		depth:          0,
 		session:        newEphemeralSession(nil),
-		pendingResults: make(chan *tools.ToolResult, 16),
+		deliveries:     newAsyncDeliveryQueue(16),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 	}
 	parentTS.ctx, parentTS.cancelFunc = context.WithCancel(ctx)
@@ -2235,7 +2209,7 @@ func TestSpawnSubTurn_TargetAgentID_UsesTargetAgent(t *testing.T) {
 		turnID:         "parent-alpha",
 		depth:          0,
 		childTurnIDs:   []string{},
-		pendingResults: make(chan *tools.ToolResult, 4),
+		deliveries:     newAsyncDeliveryQueue(4),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 		session:        &ephemeralSessionStore{},
 		agent:          alphaAgent,
@@ -2270,7 +2244,7 @@ func TestSpawnSubTurn_TargetAgentID_NotFound(t *testing.T) {
 		turnID:         "parent-alpha",
 		depth:          0,
 		childTurnIDs:   []string{},
-		pendingResults: make(chan *tools.ToolResult, 4),
+		deliveries:     newAsyncDeliveryQueue(4),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 		session:        &ephemeralSessionStore{},
 		agent:          alphaAgent,
@@ -2299,7 +2273,7 @@ func TestSpawnSubTurn_TargetAgentID_EmptyModelAccepted(t *testing.T) {
 		turnID:         "parent-alpha",
 		depth:          0,
 		childTurnIDs:   []string{},
-		pendingResults: make(chan *tools.ToolResult, 4),
+		deliveries:     newAsyncDeliveryQueue(4),
 		concurrencySem: make(chan struct{}, testMaxConcurrentSubTurns),
 		session:        &ephemeralSessionStore{},
 		agent:          alphaAgent,

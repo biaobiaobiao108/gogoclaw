@@ -208,7 +208,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 			// cross-worker cleanup issues.
 			placeholder := &turnState{
 				turnID:     makePendingTurnID(sessionKey, al.turnSeq.Add(1)),
-				phase:      TurnPhaseSetup,
+				lifecycle:  newTurnLifecycleAt(TurnPhaseSetup),
 				channel:    msg.Channel,
 				chatID:     msg.ChatID,
 				sessionKey: sessionKey,
@@ -744,7 +744,7 @@ func (al *AgentLoop) runAgentLoopClaimed(
 func (al *AgentLoop) claimSessionSlot(sessionKey string) (*turnState, error) {
 	placeholder := &turnState{
 		turnID:     makePendingTurnID(sessionKey, al.turnSeq.Add(1)),
-		phase:      TurnPhaseSetup,
+		lifecycle:  newTurnLifecycleAt(TurnPhaseSetup),
 		sessionKey: sessionKey,
 	}
 	if actual, loaded := al.activeTurnStates.LoadOrStore(sessionKey, placeholder); loaded {

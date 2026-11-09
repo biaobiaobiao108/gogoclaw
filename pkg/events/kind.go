@@ -35,6 +35,8 @@ const (
 	KindAgentSteeringInjected Kind = "agent.steering.injected"
 	// KindAgentFollowUpQueued is emitted when async follow-up input is queued.
 	KindAgentFollowUpQueued Kind = "agent.follow_up.queued"
+	// KindAgentAsyncResultDelivered is emitted when an async result enters a live turn.
+	KindAgentAsyncResultDelivered Kind = "agent.async.result_delivered"
 	// KindAgentInterruptReceived is emitted when a turn interrupt is accepted.
 	KindAgentInterruptReceived Kind = "agent.interrupt.received"
 
@@ -127,6 +129,7 @@ var knownKinds = []Kind{
 	KindAgentApprovalResolved,
 	KindAgentSteeringInjected,
 	KindAgentFollowUpQueued,
+	KindAgentAsyncResultDelivered,
 	KindAgentInterruptReceived,
 	KindAgentSubTurnSpawn,
 	KindAgentSubTurnEnd,

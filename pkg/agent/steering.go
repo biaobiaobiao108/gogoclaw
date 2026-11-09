@@ -421,8 +421,8 @@ func (al *AgentLoop) Continue(ctx context.Context, sessionKey, channel, chatID s
 	// check and create parallel turns. The placeholder is replaced by the real
 	// turnState inside continueWithSteeringMessages → runAgentLoop → registerActiveTurn.
 	placeholder := &turnState{
-		turnID: "pending-continue-" + sessionKey + "-" + fmt.Sprintf("%d", al.turnSeq.Add(1)),
-		phase:  TurnPhaseSetup,
+		turnID:    "pending-continue-" + sessionKey + "-" + fmt.Sprintf("%d", al.turnSeq.Add(1)),
+		lifecycle: newTurnLifecycleAt(TurnPhaseSetup),
 	}
 	if _, loaded := al.activeTurnStates.LoadOrStore(sessionKey, placeholder); loaded {
 		if active := al.GetActiveTurnBySession(sessionKey); active != nil {
@@ -542,9 +542,9 @@ func (al *AgentLoop) InterruptHard() error {
 
 // ====================== SubTurn Result Polling ======================
 
-// dequeuePendingSubTurnResults polls the SubTurn result channel for the given
-// session and returns all available results without blocking.
-// Returns nil if no active turn state exists for this session.
+// dequeuePendingSubTurnResults drains async completions for a session.
+// It is retained for tools and tests that inspect pending background work;
+// the turn loop itself consumes results through consumeAsyncDeliveries.
 func (al *AgentLoop) dequeuePendingSubTurnResults(sessionKey string) []*tools.ToolResult {
 	tsInterface, ok := al.activeTurnStates.Load(sessionKey)
 	if !ok {
@@ -555,20 +555,17 @@ func (al *AgentLoop) dequeuePendingSubTurnResults(sessionKey string) []*tools.To
 		return nil
 	}
 
-	var results []*tools.ToolResult
-	for {
-		select {
-		case result, ok := <-ts.pendingResults:
-			if !ok {
-				return results
-			}
-			if result != nil {
-				results = append(results, result)
-			}
-		default:
-			return results
+	deliveries := ts.drainAsyncDeliveries()
+	if len(deliveries) == 0 {
+		return nil
+	}
+	results := make([]*tools.ToolResult, 0, len(deliveries))
+	for _, delivery := range deliveries {
+		if delivery.Result != nil {
+			results = append(results, delivery.Result)
 		}
 	}
+	return results
 }
 
 // ====================== Hard Abort ======================

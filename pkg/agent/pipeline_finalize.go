@@ -34,7 +34,6 @@ func (p *Pipeline) Finalize(
 		if ts.hardAbortRequested() {
 			return al.abortTurn(ts)
 		}
-		ts.setPhase(TurnPhaseCompleted)
 		return turnResult{
 			finalContent: finalContent,
 			modelName:    exec.llmModelName,
@@ -44,7 +43,6 @@ func (p *Pipeline) Finalize(
 	}
 
 	responseID := assistantResponseID(ts, exec)
-	ts.setPhase(TurnPhaseFinalizing)
 	ts.setFinalContent(finalContent)
 	if !ts.opts.NoHistory {
 		finalMsg := providers.Message{
@@ -123,7 +121,6 @@ func (p *Pipeline) Finalize(
 		msg.ID = responseID
 		msg.ContextUsage = contextUsage
 		if err := al.publishTrackedOutbound(turnCtx, ts.sessionKey, msg); err != nil {
-			ts.setPhase(TurnPhaseCompleted)
 			return turnResult{
 				finalContent: finalContent,
 				status:       TurnEndStatusError,
@@ -133,14 +130,12 @@ func (p *Pipeline) Finalize(
 		responsePublished = true
 	}
 	if streamErr != nil && isConfiguredStreamingVisibleError(streamErr) {
-		ts.setPhase(TurnPhaseCompleted)
 		return turnResult{
 			finalContent: finalContent,
 			status:       TurnEndStatusError,
 			followUps:    append([]bus.InboundMessage(nil), ts.followUps...),
 		}, streamErr
 	}
-	ts.setPhase(TurnPhaseCompleted)
 	return turnResult{
 		finalContent:      finalContent,
 		modelName:         exec.llmModelName,

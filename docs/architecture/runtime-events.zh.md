@@ -101,10 +101,11 @@ GOGOCLAW_EVENTS_LOGGING_INCLUDE_PAYLOAD=false
 | `agent.approval.resolved` | 人工审批被批准、拒绝、超时或取消时 | `approval_id`, `tool`, `tool_call_id`, `status`, `scope`, `reason` |
 | `agent.steering.injected` | queued steering message 被注入下一轮 LLM 上下文时 | `count`, `total_content_len` |
 | `agent.follow_up.queued` | async 工具结果被重新排入 inbound/follow-up 流程时 | `source_tool`, `content_len` |
+| `agent.async.result_delivered` | async 子任务或工具结果注入活跃 turn 时 | `origin`, `source`, `content_len` |
 | `agent.interrupt.received` | turn 接受 steering、graceful interrupt 或 hard abort 指令时 | `interrupt_kind`, `role`, `content_len`, `queue_depth`, `hint_len` |
 | `agent.subturn.spawn` | 父 turn 创建子 turn/subagent 时 | `child_agent_id`, `label`, `parent_turn_id` |
 | `agent.subturn.end` | 子 turn 结束时 | `child_agent_id`, `status` |
-| `agent.subturn.result_delivered` | 子 turn 结果成功投递到目标 channel/chat 时 | `target_channel`, `target_chat_id`, `content_len` |
+| `agent.subturn.result_delivered` | 子 turn 结果进入父 turn 的 async 交付队列时 | `content_len` |
 | `agent.subturn.orphan` | 子 turn 结果无法投递或无法关联回父 turn 时 | `parent_turn_id`, `child_turn_id`, `reason` |
 | `agent.error` | agent 执行流程报告错误时 | `stage`, `error` |
 

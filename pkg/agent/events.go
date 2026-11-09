@@ -37,6 +37,7 @@ const (
 	EventKindToolExecSkipped        EventKind = runtimeevents.KindAgentToolExecSkipped
 	EventKindSteeringInjected       EventKind = runtimeevents.KindAgentSteeringInjected
 	EventKindFollowUpQueued         EventKind = runtimeevents.KindAgentFollowUpQueued
+	EventKindAsyncResultDelivered   EventKind = runtimeevents.KindAgentAsyncResultDelivered
 	EventKindInterruptReceived      EventKind = runtimeevents.KindAgentInterruptReceived
 	EventKindSubTurnSpawn           EventKind = runtimeevents.KindAgentSubTurnSpawn
 	EventKindSubTurnEnd             EventKind = runtimeevents.KindAgentSubTurnEnd

@@ -98,11 +98,10 @@ type subTurnRuntimeConfig struct {
 //	cfg := SubTurnConfig{
 //	    Model: "gpt-4o-mini",
 //	    SystemPrompt: "Background analysis",
-//	    Async: true,  // Result delivered to channel
+//	    Async: true,  // Result also queued for the parent turn
 //	}
 //	result, err := SpawnSubTurn(ctx, cfg)
-//	// Result also available in parent's pendingResults channel
-//	// Parent turn will poll and process it in a later iteration
+//	// Result is also processed by the parent's unified async delivery queue
 type SubTurnConfig struct {
 	Model        string
 	Tools        []tools.Tool
@@ -110,26 +109,25 @@ type SubTurnConfig struct {
 	MaxTokens    int
 	Temperature  float64
 
-	// Async controls the result delivery mechanism:
+	// Async controls whether a completed child turn is also handed to the
+	// parent's unified async delivery queue.
 	//
 	// When Async = false (synchronous sub-turn):
 	//   - The caller blocks until the sub-turn completes
 	//   - The result is ONLY returned via the function return value
-	//   - The result is NOT delivered to the parent's pendingResults channel
-	//   - This prevents double delivery: caller gets result immediately, no need for channel
+	//   - No async delivery is queued
 	//   - Use case: When the caller needs the result immediately to continue execution
 	//   - Example: A tool that needs to process the sub-turn result before returning
 	//
 	// When Async = true (asynchronous sub-turn):
 	//   - The sub-turn runs in the background (still blocks the caller, but semantically async)
-	//   - The result is delivered to the parent's pendingResults channel
-	//   - The result is ALSO returned via the function return value (for consistency)
-	//   - The parent turn can poll pendingResults in later iterations to process results
+	//   - The result is returned via the function return value
+	//   - The same result is handed to deliverAsyncResult for the parent turn
 	//   - Use case: Fire-and-forget operations, or when results are processed in batches
 	//   - Example: Spawning multiple sub-turns in parallel and collecting results later
 	//
 	// IMPORTANT: The Async flag does NOT make the call non-blocking. It only controls
-	// whether the result is delivered via the channel. For true non-blocking execution,
+	// whether the result is also queued asynchronously. For true non-blocking execution,
 	// the caller must spawn the sub-turn in a separate goroutine.
 	Async bool
 
@@ -298,11 +296,8 @@ func spawnSubTurn(
 	// 0. Acquire concurrency semaphore FIRST to ensure it's released even if early validation fails.
 	// Blocks if parent already has maxConcurrentSubTurns running, with a timeout to prevent indefinite blocking.
 	// Also respects context cancellation so we don't block forever if parent is aborted.
-	// NOTE: The semaphore is released immediately after runTurn completes (not in a defer) to
-	// ensure it is freed before the cleanup phase (async result delivery), which may block on
-	// a full pendingResults channel. Holding the semaphore through cleanup would allow the
-	// parent's goroutine to be blocked waiting for a semaphore slot while child turns are
-	// blocked delivering results — a deadlock.
+	// NOTE: The semaphore is released immediately after runTurn completes (not in a
+	// defer) so cleanup cannot delay another child from acquiring a slot.
 	var semAcquired bool
 	if parentTS.concurrencySem != nil {
 		// Create a timeout context for semaphore acquisition
@@ -454,7 +449,6 @@ func spawnSubTurn(
 	childTS.depth = parentTS.depth + 1
 	childTS.parentTurnID = parentTS.turnID
 	childTS.parentTurnState = parentTS
-	childTS.pendingResults = make(chan *tools.ToolResult, 16)
 	childTS.concurrencySem = make(chan struct{}, rtCfg.maxConcurrent)
 	childTS.al = al                  // back-ref for hard abort cascade
 	childTS.session = ephemeralStore // same store as agent.Sessions
@@ -529,7 +523,19 @@ func spawnSubTurn(
 
 		// Result Delivery Strategy (Async vs Sync)
 		if cfg.Async {
-			deliverSubTurnResult(al, parentTS, childID, result)
+			delivered := result
+			if delivered == nil {
+				message := "SubTurn completed without a result"
+				if err != nil {
+					message = fmt.Sprintf("SubTurn failed: %v", err)
+				}
+				delivered = &tools.ToolResult{ForLLM: message, IsError: err != nil, Err: err}
+			}
+			al.deliverAsyncResult(parentTS, asyncDelivery{
+				Origin: asyncOriginSubTurn,
+				Source: childID,
+				Result: delivered,
+			})
 		}
 
 		status := "completed"
@@ -550,11 +556,7 @@ func spawnSubTurn(
 	turnRes, turnErr := al.runTurn(childCtx, childTS, pipeline)
 
 	// Release the concurrency semaphore immediately after runTurn completes,
-	// before the cleanup defer runs. This prevents a deadlock where:
-	// - All semaphore slots are held by sub-turns in their cleanup phase
-	// - Cleanup blocks on a full pendingResults channel
-	// - The parent goroutine is blocked waiting for a semaphore slot
-	// - The parent cannot consume pendingResults because it is blocked on the semaphore
+	// before the cleanup defer runs. Async delivery itself never blocks.
 	if semAcquired {
 		<-parentTS.concurrencySem
 		semAcquired = false // prevent the defer from double-releasing
@@ -575,97 +577,6 @@ func spawnSubTurn(
 	}
 
 	return result, err
-}
-
-// ====================== Result Delivery ======================
-
-// deliverSubTurnResult delivers a sub-turn result to the parent turn's pendingResults channel.
-//
-// IMPORTANT: This function is ONLY called for asynchronous sub-turns (Async=true).
-// For synchronous sub-turns (Async=false), results are returned directly via the function
-// return value to avoid double delivery.
-//
-// Delivery behavior:
-//   - If parent turn is still running: attempts to deliver to pendingResults channel
-//   - If channel is full: emits agent.subturn.orphan (result is lost from channel but tracked)
-//   - If parent turn has finished: emits agent.subturn.orphan (late arrival)
-//
-// Thread safety:
-//   - Reads parent state under lock, then releases lock before channel send
-//
-// Event emissions:
-//   - agent.subturn.result_delivered: successful delivery to channel
-//   - agent.subturn.orphan: delivery failed (parent finished or channel full)
-func deliverSubTurnResult(al *AgentLoop, parentTS *turnState, childID string, result *tools.ToolResult) {
-	parentTS.mu.Lock()
-	isFinished := parentTS.isFinished.Load()
-	resultChan := parentTS.pendingResults
-	finishedChan := parentTS.finishedChan
-	if finishedChan == nil {
-		finishedChan = make(chan struct{})
-		parentTS.finishedChan = finishedChan
-	}
-	parentTS.mu.Unlock()
-
-	// If parent turn has already finished, treat this as an orphan result
-	if isFinished || resultChan == nil {
-		if result != nil && al != nil {
-			al.emitEvent(runtimeevents.KindAgentSubTurnOrphan,
-				parentTS.eventMeta("deliverSubTurnResult", "subturn.orphan"),
-				SubTurnOrphanPayload{ParentTurnID: parentTS.turnID, ChildTurnID: childID, Reason: "parent_finished"},
-			)
-		}
-		return
-	}
-	// Parent Turn is still running → attempt to deliver result
-	// We use a select statement with parentTS.Finished() to ensure that if the
-	// parent turn finishes while we are waiting to send the result (e.g. channel
-	// is full), we don't leak this goroutine by blocking forever.
-	select {
-	case resultChan <- result:
-		if parentTS.isFinished.Load() {
-			if result != nil && al != nil {
-				al.emitEvent(runtimeevents.KindAgentSubTurnOrphan,
-					parentTS.eventMeta("deliverSubTurnResult", "subturn.orphan"),
-					SubTurnOrphanPayload{
-						ParentTurnID: parentTS.turnID,
-						ChildTurnID:  childID,
-						Reason:       "parent_finished_after_send",
-					},
-				)
-			}
-			return
-		}
-		// Successfully delivered to a running parent.
-		if al != nil {
-			contentLen := 0
-			if result != nil {
-				contentLen = len(result.ForLLM)
-			}
-			al.emitEvent(runtimeevents.KindAgentSubTurnResultDelivered,
-				parentTS.eventMeta("deliverSubTurnResult", "subturn.result_delivered"),
-				SubTurnResultDeliveredPayload{ContentLen: contentLen},
-			)
-		}
-	case <-finishedChan:
-		// Parent finished while we were waiting to deliver.
-		// The result cannot be delivered to the LLM, so it becomes an orphan.
-		logger.WarnCF("subturn", "parent finished before result could be delivered", map[string]any{
-			"parent_id": parentTS.turnID,
-			"child_id":  childID,
-		})
-		if result != nil && al != nil {
-			al.emitEvent(
-				runtimeevents.KindAgentSubTurnOrphan,
-				parentTS.eventMeta("deliverSubTurnResult", "subturn.orphan"),
-				SubTurnOrphanPayload{
-					ParentTurnID: parentTS.turnID,
-					ChildTurnID:  childID,
-					Reason:       "parent_finished_waiting",
-				},
-			)
-		}
-	}
 }
 
 // ====================== Other Types ======================

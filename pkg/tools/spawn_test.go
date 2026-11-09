@@ -99,7 +99,7 @@ func TestSpawnTool_Execute_ValidTask(t *testing.T) {
 		t.Error("SpawnTool should mark background subturns as critical")
 	}
 	if spawner.lastConfig.Async {
-		t.Error("SpawnTool must use callback delivery instead of pendingResults delivery")
+		t.Error("SpawnTool must use callback delivery instead of the parent async queue")
 	}
 }
 

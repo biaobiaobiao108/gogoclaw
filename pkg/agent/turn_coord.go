@@ -19,14 +19,6 @@ import (
 
 const maxTurnCheckpointEvents = 128
 
-type turnLoopState uint8
-
-const (
-	turnLoopModel turnLoopState = iota
-	turnLoopTools
-	turnLoopDone
-)
-
 func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipeline) (result turnResult, retErr error) {
 	if ts.al == nil {
 		ts.al = al
@@ -52,7 +44,9 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 	turnCtx = WithAgentLoop(turnCtx, al)
 
 	al.registerActiveTurn(ts)
+	defer al.flushDeferredFollowUps(ts)
 	defer al.clearActiveTurn(ts)
+	turnStatus := TurnEndStatusCompleted
 	if ts.agent != nil {
 		var providerRefs []providers.LLMProvider
 		addProvider := func(provider providers.LLMProvider) {
@@ -76,11 +70,15 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		}()
 	}
 	defer func() {
+		ts.Finish(ts.phaseSnapshot() == TurnPhaseAborted || ts.hardAbortRequested())
+	}()
+	defer func() {
 		if r := recover(); r != nil {
+			turnStatus = TurnEndStatusError
+			_ = ts.finishLifecycle(TurnPhaseFailed)
 			ts.Finish(true)
 			panic(r)
 		}
-		ts.Finish(ts.hardAbortRequested())
 	}()
 	defer func() {
 		ts.mu.Lock()
@@ -94,7 +92,6 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		_ = ts.requestHardAbort()
 	}
 
-	turnStatus := TurnEndStatusCompleted
 	if !ts.opts.NoHistory {
 		if err := ts.saveTurnCheckpoint("running", ""); err != nil {
 			return turnResult{}, fmt.Errorf("save turn checkpoint: %w", err)
@@ -146,8 +143,37 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 				SkillContextSnapshots: skillContextSnapshots,
 				ToolKinds:             ts.toolKindsSnapshot(),
 				ToolExecutions:        ts.toolExecutionsSnapshot(),
+				PhaseHistory:          ts.phaseHistory(),
 			},
 		)
+	}()
+	defer func() {
+		terminal := TurnPhaseCompleted
+		switch {
+		case ts.hardAbortRequested() || turnStatus == TurnEndStatusAborted:
+			terminal = TurnPhaseAborted
+		case retErr != nil || turnStatus == TurnEndStatusError || result.status == TurnEndStatusError:
+			terminal = TurnPhaseFailed
+		}
+		if err := ts.finishLifecycle(terminal); err != nil {
+			logger.ErrorCF("agent", "Illegal turn lifecycle transition", map[string]any{
+				"turn_id": ts.turnID,
+				"phase":   ts.phaseSnapshot(),
+				"target":  terminal,
+				"error":   err.Error(),
+			})
+			if retErr == nil {
+				retErr = err
+			}
+		}
+	}()
+	defer func() {
+		if r := recover(); r != nil {
+			turnStatus = TurnEndStatusError
+			_ = ts.finishLifecycle(TurnPhaseFailed)
+			ts.Finish(true)
+			panic(r)
+		}
 	}()
 
 	if ts.hardAbortRequested() {
@@ -172,24 +198,28 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 	}
 	defer exec.closeOwnedProviders()
 
+	if err := ts.transitionPhase(TurnPhaseRunning); err != nil {
+		turnStatus = TurnEndStatusError
+		return turnResult{}, err
+	}
+
 	// Convenience references to exec fields used throughout the turn loop.
 	messages := exec.messages
 	pendingMessages := exec.pendingMessages
 	maxMediaSize := pipeline.Cfg.Agents.Defaults.GetMaxMediaSize()
 	finalContent := exec.finalContent
-
-	loopState := turnLoopModel
 	finalizedEarly := false
 
 turnLoop:
 	for {
-		switch loopState {
-		case turnLoopDone:
-			break turnLoop
-
-		case turnLoopModel:
+		switch ts.phaseSnapshot() {
+		case TurnPhaseRunning:
 			if !ts.canStartModelCall(len(exec.pendingMessages) > 0) {
-				break turnLoop
+				if err := ts.transitionPhase(TurnPhaseFinalizing); err != nil {
+					turnStatus = TurnEndStatusError
+					return turnResult{}, err
+				}
+				continue
 			}
 			if ts.hardAbortRequested() {
 				turnStatus = TurnEndStatusAborted
@@ -198,7 +228,6 @@ turnLoop:
 
 			iteration := ts.currentIteration() + 1
 			ts.setIteration(iteration)
-			ts.setPhase(TurnPhaseRunning)
 			if !ts.opts.NoHistory {
 				if err := ts.saveTurnCheckpoint("running", ""); err != nil {
 					turnStatus = TurnEndStatusError
@@ -209,8 +238,6 @@ turnLoop:
 			if iteration > 1 {
 				// For subsequent iterations, read from exec.pendingMessages which
 				// is where ExecuteTools (or initial poll) deposits steering.
-				// We do NOT call dequeueSteeringMessagesForScope here because
-				// steering was already consumed from al.steering by ExecuteTools.
 				if len(exec.pendingMessages) > 0 {
 					pendingMessages = append(pendingMessages, exec.pendingMessages...)
 					exec.pendingMessages = nil
@@ -236,20 +263,6 @@ turnLoop:
 					"iteration": iteration,
 					"turn_id":   ts.turnID,
 				})
-			}
-
-			// Poll for pending SubTurn results (from HEAD)
-			if ts.pendingResults != nil {
-				select {
-				case result, ok := <-ts.pendingResults:
-					if ok && result != nil && result.ForLLM != "" {
-						content := al.cfg.FilterSensitiveData(result.ForLLM)
-						msg := subTurnResultPromptMessage(content)
-						pendingMessages = append(pendingMessages, msg)
-					}
-				default:
-					// No results available
-				}
 			}
 
 			// Inject pending steering messages
@@ -286,11 +299,16 @@ turnLoop:
 						TotalContentLen: totalContentLen,
 					},
 				)
-				// Clear exec.pendingMessages after injection so InitialSteeringMessages
-				// are not re-injected on subsequent iterations (Issue 2 fix).
 				exec.pendingMessages = nil
 			}
-			// Always sync messages into exec.messages so CallLLM sees the updated state
+
+			// Async completions are consumed exactly once, here, before the
+			// next model call. No pipeline stage polls a private result channel.
+			if err := al.consumeAsyncDeliveries(turnCtx, ts, &messages); err != nil {
+				turnStatus = TurnEndStatusError
+				return turnResult{}, err
+			}
+
 			if ts.maxContextRunes > 0 {
 				before := len(messages)
 				messages = trimMessagesToRuneLimit(messages, ts.maxContextRunes)
@@ -312,7 +330,6 @@ turnLoop:
 					"max":       ts.budget.MaxIterations,
 				})
 
-			ts.setPhase(TurnPhaseRunning)
 			ctrl, callErr := pipeline.CallLLM(ctx, turnCtx, ts, exec, iteration)
 			if callErr != nil {
 				ts.setEndReason(TurnEndReasonProviderError)
@@ -325,7 +342,6 @@ turnLoop:
 
 			switch ctrl {
 			case ControlContinue:
-				loopState = turnLoopModel
 			case ControlBreak:
 				if exec.abortedByHardAbort {
 					turnStatus = TurnEndStatusAborted
@@ -338,18 +354,30 @@ turnLoop:
 				if finalContent == "" {
 					finalContent = ts.opts.DefaultResponse
 				}
+				if ts.hasPendingAsyncDeliveries() && !ts.hardAbortRequested() {
+					continue
+				}
 				finalizedEarly = true
-				loopState = turnLoopDone
+				if err := ts.transitionPhase(TurnPhaseFinalizing); err != nil {
+					turnStatus = TurnEndStatusError
+					return turnResult{}, err
+				}
 			case ControlToolLoop:
-				loopState = turnLoopTools
+				if err := ts.transitionPhase(TurnPhaseTools); err != nil {
+					turnStatus = TurnEndStatusError
+					return turnResult{}, err
+				}
 			}
 
-		case turnLoopTools:
+		case TurnPhaseTools:
 			toolCtrl := pipeline.ExecuteTools(ctx, turnCtx, ts, exec, ts.currentIteration())
 			switch toolCtrl {
 			case ToolControlContinue:
 				messages = exec.messages
-				loopState = turnLoopModel
+				if err := ts.transitionPhase(TurnPhaseRunning); err != nil {
+					turnStatus = TurnEndStatusError
+					return turnResult{}, err
+				}
 			case ToolControlBreak, ToolControlFinalize:
 				if exec.executionErr != nil {
 					turnStatus = TurnEndStatusError
@@ -366,12 +394,29 @@ turnLoop:
 				if exec.allResponsesHandled {
 					finalContent = ""
 				}
+				if ts.hasPendingAsyncDeliveries() && !ts.hardAbortRequested() {
+					if err := ts.transitionPhase(TurnPhaseRunning); err != nil {
+						turnStatus = TurnEndStatusError
+						return turnResult{}, err
+					}
+					continue
+				}
 				finalizedEarly = true
-				loopState = turnLoopDone
+				if err := ts.transitionPhase(TurnPhaseFinalizing); err != nil {
+					turnStatus = TurnEndStatusError
+					return turnResult{}, err
+				}
 			default:
 				turnStatus = TurnEndStatusError
 				return turnResult{}, fmt.Errorf("unknown tool control state %d", toolCtrl)
 			}
+
+		case TurnPhaseFinalizing:
+			break turnLoop
+
+		default:
+			turnStatus = TurnEndStatusError
+			return turnResult{}, fmt.Errorf("turn entered unexpected phase %s", ts.phaseSnapshot())
 		}
 	}
 
@@ -392,12 +437,15 @@ turnLoop:
 		}
 	}
 
-	// Check hard abort before finalizing (may have been set during tool execution)
 	if ts.hardAbortRequested() {
 		turnStatus = TurnEndStatusAborted
 		return al.abortTurn(ts)
 	}
 
+	if err := ts.transitionPhase(TurnPhaseFinalizing); err != nil {
+		turnStatus = TurnEndStatusError
+		return turnResult{}, err
+	}
 	result, err = pipeline.Finalize(ctx, turnCtx, ts, exec, turnStatus, finalContent)
 	if err != nil {
 		turnStatus = TurnEndStatusError
@@ -517,7 +565,9 @@ func (ts *turnState) saveTurnCheckpoint(status, tool string) error {
 }
 
 func (al *AgentLoop) abortTurn(ts *turnState) (turnResult, error) {
-	ts.setPhase(TurnPhaseAborted)
+	if err := ts.transitionPhase(TurnPhaseAborted); err != nil {
+		return turnResult{}, err
+	}
 	if !ts.opts.NoHistory {
 		// Close any unfinished tool call with an explicitly uncertain result.
 		// A canceled tool may already have performed its side effect, so it must

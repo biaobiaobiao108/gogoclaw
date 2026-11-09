@@ -10,8 +10,8 @@ import (
 
 func TestGetActiveTurnByConversationIsScoped(t *testing.T) {
 	al := &AgentLoop{}
-	al.activeTurnStates.Store("one", &turnState{turnID: "one", channel: "pico", chatID: "pico:one", phase: TurnPhaseRunning})
-	al.activeTurnStates.Store("two", &turnState{turnID: "two", channel: "pico", chatID: "pico:two", phase: TurnPhaseTools})
+	al.activeTurnStates.Store("one", &turnState{turnID: "one", channel: "pico", chatID: "pico:one", lifecycle: newTurnLifecycleAt(TurnPhaseRunning)})
+	al.activeTurnStates.Store("two", &turnState{turnID: "two", channel: "pico", chatID: "pico:two", lifecycle: newTurnLifecycleAt(TurnPhaseTools)})
 	got := al.GetActiveTurnByConversation("pico", "pico:two")
 	if got == nil || got.TurnID != "two" || got.Phase != TurnPhaseTools {
 		t.Fatalf("unexpected snapshot: %+v", got)

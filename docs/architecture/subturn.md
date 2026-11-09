@@ -28,12 +28,12 @@ When spawning a SubTurn, you must provide a `SubTurnConfig`:
 | `SystemPrompt` | `string` | The task description for the sub-turn. Sent as the first user message to the LLM (not as a system prompt override). |
 | `ActualSystemPrompt` | `string` | Optional explicit system prompt to replace the agent's default. Leave empty to inherit the parent agent's system prompt. |
 | `MaxTokens` | `int` | Maximum tokens for the generated response. |
-| `Async` | `bool` | Controls the result delivery mode (Synchronous vs. Asynchronous). |
+| `Async` | `bool` | Controls whether the result is also queued through the unified async delivery path. |
 | `Critical` | `bool` | If `true`, the sub-turn continues running even if the parent finishes gracefully. |
 | `Timeout` | `time.Duration` | Maximum execution time (default: 5 minutes). |
 | `MaxContextRunes`| `int` | Soft context limit. `0` = auto-calculate (75% of model's context window, recommended), `-1` = no limit (disable soft truncation, rely only on hard context error recovery), `>0` = use specified rune limit. |
 
-> **Note:** The `Async` flag does **not** make the call non-blocking. It only controls whether the result is also delivered to the parent's `pendingResults` channel. Both modes block the caller until the sub-turn completes. For true non-blocking execution, the caller must spawn the sub-turn in a separate goroutine.
+> **Note:** The `Async` flag does **not** make the call non-blocking. It only controls whether the result is also queued for the parent turn. Both modes block the caller until the sub-turn completes. For true non-blocking execution, the caller must spawn the sub-turn in a separate goroutine.
 
 ## Execution Modes
 
@@ -43,7 +43,7 @@ This is the standard mode where the caller needs the result immediately to proce
 
 - The caller blocks until the sub-turn completes.
 - The result is **only** returned directly via the function return value.
-- It is **not** delivered to the parent's pending results channel.
+- No async delivery is queued.
 
 **Example:**
 ```go
@@ -60,9 +60,9 @@ result, err := agent.SpawnSubTurn(ctx, cfg)
 
 Used for "fire-and-forget" operations or parallel processing where the parent turn collects results later.
 
-- The result is delivered to the parent turn's `pendingResults` channel.
+- The result is delivered through the unified async delivery queue.
 - The result is **also** returned via the function return value (for consistency).
-- The parent's Agent Loop will poll this channel in subsequent iterations and automatically inject the results into the ongoing conversation context as `[SubTurn Result]`.
+- The parent turn consumes the queue exactly once before its next model call and injects the result as `[SubTurn Result]`.
 
 **Example:**
 ```go
@@ -231,23 +231,18 @@ SubTurns are designed for concurrent execution:
 - **Parent-child relationships**: Managed under mutex (`parentTS.mu.Lock()`)
 - **Active turn tracking**: Uses `sync.Map` for concurrent access to `activeTurnStates`
 - **ID generation**: Uses `atomic.Int64` for unique SubTurn IDs (format: `subturn-N`, globally monotonic per `AgentLoop` instance)
-- **Result delivery**: Reads parent state under lock, releases before channel send (small race window acceptable)
+- **Result delivery**: All producers push into the parent's unified async delivery queue. The queue never blocks; overflow is converted into a follow-up turn.
 
-## Orphan Results
+## Async Result Delivery
 
-An orphan result occurs when:
-1. Parent turn finishes before the SubTurn completes
-2. The `pendingResults` channel is full (buffer size: 16)
+Sub-turns and async tools share one delivery model:
 
-When a result becomes orphan:
-- `agent.subturn.orphan` is emitted to the runtime event bus
-- The result is **NOT** delivered to the LLM context
-- External systems can listen to this event for custom handling
+1. A live turn receives the result in its async delivery queue.
+2. The turn consumes the queue once before the next model call.
+3. If the turn has already stopped, or the queue is full, the result is parked until the turn is unregistered and then published as a follow-up inbound turn.
+4. A hard abort discards the result and emits `agent.subturn.orphan` for sub-turns.
 
-### Preventing Orphan Results
-- Use `Critical: true` for important SubTurns that must complete
-- Monitor `agent.subturn.orphan` for observability
-- Consider the 16-buffer limit when spawning many async SubTurns
+Follow-up delivery is lossless and never blocks a producer. The 16-item queue is a fast path, not a durability boundary.
 
 ## Tool Inheritance
 
@@ -279,5 +274,5 @@ cfg := agent.SubTurnConfig{
 | `concurrencyTimeout` | 30s |
 | `defaultSubTurnTimeout` | 5m |
 | `maxEphemeralHistorySize` | 50 messages |
-| `pendingResults` buffer | 16 |
+| Async delivery queue | 16 |
 | `MaxContextRunes` default | 75% of model context window |

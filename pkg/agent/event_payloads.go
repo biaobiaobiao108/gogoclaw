@@ -74,6 +74,7 @@ type TurnEndPayload struct {
 	SkillContextSnapshots []SkillContextSnapshot
 	ToolKinds             []string
 	ToolExecutions        []ToolExecutionRecord
+	PhaseHistory          []TurnPhaseTransition
 }
 
 // LLMRequestPayload describes an outbound LLM request.
@@ -168,6 +169,13 @@ type SteeringInjectedPayload struct {
 // FollowUpQueuedPayload describes an async follow-up queued back into the inbound bus.
 type FollowUpQueuedPayload struct {
 	SourceTool string
+	ContentLen int
+}
+
+// AsyncResultDeliveredPayload describes a background result injected into a live turn.
+type AsyncResultDeliveredPayload struct {
+	Origin     string
+	Source     string
 	ContentLen int
 }
 

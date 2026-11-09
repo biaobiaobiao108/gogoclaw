@@ -613,10 +613,12 @@ func TestAgentLoop_EmitsFollowUpQueuedEvent(t *testing.T) {
 	msgBus := bus.NewMessageBus()
 	al := NewAgentLoop(cfg, msgBus, provider)
 	doneCh := make(chan struct{})
+	release := make(chan struct{})
 	al.RegisterTool(&asyncFollowUpTool{
 		name:          "async_followup",
 		followUpText:  "background result",
 		completionSig: doneCh,
+		release:       release,
 	})
 	defaultAgent := al.registry.GetDefaultAgent()
 	if defaultAgent == nil {
@@ -646,6 +648,7 @@ func TestAgentLoop_EmitsFollowUpQueuedEvent(t *testing.T) {
 	if resp != "async launched" {
 		t.Fatalf("expected final response 'async launched', got %q", resp)
 	}
+	close(release)
 
 	select {
 	case <-doneCh:
@@ -699,6 +702,7 @@ type asyncFollowUpTool struct {
 	name          string
 	followUpText  string
 	completionSig chan struct{}
+	release       <-chan struct{}
 }
 
 func (t *asyncFollowUpTool) Name() string {
@@ -726,6 +730,9 @@ func (t *asyncFollowUpTool) ExecuteAsync(
 	cb tools.AsyncCallback,
 ) *tools.ToolResult {
 	go func() {
+		if t.release != nil {
+			<-t.release
+		}
 		cb(ctx, &tools.ToolResult{ForLLM: t.followUpText})
 		if t.completionSig != nil {
 			close(t.completionSig)

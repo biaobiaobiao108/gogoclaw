@@ -322,7 +322,7 @@ func registerSharedTools(
 						turnID:         "adhoc-root",
 						depth:          0,
 						session:        nil, // Ephemeral session not needed for adhoc spawn
-						pendingResults: make(chan *tools.ToolResult, 16),
+						deliveries:     newAsyncDeliveryQueue(defaultAsyncDeliveryCapacity),
 						concurrencySem: make(chan struct{}, 5),
 					}
 				}

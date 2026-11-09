@@ -286,7 +286,7 @@ func TestSelectBranchRejectsActiveTurnAndRestoresHistory(t *testing.T) {
 		sessionKey: sessionKey,
 		channel:    "pico",
 		chatID:     "pico:" + sessionID,
-		phase:      TurnPhaseRunning,
+		lifecycle:  newTurnLifecycleAt(TurnPhaseRunning),
 	})
 	if err := al.SelectBranch(context.Background(), sessionID, "answer-1"); err == nil {
 		t.Fatal("branch switch succeeded during an active turn")

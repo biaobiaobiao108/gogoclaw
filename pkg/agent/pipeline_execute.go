@@ -219,7 +219,6 @@ func (p *Pipeline) ExecuteTools(
 	al := p.al
 	normalizedToolCalls := exec.normalizedToolCalls
 
-	ts.setPhase(TurnPhaseTools)
 	messages := exec.messages
 	handledAttachments := make([]providers.Attachment, 0)
 	toolBatchID := ts.beginToolBatch(iteration, normalizedToolCalls)
@@ -578,24 +577,6 @@ toolLoop:
 						break toolLoop
 					}
 
-					if ts.pendingResults != nil {
-						select {
-						case result, ok := <-ts.pendingResults:
-							if ok && result != nil && result.ForLLM != "" {
-								content := al.cfg.FilterSensitiveData(result.ForLLM)
-								msg := subTurnResultPromptMessage(content)
-								messages = append(messages, msg)
-								if !ts.opts.NoHistory {
-									if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, msg); err != nil {
-										exec.executionErr = fmt.Errorf("write subtask result: %w", err)
-										return ToolControlBreak
-									}
-								}
-							}
-						default:
-						}
-					}
-
 					continue
 				}
 				logger.WarnCF("agent", "Hook returned respond action but no HookResult provided",
@@ -784,64 +765,15 @@ toolLoop:
 		toolCallID := tc.ID
 		asyncToolName := toolName
 		asyncCallback := func(_ context.Context, result *tools.ToolResult) {
-			if ts.hardAbortRequested() {
-				return
-			}
 			if result == nil {
 				return
 			}
-			if !result.Silent && result.ForUser != "" {
-				outCtx, outCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer outCancel()
-				outMsg := outboundMessageForTurn(ts, result.ForUser)
-				if ts.originSessionKey != "" {
-					outMsg.SessionKey = ts.originSessionKey
-				}
-				if ts.originAgentID != "" {
-					outMsg.AgentID = ts.originAgentID
-				}
-				_ = al.bus.PublishOutbound(outCtx, outMsg)
-			}
-
-			content := result.ContentForLLM()
-			if content == "" {
-				return
-			}
-
-			content = al.cfg.FilterSensitiveData(content)
-			content = al.compactToolResultForPrompt(
-				ts, asyncToolName, toolCallID+"-async", content,
-			).Content
-
-			logger.InfoCF("agent", "Async tool completed, publishing result",
-				map[string]any{
-					"tool":        asyncToolName,
-					"content_len": len(content),
-					"channel":     ts.channel,
-				})
-			al.emitEvent(
-				runtimeevents.KindAgentFollowUpQueued,
-				ts.scope.meta(iteration, "runTurn", "turn.follow_up.queued"),
-				FollowUpQueuedPayload{
-					SourceTool: asyncToolName,
-					ContentLen: len(content),
-				},
-			)
-			pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer pubCancel()
-			originSessionKey := ts.originSessionKey
-			if originSessionKey == "" {
-				originSessionKey = ts.sessionKey
-			}
-			_ = al.bus.PublishInbound(pubCtx, bus.InboundMessage{
-				Context: bus.InboundContext{
-					Channel:  "system",
-					ChatID:   fmt.Sprintf("%s:%s", ts.channel, ts.chatID),
-					ChatType: "direct",
-					SenderID: fmt.Sprintf("async:%s", asyncToolName),
-				},
-				Content:    content,
-				SessionKey: originSessionKey,
+			al.deliverAsyncResult(ts, asyncDelivery{
+				Origin:         asyncOriginTool,
+				Source:         asyncToolName,
+				ToolCallID:     toolCallID,
+				Result:         result,
+				PublishForUser: true,
 			})
 		}
 
@@ -1172,26 +1104,15 @@ toolLoop:
 			break toolLoop
 		}
 
-		if ts.pendingResults != nil {
-			select {
-			case result, ok := <-ts.pendingResults:
-				if ok && result != nil && result.ForLLM != "" {
-					content := al.cfg.FilterSensitiveData(result.ForLLM)
-					msg := subTurnResultPromptMessage(content)
-					messages = append(messages, msg)
-					if !ts.opts.NoHistory {
-						if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, msg); err != nil {
-							exec.executionErr = fmt.Errorf("write subtask result: %w", err)
-							return ToolControlBreak
-						}
-					}
-				}
-			default:
-			}
-		}
 	}
 
 	exec.messages = messages
+	if ts.hasPendingAsyncDeliveries() {
+		// A background task completed while tools were running. Return to the
+		// model so the single delivery consumer injects it before finalization.
+		exec.allResponsesHandled = false
+		return ToolControlContinue
+	}
 
 	// Continue if pending steering exists (regardless of allResponsesHandled).
 	// This covers the case where tools were partially executed and skipped due to steering,
@@ -1254,7 +1175,6 @@ toolLoop:
 				})
 			}
 		}
-		ts.setPhase(TurnPhaseCompleted)
 		ts.setFinalContent("")
 		if al.channelManager != nil && ts.channel != "" {
 			al.channelManager.DismissToolFeedback(ctx, ts.channel, ts.chatID, ts.opts.InboundContext)

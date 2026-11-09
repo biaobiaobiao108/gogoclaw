@@ -101,10 +101,11 @@ The table below lists the current runtime event kinds, when they are emitted, an
 | `agent.approval.resolved` | A human approval request is approved, denied, expired, or canceled. | `approval_id`, `tool`, `tool_call_id`, `status`, `scope`, `reason` |
 | `agent.steering.injected` | Queued steering messages are injected into the next LLM context. | `count`, `total_content_len` |
 | `agent.follow_up.queued` | An async tool result is queued back into the inbound/follow-up flow. | `source_tool`, `content_len` |
+| `agent.async.result_delivered` | An async sub-turn or tool result is injected into a live turn. | `origin`, `source`, `content_len` |
 | `agent.interrupt.received` | A turn accepts steering, graceful interrupt, or hard-abort input. | `interrupt_kind`, `role`, `content_len`, `queue_depth`, `hint_len` |
 | `agent.subturn.spawn` | A parent turn creates a child turn/subagent. | `child_agent_id`, `label`, `parent_turn_id` |
 | `agent.subturn.end` | A child turn ends. | `child_agent_id`, `status` |
-| `agent.subturn.result_delivered` | A child turn result is delivered to the target channel/chat. | `target_channel`, `target_chat_id`, `content_len` |
+| `agent.subturn.result_delivered` | A child turn result is accepted by the parent async delivery queue. | `content_len` |
 | `agent.subturn.orphan` | A child turn result cannot be delivered or cannot be associated back to its parent turn. | `parent_turn_id`, `child_turn_id`, `reason` |
 | `agent.error` | Agent execution reports an error. | `stage`, `error` |
 
