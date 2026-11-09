@@ -44,8 +44,16 @@ func RunToolLoop(
 	messages []providers.Message,
 	channel, chatID string,
 ) (*ToolLoopResult, error) {
+	if config.Provider == nil {
+		return nil, fmt.Errorf("tool loop provider is required")
+	}
+	if config.MaxIterations <= 0 {
+		return nil, fmt.Errorf("tool loop max iterations must be positive")
+	}
+
 	iteration := 0
 	var finalContent string
+	completed := false
 
 	for iteration < config.MaxIterations {
 		iteration++
@@ -96,10 +104,14 @@ func RunToolLoop(
 				})
 			return nil, fmt.Errorf("LLM call failed: %w", err)
 		}
+		if response == nil {
+			return nil, fmt.Errorf("LLM returned an empty response")
+		}
 
 		// 4. If no tool calls, we're done
 		if len(response.ToolCalls) == 0 {
 			finalContent = response.Content
+			completed = true
 			logger.InfoCF("toolloop", "LLM response without tool calls (direct answer)",
 				map[string]any{
 					"iteration":     iteration,
@@ -164,6 +176,9 @@ func RunToolLoop(
 			} else {
 				result = ErrorResult("No tools available")
 			}
+			if result == nil {
+				result = ErrorResult("Tool returned no result")
+			}
 			contentForLLM := result.ContentForLLM()
 
 			toolMsg := providers.Message{
@@ -176,6 +191,9 @@ func RunToolLoop(
 			}
 			messages = append(messages, toolMsg)
 		}
+	}
+	if !completed {
+		return nil, fmt.Errorf("tool loop reached max iterations (%d) without a final response", config.MaxIterations)
 	}
 
 	return &ToolLoopResult{

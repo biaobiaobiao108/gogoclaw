@@ -7,6 +7,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -39,6 +40,139 @@ func TestInferSkillNamesFromToolCall_ReadFileSkillMarkdown(t *testing.T) {
 	})
 	if len(got) != 1 || got[0] != "three-one" {
 		t.Fatalf("inferSkillNamesFromToolCall = %v, want [three-one]", got)
+	}
+}
+
+type countingHarnessTool struct {
+	name   string
+	calls  int
+	result func(map[string]any) *tools.ToolResult
+}
+
+func (t *countingHarnessTool) Name() string        { return t.name }
+func (t *countingHarnessTool) Description() string { return "counting harness tool" }
+func (t *countingHarnessTool) Parameters() map[string]any {
+	return map[string]any{"type": "object"}
+}
+func (t *countingHarnessTool) Execute(_ context.Context, args map[string]any) *tools.ToolResult {
+	t.calls++
+	if t.result != nil {
+		return t.result(args)
+	}
+	return tools.SilentResult("ok")
+}
+
+func TestExecuteToolsSkipsDuplicateSuccessfulReadOnlyCall(t *testing.T) {
+	provider := &sequenceProvider{responses: []*providers.LLMResponse{
+		{ToolCalls: []providers.ToolCall{{ID: "read-1", Name: "read_file", Arguments: map[string]any{"path": "notes.md"}}}},
+		{ToolCalls: []providers.ToolCall{{ID: "read-2", Name: "read_file", Arguments: map[string]any{"path": "notes.md"}}}},
+		{Content: "已根据前面的内容完成回答。"},
+	}}
+	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+	tool := &countingHarnessTool{name: "read_file", result: func(map[string]any) *tools.ToolResult {
+		return tools.SilentResult("笔记内容")
+	}}
+	agent.Tools.Register(tool)
+	ts := newTurnState(agent, makeTestProcessOpts("duplicate-read"), turnEventScope{
+		turnID: "duplicate-read", context: newTurnContext(nil, nil, nil),
+	})
+
+	result, err := al.runTurn(context.Background(), ts, NewPipeline(al))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tool.calls != 1 {
+		t.Fatalf("duplicate read-only call executed %d times, want 1", tool.calls)
+	}
+	if result.finalContent != "已根据前面的内容完成回答。" {
+		t.Fatalf("unexpected final response: %q", result.finalContent)
+	}
+	duplicateMarked := false
+	for _, msg := range agent.Sessions.GetHistory(ts.sessionKey) {
+		if msg.Role == "tool" && strings.Contains(msg.Content, "already ran successfully") {
+			duplicateMarked = true
+		}
+	}
+	if !duplicateMarked {
+		t.Fatal("duplicate read-only call was not marked in tool history")
+	}
+}
+
+func TestExecuteToolsAllowsReadAfterMutation(t *testing.T) {
+	provider := &sequenceProvider{responses: []*providers.LLMResponse{
+		{ToolCalls: []providers.ToolCall{{ID: "read-1", Name: "read_file", Arguments: map[string]any{"path": "notes.md"}}}},
+		{ToolCalls: []providers.ToolCall{{ID: "write-1", Name: "write_file", Arguments: map[string]any{"path": "notes.md", "content": "new"}}}},
+		{ToolCalls: []providers.ToolCall{{ID: "read-2", Name: "read_file", Arguments: map[string]any{"path": "notes.md"}}}},
+		{Content: "完成。"},
+	}}
+	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+	readTool := &countingHarnessTool{name: "read_file", result: func(map[string]any) *tools.ToolResult {
+		return tools.SilentResult("notes")
+	}}
+	writeTool := &countingHarnessTool{name: "write_file", result: func(map[string]any) *tools.ToolResult {
+		return tools.SilentResult("written")
+	}}
+	agent.Tools.Register(readTool)
+	agent.Tools.Register(writeTool)
+	ts := newTurnState(agent, makeTestProcessOpts("read-after-write"), turnEventScope{
+		turnID: "read-after-write", context: newTurnContext(nil, nil, nil),
+	})
+
+	if _, err := al.runTurn(context.Background(), ts, NewPipeline(al)); err != nil {
+		t.Fatal(err)
+	}
+	if readTool.calls != 2 || writeTool.calls != 1 {
+		t.Fatalf("read calls=%d, write calls=%d; want 2 and 1", readTool.calls, writeTool.calls)
+	}
+}
+
+func TestExecuteToolsStopsRepeatedEmptyRetrieval(t *testing.T) {
+	responses := make([]*providers.LLMResponse, 0, 6)
+	for i := 0; i < 5; i++ {
+		responses = append(responses, &providers.LLMResponse{ToolCalls: []providers.ToolCall{{
+			ID: fmt.Sprintf("search-%d", i), Name: "web_search", Arguments: map[string]any{"query": fmt.Sprintf("query-%d", i)},
+		}}})
+	}
+	responses = append(responses, &providers.LLMResponse{Content: "检索没有找到可用结果。"})
+	provider := &sequenceProvider{responses: responses}
+	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+	searchTool := &countingHarnessTool{name: "web_search", result: func(args map[string]any) *tools.ToolResult {
+		return tools.SilentResult(fmt.Sprintf("No results for: %v", args["query"]))
+	}}
+	agent.Tools.Register(searchTool)
+	ts := newTurnState(agent, makeTestProcessOpts("retrieval-stall"), turnEventScope{
+		turnID: "retrieval-stall", context: newTurnContext(nil, nil, nil),
+	})
+
+	result, err := al.runTurn(context.Background(), ts, NewPipeline(al))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if searchTool.calls != retrievalStallStopAfter {
+		t.Fatalf("search calls=%d, want %d", searchTool.calls, retrievalStallStopAfter)
+	}
+	if result.finalContent != "检索没有找到可用结果。" {
+		t.Fatalf("unexpected final response: %q", result.finalContent)
+	}
+	warned := false
+	for _, msg := range agent.Sessions.GetHistory(ts.sessionKey) {
+		if msg.Role == "tool" && strings.Contains(msg.Content, "Three consecutive web retrieval attempts") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Fatal("retrieval stall warning was not persisted")
+	}
+}
+
+func TestReadOnlyToolNameAllowsWebFetchAndFindSkills(t *testing.T) {
+	for _, name := range []string{"web_fetch", "find_skills", "read_file", "web_search"} {
+		if !isReadOnlyToolName(name) {
+			t.Fatalf("%s should be read-only", name)
+		}
 	}
 }
 

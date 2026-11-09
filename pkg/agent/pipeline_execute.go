@@ -24,11 +24,29 @@ import (
 
 func isReadOnlyToolName(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "read_file", "list_dir", "web_search", "fetch", "load_image", "tool_search", "memory_search":
+	case "read_file", "list_dir", "web_search", "web_fetch", "fetch", "load_image", "tool_search", "find_skills", "memory_search":
 		return true
 	default:
 		return false
 	}
+}
+
+func isReplaySafeToolName(name string) bool {
+	return isReadOnlyToolName(name) && strings.ToLower(strings.TrimSpace(name)) != "tool_search"
+}
+
+func isRetrievalToolName(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "web_search", "web_fetch", "fetch":
+		return true
+	default:
+		return false
+	}
+}
+
+func toolCallFingerprint(name string, args map[string]any) string {
+	argsJSON, _ := json.Marshal(args)
+	return strings.ToLower(strings.TrimSpace(name)) + "\x00" + string(argsJSON)
 }
 
 func canExecuteInParallel(al *AgentLoop, ts *turnState, toolCalls []providers.ToolCall) bool {
@@ -38,9 +56,17 @@ func canExecuteInParallel(al *AgentLoop, ts *turnState, toolCalls []providers.To
 	if al.hooks != nil && al.hooks.HasActiveHooks() {
 		return false
 	}
+	seenFingerprints := make(map[string]struct{}, len(toolCalls))
 	for _, tc := range toolCalls {
 		if !isReadOnlyToolName(tc.Name) {
 			return false
+		}
+		if isReplaySafeToolName(tc.Name) {
+			fingerprint := toolCallFingerprint(tc.Name, tc.Arguments)
+			if _, duplicate := seenFingerprints[fingerprint]; duplicate || ts.readOnlyCallSeen(fingerprint) {
+				return false
+			}
+			seenFingerprints[fingerprint] = struct{}{}
 		}
 		if al.cfg != nil && al.cfg.Tools.Approval.Requires(tc.Name) {
 			return false
@@ -48,6 +74,32 @@ func canExecuteInParallel(al *AgentLoop, ts *turnState, toolCalls []providers.To
 		if !turnProfileToolAllowed(ts.profile, tc.Name) {
 			return false
 		}
+	}
+	return true
+}
+
+const retrievalStallWarningAfter = 3
+const retrievalStallStopAfter = 5
+
+func toolResultHasUsableRetrieval(result *tools.ToolResult) bool {
+	if result == nil || result.IsError {
+		return false
+	}
+	content := strings.TrimSpace(result.ContentForLLM())
+	if content == "" {
+		return false
+	}
+	lower := strings.ToLower(content)
+	if strings.HasPrefix(lower, "no results for:") || strings.HasPrefix(lower, "no results found") {
+		return false
+	}
+
+	var fetched struct {
+		Status int    `json:"status"`
+		Text   string `json:"text"`
+	}
+	if strings.HasPrefix(content, "{") && json.Unmarshal([]byte(content), &fetched) == nil && fetched.Status != 0 {
+		return fetched.Status >= 200 && fetched.Status < 400 && strings.TrimSpace(fetched.Text) != ""
 	}
 	return true
 }
@@ -635,6 +687,14 @@ toolLoop:
 
 		argsJSON, _ := json.Marshal(toolArgs)
 		argsPreview := utils.Truncate(string(argsJSON), 200)
+		executedToolName := toolName
+		readOnlyKey := toolCallFingerprint(executedToolName, toolArgs)
+		duplicateReadOnly := false
+		duplicateRepeat := 0
+		if preExecutedResults == nil && isReplaySafeToolName(executedToolName) && ts.readOnlyCallSeen(readOnlyKey) {
+			duplicateReadOnly = true
+			duplicateRepeat = ts.recordReadOnlyRepeat(readOnlyKey)
+		}
 		logger.InfoCF("agent", fmt.Sprintf("Tool call: %s(%s)", toolName, argsPreview),
 			map[string]any{
 				"agent_id":  ts.agent.ID,
@@ -658,7 +718,7 @@ toolLoop:
 			activityID = ts.startTurnActivity("tool", toolName, toolCallIDFromCall(tc), toolName, al.cfg.FilterSensitiveData(argsPreview))
 		}
 
-		if shouldPublishToolFeedback(al.cfg, ts) && ts.channel != "pico" {
+		if !duplicateReadOnly && shouldPublishToolFeedback(al.cfg, ts) && ts.channel != "pico" {
 			toolFeedbackMaxLen := al.cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength()
 			toolFeedbackExplanation := toolFeedbackExplanationForToolCall(
 				exec.response,
@@ -749,7 +809,13 @@ toolLoop:
 			ts.opts.Dispatch.SessionScope,
 		)
 		var toolResult *tools.ToolResult
-		if preExecutedResults != nil && preExecutedResults[i] != nil {
+		if duplicateReadOnly {
+			content := "This exact read-only call already ran successfully earlier in this turn. It was not executed again. Use the earlier result instead of repeating the call."
+			if duplicateRepeat > 1 {
+				content = "This exact read-only call was already skipped once. Do not repeat it again. Use the earlier results or explain what information is still missing."
+			}
+			toolResult = tools.SilentResult(content)
+		} else if preExecutedResults != nil && preExecutedResults[i] != nil {
 			toolResult = preExecutedResults[i]
 		} else {
 			toolResult = ts.toolRegistry().ExecuteWithContext(
@@ -782,7 +848,7 @@ toolLoop:
 			return ToolControlBreak
 		}
 
-		if al.hooks != nil {
+		if !duplicateReadOnly && al.hooks != nil {
 			toolResp, decision := al.hooks.AfterTool(turnCtx, &ToolResultHookResponse{
 				Meta:      ts.eventMeta("runTurn", "turn.tool.after"),
 				Context:   cloneTurnContext(ts.turnCtx),
@@ -813,6 +879,23 @@ toolLoop:
 
 		if toolResult == nil {
 			toolResult = tools.ErrorResult("hook returned nil tool result")
+		}
+		if !duplicateReadOnly && !toolResult.IsError && isReplaySafeToolName(executedToolName) {
+			ts.recordReadOnlyCall(readOnlyKey)
+		}
+		if !isReadOnlyToolName(executedToolName) {
+			ts.recordToolStateChange()
+		}
+		if duplicateReadOnly && duplicateRepeat >= 2 {
+			ts.requestGracefulInterrupt("The model repeated the same read-only tool call. Use the evidence already collected or explain the blocker instead of retrying it.")
+		}
+		if !duplicateReadOnly && isRetrievalToolName(executedToolName) {
+			stalls := ts.recordRetrievalOutcome(toolResultHasUsableRetrieval(toolResult))
+			if stalls == retrievalStallWarningAfter {
+				toolResult.ForLLM = toolResult.ContentForLLM() + "\n\nThree consecutive web retrieval attempts returned no usable results. Do not keep rephrasing the same searches. Use the evidence already collected, try a materially different source, or explain what could not be verified."
+			} else if stalls >= retrievalStallStopAfter {
+				_ = ts.requestGracefulInterrupt("Web retrieval repeatedly returned no usable results. Stop retrying and summarize the available evidence and limitations.")
+			}
 		}
 		failureKey := toolName + "\x00" + string(argsJSON)
 		failures := ts.recordRepeatedFailure(failureKey, toolResult.IsError)
@@ -924,15 +1007,21 @@ toolLoop:
 				},
 			)
 		}
-		ts.recordToolExecution(
-			toolName,
-			!toolResult.IsError,
-			toolErrorSummary(toolResult),
-			inferSkillNamesFromToolCall(ts, toolName, toolArgs),
-		)
+		if duplicateReadOnly {
+			ts.recordToolKind(toolName)
+		} else {
+			ts.recordToolExecution(
+				toolName,
+				!toolResult.IsError,
+				toolErrorSummary(toolResult),
+				inferSkillNamesFromToolCall(ts, toolName, toolArgs),
+			)
+		}
 		ts.finishTurnActivity(activityID, func(activity *session.TurnActivity) {
 			activity.Status = "completed"
-			if toolResult.IsError {
+			if duplicateReadOnly {
+				activity.Status = "skipped"
+			} else if toolResult.IsError {
 				activity.Status = "failed"
 			}
 			filteredForLLM := al.cfg.FilterSensitiveData(toolResult.ForLLM)

@@ -212,6 +212,9 @@ type turnState struct {
 	skillContextTrace []SkillContextSnapshot
 	toolKinds         []string
 	toolExecutions    []ToolExecutionRecord
+	readOnlyCalls     map[string]struct{}
+	readOnlyRepeats   map[string]int
+	retrievalStalls   int
 	activities        []session.TurnActivity
 	activitySeq       int
 	plan              []planStep
@@ -286,6 +289,50 @@ func (ts *turnState) recordRepeatedFailure(key string, failed bool) int {
 	}
 	ts.repeatedFailures++
 	return ts.repeatedFailures
+}
+
+func (ts *turnState) readOnlyCallSeen(key string) bool {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	_, ok := ts.readOnlyCalls[key]
+	return ok
+}
+
+func (ts *turnState) recordReadOnlyCall(key string) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.readOnlyCalls == nil {
+		ts.readOnlyCalls = make(map[string]struct{})
+	}
+	ts.readOnlyCalls[key] = struct{}{}
+}
+
+func (ts *turnState) recordReadOnlyRepeat(key string) int {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.readOnlyRepeats == nil {
+		ts.readOnlyRepeats = make(map[string]int)
+	}
+	ts.readOnlyRepeats[key]++
+	return ts.readOnlyRepeats[key]
+}
+
+func (ts *turnState) recordToolStateChange() {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.readOnlyCalls = nil
+	ts.readOnlyRepeats = nil
+}
+
+func (ts *turnState) recordRetrievalOutcome(usable bool) int {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if usable {
+		ts.retrievalStalls = 0
+		return 0
+	}
+	ts.retrievalStalls++
+	return ts.retrievalStalls
 }
 
 func (ts *turnState) toolRegistry() *tools.ToolRegistry {

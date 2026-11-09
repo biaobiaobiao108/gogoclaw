@@ -216,7 +216,7 @@ func (tool *boundedReadTool) Execute(ctx context.Context, _ map[string]any) *too
 func TestParallelReadsBoundConcurrencyAndRetainSteeredResults(t *testing.T) {
 	var calls []providers.ToolCall
 	for i := 0; i < 9; i++ {
-		calls = append(calls, providers.ToolCall{ID: fmt.Sprint(i), Name: "read_file"})
+		calls = append(calls, providers.ToolCall{ID: fmt.Sprint(i), Name: "read_file", Arguments: map[string]any{"path": fmt.Sprintf("file-%d.txt", i)}})
 	}
 	p := &sequenceProvider{responses: []*providers.LLMResponse{{ToolCalls: calls}, {Content: "done"}}}
 	al, a, cleanup := newTurnCoordTestLoop(t, p)
