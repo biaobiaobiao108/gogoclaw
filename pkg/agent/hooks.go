@@ -209,6 +209,15 @@ type HookManager struct {
 	closeOnce   sync.Once
 }
 
+func (hm *HookManager) HasActiveHooks() bool {
+	if hm == nil {
+		return false
+	}
+	hm.mu.RLock()
+	defer hm.mu.RUnlock()
+	return len(hm.ordered) > 0
+}
+
 func NewHookManager(runtimeEvents runtimeevents.EventChannel) *HookManager {
 	hm := &HookManager{
 		runtimeEvents:      runtimeEvents,

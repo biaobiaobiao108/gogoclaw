@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
@@ -20,6 +21,36 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
+
+func isReadOnlyToolName(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "read_file", "list_dir", "web_search", "fetch", "load_image", "tool_search", "memory_search":
+		return true
+	default:
+		return false
+	}
+}
+
+func canExecuteInParallel(al *AgentLoop, ts *turnState, toolCalls []providers.ToolCall) bool {
+	if al == nil || ts == nil {
+		return false
+	}
+	if al.hooks != nil && al.hooks.HasActiveHooks() {
+		return false
+	}
+	for _, tc := range toolCalls {
+		if !isReadOnlyToolName(tc.Name) {
+			return false
+		}
+		if al.cfg != nil && al.cfg.Tools.Approval.Requires(tc.Name) {
+			return false
+		}
+		if !turnProfileToolAllowed(ts.profile, tc.Name) {
+			return false
+		}
+	}
+	return true
+}
 
 func toolErrorSummary(result *tools.ToolResult) string {
 	if result == nil || !result.IsError {
@@ -122,6 +153,40 @@ func (p *Pipeline) ExecuteTools(
 	ts.setPhase(TurnPhaseTools)
 	messages := exec.messages
 	handledAttachments := make([]providers.Attachment, 0)
+
+	var preExecutedResults []*tools.ToolResult
+	if len(normalizedToolCalls) > 1 && canExecuteInParallel(al, ts, normalizedToolCalls) {
+		preExecutedResults = make([]*tools.ToolResult, len(normalizedToolCalls))
+		var wg sync.WaitGroup
+		for idx, tc := range normalizedToolCalls {
+			wg.Add(1)
+			go func(i int, call providers.ToolCall) {
+				defer wg.Done()
+				execCtx := tools.WithToolInboundContext(
+					turnCtx,
+					ts.channel,
+					ts.chatID,
+					ts.opts.Dispatch.MessageID(),
+					ts.opts.Dispatch.ReplyToMessageID(),
+				)
+				execCtx = tools.WithToolSessionContext(
+					execCtx,
+					ts.agent.ID,
+					ts.sessionKey,
+					ts.opts.Dispatch.SessionScope,
+				)
+				preExecutedResults[i] = ts.toolRegistry().ExecuteWithContext(
+					execCtx,
+					call.Name,
+					cloneStringAnyMap(call.Arguments),
+					ts.channel,
+					ts.chatID,
+					nil,
+				)
+			}(idx, tc)
+		}
+		wg.Wait()
+	}
 
 toolLoop:
 	for i, tc := range normalizedToolCalls {
@@ -646,14 +711,19 @@ toolLoop:
 			ts.sessionKey,
 			ts.opts.Dispatch.SessionScope,
 		)
-		toolResult := ts.toolRegistry().ExecuteWithContext(
-			execCtx,
-			toolName,
-			toolArgs,
-			ts.channel,
-			ts.chatID,
-			asyncCallback,
-		)
+		var toolResult *tools.ToolResult
+		if preExecutedResults != nil && preExecutedResults[i] != nil {
+			toolResult = preExecutedResults[i]
+		} else {
+			toolResult = ts.toolRegistry().ExecuteWithContext(
+				execCtx,
+				toolName,
+				toolArgs,
+				ts.channel,
+				ts.chatID,
+				asyncCallback,
+			)
+		}
 		toolDuration := time.Since(toolStart)
 
 		if ts.hardAbortRequested() {
@@ -704,7 +774,7 @@ toolLoop:
 		if toolResult == nil {
 			toolResult = tools.ErrorResult("hook returned nil tool result")
 		}
-		failureKey := toolName + "\x00" + string(argsJSON) + "\x00" + toolResult.ContentForLLM()
+		failureKey := toolName + "\x00" + string(argsJSON)
 		failures := ts.recordRepeatedFailure(failureKey, toolResult.IsError)
 		if failures == 3 {
 			toolResult.ForLLM = toolResult.ContentForLLM() + "\n\nThis same tool call has failed three times. Change the approach or explain the blocker instead of repeating it."

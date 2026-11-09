@@ -994,6 +994,7 @@ func (cb *ContextBuilder) BuildMessagesFromPrompt(req PromptBuildRequest) []prov
 		})
 
 	history := sanitizeHistoryForProvider(req.History)
+	history = pruneHistoricalToolOutputs(history)
 
 	// Single system message containing all context — compatible with all providers.
 	// SystemParts enables cache-aware adapters to set per-block cache_control;
@@ -1200,6 +1201,69 @@ func sanitizeHistoryForProvider(history []providers.Message) []providers.Message
 	}
 
 	return final
+}
+
+const defaultHistoricalToolOutputLimit = 800
+
+// pruneHistoricalToolOutputs compacts oversized tool results from completed
+// historical turns in the prompt view, preventing multi-turn context explosion.
+// It preserves tool_call_id pairs, metadata, and artifact file pointers while
+// pruning redundant intermediate text bodies.
+func pruneHistoricalToolOutputs(history []providers.Message) []providers.Message {
+	if len(history) == 0 {
+		return history
+	}
+
+	pruned := make([]providers.Message, len(history))
+	for i, msg := range history {
+		if msg.Role != "tool" || len(msg.Content) <= defaultHistoricalToolOutputLimit {
+			pruned[i] = msg
+			continue
+		}
+
+		cloned := msg
+		cloned.Content = pruneHistoricalToolContent(msg.Content, defaultHistoricalToolOutputLimit)
+		pruned[i] = cloned
+	}
+	return pruned
+}
+
+func pruneHistoricalToolContent(content string, limit int) string {
+	if len(content) <= limit {
+		return content
+	}
+
+	artifactTag := ""
+	if idx := strings.Index(content, "[file:"); idx != -1 {
+		if endIdx := strings.Index(content[idx:], "]"); endIdx != -1 {
+			artifactTag = content[idx : idx+endIdx+1]
+		}
+	}
+
+	lines := strings.Split(content, "\n")
+	keepLines := 5
+	if len(lines) < keepLines {
+		keepLines = len(lines)
+	}
+
+	var headBuilder strings.Builder
+	for i := 0; i < keepLines; i++ {
+		headBuilder.WriteString(lines[i])
+		headBuilder.WriteByte('\n')
+		if headBuilder.Len() >= limit/2 {
+			break
+		}
+	}
+
+	head := strings.TrimRight(headBuilder.String(), "\n")
+	omittedBytes := len(content) - len(head)
+
+	notice := fmt.Sprintf("\n\n[... historical tool output pruned (%d bytes omitted) to save context tokens ...]", omittedBytes)
+	if artifactTag != "" {
+		notice += "\nFull content: " + artifactTag
+	}
+
+	return head + notice
 }
 
 func (cb *ContextBuilder) AddToolResult(

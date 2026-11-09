@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
@@ -346,4 +347,44 @@ func TestSanitizeHistoryForProvider_PartialToolResultsInMiddle(t *testing.T) {
 		t.Fatalf("expected 9 messages, got %d: %+v", len(result), roles(result))
 	}
 	assertRoles(t, result, "user", "assistant", "tool", "assistant", "user", "user", "assistant", "tool", "assistant")
+}
+
+func TestPruneHistoricalToolOutputs(t *testing.T) {
+	shortMsg := providers.Message{
+		Role:       "tool",
+		ToolCallID: "call_1",
+		Content:    "short result within limit",
+	}
+	longContent := strings.Repeat("line 1: some long tool execution log\n", 50) + "[file:/tmp/state/tool_outputs/test.txt]"
+	longMsg := providers.Message{
+		Role:       "tool",
+		ToolCallID: "call_2",
+		Content:    longContent,
+	}
+	userMsg := providers.Message{
+		Role:    "user",
+		Content: strings.Repeat("long user prompt\n", 50),
+	}
+
+	history := []providers.Message{userMsg, shortMsg, longMsg}
+	pruned := pruneHistoricalToolOutputs(history)
+
+	if len(pruned) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(pruned))
+	}
+	if pruned[0].Content != userMsg.Content {
+		t.Errorf("user message should not be pruned")
+	}
+	if pruned[1].Content != shortMsg.Content {
+		t.Errorf("short tool message should not be pruned")
+	}
+	if len(pruned[2].Content) >= len(longContent) {
+		t.Errorf("long tool message should be pruned in prompt view")
+	}
+	if !strings.Contains(pruned[2].Content, "historical tool output pruned") {
+		t.Errorf("pruned tool message missing pruned notice: %s", pruned[2].Content)
+	}
+	if !strings.Contains(pruned[2].Content, "[file:/tmp/state/tool_outputs/test.txt]") {
+		t.Errorf("pruned tool message missing artifact tag: %s", pruned[2].Content)
+	}
 }

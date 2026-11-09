@@ -1345,3 +1345,42 @@ func TestTurnState_SkillContextSnapshotsTrackLatestSuccessfulPath(t *testing.T) 
 		t.Fatalf("snapshots[1] = %+v, want sequence=2 trigger=%q", snapshots[1], skillContextTriggerContextRetryRebuild)
 	}
 }
+
+type varyingFailTool struct {
+	calls int
+}
+
+func (t *varyingFailTool) Name() string        { return "varying_fail" }
+func (t *varyingFailTool) Description() string { return "fails with varying dynamic error message" }
+func (t *varyingFailTool) Parameters() map[string]any {
+	return map[string]any{"type": "object", "properties": map[string]any{}}
+}
+func (t *varyingFailTool) Execute(ctx context.Context, args map[string]any) *tools.ToolResult {
+	t.calls++
+	count := t.calls
+	return tools.ErrorResult(fmt.Sprintf("network timeout after %d ms", 1000+count))
+}
+
+func TestRunTurnRepeatedFailuresWithVaryingErrorMessage(t *testing.T) {
+	var responses []*providers.LLMResponse
+	for i := 0; i < 4; i++ {
+		responses = append(responses, &providers.LLMResponse{ToolCalls: []providers.ToolCall{{
+			ID: fmt.Sprintf("call-%d", i), Name: "varying_fail", Arguments: map[string]any{},
+		}}})
+	}
+	responses = append(responses, &providers.LLMResponse{Content: "The remote API keeps timing out."})
+	provider := &sequenceProvider{responses: responses}
+	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+	agent.Tools.Register(&varyingFailTool{})
+	ts := newTurnState(agent, makeTestProcessOpts("varying-failures"), turnEventScope{
+		turnID: "varying-failures", context: newTurnContext(nil, nil, nil),
+	})
+	result, err := al.runTurn(context.Background(), ts, NewPipeline(al))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ts.toolExecutionsSnapshot()) != 4 || result.finalContent != "The remote API keeps timing out." {
+		t.Fatalf("expected four attempts and a final explanation, got %+v, calls %+v", result, ts.toolExecutionsSnapshot())
+	}
+}
