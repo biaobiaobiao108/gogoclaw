@@ -72,13 +72,13 @@ type webSearchConfigRequest struct {
 var toolCatalog = []toolCatalogEntry{
 	{
 		Name:        "read_file",
-		Description: "Read file content from a path available to the agent process.",
+		Description: "Read file content from the workspace or explicitly allowed paths.",
 		Category:    "filesystem",
 		ConfigKey:   "read_file",
 	},
 	{
 		Name:        "write_file",
-		Description: "Create or overwrite files at a path available to the agent process.",
+		Description: "Create or overwrite files within the writable workspace scope.",
 		Category:    "filesystem",
 		ConfigKey:   "write_file",
 	},
@@ -102,7 +102,7 @@ var toolCatalog = []toolCatalogEntry{
 	},
 	{
 		Name:        "exec",
-		Description: "Run shell commands in the configured working directory.",
+		Description: "Run shell commands inside the configured workspace sandbox.",
 		Category:    "filesystem",
 		ConfigKey:   "exec",
 	},

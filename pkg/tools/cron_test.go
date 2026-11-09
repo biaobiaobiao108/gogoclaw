@@ -57,7 +57,7 @@ func newTestCronToolWithExecutorAndConfig(t *testing.T, executor JobExecutor, cf
 	storePath := filepath.Join(t.TempDir(), "cron.json")
 	cronService := cron.NewCronService(storePath, nil)
 	msgBus := bus.NewMessageBus()
-	tool, err := NewCronTool(cronService, executor, msgBus, t.TempDir(), 0, cfg)
+	tool, err := NewCronTool(cronService, executor, msgBus, t.TempDir(), true, 0, cfg)
 	if err != nil {
 		t.Fatalf("NewCronTool() error: %v", err)
 	}

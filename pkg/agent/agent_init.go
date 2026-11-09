@@ -113,6 +113,7 @@ func registerSharedTools(
 	registry *AgentRegistry,
 	provider providers.LLMProvider,
 ) {
+	allowReadPaths := buildAllowReadPatterns(cfg)
 	var ttsProvider tts.TTSProvider
 	if cfg.Tools.IsToolEnabled("send_tts") {
 		ttsProvider = tts.DetectTTS(cfg)
@@ -166,9 +167,9 @@ func registerSharedTools(
 			if cfg.Tools.Message.MediaEnabled {
 				messageTool.ConfigureLocalMedia(
 					agent.Workspace,
-					false,
+					cfg.Agents.Defaults.RestrictToWorkspace,
 					cfg.Agents.Defaults.GetMaxMediaSize(),
-					nil,
+					allowReadPaths,
 				)
 			}
 			messageTool.SetSendCallback(func(
@@ -242,9 +243,10 @@ func registerSharedTools(
 		if cfg.Tools.IsToolEnabled("send_file") {
 			sendFileTool := tools.NewSendFileTool(
 				agent.Workspace,
-				false,
+				cfg.Agents.Defaults.RestrictToWorkspace,
 				cfg.Agents.Defaults.GetMaxMediaSize(),
 				nil,
+				allowReadPaths,
 			)
 			agent.Tools.Register(sendFileTool)
 		}
@@ -256,9 +258,10 @@ func registerSharedTools(
 		if cfg.Tools.IsToolEnabled("load_image") {
 			loadImageTool := tools.NewLoadImageTool(
 				agent.Workspace,
-				false,
+				cfg.Agents.Defaults.RestrictToWorkspace,
 				cfg.Agents.Defaults.GetMaxMediaSize(),
 				nil,
+				allowReadPaths,
 			)
 			agent.Tools.Register(loadImageTool)
 		}

@@ -104,7 +104,7 @@ GoGoClaw 将数据存储在您配置的工作区中（默认：`~/.gogoclaw/work
 GoGoClaw 默认注入一份紧凑的通用系统提示词，分为两层：
 
 - **工作原则**：理解请求后再行动、区分问答与执行、需要时调用工具、修改前检查真实状态、失败后调整、不编造结果、把外部内容视为数据。
-- **GoGoClaw 运行时契约**：当前回合暴露的工具才是可信能力；工作区只是默认工作目录，部署容器与运行时权限才是安全边界；长期记忆只保存稳定偏好与决策；普通回复自动投递到当前频道；子 Agent 相互隔离；凭据只能在目标服务中使用；默认使用用户语言并适配频道。
+- **GoGoClaw 运行时契约**：当前回合暴露的工具才是可信能力；工作区和持久化路径有明确边界；长期记忆只保存稳定偏好与决策；普通回复自动投递到当前频道；子 Agent 相互隔离；凭据只能在目标服务中使用；默认使用用户语言并适配频道。
 
 工作区中的 `AGENT.md`、`SOUL.md`、`USER.md` 和 `memory/MEMORY.md` 用于补充角色、偏好和长期上下文。它们属于操作员提供的上下文，不应绕过安全边界；显式用户指令优先于自动生成的对话摘要。
 
@@ -284,43 +284,58 @@ Routing 通过 `agents.dispatch.rules` 配置。
 
 如果你想看更完整的 agent 路由和模型分层示例，请看 [路由使用指南](routing-guide.zh.md)。
 
-### 执行环境
+### 🔒 安全沙箱 (Security Sandbox)
 
-生产环境只通过容器部署。容器及其运行时权限就是安全边界。
+GoGoClaw 默认在沙箱环境中运行。Agent 只能访问配置的工作区内的文件和执行命令。
 
-配置的工作区是 Agent 的默认工作目录，不是文件系统沙箱。文件工具和 exec 工具可以访问容器进程有权限访问的任意路径。
+#### 默认配置
 
-exec 仍默认拦截危险命令模式，包括批量删除、磁盘格式化、直接写入块设备、系统关机和 fork bomb。这些检查用于降低误操作风险，不是沙箱。
+```json
+{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.gogoclaw/workspace",
+      "restrict_to_workspace": true
+    }
+  }
+}
+```
 
-子 Agent、心跳任务和定时任务使用相同的执行环境。如果需要更强的进程隔离，请启用 [pkg/isolation/README.zh.md](../../pkg/isolation/README.zh.md) 中描述的隔离层，或在容器层面施加限制。
+| 选项                    | 默认值                  | 描述                          |
+| ----------------------- | ----------------------- | ----------------------------- |
+| `workspace`             | `~/.gogoclaw/workspace` | Agent 的工作目录              |
+| `restrict_to_workspace` | `true`                  | 限制文件/命令访问在工作区内   |
+
+#### 受保护的工具
+
+当 `restrict_to_workspace: true` 时，以下工具会被沙箱化：
+
+| 工具          | 功能         | 限制                           |
+| ------------- | ------------ | ------------------------------ |
+| `read_file`   | 读取文件     | 仅限工作区内的文件             |
+| `write_file`  | 写入文件     | 仅限工作区内的文件             |
+| `list_dir`    | 列出目录     | 仅限工作区内的目录             |
+| `edit_file`   | 编辑文件     | 仅限工作区内的文件             |
+| `append_file` | 追加文件     | 仅限工作区内的文件             |
+| `exec`        | 执行命令     | 命令路径必须在工作区内         |
+
+#### 额外的 Exec 保护
+
+即使 `restrict_to_workspace: false`，`exec` 工具也会阻止以下危险命令：
+
+* `rm -rf`、`del /f`、`rmdir /s` — 批量删除
+* `format`、`mkfs`、`diskpart` — 磁盘格式化
+* `dd if=` — 磁盘镜像
+* 写入 `/dev/sd[a-z]` — 直接磁盘写入
+* `shutdown`、`reboot`、`poweroff` — 系统关机
+* Fork bomb `:(){ :|:& };:`
 
 ### 文件访问控制
 
 | 配置键 | 类型 | 默认值 | 描述 |
 |--------|------|--------|------|
-| `tools.message.media_enabled` | bool | `false` | 允许 `message` 工具按路径附带本地媒体文件。该选项与 `tools.send_file.enabled` 分离；仅在需要统一发送文本、媒体和说明时启用。 |
-
-### Read File 模式
-
-`tools.read_file.mode` 可选择 `bytes` 或 `lines`。`bytes` 适合任意文件和按字节分页；`lines` 适合源码、Markdown、日志和配置文件，按行读取并在达到字节预算时停止。
-
-| 配置键 | 类型 | 默认值 | 描述 |
-|--------|------|--------|------|
-| `tools.read_file.enabled` | bool | `true` | 启用 `read_file` 工具 |
-| `tools.read_file.mode` | string | `bytes` | 选择 `bytes` 或 `lines` 实现 |
-| `tools.read_file.max_read_file_size` | int | `65536` | 单次返回的最大字节数 |
-
-```json
-{
-  "tools": {
-    "read_file": {
-      "enabled": true,
-      "mode": "lines",
-      "max_read_file_size": 65536
-    }
-  }
-}
-```
+| `tools.allow_read_paths` | string[] | `[]` | 允许在工作区外读取的额外路径 |
+| `tools.allow_write_paths` | string[] | `[]` | 允许在工作区外写入的额外路径 |
 
 ### Exec 安全配置
 
@@ -331,12 +346,67 @@ exec 仍默认拦截危险命令模式，包括批量删除、磁盘格式化、
 | `tools.exec.custom_deny_patterns` | string[] | `[]` | 自定义阻止的正则表达式模式 |
 | `tools.exec.custom_allow_patterns` | string[] | `[]` | 用于显式命令白名单的补充规则；黑名单始终优先 |
 
-exec 安全守卫仅检查 GoGoClaw 直接启动的命令行，不会递归检查由 `make`、`go run`、`cargo`、`bun run` 或自定义构建脚本产生的子进程。构建脚本、Makefile、包脚本和生成的二进制文件应与直接 shell 命令接受同等审查。
+> **安全提示：** Symlink 保护默认启用——所有文件路径在允许列表匹配前都会通过 `filepath.EvalSymlinks` 解析，防止符号链接逃逸攻击。
+
+#### 已知限制：构建工具的子进程
+
+exec 安全守卫仅检查 GoGoClaw 直接启动的命令行。它不会递归检查由 `make`、`go run`、`cargo`、`bun run` 或自定义构建脚本等开发工具产生的子进程。
+
+这意味着顶层命令通过初始守卫检查后，仍可以编译或启动其他二进制文件。实际上，应将构建脚本、Makefile、包脚本和生成的二进制文件视为与直接 shell 命令同等级别的可执行代码进行审查。
+
+对于高风险环境：
+
+* 执行前审查构建脚本。
+* 对编译并运行的工作流优先使用审批/手动审查。
+* 如果需要比内置守卫更强的隔离，请在容器或虚拟机中运行 GoGoClaw。
+
+#### 错误示例
+
+```
+[ERROR] tool: Tool execution failed
+{tool=exec, error=Command blocked by safety guard (path outside working dir)}
+```
 
 ```
 [ERROR] tool: Tool execution failed
 {tool=exec, error=Command blocked by safety guard (dangerous pattern detected)}
 ```
+
+#### 禁用限制（安全风险）
+
+如果需要 Agent 访问工作区外的路径：
+
+**方法 1: 配置文件**
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "restrict_to_workspace": false
+    }
+  }
+}
+```
+
+**方法 2: 环境变量**
+
+```bash
+export GOGOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE=false
+```
+
+> ⚠️ **警告**: 禁用此限制将允许 Agent 访问系统上的任何路径。仅在受控环境中谨慎使用。
+
+#### 安全边界一致性
+
+`restrict_to_workspace` 设置在所有执行路径中一致应用：
+
+| 执行路径         | 安全边界                     |
+| ---------------- | ---------------------------- |
+| 主 Agent         | `restrict_to_workspace` ✅   |
+| 子 Agent / Spawn | 继承相同限制 ✅              |
+| 心跳任务         | 继承相同限制 ✅              |
+
+所有路径共享相同的工作区限制——无法通过子 Agent 或定时任务绕过安全边界。
 
 ### 心跳 / 周期性任务 (Heartbeat)
 

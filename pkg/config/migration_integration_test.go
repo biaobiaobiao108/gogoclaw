@@ -9,75 +9,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
-
-func TestLoadConfig_RemovesRetiredWorkspaceRestrictionFields(t *testing.T) {
-	const preservedMaxTokens = int(9007199254740993)
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.json")
-	workspace := filepath.Join(tmpDir, "workspace")
-	configData := `{
-		"version": 3,
-		"agents": {
-			"defaults": {
-				"workspace": ` + strconv.Quote(workspace) + `,
-				"max_tokens": 9007199254740993,
-				"restrict_to_workspace": true,
-				"allow_read_outside_workspace": false
-			}
-		},
-		"tools": {
-			"allow_read_paths": ["/tmp/read"],
-			"allow_write_paths": ["/tmp/write"]
-		}
-	}`
-	if err := os.WriteFile(configPath, []byte(configData), 0o600); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
-
-	cfg, err := LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
-	if cfg.Agents.Defaults.Workspace != workspace {
-		t.Fatalf("Workspace = %q, want %q", cfg.Agents.Defaults.Workspace, workspace)
-	}
-	if cfg.Agents.Defaults.MaxTokens != preservedMaxTokens {
-		t.Fatalf("MaxTokens = %d, want %d", cfg.Agents.Defaults.MaxTokens, preservedMaxTokens)
-	}
-
-	cleaned, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("ReadFile() error = %v", err)
-	}
-	for _, field := range []string{
-		"restrict_to_workspace",
-		"allow_read_outside_workspace",
-		"allow_read_paths",
-		"allow_write_paths",
-	} {
-		if strings.Contains(string(cleaned), field) {
-			t.Fatalf("cleaned config still contains %q: %s", field, cleaned)
-		}
-	}
-}
-
-func TestLoadConfig_RetiredFieldCleanupDoesNotAcceptTrailingJSON(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	configData := `{"version":3,"agents":{"defaults":{"restrict_to_workspace":true}}} {}`
-	if err := os.WriteFile(configPath, []byte(configData), 0o600); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
-
-	if _, err := LoadConfig(configPath); err == nil {
-		t.Fatal("LoadConfig() accepted trailing JSON data")
-	}
-}
 
 // TestMigration_Integration_LegacyConfigWithoutWorkspace tests the issue reported:
 // User configured Model and Provider but no Workspace - settings should not be lost
@@ -260,6 +195,8 @@ func TestMigration_Integration_PreservesAllAgentsFields(t *testing.T) {
 		"agents": {
 			"defaults": {
 				"workspace": "",
+				"restrict_to_workspace": false,
+				"allow_read_outside_workspace": true,
 				"provider": "anthropic",
 				"model": "claude-opus-4",
 				"model_fallbacks": ["claude-sonnet-4", "claude-haiku-4"],
@@ -312,6 +249,12 @@ func TestMigration_Integration_PreservesAllAgentsFields(t *testing.T) {
 	// Verify ALL defaults fields are preserved
 	d := cfg.Agents.Defaults
 
+	if d.RestrictToWorkspace != false {
+		t.Errorf("RestrictToWorkspace = %v, want false", d.RestrictToWorkspace)
+	}
+	if d.AllowReadOutsideWorkspace != true {
+		t.Errorf("AllowReadOutsideWorkspace = %v, want true", d.AllowReadOutsideWorkspace)
+	}
 	if d.Provider != "anthropic" {
 		t.Errorf("Provider = %q, want %q", d.Provider, "anthropic")
 	}

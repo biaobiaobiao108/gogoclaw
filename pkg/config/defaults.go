@@ -26,6 +26,7 @@ func DefaultConfig() *Config {
 		Agents: AgentsConfig{
 			Defaults: AgentDefaults{
 				Workspace:                 workspacePath,
+				RestrictToWorkspace:       true,
 				Provider:                  "",
 				MaxTokens:                 32768,
 				Temperature:               nil, // nil means use provider default

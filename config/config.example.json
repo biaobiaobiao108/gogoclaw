@@ -3,6 +3,7 @@
   "agents": {
     "defaults": {
       "workspace": "~/.gogoclaw/workspace",
+      "restrict_to_workspace": true,
       "model_name": "gpt-5.4",
       "max_tokens": 8192,
       "context_window": 131072,
@@ -199,6 +200,8 @@
     }
   },
   "tools": {
+    "allow_read_paths": null,
+    "allow_write_paths": null,
     "approval": {
       "enabled": false,
       "tools": ["exec", "write_file", "edit_file", "append_file", "spawn", "subagent", "install_skill"],

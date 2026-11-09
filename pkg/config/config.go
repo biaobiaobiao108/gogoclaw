@@ -421,8 +421,10 @@ type ToolFeedbackConfig struct {
 }
 
 type AgentDefaults struct {
-	Workspace                 string             `json:"workspace"    env:"GOGOCLAW_AGENTS_DEFAULTS_WORKSPACE"`
-	Provider                  string             `json:"provider"     env:"GOGOCLAW_AGENTS_DEFAULTS_PROVIDER"`
+	Workspace                 string             `json:"workspace"                        env:"GOGOCLAW_AGENTS_DEFAULTS_WORKSPACE"`
+	RestrictToWorkspace       bool               `json:"restrict_to_workspace"            env:"GOGOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
+	AllowReadOutsideWorkspace bool               `json:"allow_read_outside_workspace"     env:"GOGOCLAW_AGENTS_DEFAULTS_ALLOW_READ_OUTSIDE_WORKSPACE"`
+	Provider                  string             `json:"provider"                         env:"GOGOCLAW_AGENTS_DEFAULTS_PROVIDER"`
 	ModelName                 string             `json:"model_name"                       env:"GOGOCLAW_AGENTS_DEFAULTS_MODEL_NAME"`
 	ModelFallbacks            []string           `json:"model_fallbacks,omitempty"`
 	ImageModel                string             `json:"image_model,omitempty"            env:"GOGOCLAW_AGENTS_DEFAULTS_IMAGE_MODEL"`
@@ -969,6 +971,8 @@ func (c ReadFileToolConfig) EffectiveMode() string {
 }
 
 type ToolsConfig struct {
+	AllowReadPaths  []string `json:"allow_read_paths"  yaml:"-" env:"GOGOCLAW_TOOLS_ALLOW_READ_PATHS"`
+	AllowWritePaths []string `json:"allow_write_paths" yaml:"-" env:"GOGOCLAW_TOOLS_ALLOW_WRITE_PATHS"`
 	// FilterSensitiveData controls whether to filter sensitive values (API keys,
 	// tokens, secrets) from tool results before sending to the LLM.
 	// Default: true (enabled)
@@ -1197,12 +1201,6 @@ func LoadConfig(path string) (*Config, error) {
 		}
 		return nil, err
 	}
-	data, removedRetiredFields, err := stripRetiredWorkspaceRestrictions(data)
-	if err != nil {
-		err = wrapJSONError(data, err, "config.json")
-		logger.ErrorCF("config", formatDiagnosticLogMessage("Failed to load config", err), map[string]any{"path": path})
-		return nil, err
-	}
 
 	// First, try to detect config version by reading the version field
 	var versionInfo struct {
@@ -1220,7 +1218,6 @@ func LoadConfig(path string) (*Config, error) {
 
 	// Load config based on detected version
 	var cfg *Config
-	persistRetiredFieldsCleanup := false
 	switch versionInfo.Version {
 	case 0:
 		logger.InfoF(
@@ -1406,10 +1403,6 @@ func LoadConfig(path string) (*Config, error) {
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("failed to load security config: %w", err)
 		}
-		if removedRetiredFields {
-			persistRetiredFieldsCleanup = true
-			logger.InfoC("config", "Removed retired workspace restriction fields from config")
-		}
 
 	default:
 		return nil, fmt.Errorf("unsupported config version: %d", versionInfo.Version)
@@ -1456,19 +1449,6 @@ func LoadConfig(path string) (*Config, error) {
 
 	cfg.Session.ApplyDmScope()
 	cfg.Session.DeriveDmScope()
-	if persistRetiredFieldsCleanup {
-		if backupErr := MakeBackup(path); backupErr != nil {
-			logger.ErrorCF("config", "Failed to back up config before retired field cleanup", map[string]any{
-				"path":  path,
-				"error": backupErr.Error(),
-			})
-		} else if saveErr := SaveConfig(path, cfg); saveErr != nil {
-			logger.ErrorCF("config", "Failed to persist retired workspace restriction cleanup", map[string]any{
-				"path":  path,
-				"error": saveErr.Error(),
-			})
-		}
-	}
 
 	return cfg, nil
 }

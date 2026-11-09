@@ -206,11 +206,12 @@ Windows log name:
 
 If you suspect isolation is ineffective, check whether unexpected host paths appear in those logs.
 
-## Relationship To The Workspace
+## Relationship To `restrict_to_workspace`
 
-The configured workspace is the default working directory, not a filesystem sandbox.
-`pkg/isolation` is the opt-in layer that limits what a child process can see and where its
-user environment points.
+- `restrict_to_workspace` limits the paths an agent is normally allowed to access.
+- `pkg/isolation` limits what a child process can see and where its user environment points.
+
+They complement each other and do not replace each other.
 
 ## Current Limits
 

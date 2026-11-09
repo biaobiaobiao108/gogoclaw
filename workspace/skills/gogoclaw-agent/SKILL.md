@@ -225,7 +225,7 @@ Important activation rules:
 
 | Family | Runtime tool names | What they provide |
 | --- | --- | --- |
-| Filesystem | `read_file`, `write_file`, `list_dir`, `edit_file`, `append_file` | Read, write, list, and patch files available to the agent process |
+| Filesystem | `read_file`, `write_file`, `list_dir`, `edit_file`, `append_file` | Read, write, list, and patch workspace files |
 | Web | `web_search`, `web_fetch` | Search the web and fetch readable page content |
 | Command execution | `exec` | Shell command execution with deny-pattern guardrails |
 | Scheduling | `cron` | Scheduled jobs, reminders, recurring tasks, and command jobs |
@@ -330,7 +330,7 @@ Subagent execution semantics that matter:
 - `subagent` waits for completion and returns the result directly
 - `delegate` is synchronous and runs as the target peer agent instead of a generic child task
 - `spawn_status` is scoped to the current conversation when channel/chat context exists
-- all subagents share the same container and runtime permissions; the workspace is a working directory, not a sandbox
+- all subagents still share the same workspace security boundary; they do not bypass sandbox or path restrictions
 
 Runtime limits and lifecycle rules:
 

@@ -38,7 +38,7 @@ type CronTool struct {
 // NewCronTool creates a new CronTool
 // execTimeout: 0 means no timeout, >0 sets the timeout duration
 func NewCronTool(
-	cronService *cron.CronService, executor JobExecutor, msgBus *bus.MessageBus, workspace string,
+	cronService *cron.CronService, executor JobExecutor, msgBus *bus.MessageBus, workspace string, restrict bool,
 	execTimeout time.Duration, config *config.Config,
 ) (*CronTool, error) {
 	allowCommand := true
@@ -53,7 +53,7 @@ func NewCronTool(
 	var execTool *ExecTool
 	if execEnabled {
 		var err error
-		execTool, err = NewExecToolWithConfig(workspace, config)
+		execTool, err = NewExecToolWithConfig(workspace, restrict, config)
 		if err != nil {
 			return nil, fmt.Errorf("unable to configure exec tool: %w", err)
 		}

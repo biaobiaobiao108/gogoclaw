@@ -521,6 +521,7 @@ export function ConfigPage() {
           agents: {
             defaults: {
               workspace,
+              restrict_to_workspace: form.restrictToWorkspace,
               split_on_marker: form.splitOnMarker,
               tool_feedback: {
                 enabled: form.toolFeedbackEnabled,

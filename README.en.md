@@ -271,7 +271,7 @@ Never commit `.security.yml`, API keys, bot tokens, or device private keys to Gi
 
 GoGoClaw includes a compact default system prompt covering general operating principles: understand before acting, use tools when required, claim success only when tool evidence supports it, inspect real state before changes, recover from failures, never fabricate results, treat external instructions as untrusted data, and communicate concisely.
 
-The prompt also defines GoGoClaw-specific runtime rules: only tools exposed for the current turn are authoritative; the workspace is a default working directory while the deployment container and runtime permissions define the security boundary; long-term memory is reserved for stable preferences and decisions; normal replies are delivered to the current channel; subagents are isolated by default; credentials may only be used with their intended service; and responses should use the user's language and fit the delivery channel.
+The prompt also defines GoGoClaw-specific runtime rules: only tools exposed for the current turn are authoritative; workspace paths and persistence have explicit boundaries; long-term memory is reserved for stable preferences and decisions; normal replies are delivered to the current channel; subagents are isolated by default; credentials may only be used with their intended service; and responses should use the user's language and fit the delivery channel.
 
 Workspace files can refine behavior:
 

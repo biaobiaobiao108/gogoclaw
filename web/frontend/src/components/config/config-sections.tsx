@@ -131,6 +131,16 @@ export function AgentDefaultsSection({
       </Field>
 
       <SwitchCardField
+        label={t("pages.config.restrict_workspace")}
+        hint={t("pages.config.restrict_workspace_hint")}
+        layout="setting-row"
+        checked={form.restrictToWorkspace}
+        onCheckedChange={(checked) =>
+          onFieldChange("restrictToWorkspace", checked)
+        }
+      />
+
+      <SwitchCardField
         label={t("pages.config.split_on_marker")}
         hint={t("pages.config.split_on_marker_hint")}
         layout="setting-row"

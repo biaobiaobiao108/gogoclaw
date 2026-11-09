@@ -6,10 +6,8 @@
 package config
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -80,53 +78,6 @@ func migrateLegacyAgentDefaultsModel(m map[string]any) {
 		defaults["model_name"] = model
 	}
 	delete(defaults, "model")
-}
-
-// removeRetiredWorkspaceRestrictions removes the old string-path isolation
-// settings. Container deployment is the supported security boundary now, so
-// these fields are accepted from existing configs and dropped on migration.
-func removeRetiredWorkspaceRestrictions(m map[string]any) bool {
-	removed := false
-	if agents, ok := m["agents"].(map[string]any); ok {
-		if defaults, ok := agents["defaults"].(map[string]any); ok {
-			for _, key := range []string{"restrict_to_workspace", "allow_read_outside_workspace"} {
-				if _, exists := defaults[key]; exists {
-					delete(defaults, key)
-					removed = true
-				}
-			}
-		}
-	}
-	if tools, ok := m["tools"].(map[string]any); ok {
-		for _, key := range []string{"allow_read_paths", "allow_write_paths"} {
-			if _, exists := tools[key]; exists {
-				delete(tools, key)
-				removed = true
-			}
-		}
-	}
-	return removed
-}
-
-func stripRetiredWorkspaceRestrictions(data []byte) ([]byte, bool, error) {
-	var m map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := decoder.Decode(&m); err != nil {
-		return data, false, err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err == nil {
-			err = fmt.Errorf("config contains multiple JSON values")
-		}
-		return data, false, err
-	}
-	if !removeRetiredWorkspaceRestrictions(m) {
-		return data, false, nil
-	}
-	cleaned, err := json.Marshal(m)
-	return cleaned, err == nil, err
 }
 
 // loadConfigV1 loads a version 1 config (current schema)
@@ -444,7 +395,6 @@ func migrateV2ToV3(m map[string]any) error {
 	}
 
 	migrateLegacyAgentDefaultsModel(m)
-	removeRetiredWorkspaceRestrictions(m)
 	delete(m, "bindings")
 
 	// Rename channels → channel_list
