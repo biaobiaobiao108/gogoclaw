@@ -226,7 +226,9 @@ func startGatewayAndCaptureEnv(t *testing.T, h *Handler) gatewayStartEnvSnapshot
 		)
 	}
 
+	gateway.mu.Lock()
 	pid, err := h.startGatewayLocked("starting", 0)
+	gateway.mu.Unlock()
 	if err != nil {
 		t.Fatalf("startGatewayLocked() error = %v", err)
 	}
@@ -318,7 +320,9 @@ func TestStartGatewayLocked_UsesReloadedConfigForBootSignature(t *testing.T) {
 	}
 
 	originalSignature := computeConfigSignature(cfg)
+	gateway.mu.Lock()
 	pid, err := h.startGatewayLocked("starting", 0)
+	gateway.mu.Unlock()
 	if err != nil {
 		t.Fatalf("startGatewayLocked() error = %v", err)
 	}
