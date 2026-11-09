@@ -901,6 +901,9 @@ func (s *picoStreamer) sendReasoningLocked(ctx context.Context, content string) 
 
 	if s.reasoningID == "" {
 		s.reasoningID = uuid.New().String()
+		if s.deliveryID != "" {
+			s.reasoningID = s.deliveryID + "-thought"
+		}
 		payload := map[string]any{
 			PayloadKeyContent: content,
 			"message_id":      s.reasoningID,

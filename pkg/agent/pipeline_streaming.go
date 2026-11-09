@@ -112,6 +112,9 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 		)
 	}
 	logConfiguredStreamingSummary(ts, exec, chunkCount, firstChunkAt, lastChunkAt, streamErr)
+	if response != nil {
+		ts.recordUsage(response.Usage, false)
+	}
 	if streamErr == nil {
 		if updateErr := publisher.Err(); updateErr != nil {
 			logFields := map[string]any{
@@ -130,6 +133,10 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 			publisher.Cancel(ctx)
 			p.al.discardDelivery(ts.sessionKey, delivery.ID)
 			exec.streamingDelivery = nil
+			if len(exec.activeCandidates) > 1 {
+				exec.streamingFallback = true
+				return nil, false, nil
+			}
 			fallbackResponse, err := exec.activeProvider.Chat(
 				ctx,
 				messagesForCall,
@@ -137,6 +144,9 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 				exec.llmModel,
 				exec.llmOpts,
 			)
+			if fallbackResponse != nil {
+				ts.recordUsage(fallbackResponse.Usage, false)
+			}
 			if err == nil && fallbackResponse != nil {
 				exec.streamingFallback = true
 			}
@@ -154,6 +164,10 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 			publisher.Cancel(ctx)
 			p.al.discardDelivery(ts.sessionKey, delivery.ID)
 			exec.streamingDelivery = nil
+			if len(exec.activeCandidates) > 1 {
+				exec.streamingFallback = true
+				return nil, false, nil
+			}
 			fallbackResponse, err := exec.activeProvider.Chat(
 				ctx,
 				messagesForCall,
@@ -161,6 +175,9 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 				exec.llmModel,
 				exec.llmOpts,
 			)
+			if fallbackResponse != nil {
+				ts.recordUsage(fallbackResponse.Usage, false)
+			}
 			if err == nil && fallbackResponse != nil {
 				exec.streamingFallback = true
 			}
@@ -317,16 +334,7 @@ func (p *Pipeline) configuredStreamingEligible(ts *turnState, exec *turnExecutio
 		})
 		return false
 	}
-	if len(exec.activeCandidates) != 1 {
-		logger.DebugCF("agent", "configured streaming not used", map[string]any{
-			"agent_id":   ts.agent.ID,
-			"channel":    ts.channel,
-			"model":      exec.activeModel,
-			"candidates": len(exec.activeCandidates),
-			"reason":     "fallback_candidates_enabled",
-		})
-		return false
-	}
+
 	if exec.activeModelConfig == nil || !exec.activeModelConfig.Streaming.Enabled {
 		modelName := ""
 		modelStreaming := false
@@ -515,7 +523,7 @@ func (p *streamingChunkPublisher) Finalize(ctx context.Context, content string, 
 	if setter, ok := p.streamer.(interface{ SetModelName(modelName string) }); ok {
 		setter.SetModelName(p.modelName)
 	}
-	if usage := p.ts.GetLastUsage(); usage != nil {
+	if usage := p.ts.totalTokenUsage(); usage != nil {
 		if setter, ok := p.streamer.(interface{ SetTurnUsage(in, out int) }); ok {
 			setter.SetTurnUsage(usage.PromptTokens, usage.CompletionTokens)
 		}

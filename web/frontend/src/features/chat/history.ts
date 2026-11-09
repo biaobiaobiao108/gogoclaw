@@ -10,6 +10,7 @@ import type {
   ChatMessage,
   ChatPlanStep,
   ChatTurnHistory,
+  ContextUsage,
 } from "@/store/chat"
 
 function toChatAttachments({
@@ -56,6 +57,7 @@ export async function loadSessionHistory(sessionId: string): Promise<{
   activities: ChatActivity[]
   plan: ChatPlanStep[]
   turnHistory: ChatTurnHistory[]
+  contextUsage?: ContextUsage
   nextCursor?: string
   hasOlder: boolean
 }> {
@@ -117,6 +119,7 @@ export async function loadSessionHistory(sessionId: string): Promise<{
   const turn = detail.turn
   return {
     messages,
+    contextUsage: turn?.usage,
     plan: turn?.plan ?? [],
     activities: toActivities(turn?.activities),
     turnHistory: (detail.turn_history ?? [])
@@ -167,6 +170,7 @@ export async function loadOlderSessionHistory(
 
 function historyMessageId(
   message: {
+    message_id?: string
     role: "user" | "assistant"
     content: string
     created_at?: string
@@ -175,6 +179,7 @@ function historyMessageId(
   index: number,
   page?: string,
 ): string {
+  if (message.message_id) return message.message_id
   let hash = 2166136261
   const value = `${message.role}\u0000${message.created_at ?? ""}\u0000${message.kind ?? ""}\u0000${message.content}`
   for (let i = 0; i < value.length; i += 1) {
@@ -223,6 +228,9 @@ export function mergeHistoryMessages(
   historyMessages: ChatMessage[],
   currentMessages: ChatMessage[],
 ): ChatMessage[] {
+  const savedById = new Map(
+    historyMessages.map((message) => [message.id, message]),
+  )
   const currentIds = new Set(currentMessages.map((message) => message.id))
   const currentSignatures = new Set(
     currentMessages.map((message) => messageSignature(message)),
@@ -234,7 +242,18 @@ export function mergeHistoryMessages(
         !currentIds.has(message.id) &&
         !currentSignatures.has(messageSignature(message)),
     ),
-    ...currentMessages,
+    ...currentMessages.map((message) => {
+      const saved = savedById.get(message.id)
+      return saved && message.role === "user"
+        ? {
+            ...message,
+            timestamp: saved.timestamp,
+            ...(message.deliveryStatus
+              ? { deliveryStatus: "accepted" as const }
+              : {}),
+          }
+        : message
+    }),
   ]
 
   return merged.sort(

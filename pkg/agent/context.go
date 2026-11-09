@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,8 +13,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/skills"
@@ -994,7 +997,7 @@ func (cb *ContextBuilder) BuildMessagesFromPrompt(req PromptBuildRequest) []prov
 		})
 
 	history := sanitizeHistoryForProvider(req.History)
-	history = pruneHistoricalToolOutputs(history)
+	history = cb.pruneHistoricalToolOutputs(history)
 
 	// Single system message containing all context — compatible with all providers.
 	// SystemParts enables cache-aware adapters to set per-block cache_control;
@@ -1205,6 +1208,26 @@ func sanitizeHistoryForProvider(history []providers.Message) []providers.Message
 
 const defaultHistoricalToolOutputLimit = 800
 
+func (cb *ContextBuilder) pruneHistoricalToolOutputs(history []providers.Message) []providers.Message {
+	withArtifacts := append([]providers.Message(nil), history...)
+	for i, msg := range withArtifacts {
+		if msg.Role != "tool" || len(msg.Content) <= defaultHistoricalToolOutputLimit || strings.Contains(msg.Content, "[file:") {
+			continue
+		}
+		hash := sha256.Sum256([]byte(msg.Content))
+		path := filepath.Join(cb.workspace, "state", "tool_outputs", fmt.Sprintf("history-%x.txt", hash[:16]))
+		if _, err := os.Stat(path); err != nil {
+			if err := fileutil.WriteFileAtomic(path, []byte(msg.Content), 0o600); err != nil {
+				logger.WarnCF("agent", "Historical tool output could not be archived", map[string]any{"error": err.Error()})
+				// Retain the source when a recoverable prompt view cannot be built.
+				return history
+			}
+		}
+		withArtifacts[i].Content = msg.Content + "\n[file:" + path + "]"
+	}
+	return pruneHistoricalToolOutputs(withArtifacts)
+}
+
 // pruneHistoricalToolOutputs compacts oversized tool results from completed
 // historical turns in the prompt view, preventing multi-turn context explosion.
 // It preserves tool_call_id pairs, metadata, and artifact file pointers while
@@ -1240,27 +1263,21 @@ func pruneHistoricalToolContent(content string, limit int) string {
 		}
 	}
 
-	lines := strings.Split(content, "\n")
-	keepLines := 5
-	if len(lines) < keepLines {
-		keepLines = len(lines)
-	}
-
-	var headBuilder strings.Builder
-	for i := 0; i < keepLines; i++ {
-		headBuilder.WriteString(lines[i])
-		headBuilder.WriteByte('\n')
-		if headBuilder.Len() >= limit/2 {
-			break
-		}
-	}
-
-	head := strings.TrimRight(headBuilder.String(), "\n")
-	omittedBytes := len(content) - len(head)
-
-	notice := fmt.Sprintf("\n\n[... historical tool output pruned (%d bytes omitted) to save context tokens ...]", omittedBytes)
+	notice := "\n\n[... historical tool output pruned to save context tokens ...]"
 	if artifactTag != "" {
 		notice += "\nFull content: " + artifactTag
+	}
+	if len(notice) > limit {
+		notice = notice[:max(0, limit)]
+		for !utf8.ValidString(notice) && len(notice) > 0 {
+			notice = notice[:len(notice)-1]
+		}
+		return notice
+	}
+	// Bound bytes as well as tokens, including one-line JSON and UTF-8 text.
+	head := content[:max(0, min(len(content), limit-len(notice)))]
+	for !utf8.ValidString(head) && len(head) > 0 {
+		head = head[:len(head)-1]
 	}
 
 	return head + notice

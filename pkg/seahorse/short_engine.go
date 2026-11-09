@@ -500,37 +500,13 @@ func (e *Engine) Bootstrap(ctx context.Context, sessionKey string, messages []Me
 				"msg_parts":      len(messages[i].Parts),
 				"msg_model_name": messages[i].ModelName,
 			})
-			break
-		}
-	}
-
-	// If we hit a mismatch before reaching the end of DB messages, delete delta and re-ingest
-	// Note: anchor can be -1 if first message didn't match (history completely changed)
-	if anchor >= 0 && anchor < len(dbMsgs)-1 && len(dbMsgs) > 0 {
-		anchorID := dbMsgs[anchor].ID
-		logger.InfoCF("seahorse", "bootstrap: history edit detected", map[string]any{
-			"conv_id":     conv.ConversationID,
-			"db_count":    len(dbMsgs),
-			"anchor":      anchor,
-			"anchor_id":   anchorID,
-			"msg_count":   len(messages),
-			"delta_start": anchor + 1,
-		})
-
-		// Delete messages after anchor (also clears context_items)
-		if err := e.store.DeleteMessagesAfterID(ctx, conv.ConversationID, anchorID); err != nil {
-			return fmt.Errorf("bootstrap: delete messages: %w", err)
-		}
-
-		// Re-ingest from anchor+1 to end
-		delta := messages[anchor+1:]
-		if len(delta) > 0 {
-			_, err := e.Ingest(ctx, sessionKey, delta)
-			if err != nil {
-				return fmt.Errorf("bootstrap: re-ingest: %w", err)
+			// Summaries derived from edited rows are invalid as well as the rows.
+			if err := e.store.ClearConversation(ctx, conv.ConversationID); err != nil {
+				return fmt.Errorf("bootstrap: clear edited context: %w", err)
 			}
+			_, err := e.Ingest(ctx, sessionKey, messages)
+			return err
 		}
-		return nil
 	}
 
 	// Normal case: append delta after anchor
@@ -540,24 +516,6 @@ func (e *Engine) Bootstrap(ctx context.Context, sessionKey string, messages []Me
 			_, err := e.Ingest(ctx, sessionKey, delta)
 			if err != nil {
 				return fmt.Errorf("bootstrap: ingest delta: %w", err)
-			}
-		}
-	} else if anchor == -1 && len(dbMsgs) > 0 {
-		// First message changed (history completely different) - rebuild from scratch
-		logger.InfoCF("seahorse", "bootstrap: history replaced, rebuilding", map[string]any{
-			"conv_id":   conv.ConversationID,
-			"db_count":  len(dbMsgs),
-			"msg_count": len(messages),
-		})
-		// Delete all existing messages
-		if err := e.store.DeleteMessagesAfterID(ctx, conv.ConversationID, 0); err != nil {
-			return fmt.Errorf("bootstrap: delete all messages: %w", err)
-		}
-		// Re-ingest everything
-		if len(messages) > 0 {
-			_, err := e.Ingest(ctx, sessionKey, messages)
-			if err != nil {
-				return fmt.Errorf("bootstrap: re-ingest all: %w", err)
 			}
 		}
 	} else if anchor == -1 && len(dbMsgs) == 0 {
@@ -799,12 +757,12 @@ func partsMatch(a, b []MessagePart) bool {
 			return false
 		}
 		switch a[i].Type {
-		case "text":
+		case "text", "provider_metadata":
 			if a[i].Text != b[i].Text {
 				return false
 			}
 		case "tool_use":
-			if a[i].Name != b[i].Name || a[i].Arguments != b[i].Arguments || a[i].ToolCallID != b[i].ToolCallID {
+			if a[i].Name != b[i].Name || a[i].Arguments != b[i].Arguments || a[i].ToolCallID != b[i].ToolCallID || a[i].Text != b[i].Text {
 				return false
 			}
 		case "tool_result":

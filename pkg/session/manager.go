@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,11 +9,52 @@ import (
 	"sync"
 	"time"
 
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/messageutil"
 )
 
+func (sm *SessionManager) CommitSummary(key string, prefix []providers.Message, previous, summary string) (bool, error) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	s := sm.sessions[key]
+	if s == nil || s.Summary != previous || len(s.Messages) < len(prefix) {
+		return false, nil
+	}
+	want, err := json.Marshal(prefix)
+	if err != nil {
+		return false, err
+	}
+	got, err := json.Marshal(s.Messages[:len(prefix)])
+	if err != nil {
+		return false, err
+	}
+	if !bytes.Equal(want, got) {
+		return false, nil
+	}
+	s.Summary = summary
+	s.Messages = append([]providers.Message(nil), s.Messages[len(prefix):]...)
+	s.Updated = time.Now()
+	return true, nil
+}
+
 const maxStoredTurnHistory = 50
+
+func (sm *SessionManager) UpdateTurnUsage(key, turnID string, usage *bus.ContextUsage) error {
+	sm.mu.Lock()
+	if s := sm.sessions[key]; s != nil {
+		if s.Turn.TurnID == turnID {
+			s.Turn.Usage = bus.PreserveUsageTotals(s.Turn.Usage, usage)
+		}
+		for i := range s.TurnHistory {
+			if s.TurnHistory[i].TurnID == turnID {
+				s.TurnHistory[i].Usage = bus.PreserveUsageTotals(s.TurnHistory[i].Usage, usage)
+			}
+		}
+	}
+	sm.mu.Unlock()
+	return sm.Save(key)
+}
 
 type Session struct {
 	Key         string              `json:"key"`
@@ -32,6 +74,9 @@ func (sm *SessionManager) SetTurnCheckpoint(key string, checkpoint TurnCheckpoin
 		if overflow := len(sm.sessions[key].TurnHistory) - maxStoredTurnHistory; overflow > 0 {
 			sm.sessions[key].TurnHistory = append([]TurnCheckpoint(nil), sm.sessions[key].TurnHistory[overflow:]...)
 		}
+	}
+	if previous := sm.sessions[key].Turn; previous.TurnID == checkpoint.TurnID {
+		checkpoint.Usage = bus.PreserveUsageTotals(checkpoint.Usage, previous.Usage)
 	}
 	sm.sessions[key].Turn = checkpoint
 	sm.mu.Unlock()

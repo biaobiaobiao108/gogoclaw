@@ -55,8 +55,9 @@ func TestInferSkillNamesFromToolCall_NonSkillFileIgnored(t *testing.T) {
 }
 
 type mockReadOnlySleepTool struct {
-	name  string
-	delay time.Duration
+	name    string
+	started chan<- struct{}
+	release <-chan struct{}
 }
 
 func (t *mockReadOnlySleepTool) Name() string        { return t.name }
@@ -65,7 +66,12 @@ func (t *mockReadOnlySleepTool) Parameters() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{"file": map[string]any{"type": "string"}}}
 }
 func (t *mockReadOnlySleepTool) Execute(ctx context.Context, args map[string]any) *tools.ToolResult {
-	time.Sleep(t.delay)
+	t.started <- struct{}{}
+	select {
+	case <-t.release:
+	case <-ctx.Done():
+		return tools.ErrorResult(ctx.Err().Error())
+	}
 	return tools.SilentResult(fmt.Sprintf("content of %v", args["file"]))
 }
 
@@ -85,24 +91,36 @@ func TestExecuteTools_ParallelReadOnly(t *testing.T) {
 	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
 	defer cleanup()
 
-	agent.Tools.Register(&mockReadOnlySleepTool{name: "read_file", delay: 80 * time.Millisecond})
+	started := make(chan struct{}, 3)
+	release := make(chan struct{})
+	agent.Tools.Register(&mockReadOnlySleepTool{name: "read_file", started: started, release: release})
 	ts := newTurnState(agent, makeTestProcessOpts("parallel-tools"), turnEventScope{
 		turnID: "parallel-tools", context: newTurnContext(nil, nil, nil),
 	})
 
-	start := time.Now()
-	result, err := al.runTurn(context.Background(), ts, NewPipeline(al))
-	duration := time.Since(start)
-
-	if err != nil {
-		t.Fatal(err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	type outcome struct {
+		result turnResult
+		err    error
 	}
-	if result.finalContent != "Read all 3 files in parallel." {
-		t.Fatalf("unexpected result: %s", result.finalContent)
+	done := make(chan outcome, 1)
+	go func() { result, err := al.runTurn(ctx, ts, NewPipeline(al)); done <- outcome{result, err} }()
+	// All tools must enter execution before any can finish. Disk latency and
+	// scheduler overhead are deliberately excluded from the concurrency assertion.
+	for i := 0; i < 3; i++ {
+		select {
+		case <-started:
+		case <-ctx.Done():
+			t.Fatal("read-only tools did not execute concurrently")
+		}
 	}
-	// Serial execution of 3 tools with 80ms delay would take >= 240ms in tools alone.
-	// Parallel execution runs them concurrently in ~80ms, total turn finishes well below 230ms.
-	if duration >= 230*time.Millisecond {
-		t.Errorf("expected parallel execution to complete faster than serial (230ms threshold), took %v", duration)
+	close(release)
+	got := <-done
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	if got.result.finalContent != "Read all 3 files in parallel." {
+		t.Fatalf("unexpected result: %s", got.result.finalContent)
 	}
 }

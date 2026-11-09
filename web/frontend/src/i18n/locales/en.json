@@ -150,6 +150,8 @@
     "contextTitle": "Context",
     "contextUsageLabel": "Context usage {{percent}}%",
     "contextDetail": "View Details",
+    "taskTokens": "Task input / output",
+    "summaryTokens": "Summary input / output",
     "contextCompressAt": "Compress at",
     "contextSummarizeAt": "Summarize at",
     "attachImage": "Add images",

@@ -456,6 +456,11 @@ func setupAndStartServices(
 				turn := agentLoop.GetActiveTurnByConversation(config.ChannelPico, chatID)
 				if turn == nil {
 					result := map[string]any{"active": false}
+					if usage, err := agentLoop.ConversationUsage(config.ChannelPico, chatID, "pico-user"); err == nil {
+						result["context_usage"] = usage
+					} else {
+						result["error"] = "Unable to read task usage"
+					}
 					if pending := agentLoop.PendingApprovalByConversation(config.ChannelPico, chatID); pending != nil {
 						result["approval"] = pending
 					}
@@ -470,6 +475,9 @@ func setupAndStartServices(
 					return result
 				}
 				result := map[string]any{"active": true, "turn_id": turn.TurnID, "phase": turn.Phase, "iteration": turn.Iteration, "plan": turn.Plan}
+				if usage, err := agentLoop.ConversationUsage(config.ChannelPico, chatID, "pico-user"); err == nil {
+					result["context_usage"] = usage
+				}
 				if pending := agentLoop.PendingApprovalByConversation(config.ChannelPico, chatID); pending != nil {
 					result["approval"] = pending
 				}

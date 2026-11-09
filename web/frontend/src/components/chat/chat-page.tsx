@@ -156,6 +156,7 @@ function estimateChatStreamRow(row: ChatStreamRow): number {
 export function ChatPage() {
   const { t } = useTranslation()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const streamContentRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragDepthRef = useRef(0)
   const isMobile = useIsMobile()
@@ -291,7 +292,7 @@ export function ChatPage() {
     const atBottom = scrollHeight - scrollTop - clientHeight <= 48
     setHasScrolled(scrollTop > 0)
     setIsAtBottom(atBottom)
-    autoScrollEnabledRef.current = atBottom
+    if (atBottom) autoScrollEnabledRef.current = true
   }, [])
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -516,14 +517,28 @@ export function ChatPage() {
     return undefined
   })()
 
-  // Follow stream output smoothly to bottom when auto-scroll is active
+  // Follow measured height changes, including image loading and text reveal.
   useEffect(() => {
-    if (!scrollRef.current) return
-    if (autoScrollEnabledRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-      setIsAtBottom(true)
+    const content = streamContentRef.current
+    const scroll = scrollRef.current
+    if (!content || !scroll) return
+    let frame = 0
+    const follow = () => {
+      if (!autoScrollEnabledRef.current) return
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        if (autoScrollEnabledRef.current) scroll.scrollTop = scroll.scrollHeight
+      })
     }
-  }, [streamRows])
+    const observer = new ResizeObserver(follow)
+    observer.observe(content)
+    observer.observe(scroll)
+    follow()
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+    }
+  }, [activeSessionId])
 
   // Scroll to bottom on initial session switch
   useEffect(() => {
@@ -623,9 +638,28 @@ export function ChatPage() {
           <div
             ref={scrollRef}
             onScroll={handleScroll}
+            onPointerDown={(event) => {
+              if (
+                event.clientX >=
+                event.currentTarget.getBoundingClientRect().left +
+                  event.currentTarget.clientWidth
+              )
+                autoScrollEnabledRef.current = false
+            }}
+            onWheel={(event) => {
+              if (event.deltaY < 0) autoScrollEnabledRef.current = false
+            }}
+            onTouchMove={() => {
+              autoScrollEnabledRef.current = false
+            }}
+            onKeyDown={(event) => {
+              if (["ArrowUp", "PageUp", "Home"].includes(event.key))
+                autoScrollEnabledRef.current = false
+            }}
             className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-8"
           >
             <div
+              ref={streamContentRef}
               className="relative mx-auto w-full max-w-3xl"
               style={{ height: `${streamVirtualizer.getTotalSize()}px` }}
               role="list"

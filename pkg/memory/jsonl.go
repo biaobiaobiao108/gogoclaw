@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/messageutil"
@@ -65,7 +66,8 @@ func (s *JSONLStore) SetTurn(_ context.Context, key string, turn json.RawMessage
 		return err
 	}
 	var old, next struct {
-		TurnID string `json:"turn_id"`
+		TurnID string            `json:"turn_id"`
+		Usage  *bus.ContextUsage `json:"usage"`
 	}
 	if len(meta.Turn) > 0 {
 		if err := json.Unmarshal(meta.Turn, &old); err != nil {
@@ -73,6 +75,20 @@ func (s *JSONLStore) SetTurn(_ context.Context, key string, turn json.RawMessage
 		}
 		if err := json.Unmarshal(turn, &next); err != nil {
 			return err
+		}
+		if old.TurnID == next.TurnID && old.Usage != nil {
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(turn, &fields); err != nil {
+				return err
+			}
+			fields["usage"], err = json.Marshal(bus.PreserveUsageTotals(next.Usage, old.Usage))
+			if err != nil {
+				return err
+			}
+			turn, err = json.Marshal(fields)
+			if err != nil {
+				return err
+			}
 		}
 		if old.TurnID != "" && old.TurnID != next.TurnID {
 			meta.TurnHistory = append(meta.TurnHistory, cloneRawJSON(meta.Turn))
@@ -96,6 +112,53 @@ func (s *JSONLStore) ClearTurns(_ context.Context, key string) error {
 	}
 	meta.Turn = nil
 	meta.TurnHistory = nil
+	return s.writeMeta(key, meta)
+}
+
+func (s *JSONLStore) UpdateTurnUsage(key, turnID string, usage *bus.ContextUsage) error {
+	l := s.sessionLock(key)
+	l.Lock()
+	defer l.Unlock()
+	meta, err := s.readMeta(key)
+	if err != nil {
+		return err
+	}
+	update := func(raw *json.RawMessage) error {
+		if len(*raw) == 0 {
+			return nil
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(*raw, &fields); err != nil {
+			return err
+		}
+		var id string
+		if err := json.Unmarshal(fields["turn_id"], &id); err != nil {
+			return err
+		}
+		if id != turnID {
+			return nil
+		}
+		var current *bus.ContextUsage
+		if rawUsage := fields["usage"]; len(rawUsage) > 0 {
+			if err := json.Unmarshal(rawUsage, &current); err != nil {
+				return err
+			}
+		}
+		fields["usage"], err = json.Marshal(bus.PreserveUsageTotals(current, usage))
+		if err != nil {
+			return err
+		}
+		*raw, err = json.Marshal(fields)
+		return err
+	}
+	if err := update(&meta.Turn); err != nil {
+		return err
+	}
+	for i := range meta.TurnHistory {
+		if err := update(&meta.TurnHistory[i]); err != nil {
+			return err
+		}
+	}
 	return s.writeMeta(key, meta)
 }
 
@@ -734,6 +797,47 @@ func (s *JSONLStore) GetSummary(
 		return "", err
 	}
 	return meta.Summary, nil
+}
+
+func (s *JSONLStore) CommitSummary(key string, prefix []providers.Message, previous, summary string) (bool, error) {
+	l := s.sessionLock(key)
+	l.Lock()
+	defer l.Unlock()
+	meta, err := s.readMeta(key)
+	if err != nil {
+		return false, err
+	}
+	if meta.Summary != previous || len(prefix) == 0 {
+		return false, nil
+	}
+	messages, err := readMessages(s.jsonlPath(key), meta.Skip)
+	if err != nil {
+		return false, err
+	}
+	if len(messages) < len(prefix) {
+		return false, nil
+	}
+	want, err := json.Marshal(prefix)
+	if err != nil {
+		return false, err
+	}
+	got, err := json.Marshal(messages[:len(prefix)])
+	if err != nil {
+		return false, err
+	}
+	if !bytes.Equal(want, got) {
+		return false, nil
+	}
+	count, lines, err := scanRetainedMessageLines(s.jsonlPath(key))
+	if err != nil {
+		return false, err
+	}
+	start := sort.SearchInts(lines, meta.Skip+1)
+	meta.Skip = lines[start+len(prefix)-1]
+	meta.Count = count
+	meta.Summary = summary
+	meta.UpdatedAt = time.Now()
+	return true, s.writeMeta(key, meta)
 }
 
 func (s *JSONLStore) SetSummary(

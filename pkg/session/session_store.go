@@ -10,6 +10,7 @@ import (
 )
 
 type TurnCheckpoint struct {
+	Usage      *bus.ContextUsage     `json:"usage,omitempty"`
 	TurnID     string                `json:"turn_id"`
 	Status     string                `json:"status"`
 	Iteration  int                   `json:"iteration"`
@@ -91,6 +92,16 @@ type CheckedStore interface {
 	GetSummaryChecked(string) (string, error)
 	SetHistoryChecked(string, []providers.Message) error
 	SetSummaryChecked(string, string) error
+}
+
+// SummaryCommitStore atomically replaces a summarized prefix while retaining
+// messages appended during the model call. A changed prefix invalidates the work.
+type SummaryCommitStore interface {
+	CommitSummary(string, []providers.Message, string, string) (bool, error)
+}
+
+type TurnUsageStore interface {
+	UpdateTurnUsage(string, string, *bus.ContextUsage) error
 }
 
 func SetHistoryChecked(store SessionStore, key string, history []providers.Message) error {

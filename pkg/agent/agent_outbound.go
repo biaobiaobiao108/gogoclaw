@@ -93,6 +93,17 @@ func (al *AgentLoop) PublishResponseIfNeededChecked(ctx context.Context, channel
 	var usage *bus.ContextUsage
 	if sessionKey != "" {
 		usage = computeContextUsage(al.agentForSession(sessionKey), sessionKey)
+		if agent := al.agentForSession(sessionKey); agent != nil {
+			if store, ok := agent.Sessions.(session.TurnCheckpointStore); ok {
+				checkpoint, err := store.GetTurnCheckpoint(sessionKey)
+				if err != nil {
+					return err
+				}
+				if checkpoint.Usage != nil {
+					usage = checkpoint.Usage
+				}
+			}
+		}
 	}
 	if err := al.publishTrackedResponse(ctx, channel, chatID, sessionKey, response, usage); err != nil {
 		return err
@@ -119,6 +130,7 @@ func (al *AgentLoop) targetReasoningChannelID(channelName string) (chatID string
 func (al *AgentLoop) publishPicoReasoning(
 	ctx context.Context,
 	reasoningContent, chatID, sessionKey, modelName string,
+	messageIDs ...string,
 ) {
 	if reasoningContent == "" || chatID == "" {
 		return
@@ -136,7 +148,12 @@ func (al *AgentLoop) publishPicoReasoning(
 		raw["model_name"] = trimmedModelName
 	}
 
+	messageID := ""
+	if len(messageIDs) > 0 {
+		messageID = messageIDs[0]
+	}
 	if err := al.bus.PublishOutbound(pubCtx, bus.OutboundMessage{
+		ID: messageID,
 		Context: bus.InboundContext{
 			Channel: "pico",
 			ChatID:  chatID,
@@ -167,11 +184,16 @@ func (al *AgentLoop) publishPicoToolCallInterim(
 	reasoningContent string,
 	content string,
 	toolCalls []providers.ToolCall,
+	messageIDs ...string,
 ) {
 	if ts == nil || ts.chatID == "" || al == nil || al.bus == nil {
 		return
 	}
 
+	messageID := fmt.Sprintf("%s-llm-%d", ts.turnID, ts.currentIteration())
+	if len(messageIDs) > 0 {
+		messageID = messageIDs[0]
+	}
 	if strings.TrimSpace(reasoningContent) != "" {
 		pubCtx, pubCancel := context.WithTimeout(ctx, 3*time.Second)
 		err := al.bus.PublishOutbound(
@@ -181,6 +203,7 @@ func (al *AgentLoop) publishPicoToolCallInterim(
 				reasoningContent,
 				outboundTurnMessageOptions{
 					kind:      messageKindThought,
+					messageID: messageID + "-thought",
 					modelName: modelName,
 				},
 			),
@@ -213,6 +236,7 @@ func (al *AgentLoop) publishPicoToolCallInterim(
 		err := al.bus.PublishOutbound(
 			pubCtx,
 			outboundMessageForTurnWithOptions(ts, content, outboundTurnMessageOptions{
+				messageID: messageID,
 				modelName: modelName,
 			}),
 		)
@@ -250,6 +274,9 @@ func (al *AgentLoop) publishPicoToolCallInterim(
 		},
 	})
 
+	if len(messageIDs) > 0 {
+		msg.ID = messageIDs[0] + "-tools"
+	}
 	pubCtx, pubCancel := context.WithTimeout(ctx, 3*time.Second)
 	err = al.bus.PublishOutbound(pubCtx, msg)
 	pubCancel()

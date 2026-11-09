@@ -258,8 +258,11 @@ type turnState struct {
 	finishedChan    chan struct{}      // Closed when turn finishes
 
 	// Token budget tracking
-	tokenBudget      *atomic.Int64        // Shared token budget counter
-	lastFinishReason string               // Last LLM finish_reason
+	tokenBudget      *atomic.Int64 // Shared token budget counter
+	lastFinishReason string        // Last LLM finish_reason
+	usage            providers.UsageInfo
+	summaryUsage     providers.UsageInfo
+	requestUsage     *bus.ContextUsage
 	lastUsage        *providers.UsageInfo // Last LLM usage info
 
 	// Back-reference to the owning AgentLoop (set for SubTurns only, used for hard abort cascade)
@@ -593,8 +596,10 @@ func (ts *turnState) finishTurnActivity(id string, update func(*session.TurnActi
 		}
 		update(&ts.activities[i])
 		now := time.Now().UTC()
-		ts.activities[i].CompletedAt = &now
-		ts.activities[i].DurationMS = now.Sub(ts.activities[i].StartedAt).Milliseconds()
+		if ts.activities[i].CompletedAt == nil {
+			ts.activities[i].CompletedAt = &now
+			ts.activities[i].DurationMS = now.Sub(ts.activities[i].StartedAt).Milliseconds()
+		}
 		return
 	}
 }
@@ -1014,11 +1019,7 @@ func (ts *turnState) GetLastUsage() *providers.UsageInfo {
 }
 
 // SetLastUsage sets the last LLM usage info
-func (ts *turnState) SetLastUsage(usage *providers.UsageInfo) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	ts.lastUsage = usage
-}
+func (ts *turnState) SetLastUsage(usage *providers.UsageInfo) { ts.recordUsage(usage, false) }
 
 // =============================================================================
 // Context helper functions for turnState

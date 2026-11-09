@@ -58,6 +58,10 @@ export interface ChatMessage {
 }
 
 export interface ContextUsage {
+  task_input_tokens?: number
+  task_output_tokens?: number
+  summary_input_tokens?: number
+  summary_output_tokens?: number
   used_tokens: number
   total_tokens: number
   history_tokens?: number

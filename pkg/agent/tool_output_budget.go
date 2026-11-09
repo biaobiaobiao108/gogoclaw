@@ -48,7 +48,7 @@ func (al *AgentLoop) compactToolResultForPrompt(
 	tail := truncateTailToTokenBudget(content, tailBudget)
 	note := "\n\n[Tool result compacted to protect the context budget.]\n"
 	if artifactPath != "" {
-		note += "Full output: " + artifactPath + "\nUse read_file with pagination parameters (offset/length or start_line/max_lines) if the omitted middle section is required.\n"
+		note += "Full output: [file:" + artifactPath + "]\nUse read_file with pagination parameters (offset/length or start_line/max_lines) if the omitted middle section is required.\n"
 	} else {
 		note += "Full output could not be persisted; the middle section is unavailable.\n"
 	}

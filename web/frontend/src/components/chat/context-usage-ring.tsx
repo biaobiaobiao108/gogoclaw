@@ -162,6 +162,30 @@ export function ContextUsageRing({
           </div>
 
           <div className="mt-2 space-y-0.5">
+            {(usage.task_input_tokens != null ||
+              usage.task_output_tokens != null) && (
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-muted-foreground">
+                  {t("chat.taskTokens")}
+                </span>
+                <span className="tabular-nums">
+                  {formatTokens(usage.task_input_tokens ?? 0)} /{" "}
+                  {formatTokens(usage.task_output_tokens ?? 0)}
+                </span>
+              </div>
+            )}
+            {!!(usage.summary_input_tokens || usage.summary_output_tokens) && (
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-muted-foreground">
+                  {t("chat.summaryTokens")}
+                </span>
+                <span className="tabular-nums">
+                  {formatTokens(usage.summary_input_tokens ?? 0)} /{" "}
+                  {formatTokens(usage.summary_output_tokens ?? 0)}
+                </span>
+              </div>
+            )}
+
             {usage.history_tokens != null && usage.history_tokens > 0 && (
               <div className="flex items-center justify-between text-[10px]">
                 <span className="text-muted-foreground">History</span>

@@ -64,12 +64,31 @@ type OutboundScope struct {
 // ContextUsage describes how much of the model's context window the current
 // session consumes, and how far it is from triggering compression.
 type ContextUsage struct {
-	UsedTokens        int `json:"used_tokens"`
-	TotalTokens       int `json:"total_tokens"`        // model context window
-	HistoryTokens     int `json:"history_tokens"`      // history-message tokens only (what maybeSummarize checks)
-	CompressAtTokens  int `json:"compress_at_tokens"`  // hard budget compression threshold (contextWindow - maxTokens)
-	SummarizeAtTokens int `json:"summarize_at_tokens"` // soft summarization trigger (vs history tokens)
-	UsedPercent       int `json:"used_percent"`        // 0-100, relative to compressAt
+	TaskInputTokens     int `json:"task_input_tokens,omitempty"`
+	TaskOutputTokens    int `json:"task_output_tokens,omitempty"`
+	SummaryInputTokens  int `json:"summary_input_tokens,omitempty"`
+	SummaryOutputTokens int `json:"summary_output_tokens,omitempty"`
+	UsedTokens          int `json:"used_tokens"`
+	TotalTokens         int `json:"total_tokens"`        // model context window
+	HistoryTokens       int `json:"history_tokens"`      // history-message tokens only (what maybeSummarize checks)
+	CompressAtTokens    int `json:"compress_at_tokens"`  // hard budget compression threshold (contextWindow - maxTokens)
+	SummarizeAtTokens   int `json:"summarize_at_tokens"` // soft summarization trigger (vs history tokens)
+	UsedPercent         int `json:"used_percent"`        // 0-100, relative to compressAt
+}
+
+// PreserveUsageTotals keeps concurrent background summary accounting intact.
+func PreserveUsageTotals(current, previous *ContextUsage) *ContextUsage {
+	if current == nil {
+		return previous
+	}
+	copy := *current
+	if previous != nil {
+		copy.TaskInputTokens = max(copy.TaskInputTokens, previous.TaskInputTokens)
+		copy.TaskOutputTokens = max(copy.TaskOutputTokens, previous.TaskOutputTokens)
+		copy.SummaryInputTokens = max(copy.SummaryInputTokens, previous.SummaryInputTokens)
+		copy.SummaryOutputTokens = max(copy.SummaryOutputTokens, previous.SummaryOutputTokens)
+	}
+	return &copy
 }
 
 type OutboundMessage struct {

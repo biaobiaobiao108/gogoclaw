@@ -213,6 +213,7 @@ func (p *Pipeline) CallLLM(
 		al.activeRequestsInc()
 		defer al.activeRequestsDec()
 
+		ts.recordRequestContext(messagesForCall, toolDefsForCall)
 		if response, handled, streamErr := p.tryConfiguredStreamingLLM(
 			providerCtx,
 			ts,
@@ -269,7 +270,12 @@ func (p *Pipeline) CallLLM(
 			candidateThinking := thinkingSettingsFromModelConfig(candidateCfg)
 			applyThinkingOption(callOpts, candidateProvider, candidateThinking, true, ts.agent.ID)
 			exec.suppressReasoning = shouldSuppressReasoningFor(candidateThinking)
-			return candidateProvider.Chat(ctx, messagesForCall, candidateTools, candidate.Model, callOpts)
+			ts.recordRequestContext(messagesForCall, candidateTools)
+			response, err := candidateProvider.Chat(ctx, messagesForCall, candidateTools, candidate.Model, callOpts)
+			if response != nil {
+				ts.recordUsage(response.Usage, false)
+			}
+			return response, err
 		}
 
 		if len(exec.activeCandidates) > 1 && p.Fallback != nil {
@@ -315,7 +321,11 @@ func (p *Pipeline) CallLLM(
 			}
 			return fbResult.Response, nil
 		}
-		return exec.activeProvider.Chat(providerCtx, messagesForCall, toolDefsForCall, exec.llmModel, exec.llmOpts)
+		response, err := exec.activeProvider.Chat(providerCtx, messagesForCall, toolDefsForCall, exec.llmModel, exec.llmOpts)
+		if response != nil {
+			ts.recordUsage(response.Usage, false)
+		}
+		return response, err
 	}
 
 	// Retry loop
@@ -572,9 +582,6 @@ func (p *Pipeline) CallLLM(
 	// what the streaming publisher reads via GetLastUsage at finalize.
 	if ts != nil {
 		ts.SetLastFinishReason(exec.response.FinishReason)
-		if exec.response.Usage != nil {
-			ts.SetLastUsage(exec.response.Usage)
-		}
 	}
 
 	if exec.suppressReasoning {
@@ -600,7 +607,7 @@ func (p *Pipeline) CallLLM(
 			// Publish pico thoughts before the turn context is canceled at return time.
 			// The async variant can race with turn teardown and intermittently drop the
 			// thought message in CI even though the LLM produced reasoning content.
-			al.publishPicoReasoning(turnCtx, reasoningContent, ts.chatID, ts.sessionKey, exec.llmModelName)
+			al.publishPicoReasoning(turnCtx, reasoningContent, ts.chatID, ts.sessionKey, exec.llmModelName, assistantResponseID(ts, exec)+"-thought")
 		}
 	} else {
 		go al.handleReasoning(
@@ -685,6 +692,7 @@ func (p *Pipeline) CallLLM(
 
 	exec.allResponsesHandled = len(exec.normalizedToolCalls) > 0
 	assistantMsg := providers.Message{
+		ID:               assistantResponseID(ts, exec),
 		Role:             "assistant",
 		Content:          exec.response.Content,
 		ModelName:        exec.llmModelName,
@@ -744,6 +752,7 @@ func (p *Pipeline) CallLLM(
 			reasoningContent,
 			exec.response.Content,
 			assistantMsg.ToolCalls,
+			assistantMsg.ID,
 		)
 	}
 

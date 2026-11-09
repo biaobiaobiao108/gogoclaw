@@ -81,6 +81,20 @@ function parseContextUsage(
     return undefined
   return {
     used_tokens: used,
+    task_input_tokens:
+      obj.task_input_tokens != null ? Number(obj.task_input_tokens) : undefined,
+    task_output_tokens:
+      obj.task_output_tokens != null
+        ? Number(obj.task_output_tokens)
+        : undefined,
+    summary_input_tokens:
+      obj.summary_input_tokens != null
+        ? Number(obj.summary_input_tokens)
+        : undefined,
+    summary_output_tokens:
+      obj.summary_output_tokens != null
+        ? Number(obj.summary_output_tokens)
+        : undefined,
     total_tokens: total,
     history_tokens:
       obj.history_tokens != null ? Number(obj.history_tokens) : undefined,
@@ -166,6 +180,7 @@ export function handlePicoMessage(
       ) {
         lastTurnErrorSignature = ""
       }
+      const contextUsage = parseContextUsage(payload)
       const active = payload.active === true
       const approval = parseApproval(payload.approval)
       const plan = Array.isArray(payload.plan)
@@ -178,6 +193,7 @@ export function handlePicoMessage(
           )
         : undefined
       updateChatStore({
+        ...(contextUsage ? { contextUsage } : {}),
         activeTurn: active
           ? {
               turnId:

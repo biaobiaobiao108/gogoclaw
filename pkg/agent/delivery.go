@@ -124,6 +124,18 @@ func (al *AgentLoop) publishTrackedResponse(
 		Content:      response,
 		ContextUsage: usage,
 	}
+	if agent := al.agentForSession(sessionKey); agent != nil && agent.Sessions != nil {
+		history, err := session.HistoryChecked(agent.Sessions, sessionKey)
+		if err != nil {
+			return err
+		}
+		if len(history) > 0 {
+			last := history[len(history)-1]
+			if last.Role == "assistant" && last.Content == response {
+				msg.ID = last.ID
+			}
+		}
+	}
 	return al.publishTrackedOutbound(ctx, sessionKey, msg)
 }
 
@@ -170,8 +182,11 @@ func (al *AgentLoop) publishTrackedOutbound(ctx context.Context, sessionKey stri
 }
 
 func turnDeliveryFromOutbound(msg bus.OutboundMessage) session.TurnDelivery {
+	if msg.ID == "" {
+		msg.ID = "delivery-" + uuid.NewString()
+	}
 	return session.TurnDelivery{
-		ID:           "delivery-" + uuid.NewString(),
+		ID:           msg.ID,
 		MessageID:    msg.ID,
 		Status:       deliveryStatusQueued,
 		Channel:      msg.Context.Channel,

@@ -223,6 +223,8 @@ func partsToReadableContent(parts []MessagePart) string {
 			b.WriteString("\n")
 		}
 		switch p.Type {
+		case "provider_metadata":
+			continue
 		case "text":
 			b.WriteString(p.Text)
 		case "tool_use":

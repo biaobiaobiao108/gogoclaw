@@ -92,6 +92,7 @@ type persistedSessionListItem struct {
 }
 
 type sessionChatMessage struct {
+	ID          string                  `json:"message_id,omitempty"`
 	Role        string                  `json:"role"`
 	Content     string                  `json:"content"`
 	Kind        string                  `json:"kind,omitempty"`
@@ -749,6 +750,7 @@ func sessionTranscriptMessages(
 
 		case "user":
 			chatMsg := sessionChatMessage{
+				ID:          msg.ID,
 				Role:        "user",
 				Content:     msg.Content,
 				ModelName:   msg.ModelName,
@@ -776,6 +778,9 @@ func sessionTranscriptMessages(
 				toolFeedbackMaxArgsLength,
 				msg.CreatedAt,
 			)
+			if msg.ID != "" {
+				toolCallsMsg.ID = msg.ID + "-tools"
+			}
 			visibleToolMessages := visibleAssistantToolMessages(msg.ToolCalls, msg.ModelName, msg.CreatedAt)
 
 			// Pico web chat can persist both visible `message` tool output and a
@@ -799,6 +804,7 @@ func sessionTranscriptMessages(
 			}
 
 			chatMsg := sessionChatMessage{
+				ID:          msg.ID,
 				Role:        "assistant",
 				Content:     content,
 				ModelName:   msg.ModelName,
@@ -928,10 +934,15 @@ func assistantThoughtMessage(msg providers.Message) (sessionChatMessage, bool) {
 	if reasoning == strings.TrimSpace(msg.Content) {
 		return sessionChatMessage{}, false
 	}
+	id := ""
+	if msg.ID != "" {
+		id = msg.ID + "-thought"
+	}
 	return sessionChatMessage{
 		Role:      "assistant",
 		Content:   reasoning,
 		Kind:      "thought",
+		ID:        id,
 		ModelName: msg.ModelName,
 		CreatedAt: msg.CreatedAt,
 	}, true

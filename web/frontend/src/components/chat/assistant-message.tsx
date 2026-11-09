@@ -7,7 +7,7 @@ import {
   IconFileText,
   IconTerminal2,
 } from "@tabler/icons-react"
-import { useState } from "react"
+import { memo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import ReactMarkdown from "react-markdown"
 import rehypeHighlight from "rehype-highlight"
@@ -41,7 +41,7 @@ interface AssistantMessageProps {
   isStreaming?: boolean
 }
 
-export function AssistantMessage({
+export const AssistantMessage = memo(function AssistantMessage({
   detailOpen = false,
   content,
   attachments = [],
@@ -65,7 +65,7 @@ export function AssistantMessage({
     (attachment) => attachment.type !== "image",
   )
   const [isExpanded, setIsExpanded] = useState(detailOpen)
-  const visibleContent = useSmoothStreamText(content, isStreaming)
+  const visibleContent = useSmoothStreamText(content, isThought && isStreaming)
   const hasVisibleText = visibleContent.trim().length > 0
 
   const formattedTimestamp =
@@ -173,15 +173,7 @@ export function AssistantMessage({
           {/* Normal Assistant Markdown Text */}
           {!isCollapsedBlock && hasVisibleText && (
             <div className="prose dark:prose-invert max-w-none text-[15px] leading-7 [overflow-wrap:anywhere] break-words">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeHighlight]}
-                components={{
-                  pre: MarkdownCodeBlock,
-                }}
-              >
-                {visibleContent}
-              </ReactMarkdown>
+              <StreamingMarkdown content={content} isStreaming={isStreaming} />
               {isStreaming && (
                 <span className="streaming-dot ml-1" aria-hidden="true" />
               )}
@@ -270,4 +262,38 @@ export function AssistantMessage({
       )}
     </div>
   )
+})
+
+const MarkdownBlock = memo(function MarkdownBlock({
+  content,
+  highlight,
+}: {
+  content: string
+  highlight: boolean
+}) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={
+        highlight
+          ? [rehypeRaw, rehypeSanitize, rehypeHighlight]
+          : [rehypeRaw, rehypeSanitize]
+      }
+      components={{ pre: MarkdownCodeBlock }}
+    >
+      {content}
+    </ReactMarkdown>
+  )
+})
+
+function StreamingMarkdown({
+  content,
+  isStreaming,
+}: {
+  content: string
+  isStreaming: boolean
+}) {
+  // Keep the complete document for references, lists and tables. Streaming text
+  // is parsed only on network updates; syntax highlighting runs on completion.
+  return <MarkdownBlock content={content} highlight={!isStreaming} />
 }

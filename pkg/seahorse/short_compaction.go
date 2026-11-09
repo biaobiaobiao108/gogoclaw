@@ -77,9 +77,15 @@ func (e *CompactionEngine) Compact(ctx context.Context, convID int64, input Comp
 	if input.Force || (tokensBefore > budget && budget > 0) {
 		// Launch async condensed compaction with dedup
 		if _, loaded := e.condensing.LoadOrStore(convID, struct{}{}); !loaded {
+			// Preserve usage attribution after the foreground turn ends, while
+			// still stopping background work when the engine closes.
+			background, cancel := context.WithCancel(context.WithoutCancel(ctx))
+			stop := context.AfterFunc(e.shutdownCtx, cancel)
 			go func() {
+				defer cancel()
+				defer stop()
 				defer e.condensing.Delete(convID)
-				e.runCondensedLoop(e.shutdownCtx, convID)
+				e.runCondensedLoop(background, convID)
 			}()
 		}
 	}

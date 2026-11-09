@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
@@ -16,6 +17,18 @@ import (
 // contract of SessionManager that the agent loop relies on.
 type JSONLBackend struct {
 	store memory.Store
+}
+
+func (b *JSONLBackend) UpdateTurnUsage(key, turnID string, usage *bus.ContextUsage) error {
+	key, err := b.resolveSessionKeyChecked(key)
+	if err != nil {
+		return err
+	}
+	store, ok := b.store.(TurnUsageStore)
+	if !ok {
+		return fmt.Errorf("session store does not support turn usage")
+	}
+	return store.UpdateTurnUsage(key, turnID, usage)
 }
 
 type metaAwareStore interface {
@@ -233,6 +246,18 @@ func (b *JSONLBackend) SetSummaryChecked(key, summary string) error {
 		return err
 	}
 	return b.store.SetSummary(context.Background(), key, summary)
+}
+
+func (b *JSONLBackend) CommitSummary(key string, prefix []providers.Message, previous, summary string) (bool, error) {
+	key, err := b.resolveSessionKeyChecked(key)
+	if err != nil {
+		return false, err
+	}
+	store, ok := b.store.(SummaryCommitStore)
+	if !ok {
+		return false, fmt.Errorf("session store does not support atomic summary commits")
+	}
+	return store.CommitSummary(key, prefix, previous, summary)
 }
 
 func (b *JSONLBackend) GetHistory(key string) []providers.Message {

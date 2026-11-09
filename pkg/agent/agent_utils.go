@@ -98,6 +98,7 @@ func markFinalOutbound(msg *bus.OutboundMessage) {
 }
 
 type outboundTurnMessageOptions struct {
+	messageID string
 	kind      string
 	modelName string
 	raw       map[string]string
@@ -109,6 +110,7 @@ func outboundMessageForTurnWithOptions(
 	opts outboundTurnMessageOptions,
 ) bus.OutboundMessage {
 	msg := outboundMessageForTurn(ts, content)
+	msg.ID = opts.messageID
 	trimmedKind := strings.TrimSpace(opts.kind)
 	trimmedModelName := strings.TrimSpace(opts.modelName)
 	rawCount := len(opts.raw)
@@ -138,6 +140,13 @@ func outboundMessageForTurnWithOptions(
 		msg.Context.Raw[key] = value
 	}
 	return msg
+}
+
+func assistantResponseID(ts *turnState, exec *turnExecution) string {
+	if exec.streamingDelivery != nil {
+		return exec.streamingDelivery.ID
+	}
+	return fmt.Sprintf("%s-llm-%d", ts.turnID, ts.currentIteration())
 }
 
 func latestUserContent(messages []providers.Message) string {

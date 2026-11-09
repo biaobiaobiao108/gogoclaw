@@ -214,6 +214,9 @@ export async function connectChat() {
             }
             updateChatStore((prev) => ({
               messages: mergeHistoryMessages(history.messages, prev.messages),
+              ...(history.contextUsage
+                ? { contextUsage: history.contextUsage }
+                : {}),
               recentActivities: history.activities,
               recentPlan: history.plan,
               turnHistory: history.turnHistory,
@@ -363,6 +366,9 @@ export async function hydrateActiveSession({
             history.messages,
             currentState.messages,
           ),
+          ...(history.contextUsage
+            ? { contextUsage: history.contextUsage }
+            : {}),
           recentActivities: history.activities,
           recentPlan: history.plan,
           turnHistory: history.turnHistory,
@@ -377,6 +383,7 @@ export async function hydrateActiveSession({
 
       updateChatStore({
         messages: history.messages,
+        ...(history.contextUsage ? { contextUsage: history.contextUsage } : {}),
         recentActivities: history.activities,
         recentPlan: history.plan,
         turnHistory: history.turnHistory,
@@ -624,13 +631,14 @@ export async function switchChatSession(sessionId: string) {
     setActiveSessionId(sessionId)
     updateChatStore({
       messages: history.messages,
+      ...(history.contextUsage ? { contextUsage: history.contextUsage } : {}),
       recentActivities: history.activities,
       recentPlan: history.plan,
       turnHistory: history.turnHistory,
       isTyping: false,
       hasHydratedActiveSession: true,
       isHistoryLoading: false,
-      contextUsage: undefined,
+      contextUsage: history.contextUsage,
       historyCursor: history.nextCursor,
       hasOlderHistory: history.hasOlder,
       isLoadingOlderHistory: false,

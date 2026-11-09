@@ -159,7 +159,8 @@ endif
 
 # Run all tests
 test:
-	cd $(BACKEND_DIR) && ${WEB_GO} test ./...
+	cd $(BACKEND_DIR) && ${WEB_GO} test $(GOFLAGS) ./...
+	cd $(FRONTEND_DIR) && $(BUN) test
 
 # Clean build artifacts
 clean:

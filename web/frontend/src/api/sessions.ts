@@ -1,4 +1,5 @@
 import { launcherFetch } from "@/api/http"
+import type { ContextUsage } from "@/store/chat"
 
 export interface SessionSummary {
   id: string
@@ -18,6 +19,7 @@ export interface SessionListPage {
 export interface SessionDetail {
   id: string
   messages: {
+    message_id?: string
     role: "user" | "assistant"
     content: string
     created_at?: string
@@ -52,6 +54,7 @@ export interface SessionDetail {
 }
 
 export interface SessionTurn {
+  usage?: ContextUsage
   turn_id: string
   status: string
   iteration: number

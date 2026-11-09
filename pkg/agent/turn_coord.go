@@ -348,6 +348,7 @@ func (ts *turnState) saveTurnCheckpoint(status, tool string) error {
 		TurnID: ts.turnID, Status: status, Iteration: ts.currentIteration(), Tool: tool,
 		StartedAt: ts.startedAt.UTC(), UpdatedAt: time.Now().UTC(),
 		Activities: ts.activitiesSnapshot(),
+		Usage:      ts.contextUsageSnapshot(),
 	}
 	if previous.Delivery != nil {
 		checkpoint.Delivery = previous.Delivery

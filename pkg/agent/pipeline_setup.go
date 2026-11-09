@@ -132,6 +132,10 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 
 	if !ts.opts.NoHistory && (strings.TrimSpace(ts.userMessage) != "" || len(ts.media) > 0) {
 		rootMsg := userPromptMessage(ts.userMessage, ts.media)
+		rootMsg.ID = ts.opts.Dispatch.MessageID()
+		if rootMsg.ID == "" {
+			rootMsg.ID = ts.turnID + "-user"
+		}
 		if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, rootMsg); err != nil {
 			return nil, fmt.Errorf("save user message: %w", err)
 		}

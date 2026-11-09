@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
@@ -87,8 +88,21 @@ func providerToCompleteFn(provider providers.LLMProvider, model string) seahorse
 				"prompt_cache_key": "seahorse",
 			},
 		)
+		if ts := turnStateFromContext(ctx); ts != nil && resp != nil {
+			ts.recordUsage(resp.Usage, true)
+			if ts.agent != nil {
+				if store, ok := ts.agent.Sessions.(session.TurnUsageStore); ok {
+					if err := store.UpdateTurnUsage(ts.sessionKey, ts.turnID, ts.contextUsageSnapshot()); err != nil {
+						return "", fmt.Errorf("persist summary usage: %w", err)
+					}
+				}
+			}
+		}
 		if err != nil {
 			return "", err
+		}
+		if resp == nil {
+			return "", fmt.Errorf("summary provider returned empty response")
 		}
 		return resp.Content, nil
 	}
@@ -221,12 +235,34 @@ func providerToSeahorseMessage(msg protocoltypes.Message) seahorse.Message {
 	}
 
 	// Convert ToolCalls → MessageParts
+	// Parts are authoritative in storage; retain text and provider metadata too.
+	if msg.Content != "" && msg.ToolCallID == "" {
+		result.Parts = append(result.Parts, seahorse.MessagePart{Type: "text", Text: msg.Content})
+	}
+	if msg.ID != "" || len(msg.Attachments) > 0 {
+		metadata, _ := json.Marshal(struct {
+			ID          string                 `json:"message_id,omitempty"`
+			Attachments []providers.Attachment `json:"attachments,omitempty"`
+		}{msg.ID, msg.Attachments})
+		result.Parts = append(result.Parts, seahorse.MessagePart{Type: "provider_metadata", Text: string(metadata)})
+	}
 	for _, tc := range msg.ToolCalls {
+		tc = providers.NormalizeToolCall(tc)
+		if tc.Type == "" {
+			tc.Type = "function"
+		}
+		if tc.ThoughtSignature != "" && tc.Function != nil {
+			tc.Function = &providers.FunctionCall{Name: tc.Function.Name, Arguments: tc.Function.Arguments, ThoughtSignature: tc.ThoughtSignature}
+		}
+		encoded, _ := json.Marshal(tc)
 		part := seahorse.MessagePart{
 			Type:       "tool_use",
-			Name:       tc.Function.Name,
-			Arguments:  tc.Function.Arguments,
+			Name:       tc.Name,
+			Text:       string(encoded),
 			ToolCallID: tc.ID,
+		}
+		if tc.Function != nil {
+			part.Arguments = tc.Function.Arguments
 		}
 		result.Parts = append(result.Parts, part)
 	}
@@ -273,8 +309,22 @@ func seahorseToProviderMessages(result *seahorse.AssembleResult) []protocoltypes
 			ReasoningContent: msg.ReasoningContent,
 		}
 
-		// Reconstruct ToolCalls from parts
+		var text []string
+		// Reconstruct provider content rather than the search-index rendering.
 		for _, part := range msg.Parts {
+			if part.Type == "text" {
+				text = append(text, part.Text)
+			}
+			if part.Type == "provider_metadata" {
+				var metadata struct {
+					ID          string                 `json:"message_id"`
+					Attachments []providers.Attachment `json:"attachments"`
+				}
+				if json.Unmarshal([]byte(part.Text), &metadata) == nil {
+					pm.ID = metadata.ID
+					pm.Attachments = metadata.Attachments
+				}
+			}
 			if part.Type == "tool_use" {
 				pm.ToolCalls = append(pm.ToolCalls, protocoltypes.ToolCall{
 					ID:   part.ToolCallID,
@@ -284,10 +334,16 @@ func seahorseToProviderMessages(result *seahorse.AssembleResult) []protocoltypes
 						Arguments: part.Arguments,
 					},
 				})
+				if part.Text != "" {
+					var call providers.ToolCall
+					if json.Unmarshal([]byte(part.Text), &call) == nil {
+						pm.ToolCalls[len(pm.ToolCalls)-1] = providers.NormalizeToolCall(call)
+					}
+				}
 			}
 			if part.Type == "tool_result" {
 				pm.ToolCallID = part.ToolCallID
-				if pm.Content == "" && part.Text != "" {
+				if part.Text != "" {
 					pm.Content = part.Text
 				}
 			}
@@ -296,6 +352,15 @@ func seahorseToProviderMessages(result *seahorse.AssembleResult) []protocoltypes
 			}
 		}
 
+		if len(text) > 0 {
+			pm.Content = strings.Join(text, "\n")
+		} else if len(pm.ToolCalls) > 0 {
+			pm.Content = ""
+		}
+		if !msg.CreatedAt.IsZero() {
+			created := msg.CreatedAt
+			pm.CreatedAt = &created
+		}
 		messages = append(messages, pm)
 	}
 

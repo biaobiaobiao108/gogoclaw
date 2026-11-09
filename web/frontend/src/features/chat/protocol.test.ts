@@ -3,6 +3,30 @@ import { describe, expect, test } from "bun:test"
 import { getChatState, updateChatStore } from "../../store/chat"
 import { handlePicoMessage } from "./protocol"
 
+test("task usage refreshes independently of context occupancy after completion", () => {
+  handlePicoMessage(
+    {
+      type: "turn.status",
+      payload: {
+        active: false,
+        context_usage: {
+          used_tokens: 200,
+          total_tokens: 10000,
+          compress_at_tokens: 9000,
+          task_input_tokens: 350,
+          task_output_tokens: 60,
+          summary_input_tokens: 50,
+          summary_output_tokens: 10,
+        },
+      },
+    },
+    "current",
+  )
+  expect(getChatState().contextUsage?.used_tokens).toBe(200)
+  expect(getChatState().contextUsage?.task_input_tokens).toBe(350)
+  expect(getChatState().contextUsage?.summary_input_tokens).toBe(50)
+})
+
 describe("turn status", () => {
   test("tracks the active and interrupted state for the current session only", () => {
     updateChatStore({ activeTurn: undefined, interrupted: false })

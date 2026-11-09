@@ -155,36 +155,68 @@ func (p *Pipeline) ExecuteTools(
 	handledAttachments := make([]providers.Attachment, 0)
 
 	var preExecutedResults []*tools.ToolResult
+	var parallelActivities []string
+	var parallelDurations []time.Duration
 	if len(normalizedToolCalls) > 1 && canExecuteInParallel(al, ts, normalizedToolCalls) {
 		preExecutedResults = make([]*tools.ToolResult, len(normalizedToolCalls))
-		var wg sync.WaitGroup
-		for idx, tc := range normalizedToolCalls {
-			wg.Add(1)
-			go func(i int, call providers.ToolCall) {
-				defer wg.Done()
-				execCtx := tools.WithToolInboundContext(
-					turnCtx,
-					ts.channel,
-					ts.chatID,
-					ts.opts.Dispatch.MessageID(),
-					ts.opts.Dispatch.ReplyToMessageID(),
-				)
-				execCtx = tools.WithToolSessionContext(
-					execCtx,
-					ts.agent.ID,
-					ts.sessionKey,
-					ts.opts.Dispatch.SessionScope,
-				)
-				preExecutedResults[i] = ts.toolRegistry().ExecuteWithContext(
-					execCtx,
-					call.Name,
-					cloneStringAnyMap(call.Arguments),
-					ts.channel,
-					ts.chatID,
-					nil,
-				)
-			}(idx, tc)
+		parallelActivities = make([]string, len(normalizedToolCalls))
+		parallelDurations = make([]time.Duration, len(normalizedToolCalls))
+		for i, call := range normalizedToolCalls {
+			args, _ := json.Marshal(call.Arguments)
+			parallelActivities[i] = ts.startTurnActivity("tool", call.Name, call.ID, call.Name, al.cfg.FilterSensitiveData(utils.Truncate(string(args), 200)))
 		}
+		if !ts.opts.NoHistory {
+			if err := ts.saveTurnCheckpoint("running", "parallel_tools"); err != nil {
+				exec.executionErr = err
+				return ToolControlBreak
+			}
+		}
+		// Bound workers independently of the number of tool calls produced by a model.
+		jobs := make(chan int)
+		var wg sync.WaitGroup
+		for worker := 0; worker < min(4, len(normalizedToolCalls)); worker++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for i := range jobs {
+					call := normalizedToolCalls[i]
+					if turnCtx.Err() != nil || ts.hardAbortRequested() {
+						preExecutedResults[i] = tools.ErrorResult("Tool cancelled before execution.")
+						ts.finishTurnActivity(parallelActivities[i], func(a *session.TurnActivity) { a.Status = "cancelled"; a.Detail = "Tool cancelled before execution." })
+						continue
+					}
+					start := time.Now()
+					ts.mu.Lock()
+					for j := range ts.activities {
+						if ts.activities[j].ID == parallelActivities[i] {
+							ts.activities[j].StartedAt = start.UTC()
+						}
+					}
+					ts.mu.Unlock()
+					execCtx := tools.WithToolInboundContext(turnCtx, ts.channel, ts.chatID, ts.opts.Dispatch.MessageID(), ts.opts.Dispatch.ReplyToMessageID())
+					execCtx = tools.WithToolSessionContext(execCtx, ts.agent.ID, ts.sessionKey, ts.opts.Dispatch.SessionScope)
+					al.emitEvent(runtimeevents.KindAgentToolExecStart, ts.eventMeta("runTurn", "turn.tool.start"), ToolExecStartPayload{Tool: call.Name, Arguments: cloneEventArguments(call.Arguments)})
+					result := ts.toolRegistry().ExecuteWithContext(execCtx, call.Name, cloneStringAnyMap(call.Arguments), ts.channel, ts.chatID, nil)
+					if result == nil {
+						result = tools.ErrorResult("tool returned nil result")
+					}
+					preExecutedResults[i] = result
+					parallelDurations[i] = time.Since(start)
+					al.emitEvent(runtimeevents.KindAgentToolExecEnd, ts.eventMeta("runTurn", "turn.tool.end"), ToolExecEndPayload{Tool: call.Name, Duration: parallelDurations[i], ForLLMLen: len(result.ContentForLLM()), ForUserLen: len(result.ForUser), IsError: result.IsError, Async: result.Async})
+					ts.finishTurnActivity(parallelActivities[i], func(a *session.TurnActivity) {
+						a.Status = "completed"
+						if result.IsError {
+							a.Status = "failed"
+						}
+						a.Output = boundedActivityOutput(al.cfg.FilterSensitiveData(result.ContentForLLM()), al.cfg.FilterSensitiveData(result.ForUser))
+					})
+				}
+			}()
+		}
+		for i := range normalizedToolCalls {
+			jobs <- i
+		}
+		close(jobs)
 		wg.Wait()
 	}
 
@@ -428,7 +460,7 @@ toolLoop:
 						skipMessage = "Skipped due to graceful interrupt."
 					}
 
-					if skipReason != "" {
+					if skipReason != "" && preExecutedResults == nil {
 						remaining := len(normalizedToolCalls) - i - 1
 						if remaining > 0 {
 							logger.InfoCF("agent", "Turn checkpoint: skipping remaining tools after hook respond",
@@ -609,17 +641,22 @@ toolLoop:
 				"tool":      toolName,
 				"iteration": iteration,
 			})
-		al.emitEvent(
-			runtimeevents.KindAgentToolExecStart,
-			ts.eventMeta("runTurn", "turn.tool.start"),
-			ToolExecStartPayload{
-				Tool:      toolName,
-				Arguments: cloneEventArguments(toolArgs),
-			},
-		)
-		activityID := ts.startTurnActivity(
-			"tool", toolName, toolCallIDFromCall(tc), toolName, al.cfg.FilterSensitiveData(argsPreview),
-		)
+		if preExecutedResults == nil {
+			al.emitEvent(
+				runtimeevents.KindAgentToolExecStart,
+				ts.eventMeta("runTurn", "turn.tool.start"),
+				ToolExecStartPayload{
+					Tool:      toolName,
+					Arguments: cloneEventArguments(toolArgs),
+				},
+			)
+		}
+		activityID := ""
+		if preExecutedResults != nil {
+			activityID = parallelActivities[i]
+		} else {
+			activityID = ts.startTurnActivity("tool", toolName, toolCallIDFromCall(tc), toolName, al.cfg.FilterSensitiveData(argsPreview))
+		}
 
 		if shouldPublishToolFeedback(al.cfg, ts) && ts.channel != "pico" {
 			toolFeedbackMaxLen := al.cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength()
@@ -725,6 +762,9 @@ toolLoop:
 			)
 		}
 		toolDuration := time.Since(toolStart)
+		if preExecutedResults != nil {
+			toolDuration = parallelDurations[i]
+		}
 
 		if ts.hardAbortRequested() {
 			ts.finishTurnActivity(activityID, func(activity *session.TurnActivity) {
@@ -870,18 +910,20 @@ toolLoop:
 			toolResultMedia = append(toolResultMedia, toolResult.Media...)
 		}
 		toolResultMsg := toolResultPromptMessage(contentForLLM, toolCallID, toolResultMedia)
-		al.emitEvent(
-			runtimeevents.KindAgentToolExecEnd,
-			ts.eventMeta("runTurn", "turn.tool.end"),
-			ToolExecEndPayload{
-				Tool:       toolName,
-				Duration:   toolDuration,
-				ForLLMLen:  len(contentForLLM),
-				ForUserLen: len(toolResult.ForUser),
-				IsError:    toolResult.IsError,
-				Async:      toolResult.Async,
-			},
-		)
+		if preExecutedResults == nil {
+			al.emitEvent(
+				runtimeevents.KindAgentToolExecEnd,
+				ts.eventMeta("runTurn", "turn.tool.end"),
+				ToolExecEndPayload{
+					Tool:       toolName,
+					Duration:   toolDuration,
+					ForLLMLen:  len(contentForLLM),
+					ForUserLen: len(toolResult.ForUser),
+					IsError:    toolResult.IsError,
+					Async:      toolResult.Async,
+				},
+			)
+		}
 		ts.recordToolExecution(
 			toolName,
 			!toolResult.IsError,
@@ -935,7 +977,7 @@ toolLoop:
 			skipMessage = "Skipped due to graceful interrupt."
 		}
 
-		if skipReason != "" {
+		if skipReason != "" && preExecutedResults == nil {
 			remaining := len(normalizedToolCalls) - i - 1
 			if remaining > 0 {
 				logger.InfoCF("agent", "Turn checkpoint: skipping remaining tools",

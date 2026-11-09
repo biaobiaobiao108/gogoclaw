@@ -41,10 +41,12 @@ func (p *Pipeline) Finalize(
 		}, nil
 	}
 
+	responseID := assistantResponseID(ts, exec)
 	ts.setPhase(TurnPhaseFinalizing)
 	ts.setFinalContent(finalContent)
 	if !ts.opts.NoHistory {
 		finalMsg := providers.Message{
+			ID:               responseID,
 			Role:             "assistant",
 			Content:          finalContent,
 			ModelName:        exec.llmModelName,
@@ -82,7 +84,10 @@ func (p *Pipeline) Finalize(
 		)
 	}
 
-	contextUsage := computeContextUsage(ts.agent, ts.sessionKey)
+	contextUsage := ts.contextUsageSnapshot()
+	if contextUsage == nil {
+		contextUsage = computeContextUsage(ts.agent, ts.sessionKey)
+	}
 	streamPublished, streamErr := finalizeConfiguredStreamingLLM(al, turnCtx, ts, exec, finalContent, contextUsage)
 	responsePublished := streamErr == nil && streamPublished
 	// If streaming never became visible, keep the legacy Pico interim publish path
@@ -92,6 +97,7 @@ func (p *Pipeline) Finalize(
 		msg := outboundMessageForTurnWithOptions(ts, finalContent, outboundTurnMessageOptions{
 			modelName: exec.llmModelName,
 		})
+		msg.ID = responseID
 		msg.ContextUsage = contextUsage
 		if err := al.publishTrackedOutbound(turnCtx, ts.sessionKey, msg); err != nil {
 			ts.setPhase(TurnPhaseCompleted)
