@@ -498,11 +498,17 @@ func setupAndStartServices(
 			SendApprovalRequest(context.Context, approval.Request) error
 			SetDeliveryAckHandler(func(context.Context, string, string, string) error)
 			SetBranchHandler(func(context.Context, string, string) error)
+			SetSessionBusyHandler(func(string) bool)
+			SetAttachmentResolver(func(string, string) (string, int64, error))
 		}); ok {
 			approvalChannel.SetApprovalHandler(agentLoop.RespondApproval)
 			agentLoop.SetApprovalNotifier(approvalChannel.SendApprovalRequest)
 			approvalChannel.SetDeliveryAckHandler(agentLoop.AcknowledgeDelivery)
 			approvalChannel.SetBranchHandler(agentLoop.SelectBranch)
+			approvalChannel.SetSessionBusyHandler(func(sessionID string) bool {
+				return agentLoop.GetActiveTurnByConversation(config.ChannelPico, "pico:"+sessionID) != nil
+			})
+			approvalChannel.SetAttachmentResolver(agentLoop.ResolvePicoAttachment)
 		}
 	}
 	agentLoop.SetMediaStore(runningServices.MediaStore)

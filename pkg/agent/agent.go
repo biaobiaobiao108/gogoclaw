@@ -73,7 +73,7 @@ type AgentLoop struct {
 	activeTurnStates  sync.Map
 	subTurnCounter    atomic.Int64
 	deliveryLocations sync.Map
-	branchStoreMu     sync.Mutex
+	branchLocks       sync.Map
 
 	turnSeq atomic.Uint64
 
@@ -219,6 +219,16 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				}
 
 				msg = al.prepareInboundMessageForAgent(ctx, msg)
+				if isChatBranchMutation(msg) {
+					al.maybePublishError(
+						ctx,
+						msg.Channel,
+						msg.ChatID,
+						sessionKey,
+						fmt.Errorf("stop the active task before editing or regenerating an answer"),
+					)
+					continue
+				}
 
 				// Another turn is already active (or reserved) for this session — enqueue
 				if err := al.enqueueSteeringMessage(sessionKey, agentID, providers.Message{

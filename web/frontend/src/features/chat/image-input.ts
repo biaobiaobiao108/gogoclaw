@@ -6,8 +6,14 @@ import type { ChatAttachment } from "@/store/chat"
 
 export const CHAT_ATTACHMENT_ACCEPT = ""
 
-const MAX_CHAT_ATTACHMENT_SIZE_BYTES = 20 * 1024 * 1024
-const MAX_CHAT_ATTACHMENT_SIZE_LABEL = "20 MB"
+function formatFileSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) {
+    const megabytes = bytes / (1024 * 1024)
+    return `${Number.isInteger(megabytes) ? megabytes : megabytes.toFixed(1)} MB`
+  }
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${bytes} B`
+}
 
 function getTransferItemFiles(dataTransfer: DataTransfer | null): File[] {
   if (!dataTransfer) {
@@ -69,11 +75,13 @@ export function releaseAttachmentPreview(attachment: ChatAttachment) {
 export async function uploadChatAttachments({
   files,
   sessionId,
+  maxAttachmentSize,
   t,
   onAttachment,
 }: {
   files: readonly File[]
   sessionId: string
+  maxAttachmentSize: number
   t: TFunction
   onAttachment: (attachment: ChatAttachment) => void
 }) {
@@ -81,10 +89,10 @@ export async function uploadChatAttachments({
     const filename = file.name.trim() || `attachment-${index + 1}`
     const clientId = `${Date.now()}-${index}-${filename}`
     const sizeError =
-      file.size > MAX_CHAT_ATTACHMENT_SIZE_BYTES
+      maxAttachmentSize > 0 && file.size > maxAttachmentSize
         ? t("chat.attachmentTooLarge", {
             name: filename,
-            size: MAX_CHAT_ATTACHMENT_SIZE_LABEL,
+            size: formatFileSize(maxAttachmentSize),
           })
         : ""
     if (sizeError) {
@@ -96,6 +104,7 @@ export async function uploadChatAttachments({
         filename,
         contentType: attachmentMime(file),
         status: "failed",
+        persisted: false,
         error: sizeError,
         file,
       })
@@ -109,6 +118,7 @@ export async function uploadChatAttachments({
       filename,
       contentType: attachmentMime(file),
       status: "uploading",
+      persisted: false,
       file,
     }
     onAttachment(pending)
@@ -117,12 +127,13 @@ export async function uploadChatAttachments({
       releaseAttachmentPreview(pending)
       onAttachment({
         clientId,
+        id: uploaded.id,
         type: uploaded.type,
         url: uploaded.url,
-        path: uploaded.path,
         filename: uploaded.filename || filename,
         contentType: uploaded.content_type || attachmentMime(file),
         status: "ready",
+        persisted: false,
         file,
       })
     } catch (error) {
@@ -140,16 +151,27 @@ export async function uploadChatAttachments({
 export async function retryChatAttachment({
   attachment,
   sessionId,
+  maxAttachmentSize,
   t,
   onAttachment,
 }: {
   attachment: ChatAttachment
   sessionId: string
+  maxAttachmentSize: number
   t: TFunction
   onAttachment: (attachment: ChatAttachment) => void
 }) {
   if (!attachment.file) {
     toast.error(t("chat.attachmentRetryUnavailable"))
+    return
+  }
+  if (maxAttachmentSize > 0 && attachment.file.size > maxAttachmentSize) {
+    const message = t("chat.attachmentTooLarge", {
+      name: attachment.filename || attachment.file.name,
+      size: formatFileSize(maxAttachmentSize),
+    })
+    onAttachment({ ...attachment, status: "failed", error: message })
+    toast.error(message)
     return
   }
   const pending = {
@@ -163,9 +185,9 @@ export async function retryChatAttachment({
     releaseAttachmentPreview(pending)
     onAttachment({
       ...pending,
+      id: uploaded.id,
       type: uploaded.type,
       url: uploaded.url,
-      path: uploaded.path,
       filename: uploaded.filename || attachment.filename,
       contentType: uploaded.content_type || attachment.contentType,
       status: "ready",

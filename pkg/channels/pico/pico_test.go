@@ -1235,6 +1235,72 @@ func assertNoPicoMessage(t *testing.T, received <-chan PicoMessage) {
 	}
 }
 
+func TestParsePicoAttachmentPayloadRejectsClientPathsAndCrossSessionURLs(t *testing.T) {
+	resolve := func(sessionID, attachmentID string) (string, int64, error) {
+		if sessionID != "session-1" || attachmentID != "managed.png" {
+			t.Fatalf("resolve(%q, %q)", sessionID, attachmentID)
+		}
+		return `/managed/attachments/managed.png`, 12, nil
+	}
+
+	if _, _, err := parsePicoAttachmentPayload("session-1", map[string]any{
+		"attachments": []any{map[string]any{
+			"id": "managed.png", "path": `C:\secret.txt`,
+		}},
+	}, resolve); err == nil {
+		t.Fatal("client filesystem path was accepted")
+	}
+	if _, _, err := parsePicoAttachmentPayload("session-1", map[string]any{
+		"attachments": []any{map[string]any{
+			"id": "../../secret.txt", "type": "file", "filename": "secret.txt",
+		}},
+	}, resolve); err == nil {
+		t.Fatal("attachment path traversal was accepted")
+	}
+	if _, _, err := parsePicoAttachmentPayload("session-1", map[string]any{
+		"attachments": []any{map[string]any{
+			"url": "/api/attachments/session-2/managed.png", "type": "image",
+		}},
+	}, resolve); err == nil {
+		t.Fatal("cross-session attachment URL was accepted")
+	}
+}
+
+func TestParsePicoAttachmentPayloadUsesCanonicalManagedURL(t *testing.T) {
+	payload := map[string]any{
+		"attachments": []any{
+			map[string]any{
+				"id": "managed.png", "type": "image",
+				"url":      "https://attacker.example/file.png",
+				"filename": "managed.png", "content_type": "image/png",
+			},
+			map[string]any{
+				"id": "diagram.svg", "type": "image",
+				"filename": "diagram.svg", "content_type": "image/svg+xml",
+			},
+		},
+	}
+	resolve := func(sessionID, attachmentID string) (string, int64, error) {
+		if sessionID != "session-1" {
+			t.Fatalf("session = %q", sessionID)
+		}
+		return filepath.Join(t.TempDir(), attachmentID), 12, nil
+	}
+	_, attachments, err := parsePicoAttachmentPayload("session-1", payload, resolve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attachments) != 2 {
+		t.Fatalf("attachments = %+v", attachments)
+	}
+	if attachments[0].URL != "/api/attachments/session-1/managed.png" {
+		t.Fatalf("canonical URL = %q", attachments[0].URL)
+	}
+	if attachments[0].Type != "image" || attachments[1].Type != "file" {
+		t.Fatalf("attachment types = %+v", attachments)
+	}
+}
+
 func (c *PicoChannel) addConnForTest(pc *picoConn) {
 	c.connsMu.Lock()
 	defer c.connsMu.Unlock()

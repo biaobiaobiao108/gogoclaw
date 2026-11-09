@@ -171,6 +171,33 @@ describe("approval messages", () => {
 })
 
 describe("delivery acknowledgements", () => {
+  test("clears sending state on the edited target message", () => {
+    updateChatStore({
+      messages: [
+        {
+          id: "edited-user",
+          role: "user",
+          content: "edited",
+          timestamp: 1,
+          deliveryStatus: "sending",
+        },
+      ],
+    })
+    handlePicoMessage(
+      {
+        type: "message.ack",
+        session_id: "current",
+        payload: {
+          request_id: "edit-request",
+          target_message_id: "edited-user",
+          status: "accepted",
+        },
+      },
+      "current",
+    )
+    expect(getChatState().messages[0].deliveryStatus).toBe("accepted")
+  })
+
   test("deduplicates repeated message.create deliveries in place", () => {
     updateChatStore({ messages: [] })
     handlePicoMessage(
@@ -206,6 +233,30 @@ describe("delivery acknowledgements", () => {
       content: "first segment and final text",
     })
   })
+})
+
+test("request errors clear pending branch state and invoke rollback", () => {
+  updateChatStore({
+    isBranchSwitching: true,
+    branchSwitchRequestId: "branch-7",
+  })
+  let failedRequest = ""
+  handlePicoMessage(
+    {
+      type: "error",
+      session_id: "current",
+      payload: { request_id: "branch-7", message: "branch failed" },
+    },
+    "current",
+    {
+      onRequestError: (requestId) => {
+        failedRequest = requestId
+      },
+    },
+  )
+  expect(getChatState().isBranchSwitching).toBe(false)
+  expect(getChatState().branchSwitchRequestId).toBeUndefined()
+  expect(failedRequest).toBe("branch-7")
 })
 
 test("delivery replay updates an existing history message by stable ID", () => {

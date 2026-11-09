@@ -19,6 +19,7 @@ interface UserMessageProps {
   deliveryStatus?: MessageDeliveryStatus
   onRetry?: () => void
   onEdit?: () => void
+  interactionsDisabled?: boolean
 }
 
 export function UserMessage({
@@ -28,6 +29,7 @@ export function UserMessage({
   deliveryStatus,
   onRetry,
   onEdit,
+  interactionsDisabled = false,
 }: UserMessageProps) {
   const { t } = useTranslation()
   const { copy, isCopied } = useCopyToClipboard()
@@ -113,6 +115,7 @@ export function UserMessage({
               size="icon"
               className="text-muted-foreground hover:text-foreground h-6 w-6 rounded-md opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
               onClick={onEdit}
+              disabled={interactionsDisabled}
               aria-label={t("chat.editMessage")}
               title={t("chat.editMessage")}
             >

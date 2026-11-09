@@ -1,7 +1,11 @@
 package api
 
 import (
+	"bufio"
+	"bytes"
+	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -17,13 +21,22 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/chatmeta"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
 const chatUIMetaVersion = 1
+
+const (
+	maxSessionAttachmentCount = 200
+	maxSessionAttachmentBytes = 256 << 20
+	orphanAttachmentAge       = 24 * time.Hour
+)
 
 type chatUIMetaFile struct {
 	Version  int                          `json:"version"`
@@ -75,47 +88,143 @@ func chatUIMetaPath(dir string) string {
 	return filepath.Join(dir, ".gogoclaw", "chat-ui.json")
 }
 
+func chatUIMetaDir(dir string) string {
+	return filepath.Join(dir, ".gogoclaw", "chat-ui")
+}
+
+func chatUISessionMetaPath(dir, sessionID string) string {
+	sum := sha256.Sum256([]byte(sessionID))
+	return filepath.Join(chatUIMetaDir(dir), fmt.Sprintf("%x.json", sum[:16]))
+}
+
 func newChatUIMeta() chatUIMetaFile {
 	return chatUIMetaFile{Version: chatUIMetaVersion, Sessions: make(map[string]chatUISessionMeta)}
 }
 
 func (h *Handler) loadChatUIMeta(dir string) (chatUIMetaFile, error) {
-	data, err := os.ReadFile(chatUIMetaPath(dir))
+	meta := newChatUIMeta()
+	if err := h.migrateLegacyChatUIMeta(dir); err != nil {
+		return chatUIMetaFile{}, err
+	}
+	entries, err := os.ReadDir(chatUIMetaDir(dir))
 	if errors.Is(err, os.ErrNotExist) {
-		return newChatUIMeta(), nil
+		return meta, nil
 	}
 	if err != nil {
 		return chatUIMetaFile{}, err
 	}
-	meta := newChatUIMeta()
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return chatUIMetaFile{}, err
-	}
-	if meta.Sessions == nil {
-		meta.Sessions = make(map[string]chatUISessionMeta)
-	}
-	if meta.Version == 0 {
-		meta.Version = chatUIMetaVersion
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		path := filepath.Join(chatUIMetaDir(dir), entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return chatUIMetaFile{}, err
+		}
+		var item struct {
+			SessionID string            `json:"session_id"`
+			Meta      chatUISessionMeta `json:"meta"`
+		}
+		if err := json.Unmarshal(data, &item); err != nil {
+			return chatUIMetaFile{}, err
+		}
+		if item.SessionID != "" {
+			meta.Sessions[item.SessionID] = item.Meta
+		}
 	}
 	return meta, nil
 }
 
-func (h *Handler) saveChatUIMeta(dir string, meta chatUIMetaFile) error {
-	if meta.Version == 0 {
-		meta.Version = chatUIMetaVersion
+func (h *Handler) migrateLegacyChatUIMeta(dir string) error {
+	legacyPath := chatUIMetaPath(dir)
+	data, err := os.ReadFile(legacyPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
 	}
-	if meta.Sessions == nil {
-		meta.Sessions = make(map[string]chatUISessionMeta)
-	}
-	data, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
 		return err
 	}
-	path := chatUIMetaPath(dir)
+	var legacy chatUIMetaFile
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	for sessionID, meta := range legacy.Sessions {
+		path := chatUISessionMetaPath(dir, sessionID)
+		if _, err := os.Stat(path); err == nil {
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err := writeChatUISessionMeta(path, sessionID, meta); err != nil {
+			return err
+		}
+	}
+	return os.Remove(legacyPath)
+}
+
+func writeChatUISessionMeta(path, sessionID string, meta chatUISessionMeta) error {
+	if strings.TrimSpace(meta.Title) == "" && !meta.Pinned && !meta.Archived && len(meta.Feedback) == 0 {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	data, err := json.Marshal(struct {
+		SessionID string            `json:"session_id"`
+		Meta      chatUISessionMeta `json:"meta"`
+	}{
+		SessionID: sessionID,
+		Meta:      meta,
+	})
+	if err != nil {
+		return err
+	}
 	return fileutil.WriteFileAtomic(path, data, 0o644)
+}
+
+func (h *Handler) updateChatUISessionMeta(
+	dir, sessionID string,
+	update func(*chatUISessionMeta) error,
+) error {
+	h.sessionMetaMu.Lock()
+	defer h.sessionMetaMu.Unlock()
+	if err := h.migrateLegacyChatUIMeta(dir); err != nil {
+		return err
+	}
+	path := chatUISessionMetaPath(dir, sessionID)
+	var item struct {
+		SessionID string            `json:"session_id"`
+		Meta      chatUISessionMeta `json:"meta"`
+	}
+	data, err := os.ReadFile(path)
+	if err == nil {
+		if err := json.Unmarshal(data, &item); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := update(&item.Meta); err != nil {
+		return err
+	}
+	return writeChatUISessionMeta(path, sessionID, item.Meta)
+}
+
+func (h *Handler) removeChatUISessionMeta(dir, sessionID string) error {
+	h.sessionMetaMu.Lock()
+	defer h.sessionMetaMu.Unlock()
+	if err := h.migrateLegacyChatUIMeta(dir); err != nil {
+		return err
+	}
+	err := os.Remove(chatUISessionMetaPath(dir, sessionID))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 func (h *Handler) readChatUIMeta(dir string) chatUIMetaFile {
@@ -128,33 +237,35 @@ func (h *Handler) readChatUIMeta(dir string) chatUIMetaFile {
 	return meta
 }
 
-func (h *Handler) updateChatUIMeta(dir string, update func(*chatUIMetaFile) error) error {
-	h.sessionMetaMu.Lock()
-	defer h.sessionMetaMu.Unlock()
-	meta, err := h.loadChatUIMeta(dir)
-	if err != nil {
-		return err
-	}
-	if err := update(&meta); err != nil {
-		return err
-	}
-	return h.saveChatUIMeta(dir, meta)
-}
-
 func (h *Handler) cleanupDeletedSessionData(dir, sessionID string) error {
 	var cleanupErrs []error
-	if err := h.updateChatUIMeta(dir, func(meta *chatUIMetaFile) error {
-		delete(meta.Sessions, sessionID)
-		return nil
-	}); err != nil {
+	if err := h.removeChatUISessionMeta(dir, sessionID); err != nil {
 		cleanupErrs = append(cleanupErrs, fmt.Errorf("remove chat metadata: %w", err))
 	}
 	if validAttachmentSessionID(sessionID) {
-		if err := os.RemoveAll(filepath.Join(dir, ".attachments", sessionID)); err != nil {
-			cleanupErrs = append(cleanupErrs, fmt.Errorf("remove attachments: %w", err))
+		dirs, err := h.sessionDirs()
+		if err != nil {
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("resolve attachment directories: %w", err))
+		} else {
+			h.attachmentMu.Lock()
+			dirs = append([]string{dir}, dirs...)
+			seen := make(map[string]struct{}, len(dirs))
+			for _, sessionsDir := range dirs {
+				clean := filepath.Clean(sessionsDir)
+				if _, ok := seen[clean]; ok {
+					continue
+				}
+				seen[clean] = struct{}{}
+				if err := os.RemoveAll(filepath.Join(clean, ".attachments", sessionID)); err != nil {
+					cleanupErrs = append(cleanupErrs, fmt.Errorf("remove attachments: %w", err))
+				}
+				delete(h.attachmentCleanupAt, filepath.Join(clean, ".attachments", sessionID))
+			}
+			h.attachmentMu.Unlock()
 		}
 	}
-	if err := chatmeta.RemoveBranchSession(chatmeta.BranchStorePath(dir), sessionID); err != nil {
+	branchPath := chatmeta.BranchStorePath(chatmeta.BranchStoreRoot(config.GetHome()), sessionID)
+	if err := chatmeta.RemoveBranchSession(branchPath, sessionID); err != nil {
 		cleanupErrs = append(cleanupErrs, fmt.Errorf("remove answer branches: %w", err))
 	}
 	return errors.Join(cleanupErrs...)
@@ -180,7 +291,11 @@ func (h *Handler) sessionExists(dir, sessionID string) bool {
 }
 
 func (h *Handler) readSessionBranches(dir, sessionID string) ([]chatmeta.BranchGroup, error) {
-	store, err := chatmeta.LoadBranches(chatmeta.BranchStorePath(dir))
+	root := chatmeta.BranchStoreRoot(config.GetHome())
+	if err := chatmeta.MigrateLegacyBranches(chatmeta.LegacyBranchStorePath(dir), root); err != nil {
+		return nil, err
+	}
+	store, err := chatmeta.LoadBranches(chatmeta.BranchStorePath(root, sessionID))
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +329,7 @@ func (h *Handler) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing session id", http.StatusBadRequest)
 		return
 	}
-	dir, err := h.sessionsDir()
+	dir, err := h.sessionDirForSession(sessionID)
 	if err != nil {
 		http.Error(w, "failed to resolve sessions directory", http.StatusInternalServerError)
 		return
@@ -233,8 +348,7 @@ func (h *Handler) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid session metadata", http.StatusBadRequest)
 		return
 	}
-	if err := h.updateChatUIMeta(dir, func(meta *chatUIMetaFile) error {
-		item := meta.Sessions[sessionID]
+	if err := h.updateChatUISessionMeta(dir, sessionID, func(item *chatUISessionMeta) error {
 		if body.Title != nil {
 			item.Title = strings.TrimSpace(*body.Title)
 		}
@@ -244,7 +358,6 @@ func (h *Handler) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 		if body.Archived != nil {
 			item.Archived = *body.Archived
 		}
-		meta.Sessions[sessionID] = item
 		return nil
 	}); err != nil {
 		http.Error(w, "failed to save session metadata", http.StatusInternalServerError)
@@ -274,7 +387,7 @@ func (h *Handler) handleSetSessionFeedback(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "feedback value must be up or down", http.StatusBadRequest)
 		return
 	}
-	dir, err := h.sessionsDir()
+	dir, err := h.sessionDirForSession(sessionID)
 	if err != nil {
 		http.Error(w, "failed to resolve sessions directory", http.StatusInternalServerError)
 		return
@@ -283,8 +396,7 @@ func (h *Handler) handleSetSessionFeedback(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
-	if err := h.updateChatUIMeta(dir, func(meta *chatUIMetaFile) error {
-		item := meta.Sessions[sessionID]
+	if err := h.updateChatUISessionMeta(dir, sessionID, func(item *chatUISessionMeta) error {
 		if item.Feedback == nil {
 			item.Feedback = make(map[string]string)
 		}
@@ -293,7 +405,6 @@ func (h *Handler) handleSetSessionFeedback(w http.ResponseWriter, r *http.Reques
 		} else {
 			item.Feedback[messageID] = body.Value
 		}
-		meta.Sessions[sessionID] = item
 		return nil
 	}); err != nil {
 		http.Error(w, "failed to save feedback", http.StatusInternalServerError)
@@ -319,6 +430,7 @@ func (h *Handler) handleSearchSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	uiMeta := h.readChatUIMeta(dir)
 	normalizedQuery := strings.ToLower(query)
+	archivedOnly := r.URL.Query().Get("archived") == "1" || r.URL.Query().Get("archived") == "true"
 	results := make([]sessionSearchResult, 0)
 
 	refs, refsErr := h.findPicoJSONLSessions(dir)
@@ -327,13 +439,42 @@ func (h *Handler) handleSearchSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, ref := range refs {
-		sess, loadErr := h.readJSONLSession(dir, ref.Key)
-		if loadErr != nil || isEmptySession(sess) {
+		if r.Context().Err() != nil {
+			return
+		}
+		base := filepath.Join(dir, sanitizeSessionKey(ref.Key))
+		cacheKey := "jsonl:" + filepath.Clean(dir) + ":" + ref.ID
+		item, cached := h.cachedSessionListItem(cacheKey, base+".jsonl", base+".meta.json")
+		if !cached {
+			sess, loadErr := h.readJSONLSession(dir, ref.Key)
+			if loadErr != nil || isEmptySession(sess) {
+				continue
+			}
+			item = buildSessionListItem(ref.ID, sess, toolFeedbackMaxArgsLength)
+			applySessionMeta(&item, uiMeta.Sessions[ref.ID])
+			if item.Archived != archivedOnly {
+				continue
+			}
+			if result, ok := searchSessionResultForItem(item, normalizedQuery); ok {
+				results = append(results, result)
+			} else if result, ok := searchSessionMessages(item, sess.Messages, normalizedQuery, query); ok {
+				results = append(results, result)
+			}
 			continue
 		}
-		item := buildSessionListItem(ref.ID, sess, toolFeedbackMaxArgsLength)
 		applySessionMeta(&item, uiMeta.Sessions[ref.ID])
-		result, ok := searchSessionMatch(item, sess, normalizedQuery, query)
+		if item.Archived != archivedOnly {
+			continue
+		}
+		if result, ok := searchSessionResultForItem(item, normalizedQuery); ok {
+			results = append(results, result)
+			continue
+		}
+		result, ok, searchErr := h.searchJSONLSession(dir, ref.Key, item, normalizedQuery, query, r.Context())
+		if searchErr != nil {
+			logger.Warnf("failed to search session %s: %v", ref.ID, searchErr)
+			continue
+		}
 		if ok {
 			results = append(results, result)
 		}
@@ -349,6 +490,9 @@ func (h *Handler) handleSearchSessions(w http.ResponseWriter, r *http.Request) {
 		seen[result.ID] = struct{}{}
 	}
 	for _, ref := range legacyRefs {
+		if r.Context().Err() != nil {
+			return
+		}
 		if _, exists := seen[ref.ID]; exists {
 			continue
 		}
@@ -358,8 +502,12 @@ func (h *Handler) handleSearchSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		item := buildSessionListItem(ref.ID, sess, toolFeedbackMaxArgsLength)
 		applySessionMeta(&item, uiMeta.Sessions[ref.ID])
-		result, ok := searchSessionMatch(item, sess, normalizedQuery, query)
-		if ok {
+		if item.Archived != archivedOnly {
+			continue
+		}
+		if result, ok := searchSessionResultForItem(item, normalizedQuery); ok {
+			results = append(results, result)
+		} else if result, ok := searchSessionMessages(item, sess.Messages, normalizedQuery, query); ok {
 			results = append(results, result)
 		}
 	}
@@ -376,7 +524,7 @@ func (h *Handler) handleSearchSessions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, results)
 }
 
-func searchSessionMatch(item sessionListItem, sess sessionFile, normalizedQuery, rawQuery string) (sessionSearchResult, bool) {
+func searchSessionResultForItem(item sessionListItem, normalizedQuery string) (sessionSearchResult, bool) {
 	base := sessionSearchResult{
 		ID: item.ID, Title: item.Title, Preview: item.Preview, MessageCount: item.MessageCount,
 		Created: item.Created, Updated: item.Updated, Pinned: item.Pinned, Archived: item.Archived,
@@ -385,7 +533,19 @@ func searchSessionMatch(item sessionListItem, sess sessionFile, normalizedQuery,
 		base.Snippet = item.Preview
 		return base, true
 	}
-	for _, message := range sess.Messages {
+	return sessionSearchResult{}, false
+}
+
+func searchSessionMessages(
+	item sessionListItem,
+	messages []providers.Message,
+	normalizedQuery, rawQuery string,
+) (sessionSearchResult, bool) {
+	base := sessionSearchResult{
+		ID: item.ID, Title: item.Title, Preview: item.Preview, MessageCount: item.MessageCount,
+		Created: item.Created, Updated: item.Updated, Pinned: item.Pinned, Archived: item.Archived,
+	}
+	for _, message := range messages {
 		if message.Role != "user" && message.Role != "assistant" {
 			continue
 		}
@@ -400,18 +560,74 @@ func searchSessionMatch(item sessionListItem, sess sessionFile, normalizedQuery,
 	return sessionSearchResult{}, false
 }
 
+func (h *Handler) searchJSONLSession(
+	dir, sessionKey string,
+	item sessionListItem,
+	normalizedQuery, rawQuery string,
+	ctx context.Context,
+) (sessionSearchResult, bool, error) {
+	base := filepath.Join(dir, sanitizeSessionKey(sessionKey))
+	meta, err := h.readSessionMeta(base+".meta.json", sessionKey)
+	if err != nil {
+		return sessionSearchResult{}, false, err
+	}
+	file, err := os.Open(base + ".jsonl")
+	if err != nil {
+		return sessionSearchResult{}, false, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSessionJSONLLineSize)
+	normalizedBytes := []byte(normalizedQuery)
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		if lineNumber <= meta.Skip {
+			continue
+		}
+		if lineNumber%256 == 0 && ctx.Err() != nil {
+			return sessionSearchResult{}, false, ctx.Err()
+		}
+		line := scanner.Bytes()
+		if len(line) == 0 || !bytes.Contains(bytes.ToLower(line), normalizedBytes) {
+			continue
+		}
+		var message providers.Message
+		if err := json.Unmarshal(line, &message); err != nil {
+			continue
+		}
+		if message.Role != "user" && message.Role != "assistant" {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(message.Content), normalizedQuery) {
+			continue
+		}
+		result := sessionSearchResult{
+			ID: item.ID, Title: item.Title, Preview: item.Preview, MessageCount: item.MessageCount,
+			Created: item.Created, Updated: item.Updated, Pinned: item.Pinned, Archived: item.Archived,
+			MessageID: message.ID, MessageRole: message.Role,
+			Snippet: searchSnippet(message.Content, rawQuery, 120),
+		}
+		return result, true, nil
+	}
+	if err := scanner.Err(); err != nil {
+		return sessionSearchResult{}, false, err
+	}
+	return sessionSearchResult{}, false, nil
+}
+
 func searchSnippet(content, query string, limit int) string {
 	runes := []rune(strings.TrimSpace(content))
-	queryRunes := []rune(strings.TrimSpace(query))
 	if len(runes) <= limit {
 		return string(runes)
 	}
+	normalizedContent := strings.ToLower(string(runes))
+	normalizedQuery := strings.ToLower(strings.TrimSpace(query))
+	byteIndex := strings.Index(normalizedContent, normalizedQuery)
 	index := -1
-	for i := 0; i+len(queryRunes) <= len(runes); i++ {
-		if strings.EqualFold(string(runes[i:i+len(queryRunes)]), query) {
-			index = i
-			break
-		}
+	if byteIndex >= 0 {
+		index = utf8.RuneCountInString(normalizedContent[:byteIndex])
 	}
 	if index < 0 {
 		return string(runes[:limit]) + "…"
@@ -432,11 +648,7 @@ func searchSnippet(content, query string, limit int) string {
 	return prefix + string(runes[start:end]) + suffix
 }
 
-var (
-	markdownSourcePattern = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^\s)]+)\)`)
-	searchSourcePattern   = regexp.MustCompile(`(?m)^\s*\d+\.\s+([^\n]+)\r?\n\s*(https?://[^\s]+)\s*$`)
-	rawSourceURLPattern   = regexp.MustCompile(`https?://[^\s<>"']+`)
-)
+var searchSourcePattern = regexp.MustCompile(`(?m)^\s*\d+\.\s+([^\n]+)\r?\n\s*(https?://[^\s]+)\s*$`)
 
 func extractSessionSources(content string) []sessionChatSource {
 	content = strings.TrimSpace(content)
@@ -444,14 +656,8 @@ func extractSessionSources(content string) []sessionChatSource {
 		return nil
 	}
 	sources := make([]sessionChatSource, 0)
-	for _, match := range markdownSourcePattern.FindAllStringSubmatch(content, -1) {
-		sources = append(sources, sessionChatSource{Title: strings.TrimSpace(match[1]), URL: strings.TrimRight(match[2], ".,;)")})
-	}
 	for _, match := range searchSourcePattern.FindAllStringSubmatch(content, -1) {
 		sources = append(sources, sessionChatSource{Title: strings.TrimSpace(match[1]), URL: strings.TrimRight(match[2], ".,;)")})
-	}
-	for _, rawURL := range rawSourceURLPattern.FindAllString(content, -1) {
-		sources = append(sources, sessionChatSource{URL: strings.TrimRight(rawURL, ".,;)")})
 	}
 	return dedupeSessionSources(sources)
 }
@@ -525,6 +731,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid upload", http.StatusBadRequest)
 		return
 	}
+	defer r.MultipartForm.RemoveAll()
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, "file is required", http.StatusBadRequest)
@@ -535,7 +742,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if filename == "." || filename == "" {
 		filename = "attachment"
 	}
-	dir, err := h.sessionsDir()
+	dir, err := h.sessionDirForSession(sessionID)
 	if err != nil {
 		http.Error(w, "failed to resolve sessions directory", http.StatusInternalServerError)
 		return
@@ -574,6 +781,31 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to save attachment", http.StatusInternalServerError)
 		return
 	}
+
+	h.attachmentMu.Lock()
+	defer h.attachmentMu.Unlock()
+	if h.attachmentCleanupAt == nil {
+		h.attachmentCleanupAt = make(map[string]time.Time)
+	}
+	if lastCleanup := h.attachmentCleanupAt[attachmentDir]; time.Since(lastCleanup) >= time.Hour {
+		h.attachmentCleanupAt[attachmentDir] = time.Now()
+		if err := h.cleanupOrphanedSessionAttachments(dir, sessionID, orphanAttachmentAge); err != nil {
+			logger.Warnf("failed to clean orphaned attachments for session %s: %v", sessionID, err)
+		}
+	}
+	count, totalBytes, err := sessionAttachmentUsage(attachmentDir)
+	if err != nil {
+		http.Error(w, "failed to inspect attachment storage", http.StatusInternalServerError)
+		return
+	}
+	if count >= maxSessionAttachmentCount {
+		http.Error(w, "session attachment count limit reached", http.StatusTooManyRequests)
+		return
+	}
+	if totalBytes+written > maxSessionAttachmentBytes {
+		http.Error(w, "session attachment storage limit reached", http.StatusInsufficientStorage)
+		return
+	}
 	if err := os.Rename(tempPath, path); err != nil {
 		http.Error(w, "failed to save attachment", http.StatusInternalServerError)
 		return
@@ -582,11 +814,60 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if contentType == "" {
 		contentType = mime.TypeByExtension(filepath.Ext(filename))
 	}
-	attachmentType := attachmentTypeFor(contentType, filename)
+	attachmentType := attachmentTypeFor("", filename)
 	urlValue := "/api/attachments/" + url.PathEscape(sessionID) + "/" + url.PathEscape(storedName)
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"type": attachmentType, "url": urlValue, "path": path, "filename": filename, "content_type": contentType,
+		"id": storedName, "type": attachmentType, "url": urlValue,
+		"filename": filename, "content_type": contentType,
 	})
+}
+
+func (h *Handler) handleUploadConfig(w http.ResponseWriter, r *http.Request) {
+	cfg, err := loadConfigForAPI(h.configPath)
+	if err != nil {
+		http.Error(w, "failed to load configuration", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"max_media_size": cfg.Agents.Defaults.GetMaxMediaSize(),
+	})
+}
+
+func (h *Handler) handleDeleteUpload(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.URL.Query().Get("session_id"))
+	attachmentID := strings.TrimSpace(r.URL.Query().Get("id"))
+	if !validAttachmentSessionID(sessionID) || filepath.Base(attachmentID) != attachmentID || attachmentID == "." || attachmentID == "" {
+		http.Error(w, "invalid attachment", http.StatusBadRequest)
+		return
+	}
+	dirs, err := h.sessionDirs()
+	if err != nil {
+		http.Error(w, "failed to resolve sessions directory", http.StatusInternalServerError)
+		return
+	}
+	h.attachmentMu.Lock()
+	defer h.attachmentMu.Unlock()
+	for _, dir := range dirs {
+		if h.attachmentReferencedBySession(dir, sessionID, attachmentID) {
+			http.Error(w, "attachment is already referenced by a message", http.StatusConflict)
+			return
+		}
+	}
+	removed := false
+	for _, dir := range dirs {
+		path := filepath.Join(dir, ".attachments", sessionID, attachmentID)
+		if err := os.Remove(path); err == nil {
+			removed = true
+		} else if !errors.Is(err, os.ErrNotExist) {
+			http.Error(w, "failed to delete attachment", http.StatusInternalServerError)
+			return
+		}
+	}
+	if removed {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	http.NotFound(w, r)
 }
 
 func (h *Handler) handleAttachment(w http.ResponseWriter, r *http.Request) {
@@ -596,26 +877,136 @@ func (h *Handler) handleAttachment(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	dir, err := h.sessionsDir()
+	dirs, err := h.sessionDirs()
 	if err != nil {
 		http.Error(w, "failed to resolve sessions directory", http.StatusInternalServerError)
 		return
 	}
-	path := filepath.Join(dir, ".attachments", sessionID, name)
-	info, err := os.Stat(path)
-	if err != nil || info.IsDir() {
+	var path string
+	for _, dir := range dirs {
+		candidate := filepath.Join(dir, ".attachments", sessionID, name)
+		info, statErr := os.Lstat(candidate)
+		if statErr == nil && info.Mode().IsRegular() {
+			path = candidate
+			break
+		}
+	}
+	if path == "" {
 		http.NotFound(w, r)
 		return
 	}
-	contentType := mime.TypeByExtension(filepath.Ext(name))
-	if contentType == "" {
-		contentType = "application/octet-stream"
+	writeAttachmentResponse(w, r, path, name)
+}
+
+func sessionAttachmentUsage(dir string) (int, int64, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, 0, nil
 	}
-	w.Header().Set("Content-Type", contentType)
-	if attachmentTypeFor(contentType, name) == "file" {
-		w.Header().Set("Content-Disposition", "attachment; filename=\""+strings.ReplaceAll(name, "\"", "")+"\"")
+	if err != nil {
+		return 0, 0, err
 	}
-	http.ServeFile(w, r, path)
+	count := 0
+	var total int64
+	for _, entry := range entries {
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".upload-") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		count++
+		total += info.Size()
+	}
+	return count, total, nil
+}
+
+func (h *Handler) cleanupOrphanedSessionAttachments(sessionsDir, sessionID string, age time.Duration) error {
+	attachmentDir := filepath.Join(sessionsDir, ".attachments", sessionID)
+	entries, err := os.ReadDir(attachmentDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	references, err := h.sessionAttachmentReferences(sessionsDir, sessionID)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	cutoff := time.Now().Add(-age)
+	var cleanupErrs []error
+	for _, entry := range entries {
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".upload-") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(cutoff) {
+			continue
+		}
+		if _, referenced := references[entry.Name()]; referenced {
+			continue
+		}
+		if err := os.Remove(filepath.Join(attachmentDir, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+			cleanupErrs = append(cleanupErrs, err)
+		}
+	}
+	return errors.Join(cleanupErrs...)
+}
+
+func (h *Handler) attachmentReferencedBySession(sessionsDir, sessionID, attachmentID string) bool {
+	references, err := h.sessionAttachmentReferences(sessionsDir, sessionID)
+	if err != nil {
+		return false
+	}
+	_, ok := references[attachmentID]
+	return ok
+}
+
+func (h *Handler) sessionAttachmentReferences(sessionsDir, sessionID string) (map[string]struct{}, error) {
+	if ref, err := h.findPicoJSONLSession(sessionsDir, sessionID); err == nil {
+		base := filepath.Join(sessionsDir, sanitizeSessionKey(ref.Key))
+		return readSessionAttachmentReferences(base + ".jsonl")
+	}
+	if ref, err := h.findLegacyPicoSession(sessionsDir, sessionID); err == nil {
+		return readSessionAttachmentReferences(ref.Path)
+	}
+	return nil, os.ErrNotExist
+}
+
+func readSessionAttachmentReferences(path string) (map[string]struct{}, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	references := make(map[string]struct{})
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSessionJSONLLineSize)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if !bytes.Contains(line, []byte(`"attachments"`)) {
+			continue
+		}
+		var message providers.Message
+		if err := json.Unmarshal(line, &message); err != nil {
+			continue
+		}
+		for _, attachment := range message.Attachments {
+			if id := durableAttachmentID(attachment); id != "" {
+				references[id] = struct{}{}
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return references, nil
 }
 
 func validAttachmentSessionID(value string) bool {
@@ -648,6 +1039,10 @@ func randomAttachmentID() string {
 }
 
 func attachmentTypeFor(contentType, filename string) string {
+	switch strings.ToLower(filepath.Ext(strings.TrimSpace(filename))) {
+	case ".svg", ".svgz", ".html", ".htm", ".xhtml", ".xml", ".js", ".mjs":
+		return "file"
+	}
 	contentType = strings.ToLower(strings.TrimSpace(contentType))
 	if strings.HasPrefix(contentType, "image/") {
 		return "image"
@@ -659,6 +1054,52 @@ func attachmentTypeFor(contentType, filename string) string {
 		return "video"
 	}
 	return "file"
+}
+
+func writeAttachmentResponse(w http.ResponseWriter, r *http.Request, path, filename string) {
+	file, err := os.Open(path)
+	if err != nil {
+		http.Error(w, "failed to open attachment", http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		http.Error(w, "failed to stat attachment", http.StatusInternalServerError)
+		return
+	}
+
+	contentType := mime.TypeByExtension(filepath.Ext(filename))
+	attachmentType := attachmentTypeFor(contentType, filename)
+	disposition := "inline"
+	if attachmentType == "file" {
+		disposition = "attachment"
+		if activeAttachmentContent(filename, contentType) {
+			contentType = "application/octet-stream"
+			w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
+		}
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if value := mime.FormatMediaType(disposition, map[string]string{"filename": filename}); value != "" {
+		w.Header().Set("Content-Disposition", value)
+	}
+	http.ServeContent(w, r, filename, info.ModTime(), file)
+}
+
+func activeAttachmentContent(filename, contentType string) bool {
+	switch strings.ToLower(filepath.Ext(strings.TrimSpace(filename))) {
+	case ".svg", ".svgz", ".html", ".htm", ".xhtml", ".xml", ".js", ".mjs":
+		return true
+	}
+	contentType = strings.ToLower(strings.TrimSpace(contentType))
+	return strings.Contains(contentType, "html") ||
+		strings.Contains(contentType, "svg") ||
+		strings.Contains(contentType, "xml") ||
+		strings.Contains(contentType, "javascript")
 }
 
 func loadConfigForAPI(path string) (*config.Config, error) {

@@ -190,6 +190,7 @@
     "previousBranch": "Previous answer",
     "nextBranch": "Next answer",
     "branchSwitchFailed": "Failed to switch answers. Try again.",
+    "branchBusy": "Wait for the current task to finish before switching answers.",
     "editMessage": "Edit message",
     "editingMessage": "Editing message",
     "cancelEdit": "Cancel edit",

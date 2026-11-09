@@ -1,19 +1,27 @@
 package chatmeta
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
-const branchStoreVersion = 1
+const (
+	branchStoreVersion        = 2
+	maxBranchVersionsPerGroup = 20
+	maxBranchStoreBytes       = 64 << 20
+)
+
+var legacyMigrationMu sync.Mutex
 
 // BranchStore is the durable, web-only history needed to switch between
 // regenerated answers. Agent sessions remain the source of truth for the
@@ -42,8 +50,57 @@ type BranchVersion struct {
 	Messages  []providers.Message `json:"messages"`
 }
 
-func BranchStorePath(sessionsDir string) string {
+func BranchStoreRoot(home string) string {
+	return filepath.Join(home, "state", "chat-branches")
+}
+
+func BranchStorePath(root, sessionID string) string {
+	sum := sha256.Sum256([]byte(sessionID))
+	return filepath.Join(root, fmt.Sprintf("%x.json", sum[:16]))
+}
+
+func LegacyBranchStorePath(sessionsDir string) string {
 	return filepath.Join(sessionsDir, ".gogoclaw", "chat-branches.json")
+}
+
+// MigrateLegacyBranches moves the old single-file store into per-session files.
+// The operation is idempotent and leaves existing session files untouched.
+func MigrateLegacyBranches(legacyPath, root string) error {
+	legacyMigrationMu.Lock()
+	defer legacyMigrationMu.Unlock()
+
+	data, err := os.ReadFile(legacyPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var store BranchStore
+	if err := json.Unmarshal(data, &store); err != nil {
+		return err
+	}
+	if len(store.Sessions) == 0 {
+		return os.Remove(legacyPath)
+	}
+	for sessionID, session := range store.Sessions {
+		path := BranchStorePath(root, sessionID)
+		if _, err := os.Stat(path); err == nil {
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		single := BranchStore{
+			Version: branchStoreVersion,
+			Sessions: map[string]BranchSession{
+				sessionID: session,
+			},
+		}
+		if err := SaveBranches(path, single); err != nil {
+			return err
+		}
+	}
+	return os.Remove(legacyPath)
 }
 
 func LoadBranches(path string) (BranchStore, error) {
@@ -74,7 +131,7 @@ func SaveBranches(path string, store BranchStore) error {
 	if store.Sessions == nil {
 		store.Sessions = make(map[string]BranchSession)
 	}
-	data, err := json.MarshalIndent(store, "", "  ")
+	data, err := marshalBranchesWithinLimit(&store)
 	if err != nil {
 		return err
 	}
@@ -82,6 +139,58 @@ func SaveBranches(path string, store BranchStore) error {
 		return err
 	}
 	return fileutil.WriteFileAtomic(path, data, 0o644)
+}
+
+func marshalBranchesWithinLimit(store *BranchStore) ([]byte, error) {
+	data, err := json.Marshal(store)
+	if err != nil {
+		return nil, err
+	}
+	for len(data) > maxBranchStoreBytes {
+		if !trimOldestBranchVersion(store) {
+			return nil, fmt.Errorf("chat branch store exceeds %d bytes", maxBranchStoreBytes)
+		}
+		data, err = json.Marshal(store)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return data, nil
+}
+
+func trimOldestBranchVersion(store *BranchStore) bool {
+	var (
+		found         bool
+		oldestSession string
+		oldestGroup   string
+		oldestVersion int
+		oldestCreated time.Time
+	)
+	for sessionID, session := range store.Sessions {
+		for groupID, group := range session.Groups {
+			for index, version := range group.Versions {
+				if version.ID == group.ActiveVersionID || len(group.Versions) <= 1 {
+					continue
+				}
+				if !found || version.CreatedAt.Before(oldestCreated) {
+					found = true
+					oldestSession = sessionID
+					oldestGroup = groupID
+					oldestVersion = index
+					oldestCreated = version.CreatedAt
+				}
+			}
+		}
+	}
+	if !found {
+		return false
+	}
+	session := store.Sessions[oldestSession]
+	group := session.Groups[oldestGroup]
+	group.Versions = append(group.Versions[:oldestVersion], group.Versions[oldestVersion+1:]...)
+	session.Groups[oldestGroup] = group
+	store.Sessions[oldestSession] = session
+	return true
 }
 
 func RemoveBranchSession(path, sessionID string) error {
@@ -109,7 +218,7 @@ func RemoveBranchSession(path, sessionID string) error {
 
 // UpsertVersion records one answer snapshot. Re-recording an existing answer
 // replaces its metadata instead of creating a duplicate version.
-func (s *BranchStore) UpsertVersion(sessionID, groupID, sessionKey string, version BranchVersion) {
+func (s *BranchStore) UpsertVersion(sessionID, groupID, sessionKey string, version BranchVersion) bool {
 	if s.Sessions == nil {
 		s.Sessions = make(map[string]BranchSession)
 	}
@@ -123,20 +232,23 @@ func (s *BranchStore) UpsertVersion(sessionID, groupID, sessionKey string, versi
 	if group.ActiveVersionID == "" {
 		group.ActiveVersionID = version.ID
 	}
-	replaced := false
 	for i := range group.Versions {
 		if group.Versions[i].ID == version.ID {
 			group.Versions[i] = version
-			replaced = true
-			break
+			group.ActiveVersionID = version.ID
+			session.Groups[groupID] = group
+			s.Sessions[sessionID] = session
+			return true
 		}
 	}
-	if !replaced {
-		group.Versions = append(group.Versions, version)
+	group.Versions = append(group.Versions, version)
+	if overflow := len(group.Versions) - maxBranchVersionsPerGroup; overflow > 0 {
+		group.Versions = append([]BranchVersion(nil), group.Versions[overflow:]...)
 	}
 	group.ActiveVersionID = version.ID
 	session.Groups[groupID] = group
 	s.Sessions[sessionID] = session
+	return true
 }
 
 func (s *BranchStore) FindVersion(sessionID, versionID string) (BranchGroup, BranchVersion, bool) {

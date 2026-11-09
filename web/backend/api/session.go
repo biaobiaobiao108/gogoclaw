@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,6 +22,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/messageutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/routing"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/seahorse"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
@@ -35,7 +37,9 @@ func (h *Handler) registerSessionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/sessions/{id}/feedback/{message_id}", h.handleSetSessionFeedback)
 	mux.HandleFunc("GET /api/sessions/{id}", h.handleGetSession)
 	mux.HandleFunc("DELETE /api/sessions/{id}", h.handleDeleteSession)
+	mux.HandleFunc("GET /api/uploads/config", h.handleUploadConfig)
 	mux.HandleFunc("POST /api/uploads", h.handleUpload)
+	mux.HandleFunc("DELETE /api/uploads", h.handleDeleteUpload)
 	mux.HandleFunc("GET /api/attachments/{session_id}/{name}", h.handleAttachment)
 }
 
@@ -121,9 +125,9 @@ type sessionMessagesPage struct {
 }
 
 type sessionChatAttachment struct {
+	ID          string `json:"id,omitempty"`
 	Type        string `json:"type,omitempty"`
 	URL         string `json:"url,omitempty"`
-	Path        string `json:"path,omitempty"`
 	Filename    string `json:"filename,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
 }
@@ -665,7 +669,7 @@ func (h *Handler) findLegacyPicoSession(dir, sessionID string) (picoLegacySessio
 }
 
 func buildSessionListItem(sessionID string, sess sessionFile, toolFeedbackMaxArgsLength int) sessionListItem {
-	transcript := visibleSessionMessages(sess.Messages, toolFeedbackMaxArgsLength)
+	transcript := visibleSessionMessages(sessionID, sess.Messages, toolFeedbackMaxArgsLength)
 
 	preview := ""
 	for _, msg := range transcript {
@@ -738,15 +742,16 @@ func sessionChatMessagePreview(msg sessionChatMessage) string {
 	return ""
 }
 
-func visibleSessionMessages(messages []providers.Message, toolFeedbackMaxArgsLength int) []sessionChatMessage {
-	return sessionTranscriptMessages(messages, toolFeedbackMaxArgsLength, false)
+func visibleSessionMessages(sessionID string, messages []providers.Message, toolFeedbackMaxArgsLength int) []sessionChatMessage {
+	return sessionTranscriptMessages(sessionID, messages, toolFeedbackMaxArgsLength, false)
 }
 
-func detailSessionMessages(messages []providers.Message, toolFeedbackMaxArgsLength int) []sessionChatMessage {
-	return sessionTranscriptMessages(messages, toolFeedbackMaxArgsLength, true)
+func detailSessionMessages(sessionID string, messages []providers.Message, toolFeedbackMaxArgsLength int) []sessionChatMessage {
+	return sessionTranscriptMessages(sessionID, messages, toolFeedbackMaxArgsLength, true)
 }
 
 func sessionTranscriptMessages(
+	sessionID string,
 	messages []providers.Message,
 	toolFeedbackMaxArgsLength int,
 	includeThoughts bool,
@@ -755,7 +760,7 @@ func sessionTranscriptMessages(
 	pendingSources := make([]sessionChatSource, 0)
 
 	for _, msg := range messages {
-		attachments := sessionAttachments(msg)
+		attachments := sessionAttachments(sessionID, msg)
 
 		switch msg.Role {
 		case "tool":
@@ -863,25 +868,22 @@ func filterSessionChatMessages(messages []sessionChatMessage) []sessionChatMessa
 	return filtered
 }
 
-func sessionAttachments(msg providers.Message) []sessionChatAttachment {
+func sessionAttachments(sessionID string, msg providers.Message) []sessionChatAttachment {
 	if len(msg.Attachments) == 0 {
 		return nil
 	}
 
 	attachments := make([]sessionChatAttachment, 0, len(msg.Attachments))
 	for _, attachment := range msg.Attachments {
-		urlValue, ok := sessionAttachmentURL(attachment)
+		urlValue, ok := sessionAttachmentURL(sessionID, attachment)
 		if !ok {
 			continue
 		}
-		attachmentType := strings.TrimSpace(attachment.Type)
-		if attachmentType == "" {
-			attachmentType = sessionAttachmentType(attachment)
-		}
+		attachmentType := normalizedSessionAttachmentType(attachment)
 		attachments = append(attachments, sessionChatAttachment{
+			ID:          durableAttachmentID(attachment),
 			Type:        attachmentType,
 			URL:         urlValue,
-			Path:        durableAttachmentPath(attachment),
 			Filename:    strings.TrimSpace(attachment.Filename),
 			ContentType: strings.TrimSpace(attachment.ContentType),
 		})
@@ -893,30 +895,33 @@ func sessionAttachments(msg providers.Message) []sessionChatAttachment {
 	return attachments
 }
 
-func durableAttachmentPath(attachment providers.Attachment) string {
+func durableAttachmentID(attachment providers.Attachment) string {
 	path := strings.TrimSpace(attachment.Ref)
 	if path == "" || (!strings.HasPrefix(path, "/") && !strings.Contains(path, ":\\")) {
 		return ""
 	}
-	return path
+	return filepath.Base(path)
 }
 
-func sessionAttachmentURL(attachment providers.Attachment) (string, bool) {
+func sessionAttachmentURL(sessionID string, attachment providers.Attachment) (string, bool) {
+	if id := durableAttachmentID(attachment); id != "" && validAttachmentSessionID(sessionID) {
+		return "/api/attachments/" + url.PathEscape(sessionID) + "/" + url.PathEscape(id), true
+	}
 	if rawURL := strings.TrimSpace(attachment.URL); rawURL != "" {
-		return rawURL, true
+		parsed, err := url.Parse(rawURL)
+		if strings.HasPrefix(rawURL, "data:image/") ||
+			(err == nil && (parsed.Scheme == "https" || parsed.Scheme == "http")) ||
+			(err == nil && parsed.Scheme == "" && strings.HasPrefix(rawURL, "/") && !strings.HasPrefix(rawURL, "//")) {
+			return rawURL, true
+		}
+		return "", false
 	}
 
 	ref := strings.TrimSpace(attachment.Ref)
-	if ref == "" {
+	if ref == "" || strings.HasPrefix(ref, "media://") {
 		return "", false
 	}
-	if strings.HasPrefix(ref, "media://") {
-		// Persisted session history must only expose durable attachment locations.
-		// media:// refs depend on the live in-memory MediaStore and may stop
-		// resolving after a restart or cleanup, so omit them from reopened history.
-		return "", false
-	}
-	return ref, true
+	return "", false
 }
 
 func sessionAttachmentType(attachment providers.Attachment) string {
@@ -924,6 +929,10 @@ func sessionAttachmentType(attachment providers.Attachment) string {
 	filename := strings.ToLower(strings.TrimSpace(attachment.Filename))
 	rawRef := strings.ToLower(strings.TrimSpace(attachment.Ref))
 	rawURL := strings.ToLower(strings.TrimSpace(attachment.URL))
+	switch filepath.Ext(filename) {
+	case ".svg", ".svgz", ".html", ".htm", ".xhtml", ".xml", ".js", ".mjs":
+		return "file"
+	}
 
 	switch {
 	case strings.HasPrefix(contentType, "image/"),
@@ -937,7 +946,7 @@ func sessionAttachmentType(attachment providers.Attachment) string {
 	}
 
 	switch ext := filepath.Ext(filename); ext {
-	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg":
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".avif":
 		return "image"
 	case ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma", ".opus":
 		return "audio"
@@ -945,6 +954,20 @@ func sessionAttachmentType(attachment providers.Attachment) string {
 		return "video"
 	default:
 		return "file"
+	}
+}
+
+func normalizedSessionAttachmentType(attachment providers.Attachment) string {
+	inferred := sessionAttachmentType(attachment)
+	declared := strings.ToLower(strings.TrimSpace(attachment.Type))
+	if inferred == "file" {
+		return "file"
+	}
+	switch declared {
+	case "image", "audio", "video", "file":
+		return declared
+	default:
+		return inferred
 	}
 }
 
@@ -1062,6 +1085,57 @@ func (h *Handler) sessionsDir() (string, error) {
 	return resolveSessionsDir(cfg.Agents.Defaults.Workspace), nil
 }
 
+func (h *Handler) sessionDirs() ([]string, error) {
+	cfg, err := config.LoadConfig(h.configPath)
+	if err != nil {
+		return nil, err
+	}
+	defaultWorkspace := resolveWorkspacePath(cfg.Agents.Defaults.Workspace)
+	workspaces := []string{defaultWorkspace}
+	for _, agentCfg := range cfg.Agents.List {
+		workspace := strings.TrimSpace(agentCfg.Workspace)
+		if workspace == "" {
+			id := routing.NormalizeAgentID(agentCfg.ID)
+			if strings.TrimSpace(agentCfg.ID) == "" || id == routing.DefaultAgentID || agentCfg.Default {
+				workspace = defaultWorkspace
+			} else {
+				workspace = filepath.Join(defaultWorkspace, "..", "workspace-"+id)
+			}
+		} else {
+			workspace = resolveWorkspacePath(workspace)
+		}
+		workspaces = append(workspaces, workspace)
+	}
+	seen := make(map[string]struct{}, len(workspaces))
+	dirs := make([]string, 0, len(workspaces))
+	for _, workspace := range workspaces {
+		dir := resolveSessionsDir(workspace)
+		clean := filepath.Clean(dir)
+		if _, ok := seen[clean]; ok {
+			continue
+		}
+		seen[clean] = struct{}{}
+		dirs = append(dirs, clean)
+	}
+	return dirs, nil
+}
+
+func (h *Handler) sessionDirForSession(sessionID string) (string, error) {
+	dirs, err := h.sessionDirs()
+	if err != nil {
+		return "", err
+	}
+	for _, dir := range dirs {
+		if h.sessionExists(dir, sessionID) {
+			return dir, nil
+		}
+	}
+	if len(dirs) == 0 {
+		return "", fmt.Errorf("sessions directory is unavailable")
+	}
+	return dirs[0], nil
+}
+
 func (h *Handler) sessionRuntimeSettings() (string, int, error) {
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
@@ -1072,22 +1146,24 @@ func (h *Handler) sessionRuntimeSettings() (string, int, error) {
 }
 
 func resolveSessionsDir(workspace string) string {
+	return filepath.Join(resolveWorkspacePath(workspace), "sessions")
+}
+
+func resolveWorkspacePath(workspace string) string {
+	workspace = strings.TrimSpace(workspace)
 	if workspace == "" {
 		home, _ := os.UserHomeDir()
 		workspace = filepath.Join(home, ".gogoclaw", "workspace")
 	}
-
-	// Expand ~ prefix
-	if len(workspace) > 0 && workspace[0] == '~' {
+	if workspace == "~" {
 		home, _ := os.UserHomeDir()
-		if len(workspace) > 1 && workspace[1] == '/' {
-			workspace = home + workspace[1:]
-		} else {
-			workspace = home
-		}
+		return home
 	}
-
-	return filepath.Join(workspace, "sessions")
+	if strings.HasPrefix(workspace, "~/") || strings.HasPrefix(workspace, `~\`) {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, workspace[2:])
+	}
+	return workspace
 }
 
 // handleListSessions returns a list of Pico session summaries.
@@ -1356,7 +1432,7 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 			sess.Messages[i].CreatedAt = &sess.Updated
 		}
 	}
-	messages := detailSessionMessages(sess.Messages, toolFeedbackMaxArgsLength)
+	messages := detailSessionMessages(sessionID, sess.Messages, toolFeedbackMaxArgsLength)
 	uiMeta := h.readChatUIMeta(dir)
 	item := buildSessionListItem(sessionID, sess, toolFeedbackMaxArgsLength)
 	applySessionMeta(&item, uiMeta.Sessions[sessionID])

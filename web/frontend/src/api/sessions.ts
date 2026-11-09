@@ -55,9 +55,9 @@ export interface SessionDetail {
     model_name?: string
     media?: string[]
     attachments?: {
+      id?: string
       type?: "image" | "audio" | "video" | "file"
       url: string
-      path?: string
       filename?: string
       content_type?: string
     }[]
@@ -155,10 +155,15 @@ export async function deleteSession(id: string): Promise<void> {
 
 export async function searchSessions(
   query: string,
+  archived = false,
   limit = 30,
+  signal?: AbortSignal,
 ): Promise<SessionSearchResult[]> {
   const params = new URLSearchParams({ q: query, limit: limit.toString() })
-  const res = await launcherFetch(`/api/sessions/search?${params.toString()}`)
+  if (archived) params.set("archived", "1")
+  const res = await launcherFetch(`/api/sessions/search?${params.toString()}`, {
+    signal,
+  })
   if (!res.ok) {
     throw new Error(`Failed to search sessions: ${res.status}`)
   }
@@ -198,11 +203,23 @@ export async function setSessionFeedback(
 }
 
 export interface UploadedAttachment {
+  id: string
   type: "image" | "audio" | "video" | "file"
   url: string
-  path: string
   filename: string
   content_type?: string
+}
+
+export interface UploadConfig {
+  max_media_size: number
+}
+
+export async function getUploadConfig(): Promise<UploadConfig> {
+  const res = await launcherFetch("/api/uploads/config")
+  if (!res.ok) {
+    throw new Error(`Failed to fetch upload config: ${res.status}`)
+  }
+  return res.json()
 }
 
 export async function uploadSessionAttachment(
@@ -220,4 +237,20 @@ export async function uploadSessionAttachment(
     throw new Error(detail || `Upload failed: ${res.status}`)
   }
   return res.json()
+}
+
+export async function deleteSessionAttachment(
+  sessionId: string,
+  attachmentId: string,
+): Promise<void> {
+  const params = new URLSearchParams({
+    session_id: sessionId,
+    id: attachmentId,
+  })
+  const res = await launcherFetch(`/api/uploads?${params.toString()}`, {
+    method: "DELETE",
+  })
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`Delete failed: ${res.status}`)
+  }
 }

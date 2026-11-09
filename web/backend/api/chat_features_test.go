@@ -6,12 +6,17 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/chatmeta"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
@@ -42,6 +47,54 @@ func seedChatFeatureSession(t *testing.T, dir, sessionID string) {
 			t.Fatal(err)
 		}
 	}
+}
+
+type uploadedAttachmentResponse struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	URL      string `json:"url"`
+	Filename string `json:"filename"`
+}
+
+func uploadChatAttachment(
+	t *testing.T,
+	mux http.Handler,
+	sessionID, filename, contentType, content string,
+) uploadedAttachmentResponse {
+	t.Helper()
+	var form bytes.Buffer
+	writer := multipart.NewWriter(&form)
+	headers := make(textproto.MIMEHeader)
+	headers.Set("Content-Disposition", `form-data; name="file"; filename="`+filename+`"`)
+	if contentType != "" {
+		headers.Set("Content-Type", contentType)
+	}
+	part, err := writer.CreatePart(headers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/uploads?session_id="+url.QueryEscape(sessionID),
+		&form,
+	)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("upload status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var uploaded uploadedAttachmentResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &uploaded); err != nil {
+		t.Fatal(err)
+	}
+	return uploaded
 }
 
 func performJSONRequest(
@@ -191,20 +244,27 @@ func TestUploadAttachmentServesDurableFile(t *testing.T) {
 	}
 
 	var uploaded struct {
+		ID       string `json:"id"`
 		Type     string `json:"type"`
 		URL      string `json:"url"`
-		Path     string `json:"path"`
 		Filename string `json:"filename"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &uploaded); err != nil {
 		t.Fatal(err)
 	}
-	if uploaded.Type != "file" || uploaded.Filename != "notes.md" {
+	if uploaded.ID == "" || uploaded.Type != "file" || uploaded.Filename != "notes.md" {
 		t.Fatalf("uploaded = %+v", uploaded)
 	}
+	var rawUpload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &rawUpload); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rawUpload["path"]; ok {
+		t.Fatalf("upload response leaked a filesystem path: %s", rec.Body.String())
+	}
 	attachmentRoot := filepath.Join(dir, ".attachments", "upload-session")
-	if !strings.HasPrefix(filepath.Clean(uploaded.Path), filepath.Clean(attachmentRoot)+string(filepath.Separator)) {
-		t.Fatalf("attachment path = %q, want within %q", uploaded.Path, attachmentRoot)
+	if _, err := os.Stat(filepath.Join(attachmentRoot, uploaded.ID)); err != nil {
+		t.Fatalf("stored attachment = %q: %v", uploaded.ID, err)
 	}
 
 	rec = performJSONRequest(t, mux, http.MethodGet, uploaded.URL, nil)
@@ -213,6 +273,314 @@ func TestUploadAttachmentServesDurableFile(t *testing.T) {
 	}
 	if got := rec.Body.String(); got != "# Durable attachment\n" {
 		t.Fatalf("attachment body = %q", got)
+	}
+	if strings.Contains(rec.Body.String(), dir) {
+		t.Fatal("attachment response leaked the server filesystem path")
+	}
+}
+
+func TestUploadAttachmentSanitizesActiveContentAndDraftDelete(t *testing.T) {
+	_, mux, _ := setupChatFeatureTest(t)
+	uploaded := uploadChatAttachment(t, mux, "active-content", "diagram.svg", "image/svg+xml", `<svg onload="alert(1)"></svg>`)
+	if uploaded.Type != "file" || !strings.HasPrefix(uploaded.URL, "/api/attachments/active-content/") {
+		t.Fatalf("uploaded SVG = %+v", uploaded)
+	}
+	rec := performJSONRequest(t, mux, http.MethodGet, uploaded.URL, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("attachment status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/octet-stream" {
+		t.Fatalf("SVG content type = %q", got)
+	}
+	if !strings.HasPrefix(rec.Header().Get("Content-Disposition"), "attachment") {
+		t.Fatalf("SVG disposition = %q", rec.Header().Get("Content-Disposition"))
+	}
+	if !strings.Contains(rec.Header().Get("Content-Security-Policy"), "sandbox") {
+		t.Fatalf("SVG CSP = %q", rec.Header().Get("Content-Security-Policy"))
+	}
+
+	rec = performJSONRequest(
+		t,
+		mux,
+		http.MethodDelete,
+		"/api/uploads?session_id=active-content&id="+uploaded.ID,
+		nil,
+	)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	rec = performJSONRequest(t, mux, http.MethodGet, uploaded.URL, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("deleted attachment status = %d", rec.Code)
+	}
+}
+
+func TestUploadAttachmentEnforcesSessionQuota(t *testing.T) {
+	_, mux, dir := setupChatFeatureTest(t)
+	attachmentDir := filepath.Join(dir, ".attachments", "quota-session")
+	if err := os.MkdirAll(attachmentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < maxSessionAttachmentCount; i++ {
+		name := filepath.Join(attachmentDir, "existing-"+strconv.Itoa(i))
+		if err := os.WriteFile(name, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var form bytes.Buffer
+	writer := multipart.NewWriter(&form)
+	part, err := writer.CreateFormFile("file", "new.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("new")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/uploads?session_id=quota-session", &form)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("quota status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCleanupOrphanedAttachmentsStreamsReferences(t *testing.T) {
+	h, _, dir := setupChatFeatureTest(t)
+	sessionID := "orphan-attachments"
+	attachmentDir := filepath.Join(dir, ".attachments", sessionID)
+	if err := os.MkdirAll(attachmentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	referenced := "111111111111111111111111-referenced.txt"
+	orphan := "222222222222222222222222-orphan.txt"
+	referencedPath := filepath.Join(attachmentDir, referenced)
+	orphanPath := filepath.Join(attachmentDir, orphan)
+	for _, path := range []string{referencedPath, orphanPath} {
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		old := time.Now().Add(-48 * time.Hour)
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddFullMessage(nil, legacyPicoSessionPrefix+sessionID, providers.Message{
+		Role:    "user",
+		Content: "attached",
+		Attachments: []providers.Attachment{{
+			Ref: referencedPath, Filename: "referenced.txt", Type: "file",
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.cleanupOrphanedSessionAttachments(dir, sessionID, 24*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(referencedPath); err != nil {
+		t.Fatalf("referenced attachment was removed: %v", err)
+	}
+	if _, err := os.Stat(orphanPath); !os.IsNotExist(err) {
+		t.Fatalf("orphan attachment still exists: %v", err)
+	}
+}
+
+func TestSessionAttachmentURLUsesManagedPathInsteadOfStoredURL(t *testing.T) {
+	attachments := sessionAttachments("managed-session", providers.Message{
+		Attachments: []providers.Attachment{{
+			Ref:      filepath.Join(t.TempDir(), ".attachments", "managed-session", "stored.txt"),
+			URL:      "https://attacker.example/file.txt",
+			Filename: "stored.txt",
+			Type:     "file",
+		}},
+	})
+	if len(attachments) != 1 {
+		t.Fatalf("attachments = %+v", attachments)
+	}
+	if attachments[0].URL != "/api/attachments/managed-session/stored.txt" {
+		t.Fatalf("URL = %q", attachments[0].URL)
+	}
+	untrusted := sessionAttachments("managed-session", providers.Message{
+		Attachments: []providers.Attachment{{
+			URL: "javascript:alert(1)",
+		}},
+	})
+	if len(untrusted) != 0 {
+		t.Fatalf("unsafe attachment URL was returned: %+v", untrusted)
+	}
+}
+
+func TestArchivedSessionSearchSeparatesResults(t *testing.T) {
+	_, mux, dir := setupChatFeatureTest(t)
+	seedChatFeatureSession(t, dir, "active-search")
+	seedChatFeatureSession(t, dir, "archived-search")
+	rec := performJSONRequest(t, mux, http.MethodPatch, "/api/sessions/archived-search", map[string]any{
+		"archived": true,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("archive status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	for _, test := range []struct {
+		query    string
+		wantID   string
+		archived bool
+	}{
+		{query: "/api/sessions/search?q=time%20travel", wantID: "active-search"},
+		{query: "/api/sessions/search?q=time%20travel&archived=1", wantID: "archived-search", archived: true},
+	} {
+		rec = performJSONRequest(t, mux, http.MethodGet, test.query, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("search status = %d, body = %s", rec.Code, rec.Body.String())
+		}
+		var results []sessionSearchResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &results); err != nil {
+			t.Fatal(err)
+		}
+		if len(results) != 1 || results[0].ID != test.wantID || results[0].Archived != test.archived {
+			t.Fatalf("search results = %+v, want %s archived=%v", results, test.wantID, test.archived)
+		}
+	}
+}
+
+func TestChatMetadataUpdatesMigrateLegacyFileFirst(t *testing.T) {
+	h, _, dir := setupChatFeatureTest(t)
+	legacy := chatUIMetaFile{
+		Version: 1,
+		Sessions: map[string]chatUISessionMeta{
+			"legacy-meta": {
+				Title:  "Kept title",
+				Pinned: true,
+				Feedback: map[string]string{
+					"message-1": "up",
+				},
+			},
+		},
+	}
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := chatUIMetaPath(dir)
+	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.updateChatUISessionMeta(dir, "legacy-meta", func(meta *chatUISessionMeta) error {
+		meta.Archived = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
+		t.Fatalf("legacy metadata file still exists: %v", err)
+	}
+	meta, err := h.loadChatUIMeta(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := meta.Sessions["legacy-meta"]
+	if got.Title != "Kept title" || !got.Pinned || !got.Archived || got.Feedback["message-1"] != "up" {
+		t.Fatalf("migrated metadata = %+v", got)
+	}
+}
+
+func TestSessionDirsMatchesRoutedAgentWorkspaces(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+	testHome := filepath.Dir(configPath)
+	t.Setenv("USERPROFILE", testHome)
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Agents.Defaults.Workspace = "~/default-workspace"
+	cfg.Agents.List = []config.AgentConfig{
+		{ID: "Support Agent"},
+		{ID: "custom", Workspace: "~/custom-workspace"},
+	}
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(configPath)
+	dirs, err := h.sessionDirs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		filepath.Clean(filepath.Join(testHome, "default-workspace", "sessions")):       false,
+		filepath.Clean(filepath.Join(testHome, "workspace-support-agent", "sessions")): false,
+		filepath.Clean(filepath.Join(testHome, "custom-workspace", "sessions")):        false,
+	}
+	for _, dir := range dirs {
+		if _, ok := want[filepath.Clean(dir)]; ok {
+			want[filepath.Clean(dir)] = true
+		}
+	}
+	for path, found := range want {
+		if !found {
+			t.Fatalf("session dirs = %+v, missing %s", dirs, path)
+		}
+	}
+}
+
+func TestDeleteUploadRemovesDuplicateManagedFilesAcrossAgents(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainWorkspace := filepath.Join(filepath.Dir(configPath), "main-workspace")
+	supportWorkspace := filepath.Join(filepath.Dir(configPath), "support-workspace")
+	cfg.Agents.Defaults.Workspace = mainWorkspace
+	cfg.Agents.List = []config.AgentConfig{
+		{ID: "main", Default: true, Workspace: mainWorkspace},
+		{ID: "support", Workspace: supportWorkspace},
+	}
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	const attachmentID = "333333333333333333333333-duplicate.txt"
+	paths := []string{
+		filepath.Join(mainWorkspace, "sessions", ".attachments", "duplicate-session", attachmentID),
+		filepath.Join(supportWorkspace, "sessions", ".attachments", "duplicate-session", attachmentID),
+	}
+	for _, path := range paths {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := performJSONRequest(
+		t,
+		mux,
+		http.MethodDelete,
+		"/api/uploads?session_id=duplicate-session&id="+attachmentID,
+		nil,
+	)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	for _, path := range paths {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("duplicate attachment still exists at %s: %v", path, err)
+		}
 	}
 }
 
@@ -227,15 +595,15 @@ func TestDeleteSessionRemovesChatData(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(attachmentDir, "file.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	branchPath := chatmeta.BranchStorePath(dir)
+	branchPath := chatmeta.BranchStorePath(chatmeta.BranchStoreRoot(config.GetHome()), "delete-chat-data")
 	branchStore := chatmeta.BranchStore{Sessions: map[string]chatmeta.BranchSession{
 		"delete-chat-data": {},
 	}}
 	if err := chatmeta.SaveBranches(branchPath, branchStore); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.updateChatUIMeta(dir, func(meta *chatUIMetaFile) error {
-		meta.Sessions["delete-chat-data"] = chatUISessionMeta{Pinned: true}
+	if err := h.updateChatUISessionMeta(dir, "delete-chat-data", func(meta *chatUISessionMeta) error {
+		meta.Pinned = true
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -270,22 +638,19 @@ func TestDeleteSessionRemovesChatData(t *testing.T) {
 	}
 }
 
-func TestExtractSessionSourcesDeduplicatesAndFiltersURLs(t *testing.T) {
+func TestExtractSessionSourcesOnlyUsesStructuredSearchResults(t *testing.T) {
 	sources := extractSessionSources(strings.Join([]string{
 		"[Project docs](https://example.com/docs)",
+		"See https://example.com/ordinary-link for context.",
 		"1. Search result",
 		"https://example.org/result",
-		"https://example.com/docs",
 		"mailto:test@example.com",
 	}, "\n"))
-	if len(sources) != 2 {
-		t.Fatalf("sources = %+v, want two", sources)
+	if len(sources) != 1 {
+		t.Fatalf("sources = %+v, want one", sources)
 	}
-	if sources[0].URL != "https://example.com/docs" || sources[0].Title != "Project docs" {
+	if sources[0].URL != "https://example.org/result" || sources[0].Title != "Search result" {
 		t.Fatalf("first source = %+v", sources[0])
-	}
-	if sources[1].URL != "https://example.org/result" || sources[1].Title != "Search result" {
-		t.Fatalf("second source = %+v", sources[1])
 	}
 }
 

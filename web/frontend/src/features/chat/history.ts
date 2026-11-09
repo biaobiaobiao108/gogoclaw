@@ -22,7 +22,7 @@ function toChatAttachments({
   attachments?: {
     type?: "image" | "audio" | "video" | "file"
     url: string
-    path?: string
+    id?: string
     filename?: string
     content_type?: string
   }[]
@@ -34,9 +34,10 @@ function toChatAttachments({
         ({
           type: attachment.type ?? "file",
           url: attachment.url,
-          path: attachment.path,
+          id: attachment.id,
           filename: attachment.filename,
           contentType: attachment.content_type,
+          persisted: true,
         }) satisfies ChatAttachment,
     )
 

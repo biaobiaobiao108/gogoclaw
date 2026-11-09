@@ -35,6 +35,12 @@ let reconnectAttempts = 0
 let shouldMaintainConnection = false
 let sessionSelectionGeneration = 0
 let historyGeneration = 0
+let pendingStatusWatchUntil = 0
+let branchRequestCounter = 0
+let branchSwitchTimer: number | null = null
+const pendingOptimisticActions = new Map<string, () => void>()
+const feedbackSequences = new Map<string, number>()
+const feedbackWriteChains = new Map<string, Promise<void>>()
 
 function clearReconnectTimer() {
   if (reconnectTimer !== null) {
@@ -84,6 +90,13 @@ function setActiveSessionId(sessionId: string) {
   updateChatStore({ activeSessionId: sessionId })
 }
 
+function clearBranchSwitchTimer() {
+  if (branchSwitchTimer !== null) {
+    window.clearTimeout(branchSwitchTimer)
+    branchSwitchTimer = null
+  }
+}
+
 function disconnectChatInternal({
   clearDesiredConnection,
 }: {
@@ -95,6 +108,9 @@ function disconnectChatInternal({
     window.clearInterval(turnStatusTimer)
     turnStatusTimer = null
   }
+  clearBranchSwitchTimer()
+  pendingOptimisticActions.clear()
+  pendingStatusWatchUntil = 0
 
   if (clearDesiredConnection) {
     shouldMaintainConnection = false
@@ -112,6 +128,8 @@ function disconnectChatInternal({
     activeTurn: undefined,
     pendingApproval: undefined,
     interrupted: false,
+    isBranchSwitching: false,
+    branchSwitchRequestId: undefined,
   })
   updateChatStore((prev) => ({
     messages: prev.messages.map((message) =>
@@ -181,14 +199,19 @@ export async function connectChat() {
       isConnecting = false
       let firstStatusRequest = true
       const requestTurnStatus = () => {
-        const activeTurn = Boolean(getChatState().activeTurn)
-        if (!firstStatusRequest && !activeTurn) return
+        const state = getChatState()
+        const activeWork =
+          Boolean(state.activeTurn) ||
+          state.isTyping ||
+          Date.now() < pendingStatusWatchUntil
+        if (!firstStatusRequest && !activeWork) return
         if (socket.readyState === WebSocket.OPEN) {
           socket.send(
             JSON.stringify({
               type: "turn.status.get",
               payload: {
-                include_recovery: firstStatusRequest || activeTurn,
+                include_recovery:
+                  firstStatusRequest || Boolean(state.activeTurn),
               },
             }),
           )
@@ -255,10 +278,24 @@ export async function connectChat() {
         const previousState = getChatState()
         const wasActive =
           Boolean(previousState.activeTurn) || previousState.isTyping
+        const hadPendingOptimisticAction = pendingOptimisticActions.size > 0
         const deliveryId = handlePicoMessage(message, sessionId, {
-          onBranchUpdated: () => void refreshActiveSessionHistory(sessionId),
+          onBranchUpdated: () => {
+            clearBranchSwitchTimer()
+            void refreshActiveSessionHistory(sessionId)
+          },
+          onRequestError: (requestId) => {
+            if (requestId.startsWith("branch-")) clearBranchSwitchTimer()
+            const restore = pendingOptimisticActions.get(requestId)
+            if (!restore) return
+            restore()
+            pendingOptimisticActions.delete(requestId)
+          },
           onTurnSettled: () => {
-            if (wasActive) void refreshActiveSessionHistory(sessionId)
+            pendingStatusWatchUntil = 0
+            pendingOptimisticActions.clear()
+            if (wasActive || hadPendingOptimisticAction)
+              void refreshActiveSessionHistory(sessionId)
           },
         })
         if (deliveryId && socket.readyState === WebSocket.OPEN) {
@@ -485,6 +522,23 @@ export function sendChatMessage({
 
   const socket = wsRef
   const id = `msg-${++msgIdCounter}-${Date.now()}`
+  const previousState = getChatState()
+  const previousTargetIndex = targetMessageId
+    ? previousState.messages.findIndex(
+        (message) => message.id === targetMessageId,
+      )
+    : -1
+  if (action !== "send" && previousTargetIndex < 0) {
+    return false
+  }
+  const restoreOptimisticState = () =>
+    updateChatStore((prev) => ({
+      ...prev,
+      messages: mergeHistoryMessages(previousState.messages, prev.messages),
+      isTyping: previousState.isTyping,
+      interrupted: previousState.interrupted,
+      activeTurn: previousState.activeTurn,
+    }))
 
   updateChatStore((prev) => {
     const targetIndex = targetMessageId
@@ -506,7 +560,7 @@ export function sendChatMessage({
         messages:
           targetIndex >= 0
             ? [
-                ...prev.messages.slice(0, targetIndex),
+                ...prev.messages.slice(0, targetIndex + 1),
                 {
                   ...prev.messages[targetIndex],
                   content: normalizedContent,
@@ -550,9 +604,9 @@ export function sendChatMessage({
         .filter((attachment) => attachment.url.startsWith("data:image/"))
         .map((attachment) => attachment.url),
       attachments: normalizedAttachments.map((attachment) => ({
+        ...(attachment.id ? { id: attachment.id } : {}),
         type: attachment.type,
         url: attachment.url,
-        ...(attachment.path ? { path: attachment.path } : {}),
         ...(attachment.filename ? { filename: attachment.filename } : {}),
         ...(attachment.contentType
           ? { content_type: attachment.contentType }
@@ -572,13 +626,22 @@ export function sendChatMessage({
         payload,
       }),
     )
+    pendingStatusWatchUntil = Date.now() + 10_000
+    if (action === "regenerate" || action === "edit") {
+      pendingOptimisticActions.set(id, restoreOptimisticState)
+    }
     return true
   } catch (error) {
     console.error("Failed to send pico message:", error)
-    updateChatStore((prev) => ({
-      messages: prev.messages.filter((message) => message.id !== id),
-      isTyping: false,
-    }))
+    pendingOptimisticActions.delete(id)
+    if (action === "regenerate" || action === "edit") {
+      restoreOptimisticState()
+    } else {
+      updateChatStore((prev) => ({
+        messages: prev.messages.filter((message) => message.id !== id),
+        isTyping: false,
+      }))
+    }
     return false
   }
 }
@@ -597,9 +660,9 @@ export function retryChatMessage(id: string) {
             .filter((item) => item.url.startsWith("data:image/"))
             .map((item) => item.url),
           attachments: (message.attachments ?? []).map((item) => ({
+            ...(item.id ? { id: item.id } : {}),
             type: item.type,
             url: item.url,
-            ...(item.path ? { path: item.path } : {}),
             ...(item.filename ? { filename: item.filename } : {}),
             ...(item.contentType ? { content_type: item.contentType } : {}),
           })),
@@ -654,16 +717,43 @@ export function selectChatBranch(branchId: string) {
     toast.error(i18n.t("chat.branchSwitchFailed"))
     return false
   }
+  const state = getChatState()
+  if (state.isBranchSwitching) return false
+  if (state.activeTurn || state.isTyping) {
+    toast.error(i18n.t("chat.branchBusy"))
+    return false
+  }
+  const requestId = `branch-${++branchRequestCounter}-${Date.now()}`
+  clearBranchSwitchTimer()
+  updateChatStore({
+    isBranchSwitching: true,
+    branchSwitchRequestId: requestId,
+  })
   try {
     wsRef.send(
       JSON.stringify({
         type: "branch.select",
+        id: requestId,
         payload: { branch_id: branchId },
       }),
     )
+    branchSwitchTimer = window.setTimeout(() => {
+      branchSwitchTimer = null
+      if (getChatState().branchSwitchRequestId !== requestId) return
+      updateChatStore({
+        isBranchSwitching: false,
+        branchSwitchRequestId: undefined,
+      })
+      toast.error(i18n.t("chat.branchSwitchFailed"))
+    }, 30_000)
     return true
   } catch (error) {
     console.error("Failed to select chat branch:", error)
+    clearBranchSwitchTimer()
+    updateChatStore({
+      isBranchSwitching: false,
+      branchSwitchRequestId: undefined,
+    })
     toast.error(i18n.t("chat.branchSwitchFailed"))
     return false
   }
@@ -677,21 +767,38 @@ export async function saveMessageFeedback(
   const message = getChatState().messages.find((item) => item.id === messageId)
   if (!message) return
   const nextValue = message.feedback === value ? undefined : value
+  const previousValue = message.feedback
+  const sequence = (feedbackSequences.get(messageId) ?? 0) + 1
+  feedbackSequences.set(messageId, sequence)
   updateChatStore((prev) => ({
     messages: prev.messages.map((item) =>
       item.id === messageId ? { ...item, feedback: nextValue } : item,
     ),
   }))
+  const previousWrite = feedbackWriteChains.get(messageId) ?? Promise.resolve()
+  const write = previousWrite
+    .catch(() => undefined)
+    .then(() => setSessionFeedback(sessionId, messageId, nextValue ?? ""))
+  feedbackWriteChains.set(messageId, write)
   try {
-    await setSessionFeedback(sessionId, messageId, nextValue ?? "")
+    await write
   } catch (error) {
     console.error("Failed to save message feedback:", error)
-    updateChatStore((prev) => ({
-      messages: prev.messages.map((item) =>
-        item.id === messageId ? { ...item, feedback: message.feedback } : item,
-      ),
-    }))
-    toast.error(i18n.t("chat.feedbackSaveFailed"))
+    if (feedbackSequences.get(messageId) === sequence) {
+      updateChatStore((prev) => ({
+        messages: prev.messages.map((item) =>
+          item.id === messageId ? { ...item, feedback: previousValue } : item,
+        ),
+      }))
+    }
+    if (feedbackSequences.get(messageId) === sequence) {
+      toast.error(i18n.t("chat.feedbackSaveFailed"))
+    }
+  } finally {
+    if (feedbackWriteChains.get(messageId) === write) {
+      feedbackWriteChains.delete(messageId)
+      feedbackSequences.delete(messageId)
+    }
   }
 }
 

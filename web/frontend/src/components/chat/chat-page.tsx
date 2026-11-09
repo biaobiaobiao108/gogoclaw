@@ -13,6 +13,7 @@ import {
 } from "react"
 import { useTranslation } from "react-i18next"
 
+import { deleteSessionAttachment, getUploadConfig } from "@/api/sessions"
 import { ActiveWorkIndicator } from "@/components/chat/active-work-indicator"
 import { ActivityTimeline } from "@/components/chat/activity-timeline"
 import { ApprovalPanel } from "@/components/chat/approval-panel"
@@ -176,6 +177,7 @@ export function ChatPage() {
   const [drafts, setDrafts] = useAtom(chatDraftsAtom)
   const [isDragActive, setIsDragActive] = useState(false)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [maxAttachmentSize, setMaxAttachmentSize] = useState(20 * 1024 * 1024)
   const [thinkingLevel, setThinkingLevel] = useState("")
   const autoScrollEnabledRef = useRef(true)
 
@@ -192,6 +194,7 @@ export function ChatPage() {
     activeSessionId,
     contextUsage,
     branches,
+    isBranchSwitching,
     sendMessage,
     respondToApproval,
     switchSession,
@@ -203,6 +206,9 @@ export function ChatPage() {
     loadOlderHistory,
     retryHistory,
   } = usePicoChat()
+  const messageActionsDisabled = Boolean(
+    activeTurn || isTyping || isBranchSwitching,
+  )
 
   useEffect(() => {
     if (!isMobile) setHistoryOpen(false)
@@ -237,6 +243,22 @@ export function ChatPage() {
       attachments:
         typeof update === "function" ? update(draft.attachments) : update,
     }))
+
+  useEffect(() => {
+    let cancelled = false
+    void getUploadConfig()
+      .then((config) => {
+        if (!cancelled && config.max_media_size > 0) {
+          setMaxAttachmentSize(config.max_media_size)
+        }
+      })
+      .catch((error) => {
+        console.warn("Failed to load attachment limit:", error)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     setEditingMessageId(null)
@@ -380,7 +402,12 @@ export function ChatPage() {
   }
 
   const handleEditMessage = (message: ChatMessage) => {
-    if (message.role !== "user" || message.deliveryStatus === "sending") return
+    if (
+      message.role !== "user" ||
+      message.deliveryStatus === "sending" ||
+      messageActionsDisabled
+    )
+      return
     setEditingMessageId(message.id)
     setInput(message.content)
     setAttachments(
@@ -392,7 +419,7 @@ export function ChatPage() {
   }
 
   const handleRegenerateMessage = (messageId: string) => {
-    if (!canInput) return
+    if (!canInput || messageActionsDisabled) return
     sendMessage({
       content: "",
       action: "regenerate",
@@ -410,7 +437,16 @@ export function ChatPage() {
   }, [branches])
 
   const cancelEditingMessage = () => {
-    for (const attachment of attachments) releaseAttachmentPreview(attachment)
+    for (const attachment of attachments) {
+      releaseAttachmentPreview(attachment)
+      if (attachment.id && !attachment.persisted) {
+        void deleteSessionAttachment(activeSessionId, attachment.id).catch(
+          (error) => {
+            console.warn("Failed to delete discarded attachment:", error)
+          },
+        )
+      }
+    }
     setEditingMessageId(null)
     setInput("")
     setAttachments([])
@@ -423,7 +459,16 @@ export function ChatPage() {
 
   const handleRemoveAttachment = (index: number) => {
     const attachment = attachments[index]
-    if (attachment) releaseAttachmentPreview(attachment)
+    if (attachment) {
+      releaseAttachmentPreview(attachment)
+      if (attachment.id && !attachment.persisted) {
+        void deleteSessionAttachment(activeSessionId, attachment.id).catch(
+          (error) => {
+            console.warn("Failed to delete attachment:", error)
+          },
+        )
+      }
+    }
     setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
   }
 
@@ -433,6 +478,7 @@ export function ChatPage() {
     void retryChatAttachment({
       attachment,
       sessionId: activeSessionId,
+      maxAttachmentSize,
       t,
       onAttachment: (next) => {
         setAttachments((previous) =>
@@ -449,16 +495,29 @@ export function ChatPage() {
       return
     }
 
+    const sessionId = activeSessionId
     await uploadChatAttachments({
       files,
-      sessionId: activeSessionId,
+      sessionId,
+      maxAttachmentSize,
       t,
       onAttachment: (attachment) => {
         setAttachments((previous) => {
           const index = previous.findIndex(
             (item) => item.clientId && item.clientId === attachment.clientId,
           )
-          if (index < 0) return [...previous, attachment]
+          if (index < 0) {
+            if (attachment.status === "uploading")
+              return [...previous, attachment]
+            if (attachment.id && !attachment.persisted) {
+              void deleteSessionAttachment(sessionId, attachment.id).catch(
+                (error) => {
+                  console.warn("Failed to delete discarded attachment:", error)
+                },
+              )
+            }
+            return previous
+          }
           const next = [...previous]
           next[index] = attachment
           return next
@@ -875,6 +934,8 @@ export function ChatPage() {
                             handleRegenerateMessage(row.message.id)
                           }
                           onSelectBranch={selectChatBranch}
+                          actionsDisabled={messageActionsDisabled}
+                          branchSwitchPending={isBranchSwitching}
                           timestamp={row.message.timestamp}
                           isStreaming={row.message.id === streamingMessageId}
                         />
@@ -885,6 +946,7 @@ export function ChatPage() {
                           timestamp={row.message.timestamp}
                           deliveryStatus={row.message.deliveryStatus}
                           onEdit={() => handleEditMessage(row.message)}
+                          interactionsDisabled={messageActionsDisabled}
                           onRetry={
                             connectionState === "connected"
                               ? () => retryChatMessage(row.message.id)

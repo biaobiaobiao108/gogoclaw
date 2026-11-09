@@ -40,7 +40,11 @@ export function ProcessMessage({
     ? currentActivity.title
     : isStreamingThought
       ? t("chat.reasoningStreamingLabel")
-      : t("chat.processLabel")
+      : activeTurn?.phase === "tools"
+        ? t("chat.workingWithTools")
+        : activeTurn?.phase === "finalizing"
+          ? t("chat.workingFinalizing")
+          : t("chat.processLabel")
   return (
     <div className="text-muted-foreground text-sm">
       <button

@@ -9,6 +9,8 @@ package agent
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -21,6 +23,51 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
+
+// ResolvePicoAttachment maps a session-scoped upload ID to a managed local file.
+// The ID is a basename only; clients never provide or receive the absolute path.
+func (al *AgentLoop) ResolvePicoAttachment(sessionID, attachmentID string) (string, int64, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	attachmentID = strings.TrimSpace(attachmentID)
+	if sessionID == "" || attachmentID == "" ||
+		filepath.Base(sessionID) != sessionID || filepath.Base(attachmentID) != attachmentID {
+		return "", 0, fmt.Errorf("invalid attachment id")
+	}
+	registry := al.GetRegistry()
+	if registry == nil {
+		return "", 0, fmt.Errorf("agent registry is unavailable")
+	}
+	maxSize := int64(0)
+	if cfg := al.GetConfig(); cfg != nil {
+		maxSize = int64(cfg.Agents.Defaults.GetMaxMediaSize())
+	}
+	for _, agentID := range registry.ListAgentIDs() {
+		agent, ok := registry.GetAgent(agentID)
+		if !ok || agent == nil || strings.TrimSpace(agent.Workspace) == "" {
+			continue
+		}
+		dir := filepath.Join(agent.Workspace, "sessions", ".attachments", sessionID)
+		candidate := filepath.Join(dir, attachmentID)
+		if filepath.Dir(candidate) != filepath.Clean(dir) {
+			continue
+		}
+		info, err := os.Lstat(candidate)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", 0, err
+		}
+		if !info.Mode().IsRegular() {
+			return "", 0, fmt.Errorf("attachment is not a regular file")
+		}
+		if maxSize > 0 && info.Size() > maxSize {
+			return "", 0, fmt.Errorf("attachment exceeds %d byte limit", maxSize)
+		}
+		return candidate, info.Size(), nil
+	}
+	return "", 0, os.ErrNotExist
+}
 
 // genericPlaceholderRegex matches generic media placeholders emitted by various
 // channels: [image], [image: photo], [image: filename.jpg] — but NOT path tags

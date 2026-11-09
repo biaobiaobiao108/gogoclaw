@@ -117,15 +117,18 @@ export function SessionHistoryMenu({
       return
     }
     let cancelled = false
+    const controller = new AbortController()
     setIsSearching(true)
     setSearchResults([])
     setSearchError(false)
     const timer = window.setTimeout(() => {
-      void searchSessions(normalizedQuery)
+      void searchSessions(normalizedQuery, archived, 30, controller.signal)
         .then((results) => {
           if (!cancelled) setSearchResults(results)
         })
         .catch((error) => {
+          if (error instanceof DOMException && error.name === "AbortError")
+            return
           console.error("Failed to search chat history:", error)
           if (!cancelled) setSearchError(true)
         })
@@ -135,9 +138,10 @@ export function SessionHistoryMenu({
     }, 220)
     return () => {
       cancelled = true
+      controller.abort()
       window.clearTimeout(timer)
     }
-  }, [normalizedQuery])
+  }, [archived, normalizedQuery])
 
   const virtualizer = useVirtualizer({
     count: items.length,

@@ -15,11 +15,12 @@ import {
 
 export interface ChatAttachment {
   clientId?: string
+  id?: string
   type: "image" | "audio" | "video" | "file"
   url: string
   filename?: string
   contentType?: string
-  path?: string
+  persisted?: boolean
   status?: "uploading" | "ready" | "failed"
   error?: string
   file?: File
@@ -169,6 +170,8 @@ export interface ChatStoreState {
   hasOlderHistory?: boolean
   contextUsage?: ContextUsage
   branches?: ChatBranchGroup[]
+  isBranchSwitching?: boolean
+  branchSwitchRequestId?: string
 }
 
 type ChatStorePatch = Partial<ChatStoreState>

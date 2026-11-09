@@ -2,15 +2,20 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/chatmeta"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
 
 func TestPrepareChatBranchRequestRegeneratesAndStoresPreviousAnswer(t *testing.T) {
+	t.Setenv("GOGOCLAW_HOME", t.TempDir())
 	al, _, _, _, cleanup := newTestAgentLoop(t)
 	defer cleanup()
 	agent := al.registry.GetDefaultAgent()
@@ -54,7 +59,7 @@ func TestPrepareChatBranchRequestRegeneratesAndStoresPreviousAnswer(t *testing.T
 	if len(remaining) != 0 {
 		t.Fatalf("history before regenerated answer = %+v, want empty", remaining)
 	}
-	store, err := chatmeta.LoadBranches(al.branchStorePath(agent))
+	store, err := chatmeta.LoadBranches(al.branchStorePath("branch-test"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,6 +70,7 @@ func TestPrepareChatBranchRequestRegeneratesAndStoresPreviousAnswer(t *testing.T
 }
 
 func TestPrepareChatBranchRequestEditsUserMessage(t *testing.T) {
+	t.Setenv("GOGOCLAW_HOME", t.TempDir())
 	al, _, _, _, cleanup := newTestAgentLoop(t)
 	defer cleanup()
 	agent := al.registry.GetDefaultAgent()
@@ -108,5 +114,193 @@ func TestPrepareChatBranchRequestEditsUserMessage(t *testing.T) {
 	}
 	if len(remaining) != 0 {
 		t.Fatalf("history after edit reset = %+v, want empty", remaining)
+	}
+	store, err := chatmeta.LoadBranches(al.branchStorePath("edit-test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, version, ok := store.FindVersion("edit-test", "answer-1")
+	if !ok || group.RootMessageID != "user-1" || version.Preview != "old answer" {
+		t.Fatalf("stored edit branch = %+v %+v %v", group, version, ok)
+	}
+}
+
+func TestNormalChatReplyDoesNotCreateBranchSnapshot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GOGOCLAW_HOME", home)
+	al, _, _, _, cleanup := newTestAgentLoop(t)
+	defer cleanup()
+
+	msg := testInboundMessage(bus.InboundMessage{
+		Channel:  "pico",
+		ChatID:   "pico:normal-branch",
+		SenderID: "user",
+		Content:  "hello",
+		Context: bus.InboundContext{
+			Channel:  "pico",
+			ChatID:   "pico:normal-branch",
+			ChatType: "direct",
+			SenderID: "user",
+			Raw:      map[string]string{"session_id": "normal-branch"},
+		},
+	})
+	if _, err := al.processMessage(context.Background(), msg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(al.branchStorePath("normal-branch")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("normal reply created a branch store: %v", err)
+	}
+}
+
+func TestEnsureBranchStoreMigratesEveryAgentWorkspace(t *testing.T) {
+	t.Setenv("GOGOCLAW_HOME", t.TempDir())
+	root := t.TempDir()
+	mainWorkspace := filepath.Join(root, "workspace")
+	supportWorkspace := filepath.Join(root, "workspace-support")
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace: mainWorkspace,
+				ModelName: "test-model",
+			},
+			List: []config.AgentConfig{
+				{ID: "main", Default: true, Workspace: mainWorkspace},
+				{ID: "Support", Workspace: supportWorkspace},
+			},
+		},
+	}
+	al := NewAgentLoop(cfg, bus.NewMessageBus(), &mockProvider{})
+
+	legacyPath := chatmeta.LegacyBranchStorePath(filepath.Join(supportWorkspace, "sessions"))
+	legacy := chatmeta.BranchStore{
+		Version: 1,
+		Sessions: map[string]chatmeta.BranchSession{
+			"migrated-session": {},
+		},
+	}
+	if err := chatmeta.SaveBranches(legacyPath, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := al.ensureBranchStoreMigrated(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacyPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy branch store still exists: %v", err)
+	}
+	store, err := chatmeta.LoadBranches(al.branchStorePath("migrated-session"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.Sessions["migrated-session"]; !ok {
+		t.Fatal("support workspace branch was not migrated")
+	}
+}
+
+func TestSelectBranchRejectsActiveTurnAndRestoresHistory(t *testing.T) {
+	t.Setenv("GOGOCLAW_HOME", t.TempDir())
+	al, _, _, _, cleanup := newTestAgentLoop(t)
+	defer cleanup()
+	agent := al.registry.GetDefaultAgent()
+	sessionID := "select-branch"
+	sessionKey := "agent:main:pico:direct:pico:" + sessionID
+	versionMessages := []providers.Message{
+		{ID: "user-1", Role: "user", Content: "question"},
+		{ID: "answer-1", Role: "assistant", Content: "old answer"},
+	}
+	store, err := chatmeta.LoadBranches(al.branchStorePath(sessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.UpsertVersion(sessionID, "user-1", sessionKey, chatmeta.BranchVersion{
+		ID:       "answer-1",
+		Preview:  "old answer",
+		Messages: versionMessages,
+	})
+	store.UpsertVersion(sessionID, "user-1", sessionKey, chatmeta.BranchVersion{
+		ID:      "answer-2",
+		Preview: "new answer",
+		Messages: append(append([]providers.Message(nil), versionMessages...), providers.Message{
+			ID: "answer-2", Role: "assistant", Content: "new answer",
+		}),
+	})
+	if err := chatmeta.SaveBranches(al.branchStorePath(sessionID), store); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.SetHistoryChecked(agent.Sessions, sessionKey, store.Sessions[sessionID].Groups["user-1"].Versions[1].Messages); err != nil {
+		t.Fatal(err)
+	}
+
+	al.activeTurnStates.Store(sessionKey, &turnState{
+		sessionKey: sessionKey,
+		channel:    "pico",
+		chatID:     "pico:" + sessionID,
+		phase:      TurnPhaseRunning,
+	})
+	if err := al.SelectBranch(context.Background(), sessionID, "answer-1"); err == nil {
+		t.Fatal("branch switch succeeded during an active turn")
+	}
+	al.activeTurnStates.Delete(sessionKey)
+
+	if err := al.SelectBranch(context.Background(), sessionID, "answer-1"); err != nil {
+		t.Fatal(err)
+	}
+	history, err := session.HistoryChecked(agent.Sessions, sessionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != len(versionMessages) || history[1].Content != "old answer" {
+		t.Fatalf("restored history = %+v", history)
+	}
+	reloaded, err := chatmeta.LoadBranches(al.branchStorePath(sessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Sessions[sessionID].Groups["user-1"].ActiveVersionID; got != "answer-1" {
+		t.Fatalf("active branch = %q, want answer-1", got)
+	}
+}
+
+func TestRestoreSessionHistoryRollsBackTruncatedContext(t *testing.T) {
+	t.Setenv("GOGOCLAW_HOME", t.TempDir())
+	al, _, _, _, cleanup := newTestAgentLoop(t)
+	defer cleanup()
+	agent := al.registry.GetDefaultAgent()
+	sessionKey := "agent:main:pico:direct:pico:rollback-test"
+	history := []providers.Message{
+		{ID: "user-1", Role: "user", Content: "keep this"},
+		{ID: "answer-1", Role: "assistant", Content: "and this"},
+	}
+	if err := session.SetHistoryChecked(agent.Sessions, sessionKey, history); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.SetSummaryChecked(agent.Sessions, sessionKey, "kept summary"); err != nil {
+		t.Fatal(err)
+	}
+	backup, err := al.captureSessionHistory(agent, sessionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backup.history) != len(history) {
+		t.Fatalf("captured history = %+v, want %+v", backup.history, history)
+	}
+	if _, err := al.resetSessionHistory(context.Background(), agent, sessionKey, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := al.restoreSessionHistory(context.Background(), agent, sessionKey, backup); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := session.HistoryChecked(agent.Sessions, sessionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restored) != len(history) || restored[1].Content != "and this" {
+		t.Fatalf("restored history = %+v", restored)
+	}
+	summary, err := session.SummaryChecked(agent.Sessions, sessionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary != "kept summary" {
+		t.Fatalf("restored summary = %q", summary)
 	}
 }

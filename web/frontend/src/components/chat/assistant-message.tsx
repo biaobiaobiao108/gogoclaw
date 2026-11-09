@@ -54,6 +54,8 @@ interface AssistantMessageProps {
   onFeedback?: (value: ChatFeedbackValue) => void
   onRegenerate?: () => void
   onSelectBranch?: (versionId: string) => void
+  actionsDisabled?: boolean
+  branchSwitchPending?: boolean
 }
 
 export const AssistantMessage = memo(function AssistantMessage({
@@ -71,6 +73,8 @@ export const AssistantMessage = memo(function AssistantMessage({
   onFeedback,
   onRegenerate,
   onSelectBranch,
+  actionsDisabled = false,
+  branchSwitchPending = false,
 }: AssistantMessageProps) {
   const { t } = useTranslation()
   const { copy, isCopied } = useCopyToClipboard()
@@ -330,6 +334,7 @@ export const AssistantMessage = memo(function AssistantMessage({
               size="icon"
               className="text-muted-foreground hover:text-foreground h-7 w-7 rounded-md"
               onClick={onRegenerate}
+              disabled={actionsDisabled}
               aria-label={t("chat.regenerate")}
               title={t("chat.regenerate")}
             >
@@ -338,12 +343,17 @@ export const AssistantMessage = memo(function AssistantMessage({
           )}
 
           {branchGroup && branchGroup.versions.length > 1 && (
-            <div className="text-muted-foreground ml-1 flex items-center gap-0.5">
+            <div
+              className="text-muted-foreground ml-1 flex items-center gap-0.5"
+              aria-busy={branchSwitchPending}
+            >
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 rounded-md"
                 disabled={
+                  actionsDisabled ||
+                  branchSwitchPending ||
                   branchGroup.activeVersionId === branchGroup.versions[0]?.id
                 }
                 onClick={() => {
@@ -373,8 +383,10 @@ export const AssistantMessage = memo(function AssistantMessage({
                 size="icon"
                 className="h-7 w-7 rounded-md"
                 disabled={
+                  actionsDisabled ||
+                  branchSwitchPending ||
                   branchGroup.versions.at(-1)?.id ===
-                  branchGroup.activeVersionId
+                    branchGroup.activeVersionId
                 }
                 onClick={() => {
                   const index = branchGroup.versions.findIndex(

@@ -122,17 +122,19 @@ type PicoChannel struct {
 	progress           *channels.ToolFeedbackAnimator
 	deleteMessageFn    func(context.Context, string, string) error
 	// broadcastFn lets tests intercept outbound broadcasts. nil → broadcastToSession.
-	broadcastFn      func(chatID string, msg PicoMessage) error
-	turnStatus       func(chatID string, includeRecovery bool) map[string]any
-	approvalHandler  func(context.Context, approval.Response) error
-	branchHandler    func(context.Context, string, string) error
-	approvalMu       sync.Mutex
-	approvalSessions map[string]string
-	deliveryAck      func(context.Context, string, string, string) error
-	dedupMu          sync.Mutex
-	messageSeen      map[string]time.Time
-	dedupePath       string
-	dedupeLoaded     bool
+	broadcastFn       func(chatID string, msg PicoMessage) error
+	turnStatus        func(chatID string, includeRecovery bool) map[string]any
+	approvalHandler   func(context.Context, approval.Response) error
+	branchHandler     func(context.Context, string, string) error
+	sessionBusy       func(string) bool
+	attachmentResolve func(string, string) (string, int64, error)
+	approvalMu        sync.Mutex
+	approvalSessions  map[string]string
+	deliveryAck       func(context.Context, string, string, string) error
+	dedupMu           sync.Mutex
+	messageSeen       map[string]time.Time
+	dedupePath        string
+	dedupeLoaded      bool
 }
 
 // SetTurnStatusProvider supplies a session-scoped snapshot for connected clients.
@@ -148,6 +150,18 @@ func (c *PicoChannel) SetApprovalHandler(handler func(context.Context, approval.
 // previously recorded answer branch.
 func (c *PicoChannel) SetBranchHandler(handler func(context.Context, string, string) error) {
 	c.branchHandler = handler
+}
+
+// SetSessionBusyHandler reports whether a Pico session has an active turn.
+func (c *PicoChannel) SetSessionBusyHandler(handler func(string) bool) {
+	c.sessionBusy = handler
+}
+
+// SetAttachmentResolver resolves a session-scoped upload ID to a managed file.
+func (c *PicoChannel) SetAttachmentResolver(
+	handler func(sessionID, attachmentID string) (string, int64, error),
+) {
+	c.attachmentResolve = handler
 }
 
 func (c *PicoChannel) SetDeliveryAckHandler(
@@ -1067,6 +1081,10 @@ func picoMediaRefID(ref string) (string, error) {
 func picoInferAttachmentType(filename, contentType string) string {
 	contentType = strings.ToLower(strings.TrimSpace(contentType))
 	filename = strings.ToLower(strings.TrimSpace(filename))
+	switch filepath.Ext(filename) {
+	case ".svg", ".svgz", ".html", ".htm", ".xhtml", ".xml", ".js", ".mjs":
+		return "file"
+	}
 
 	switch {
 	case strings.HasPrefix(contentType, "image/"):
@@ -1078,7 +1096,7 @@ func picoInferAttachmentType(filename, contentType string) string {
 	}
 
 	switch ext := filepath.Ext(filename); ext {
-	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg":
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".avif":
 		return "image"
 	case ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma", ".opus":
 		return "audio"
@@ -1098,6 +1116,18 @@ func picoAllowsInlineDisplay(filename, contentType string) bool {
 	}
 
 	return picoInferAttachmentType(filename, contentType) == "image"
+}
+
+func activeAttachmentContent(filename, contentType string) bool {
+	switch strings.ToLower(filepath.Ext(strings.TrimSpace(filename))) {
+	case ".svg", ".svgz", ".html", ".htm", ".xhtml", ".xml", ".js", ".mjs":
+		return true
+	}
+	contentType = strings.ToLower(strings.TrimSpace(contentType))
+	return strings.Contains(contentType, "html") ||
+		strings.Contains(contentType, "svg") ||
+		strings.Contains(contentType, "xml") ||
+		strings.Contains(contentType, "javascript")
 }
 
 func (c *PicoChannel) handleMediaDownload(w http.ResponseWriter, r *http.Request) {
@@ -1153,12 +1183,16 @@ func (c *PicoChannel) handleMediaDownload(w http.ResponseWriter, r *http.Request
 	dispositionType := "attachment"
 	if picoAllowsInlineDisplay(filename, contentType) {
 		dispositionType = "inline"
+	} else if activeAttachmentContent(filename, contentType) {
+		contentType = "application/octet-stream"
+		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
 	}
 
 	if cd := mime.FormatMediaType(dispositionType, map[string]string{"filename": filename}); cd != "" {
 		w.Header().Set("Content-Disposition", cd)
 	}
 	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeContent(w, r, filename, info.ModTime(), file)
 }
 
@@ -1432,6 +1466,10 @@ func (c *PicoChannel) handleBranchSelect(pc *picoConn, msg PicoMessage) {
 		_ = pc.writeJSON(newErrorWithPayload("invalid_branch", "branch_id is required", map[string]any{"request_id": msg.ID}))
 		return
 	}
+	if c.sessionBusy != nil && c.sessionBusy(pc.sessionID) {
+		_ = pc.writeJSON(newErrorWithPayload("session_busy", "stop the active task before switching answers", map[string]any{"request_id": msg.ID}))
+		return
+	}
 	if c.branchHandler == nil {
 		_ = pc.writeJSON(newErrorWithPayload("branch_unavailable", "branch switching is unavailable", map[string]any{"request_id": msg.ID}))
 		return
@@ -1544,12 +1582,12 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 			return
 		}
 		if !claimed {
-			c.writeMessageAck(pc, msg.ID, "duplicate")
+			c.writeMessageAck(pc, msg.ID, "", "duplicate")
 			return
 		}
 	}
 	content, _ := msg.Payload["content"].(string)
-	media, attachments, err := parsePicoAttachmentPayload(msg.Payload)
+	media, attachments, err := parsePicoAttachmentPayload(pc.sessionID, msg.Payload, c.attachmentResolve)
 	if err != nil {
 		c.releaseMessage(dedupeKey)
 		errMsg := newErrorWithPayload("invalid_media", err.Error(), map[string]any{
@@ -1561,6 +1599,14 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 
 	regenerateID, _ := msg.Payload["regenerate_from_message_id"].(string)
 	editID, _ := msg.Payload["edit_message_id"].(string)
+	if (strings.TrimSpace(regenerateID) != "" || strings.TrimSpace(editID) != "") &&
+		c.sessionBusy != nil && c.sessionBusy(pc.sessionID) {
+		c.releaseMessage(dedupeKey)
+		pc.writeJSON(newErrorWithPayload("session_busy", "stop the active task before editing or regenerating an answer", map[string]any{
+			"request_id": msg.ID,
+		}))
+		return
+	}
 	if strings.TrimSpace(content) == "" && len(media) == 0 && strings.TrimSpace(regenerateID) == "" && strings.TrimSpace(editID) == "" {
 		c.releaseMessage(dedupeKey)
 		errMsg := newErrorWithPayload("empty_content", "message content is empty", map[string]any{
@@ -1618,16 +1664,17 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		_ = pc.writeJSON(errMsg)
 		return
 	}
-	c.writeMessageAck(pc, msg.ID, "accepted")
+	c.writeMessageAck(pc, msg.ID, strings.TrimSpace(editID), "accepted")
 }
 
-func (c *PicoChannel) writeMessageAck(pc *picoConn, requestID, status string) {
+func (c *PicoChannel) writeMessageAck(pc *picoConn, requestID, targetID, status string) {
 	if requestID == "" || pc == nil || pc.conn == nil {
 		return
 	}
 	ack := newMessage(TypeMessageAck, map[string]any{
-		"request_id": requestID,
-		"status":     status,
+		"request_id":        requestID,
+		"target_message_id": targetID,
+		"status":            status,
 	})
 	ack.ID = requestID
 	ack.SessionID = pc.sessionID
@@ -1779,10 +1826,13 @@ func parseInlineImageMedia(payload map[string]any) ([]string, error) {
 	return media, nil
 }
 
-// parsePicoAttachmentPayload accepts the legacy inline-image shape and the
-// durable attachment shape used by the web console. Durable uploads carry a
-// local path so the agent can inspect them after a browser refresh.
-func parsePicoAttachmentPayload(payload map[string]any) ([]string, []bus.InboundAttachment, error) {
+// parsePicoAttachmentPayload accepts inline images and session-scoped upload IDs.
+// Browser clients never provide local filesystem paths.
+func parsePicoAttachmentPayload(
+	sessionID string,
+	payload map[string]any,
+	resolve func(string, string) (string, int64, error),
+) ([]string, []bus.InboundAttachment, error) {
 	if len(payload) == 0 {
 		return nil, nil, nil
 	}
@@ -1802,23 +1852,13 @@ func parsePicoAttachmentPayload(payload map[string]any) ([]string, []bus.Inbound
 			if !ok {
 				return nil, nil, fmt.Errorf("attachments[%d]: attachment must be an object", i)
 			}
-			path, _ := attachment["path"].(string)
-			path = strings.TrimSpace(path)
 			urlValue, _ := attachment["url"].(string)
 			urlValue = strings.TrimSpace(urlValue)
 			attachmentType, _ := attachment["type"].(string)
 			filename, _ := attachment["filename"].(string)
 			contentType, _ := attachment["content_type"].(string)
-			if path != "" {
-				if err := validatePicoAttachmentPath(path); err != nil {
-					return nil, nil, fmt.Errorf("attachments[%d]: %w", i, err)
-				}
-				media = append(media, path)
-				attachments = append(attachments, bus.InboundAttachment{
-					Type: attachmentType, URL: urlValue, Path: path,
-					Filename: filename, ContentType: contentType,
-				})
-				continue
+			if _, ok := attachment["path"]; ok {
+				return nil, nil, fmt.Errorf("attachments[%d]: filesystem paths are not accepted", i)
 			}
 			if strings.HasPrefix(urlValue, "data:image/") {
 				if err := validateInlineImageDataURL(urlValue); err != nil {
@@ -1828,34 +1868,74 @@ func parsePicoAttachmentPayload(payload map[string]any) ([]string, []bus.Inbound
 				attachments = append(attachments, bus.InboundAttachment{Type: "image", URL: urlValue, Filename: filename, ContentType: contentType})
 				continue
 			}
-			if attachmentType != "" || filename != "" {
-				return nil, nil, fmt.Errorf("attachments[%d]: durable attachment path is required", i)
+			attachmentID := picoAttachmentID(sessionID, attachment, urlValue)
+			if attachmentID == "" {
+				if attachmentType != "" || filename != "" {
+					return nil, nil, fmt.Errorf("attachments[%d]: attachment id is required", i)
+				}
+				continue
 			}
+			if resolve == nil {
+				return nil, nil, fmt.Errorf("attachments[%d]: attachment storage is unavailable", i)
+			}
+			path, _, err := resolve(sessionID, attachmentID)
+			if err != nil {
+				return nil, nil, fmt.Errorf("attachments[%d]: resolve attachment: %w", i, err)
+			}
+			media = append(media, path)
+			canonicalURL := "/api/attachments/" + url.PathEscape(sessionID) + "/" + url.PathEscape(attachmentID)
+			attachments = append(attachments, bus.InboundAttachment{
+				Type: normalizedPicoAttachmentType(attachmentType, filename, contentType),
+				URL:  canonicalURL, Path: path,
+				Filename: filename, ContentType: contentType,
+			})
 		}
 	}
 	return media, attachments, nil
 }
 
-func validatePicoAttachmentPath(path string) error {
-	absolute, err := filepath.Abs(path)
+func picoAttachmentID(sessionID string, attachment map[string]any, rawURL string) string {
+	if value, _ := attachment["id"].(string); strings.TrimSpace(value) != "" {
+		value = strings.TrimSpace(value)
+		if filepath.Base(value) != value {
+			return ""
+		}
+		return value
+	}
+	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return err
+		return ""
 	}
-	clean := filepath.Clean(absolute)
-	if !strings.Contains(strings.ToLower(clean), string(filepath.Separator)+".attachments"+string(filepath.Separator)) {
-		return fmt.Errorf("attachment path is outside the managed upload directory")
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) != 4 || parts[0] != "api" || parts[1] != "attachments" {
+		return ""
 	}
-	info, err := os.Stat(clean)
-	if err != nil {
-		return err
+	if parts[2] != sessionID {
+		return ""
 	}
-	if info.IsDir() {
-		return fmt.Errorf("attachment path is a directory")
+	if filepath.Base(parts[3]) != parts[3] {
+		return ""
 	}
-	if info.Size() > int64(config.DefaultMaxMediaSize) {
-		return fmt.Errorf("attachment exceeds %d byte limit", config.DefaultMaxMediaSize)
+	return parts[3]
+}
+
+func normalizedPicoAttachmentType(value, filename, contentType string) string {
+	inferred := picoInferAttachmentType(filename, contentType)
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "image":
+		if inferred == "file" {
+			return "file"
+		}
+		return "image"
+	case "audio":
+		return "audio"
+	case "video":
+		return "video"
+	case "file":
+		return "file"
+	default:
+		return inferred
 	}
-	return nil
 }
 
 func parseInlineImageValues(raw any) ([]string, error) {

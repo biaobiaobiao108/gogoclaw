@@ -11,12 +11,14 @@ import {
   type ChatApproval,
   type ChatAttachment,
   type ContextUsage,
+  getChatState,
   updateChatStore,
 } from "@/store/chat"
 
 export interface PicoMessageHandlerOptions {
   onBranchUpdated?: () => void
   onTurnSettled?: () => void
+  onRequestError?: (requestId: string) => void
 }
 
 export interface PicoMessage {
@@ -108,15 +110,15 @@ function parseAttachments(
       typeof attachment.content_type === "string"
         ? attachment.content_type
         : undefined
-    const path =
-      typeof attachment.path === "string" ? attachment.path : undefined
+    const id = typeof attachment.id === "string" ? attachment.id : undefined
 
     attachments.push({
+      ...(id ? { id } : {}),
       type,
       url,
       ...(filename ? { filename } : {}),
       ...(contentType ? { contentType } : {}),
-      ...(path ? { path } : {}),
+      persisted: true,
     })
   }
 
@@ -249,6 +251,7 @@ export function handlePicoMessage(
         : undefined
       const activities = parseActivities(payload.activities)
       const activity = parseActivities([payload.activity])?.[0]
+      const hadActiveTurn = Boolean(getChatState().activeTurn)
       updateChatStore({
         ...(contextUsage ? { contextUsage } : {}),
         activeTurn: active
@@ -272,10 +275,15 @@ export function handlePicoMessage(
           ? { pendingApproval: approval }
           : { pendingApproval: undefined }),
       })
-      if (!active) options.onTurnSettled?.()
+      if (!active && (hadActiveTurn || !getChatState().isTyping))
+        options.onTurnSettled?.()
       break
     }
     case "branch.updated": {
+      updateChatStore({
+        isBranchSwitching: false,
+        branchSwitchRequestId: undefined,
+      })
       options.onBranchUpdated?.()
       break
     }
@@ -434,11 +442,15 @@ export function handlePicoMessage(
     case "message.ack": {
       const requestId =
         typeof payload.request_id === "string" ? payload.request_id : ""
+      const targetMessageId =
+        typeof payload.target_message_id === "string"
+          ? payload.target_message_id
+          : ""
       const status = payload.status === "duplicate" ? "duplicate" : "accepted"
-      if (requestId) {
+      if (requestId || targetMessageId) {
         updateChatStore((prev) => ({
           messages: prev.messages.map((entry) =>
-            entry.id === requestId
+            entry.id === requestId || entry.id === targetMessageId
               ? { ...entry, deliveryStatus: status }
               : entry,
           ),
@@ -498,7 +510,14 @@ export function handlePicoMessage(
           requestId && prev.pendingApproval?.id === requestId
             ? prev.isTyping
             : false,
+        ...(requestId && prev.branchSwitchRequestId === requestId
+          ? {
+              isBranchSwitching: false,
+              branchSwitchRequestId: undefined,
+            }
+          : {}),
       }))
+      if (requestId) options.onRequestError?.(requestId)
       break
     }
 

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/web/backend/launcherconfig"
 )
@@ -21,17 +22,19 @@ type Handler struct {
 	serverTrustedProxyCIDRs    []string
 	debug                      bool
 	// Serializes config load-modify-save cycles across API handlers.
-	configMu         sync.Mutex
-	oauthMu          sync.Mutex
-	oauthFlows       map[string]*oauthFlow
-	oauthState       map[string]string
-	weixinMu         sync.Mutex
-	weixinFlows      map[string]*weixinFlow
-	sessionListMu    sync.Mutex
-	sessionListCache map[string]cachedSessionListItem
-	sessionRefCache  map[string]cachedSessionRefs
-	sessionIndexRead map[string]bool
-	sessionMetaMu    sync.Mutex
+	configMu            sync.Mutex
+	oauthMu             sync.Mutex
+	oauthFlows          map[string]*oauthFlow
+	oauthState          map[string]string
+	weixinMu            sync.Mutex
+	weixinFlows         map[string]*weixinFlow
+	sessionListMu       sync.Mutex
+	sessionListCache    map[string]cachedSessionListItem
+	sessionRefCache     map[string]cachedSessionRefs
+	sessionIndexRead    map[string]bool
+	sessionMetaMu       sync.Mutex
+	attachmentMu        sync.Mutex
+	attachmentCleanupAt map[string]time.Time
 }
 
 // NewHandler creates an instance of the API handler.
@@ -46,6 +49,7 @@ func NewHandler(configPath string) *Handler {
 		sessionListCache:           make(map[string]cachedSessionListItem),
 		sessionRefCache:            make(map[string]cachedSessionRefs),
 		sessionIndexRead:           make(map[string]bool),
+		attachmentCleanupAt:        make(map[string]time.Time),
 	}
 }
 

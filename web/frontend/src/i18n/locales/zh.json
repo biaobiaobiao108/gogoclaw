@@ -190,6 +190,7 @@
     "previousBranch": "上一条回答",
     "nextBranch": "下一条回答",
     "branchSwitchFailed": "切换回答版本失败，请重试。",
+    "branchBusy": "请等待当前任务结束后再切换回答。",
     "editMessage": "编辑消息",
     "editingMessage": "正在编辑消息",
     "cancelEdit": "取消编辑",
