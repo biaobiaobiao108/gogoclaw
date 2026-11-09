@@ -334,8 +334,21 @@ func TestStartGatewayLocked_UsesReloadedConfigForBootSignature(t *testing.T) {
 		if cmd != nil && cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
-		if cmd != nil {
-			_ = cmd.Wait()
+
+		// startGatewayLocked owns the only Wait call. Wait for its cleanup
+		// goroutine instead of calling Wait a second time from the test.
+		deadline := time.Now().Add(3 * time.Second)
+		for {
+			gateway.mu.Lock()
+			waited := gateway.cmd != cmd
+			gateway.mu.Unlock()
+			if waited {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("timed out waiting for gateway process cleanup")
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
 	})
 
