@@ -36,8 +36,7 @@
     "errorNetwork": "网络错误，请重试。"
   },
   "chat": {
-    "welcome": "开始一个任务",
-    "welcomeDesc": "描述你希望完成的结果，GoGoClaw 会检查工作区并持续执行。",
+    "welcome": "今天想做什么？",
     "placeholder": "描述任务或提出问题…",
     "disabledPlaceholder": {
       "gatewayUnknown": "无法对话：网关状态仍在检测中。请稍候重试，如仍无效请刷新页面或重启 Launcher。",
@@ -223,20 +222,20 @@
     "composerDisclaimer": "GoGoClaw 可能会产生错误，请核对重要信息。",
     "promptExamples": [
       {
-        "label": "分析项目结构",
-        "prompt": "请帮我分析当前项目的文件结构和核心模块划分。"
+        "category": "自媒体",
+        "prompt": "盘点这周值得做的中文互联网选题，先给我 5 个方向"
       },
       {
-        "label": "编写单元测试",
-        "prompt": "请为核心业务逻辑编写覆盖边界场景的单元测试。"
+        "category": "写稿",
+        "prompt": "把这份资料整理成一篇 3000 字左右的口播初稿"
       },
       {
-        "label": "性能排查与优化",
-        "prompt": "检查现有代码中是否存在潜在的性能瓶颈或资源泄漏。"
+        "category": "生活",
+        "prompt": "提醒我今晚 9 点检查明天要发的内容"
       },
       {
-        "label": "重构与代码审查",
-        "prompt": "从架构清晰度与可维护性角度对当前代码进行审查并给出优化建议。"
+        "category": "核查",
+        "prompt": "查一下这条消息是否属实，并给我可靠来源"
       }
     ]
   },

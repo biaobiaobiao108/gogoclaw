@@ -45,7 +45,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
-import { useIsMobile } from "@/hooks/use-mobile"
+import { useIsHistorySheet } from "@/hooks/use-mobile"
 
 interface SessionHistoryMenuProps {
   collapsed: boolean
@@ -103,9 +103,9 @@ export function SessionHistoryMenu({
   const [searchResults, setSearchResults] = useState<SessionSearchResult[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [searchError, setSearchError] = useState(false)
-  const isMobile = useIsMobile()
+  const isHistorySheet = useIsHistorySheet()
   const scrollRef = useRef<HTMLElement>(null)
-  const visible = isMobile ? open : !collapsed
+  const visible = isHistorySheet ? open : !collapsed
   const normalizedQuery = query.trim()
   const items: HistoryItem[] = normalizedQuery ? searchResults : sessions
 
@@ -397,14 +397,14 @@ export function SessionHistoryMenu({
 
   return (
     <>
-      {!isMobile && (
+      {!isHistorySheet && (
         <aside
           className={`bg-background border-r-border/20 hidden h-full w-60 shrink-0 border-r ${collapsed ? "" : "md:block"}`}
         >
           {content}
         </aside>
       )}
-      <Sheet open={isMobile && open} onOpenChange={onOpenChange}>
+      <Sheet open={isHistorySheet && open} onOpenChange={onOpenChange}>
         <SheetContent
           side="left"
           aria-describedby={undefined}

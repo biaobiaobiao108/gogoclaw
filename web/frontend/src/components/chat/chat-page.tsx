@@ -45,7 +45,7 @@ import {
 } from "@/features/chat/image-input"
 import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
-import { useIsMobile } from "@/hooks/use-mobile"
+import { useIsHistorySheet } from "@/hooks/use-mobile"
 import { usePicoChat } from "@/hooks/use-pico-chat"
 import { useSessionHistory } from "@/hooks/use-session-history"
 import { chatDraftsAtom, getChatState } from "@/store/chat"
@@ -166,7 +166,7 @@ export function ChatPage() {
   const streamContentRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragDepthRef = useRef(0)
-  const isMobile = useIsMobile()
+  const isHistorySheet = useIsHistorySheet()
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyCollapsed, setHistoryCollapsed] = useState(false)
   const [expandedProcesses, setExpandedProcesses] = useState<
@@ -211,8 +211,8 @@ export function ChatPage() {
   )
 
   useEffect(() => {
-    if (!isMobile) setHistoryOpen(false)
-  }, [isMobile])
+    if (!isHistorySheet) setHistoryOpen(false)
+  }, [isHistorySheet])
 
   const { input = "", attachments = [] } = drafts[activeSessionId] ?? {}
   const updateDraft = (
@@ -729,9 +729,9 @@ export function ChatPage() {
             size="sm"
             className="h-8 gap-2 px-2 text-sm"
             aria-label={t("chat.history")}
-            aria-expanded={isMobile ? historyOpen : !historyCollapsed}
+            aria-expanded={isHistorySheet ? historyOpen : !historyCollapsed}
             onClick={() => {
-              if (!isMobile) setHistoryCollapsed((value) => !value)
+              if (!isHistorySheet) setHistoryCollapsed((value) => !value)
               else setHistoryOpen(true)
             }}
           >

@@ -98,12 +98,16 @@ Use direct sentence case. Name the object and the action. Avoid page introductio
 
 ## Conversation workspace
 
-Chat follows the requested ChatGPT direction: white / #212121 canvas, #f4f4f4 / #303030 user bubbles, unboxed assistant replies, 16px reading text, a 768px reading column and composer, and 24px bubble/composer radii. The history rail is 256px wide at desktop widths and becomes an accessible Sheet on mobile. History uses explicit cursor pagination and server-side search across sessions. Continuous thought/tool messages share one collapsed process row; expansion is owned by the page so virtualization cannot reset it. Existing shared controls supply press/focus feedback.
+Chat follows the requested ChatGPT direction: white / #212121 canvas, #f4f4f4 / #303030 user bubbles, unboxed assistant replies, 16px reading text, a 768px reading column and composer, and 24px bubble/composer radii. The history rail is 256px wide at desktop widths and becomes an accessible Sheet below 1024px. History uses explicit cursor pagination and server-side search across sessions. Continuous thought/tool messages share one collapsed process row; expansion is owned by the page so virtualization cannot reset it. Existing shared controls supply press/focus feedback.
 
 Assistant answers expose copy, feedback, regenerate and recorded answer-version controls in one compact row. Source citations render as a numbered list below the answer. Attachments support images and other files through upload, drag/drop and paste, with pending and failed states kept in the composer.
 
 History navigation inherits the console background, 6px control radius, 40px single-line rows and muted date metadata. A 240px history pane sits below the page header; its named toggle stays on the left of that header in both open and closed states. App navigation and conversation history remain distinct controls. History search queries server-side across all sessions; pin, rename and archive are available from each row, while archived sessions use the same pane with a named filter toggle.
 
 The desktop app menu is always expanded; page headers and the app menu edge have no collapse controls. Mobile keeps its menu drawer trigger. Conversation history retains its own left-aligned toggle.
+
+### Conversation starters
+
+The ready chat state uses one text-led task list, not a card grid or icon tiles. A fixed category column aligns the four rows; the prompt itself is the button label. Starters cover creator work, writing, personal tasks, and verification rather than software engineering. Keep the empty state free of narration, sparkles, and decorative containers.
 
 History rows are windowed at 40px with six overscan rows, reusing TanStack Virtual. Scrolling near the loaded end requests the next cursor page; failures stop automatic requests and expose a compact retry that preserves the cursor and loaded rows. Filtering applies only to loaded entries and pauses pagination.

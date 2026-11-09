@@ -1,12 +1,3 @@
-import {
-  IconCode,
-  IconCpu,
-  IconFileSearch,
-  IconPlugConnectedX,
-  IconRobotOff,
-  IconSparkles,
-  IconTestPipe,
-} from "@tabler/icons-react"
 import { Link } from "@tanstack/react-router"
 import { useTranslation } from "react-i18next"
 
@@ -19,8 +10,6 @@ interface ChatEmptyStateProps {
   onSelectPrompt?: (prompt: string) => void
 }
 
-const PROMPT_ICONS = [IconFileSearch, IconTestPipe, IconCpu, IconCode]
-
 export function ChatEmptyState({
   hasAvailableModels,
   defaultModelName,
@@ -32,9 +21,6 @@ export function ChatEmptyState({
   if (!hasAvailableModels) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="bg-warning/10 text-warning mb-3 flex size-12 items-center justify-center rounded-2xl">
-          <IconRobotOff className="size-6" aria-hidden="true" />
-        </div>
         <h2 className="text-foreground text-base font-semibold tracking-tight">
           {t("chat.empty.noConfiguredModel")}
         </h2>
@@ -56,9 +42,6 @@ export function ChatEmptyState({
   if (!defaultModelName) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="bg-muted text-muted-foreground mb-3 flex size-12 items-center justify-center rounded-2xl">
-          <IconSparkles className="size-6" aria-hidden="true" />
-        </div>
         <h2 className="text-foreground text-base font-semibold tracking-tight">
           {t("chat.empty.noSelectedModel")}
         </h2>
@@ -80,9 +63,6 @@ export function ChatEmptyState({
   if (!isConnected) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="bg-muted text-muted-foreground mb-3 flex size-12 items-center justify-center rounded-2xl">
-          <IconPlugConnectedX className="size-6" aria-hidden="true" />
-        </div>
         <h2 className="text-foreground text-base font-semibold tracking-tight">
           {t("chat.empty.notRunning")}
         </h2>
@@ -95,49 +75,39 @@ export function ChatEmptyState({
 
   const promptExamples =
     (t("chat.promptExamples", { returnObjects: true }) as
-      Array<{ label: string; prompt: string }> | undefined) ?? []
+      Array<{ category: string; prompt: string }> | undefined) ?? []
 
   return (
-    <div className="flex flex-col items-center justify-center py-12 text-center md:py-20">
-      <div className="bg-foreground text-background mb-5 flex size-12 items-center justify-center rounded-2xl shadow-xs">
-        <IconSparkles className="size-6" />
-      </div>
-      <h2 className="text-foreground text-2xl font-semibold tracking-tight md:text-3xl">
-        {t("chat.welcome")}
-      </h2>
-      <p className="text-muted-foreground mt-2 max-w-md text-sm leading-relaxed">
-        {t("chat.welcomeDesc")}
-      </p>
+    <div className="flex flex-col items-center py-12 md:py-20">
+      <div className="w-full max-w-2xl">
+        <h2 className="text-foreground text-2xl font-semibold tracking-tight md:text-3xl">
+          {t("chat.welcome")}
+        </h2>
 
-      {Array.isArray(promptExamples) &&
-        promptExamples.length > 0 &&
-        onSelectPrompt && (
-          <div className="mt-8 grid w-full max-w-xl grid-cols-1 gap-2.5 sm:grid-cols-2">
-            {promptExamples.map((item, idx) => {
-              const Icon = PROMPT_ICONS[idx % PROMPT_ICONS.length]
-              return (
-                <button
-                  key={item.label}
-                  type="button"
-                  onClick={() => onSelectPrompt(item.prompt)}
-                  className="group border-border/70 hover:border-border hover:bg-muted/40 bg-card/60 flex items-start gap-3 rounded-2xl border p-3.5 text-left transition-all duration-150 hover:shadow-xs active:scale-[0.99]"
-                >
-                  <div className="bg-muted/80 text-muted-foreground group-hover:text-foreground group-hover:bg-muted flex size-8 shrink-0 items-center justify-center rounded-xl transition-colors">
-                    <Icon className="size-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-foreground text-xs font-medium tracking-tight">
-                      {item.label}
-                    </div>
-                    <div className="text-muted-foreground mt-0.5 line-clamp-1 text-[11px] leading-normal">
+        {Array.isArray(promptExamples) &&
+          promptExamples.length > 0 &&
+          onSelectPrompt && (
+            <ul className="border-border/80 divide-border/80 mt-8 divide-y border-y">
+              {promptExamples.map((item) => (
+                <li key={item.prompt}>
+                  <button
+                    type="button"
+                    data-ui-align="start"
+                    onClick={() => onSelectPrompt(item.prompt)}
+                    className="hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:ring-ring/50 grid w-full grid-cols-[56px_minmax(0,1fr)] items-start gap-3 px-1 py-4 text-left transition-[background-color] duration-[var(--motion-state)] ease-out focus-visible:ring-2 focus-visible:outline-none sm:grid-cols-[88px_minmax(0,1fr)] sm:gap-4 sm:px-3"
+                  >
+                    <span className="text-muted-foreground text-xs leading-6 font-medium">
+                      {item.category}
+                    </span>
+                    <span className="text-foreground text-sm leading-6 text-pretty">
                       {item.prompt}
-                    </div>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        )}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+      </div>
     </div>
   )
 }

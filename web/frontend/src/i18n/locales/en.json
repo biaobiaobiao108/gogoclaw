@@ -36,8 +36,7 @@
     "errorNetwork": "Network error. Please try again."
   },
   "chat": {
-    "welcome": "Start a task",
-    "welcomeDesc": "Describe the outcome you need. GoGoClaw will inspect the workspace and carry it through.",
+    "welcome": "What would you like to get done?",
     "placeholder": "Describe a task or ask a question...",
     "disabledPlaceholder": {
       "gatewayUnknown": "Unable to chat: Gateway status is still being checked. Please wait, then refresh the page or restart Launcher if needed.",
@@ -223,20 +222,20 @@
     "composerDisclaimer": "GoGoClaw can make mistakes. Verify important info.",
     "promptExamples": [
       {
-        "label": "Analyze Project",
-        "prompt": "Analyze the file structure and key modules of this project."
+        "category": "Creator",
+        "prompt": "Find five Chinese-internet topics worth covering this week"
       },
       {
-        "label": "Write Unit Tests",
-        "prompt": "Write unit tests covering edge cases for core logic."
+        "category": "Writing",
+        "prompt": "Turn these notes into a 3,000-character video script"
       },
       {
-        "label": "Performance Audit",
-        "prompt": "Check for potential performance bottlenecks or resource leaks."
+        "category": "Personal",
+        "prompt": "Remind me to check tomorrow's post at 9 PM tonight"
       },
       {
-        "label": "Code Review",
-        "prompt": "Review the codebase for maintainability and suggest improvements."
+        "category": "Research",
+        "prompt": "Verify this claim and give me reliable sources"
       }
     ]
   },
