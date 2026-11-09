@@ -272,11 +272,21 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]any) *ToolResult
 		return ErrorResult("action is required")
 	}
 
+	if !t.allowRemote && !constants.IsInternalChannel(strings.TrimSpace(ToolChannel(ctx))) {
+		return ErrorResult("exec is restricted to internal channels")
+	}
+	if action != "run" && action != "list" {
+		id, _ := args["sessionId"].(string)
+		process, err := t.sessionManager.Get(id)
+		if err != nil || process.Owner != execOwner(ctx) {
+			return ErrorResult("session not found")
+		}
+	}
 	switch action {
 	case "run":
 		return t.executeRun(ctx, args)
 	case "list":
-		return t.executeList()
+		return t.executeListForOwner(ctx)
 	case "poll":
 		return t.executePoll(args)
 	case "read":
@@ -296,19 +306,6 @@ func (t *ExecTool) executeRun(ctx context.Context, args map[string]any) *ToolRes
 	command, ok := args["command"].(string)
 	if !ok {
 		return ErrorResult("command is required")
-	}
-
-	// GHSA-pv8c-p6jf-3fpp: block exec from remote channels (e.g. Telegram webhooks)
-	// unless explicitly opted-in via config. Fail-closed: empty channel = blocked.
-	if !t.allowRemote {
-		channel := ToolChannel(ctx)
-		if channel == "" {
-			channel, _ = args["__channel"].(string)
-		}
-		channel = strings.TrimSpace(channel)
-		if channel == "" || !constants.IsInternalChannel(channel) {
-			return ErrorResult("exec is restricted to internal channels")
-		}
 	}
 
 	getBoolArg := func(key string) bool {
@@ -531,13 +528,15 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string, timeout tim
 func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEnabled bool) *ToolResult {
 	sessionID := generateSessionID()
 	session := &ProcessSession{
-		ID:         sessionID,
-		Command:    command,
-		PTY:        ptyEnabled,
-		Background: true,
-		StartTime:  time.Now().Unix(),
-		Status:     "running",
-		ptyKeyMode: PtyKeyModeCSI,
+		ID:           sessionID,
+		Owner:        execOwner(ctx),
+		Command:      command,
+		PTY:          ptyEnabled,
+		Background:   true,
+		outputBuffer: &bytes.Buffer{},
+		StartTime:    time.Now().Unix(),
+		Status:       "running",
+		ptyKeyMode:   PtyKeyModeCSI,
 	}
 
 	var cmd *exec.Cmd
@@ -600,8 +599,6 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 
 	session.PID = cmd.Process.Pid
 	t.sessionManager.Add(session)
-
-	session.outputBuffer = &bytes.Buffer{}
 
 	// PTY mode: read from ptyMaster and wait for process
 	// Note: On Linux, closing ptyMaster doesn't interrupt blocking Read() calls,
@@ -750,20 +747,24 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 	}
 }
 
-func (t *ExecTool) executeList() *ToolResult {
+func execOwner(ctx context.Context) string {
+	return strings.Join([]string{ToolAgentID(ctx), ToolSessionKey(ctx), ToolChannel(ctx), ToolChatID(ctx)}, "\x00")
+}
+
+func (t *ExecTool) executeListForOwner(ctx context.Context) *ToolResult {
 	sessions := t.sessionManager.List()
-	resp := ExecResponse{
-		Sessions: sessions,
+	filtered := sessions[:0]
+	for _, info := range sessions {
+		process, err := t.sessionManager.Get(info.ID)
+		if err == nil && process.Owner == execOwner(ctx) {
+			filtered = append(filtered, info)
+		}
 	}
-	data, err := json.Marshal(resp)
+	data, err := json.Marshal(ExecResponse{Sessions: filtered})
 	if err != nil {
 		return ErrorResult(err.Error())
 	}
-	return &ToolResult{
-		ForLLM:  string(data),
-		ForUser: fmt.Sprintf("%d active sessions", len(sessions)),
-		IsError: false,
-	}
+	return &ToolResult{ForLLM: string(data), ForUser: fmt.Sprintf("%d active sessions", len(filtered))}
 }
 
 func (t *ExecTool) executePoll(args map[string]any) *ToolResult {

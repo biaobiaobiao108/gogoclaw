@@ -35,6 +35,7 @@ var (
 
 type ProcessSession struct {
 	mu              sync.Mutex
+	Owner           string
 	ID              string
 	PID             int
 	Command         string

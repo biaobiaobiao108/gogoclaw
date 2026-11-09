@@ -236,9 +236,11 @@ export function handlePicoMessage(
 
       updateChatStore((prev) => ({
         messages: (() => {
-          const duplicate = deliveryId
-            ? prev.messages.find((msg) => msg.deliveryId === deliveryId)
-            : undefined
+          const duplicate = prev.messages.find(
+            (msg) =>
+              msg.id === messageId ||
+              (deliveryId && msg.deliveryId === deliveryId),
+          )
           if (duplicate) {
             return prev.messages.map((msg) =>
               msg.id === duplicate.id

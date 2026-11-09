@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -2007,4 +2008,29 @@ func TestShellTool_CustomAllowDoesNotBecomeStrictAllowlist(t *testing.T) {
 	if got != "" {
 		t.Fatalf("custom allow patterns should not become a strict allowlist, got: %q", got)
 	}
+}
+
+func TestExecSessionOwnershipAndRemotePolicy(t *testing.T) {
+	cfg := config.DefaultConfig()
+	tool, err := NewExecToolWithConfig(t.TempDir(), true, cfg)
+	require.NoError(t, err)
+	sm := NewSessionManager()
+	defer sm.Stop()
+	tool.sessionManager = sm
+	owner := WithToolContext(context.Background(), "cli", "owner")
+	sm.Add(&ProcessSession{ID: "owned", Owner: execOwner(owner), Status: "done", outputBuffer: &bytes.Buffer{}})
+	remote := WithToolContext(context.Background(), "telegram", "stranger")
+	for _, action := range []string{"list", "poll", "read", "write", "kill", "send-keys"} {
+		result := tool.Execute(remote, map[string]any{"action": action, "sessionId": "owned"})
+		require.True(t, result.IsError, action)
+	}
+	cfg.Tools.Exec.AllowRemote = true
+	tool.allowRemote = true
+	other := WithToolContext(context.Background(), "cli", "other")
+	for _, action := range []string{"poll", "read", "write", "kill", "send-keys"} {
+		require.True(t, tool.Execute(other, map[string]any{"action": action, "sessionId": "owned"}).IsError, action)
+	}
+	result := tool.Execute(other, map[string]any{"action": "list"})
+	require.NotContains(t, result.ForLLM, "owned")
+	require.False(t, tool.Execute(owner, map[string]any{"action": "poll", "sessionId": "owned"}).IsError)
 }

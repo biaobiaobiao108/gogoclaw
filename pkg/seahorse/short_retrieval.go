@@ -7,6 +7,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/biaobiaobiao108/gogoclaw/pkg/constants"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 )
 
 // ParseLastDuration parses a "last" duration string like "6h", "7d", "2w", "1m".
@@ -129,6 +132,19 @@ func (r *RetrievalEngine) Grep(ctx context.Context, input GrepInput) (*GrepResul
 		Limit:            limit,
 	}
 
+	if key := tools.ToolSessionKey(ctx); key != "" {
+		conv, err := r.store.GetConversationBySessionKey(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		if conv == nil {
+			return &GrepResult{Success: true}, nil
+		}
+		searchInput.ConversationID = conv.ConversationID
+		// Cross-conversation retrieval is an explicit local administration operation.
+		searchInput.AllConversations = input.AllConversations && constants.IsInternalChannel(tools.ToolChannel(ctx))
+	}
+
 	result := &GrepResult{
 		Success:        true,
 		Summaries:      make([]GrepSummaryResult, 0),
@@ -202,9 +218,23 @@ func (r *RetrievalEngine) ExpandMessages(ctx context.Context, messageIDs []int64
 		Messages: make([]Message, 0, len(messageIDs)),
 	}
 
+	var conversationID int64
+	if key := tools.ToolSessionKey(ctx); key != "" {
+		conv, err := r.store.GetConversationBySessionKey(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		if conv == nil {
+			return result, nil
+		}
+		conversationID = conv.ConversationID
+	}
 	for _, msgID := range messageIDs {
 		msg, err := r.store.GetMessageByID(ctx, msgID)
 		if err != nil {
+			continue
+		}
+		if conversationID != 0 && msg.ConversationID != conversationID {
 			continue
 		}
 		result.Messages = append(result.Messages, *msg)

@@ -36,7 +36,7 @@ const (
 	// file. Tool results (read_file, web search, etc.) can be large, so
 	// we set a generous limit. The scanner starts at 64 KB and grows
 	// only as needed up to this cap.
-	maxLineSize = 10 * 1024 * 1024 // 10 MB
+	maxLineSize = 64 * 1024 * 1024 // Covers the 32 MiB Pico payload plus JSON encoding overhead.
 )
 
 // SessionMeta holds per-session metadata stored in a .meta.json file.
@@ -721,6 +721,9 @@ func (s *JSONLStore) addMsg(sessionKey string, msg providers.Message) error {
 	line, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("memory: marshal message: %w", err)
+	}
+	if len(line) >= maxLineSize {
+		return fmt.Errorf("memory: message exceeds history line limit")
 	}
 	line = append(line, '\n')
 

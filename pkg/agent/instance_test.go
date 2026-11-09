@@ -304,7 +304,7 @@ func TestNewAgentInstance_PreservesConfigIdentityForExplicitProviderModelRef(t *
 	}
 }
 
-func TestNewAgentInstance_AllowsMediaTempDirForReadListAndExec(t *testing.T) {
+func TestNewAgentInstance_MediaReadAllowanceDoesNotGrantExec(t *testing.T) {
 	workspace := t.TempDir()
 	mediaDir := media.TempDir()
 	if err := os.MkdirAll(mediaDir, 0o700); err != nil {
@@ -379,12 +379,10 @@ func TestNewAgentInstance_AllowsMediaTempDirForReadListAndExec(t *testing.T) {
 		"command": "cat " + filepath.Base(mediaPath),
 		"cwd":     mediaDir,
 	})
-	if execResult.IsError {
-		t.Fatalf("exec should allow media temp dir, got: %s", execResult.ForLLM)
+	if !execResult.IsError {
+		t.Fatal("read allowance must not grant exec access")
 	}
-	if !strings.Contains(execResult.ForLLM, "attachment content") {
-		t.Fatalf("exec output missing media content: %s", execResult.ForLLM)
-	}
+
 }
 
 // TestPopulateCandidateProviders_NilCfgIsNoop verifies that passing a nil

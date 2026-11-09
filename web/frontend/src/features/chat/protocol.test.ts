@@ -207,3 +207,24 @@ describe("delivery acknowledgements", () => {
     })
   })
 })
+
+test("delivery replay updates an existing history message by stable ID", () => {
+  updateChatStore({
+    messages: [
+      { id: "saved-id", role: "assistant", content: "answer", timestamp: 1 },
+    ],
+  })
+  handlePicoMessage(
+    {
+      type: "message.create",
+      payload: {
+        message_id: "saved-id",
+        delivery_id: "delivery",
+        content: "answer",
+      },
+    },
+    "current",
+  )
+  expect(getChatState().messages).toHaveLength(1)
+  expect(getChatState().messages[0].deliveryId).toBe("delivery")
+})

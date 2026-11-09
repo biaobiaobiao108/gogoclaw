@@ -244,9 +244,10 @@ export function mergeHistoryMessages(
     ),
     ...currentMessages.map((message) => {
       const saved = savedById.get(message.id)
-      return saved && message.role === "user"
+      return saved
         ? {
             ...message,
+            ...saved,
             timestamp: saved.timestamp,
             ...(message.deliveryStatus
               ? { deliveryStatus: "accepted" as const }

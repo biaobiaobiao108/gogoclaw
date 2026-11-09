@@ -2,6 +2,7 @@ package seahorse
 
 import (
 	"context"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 	"testing"
 )
 
@@ -68,5 +69,35 @@ func TestGrepToolSupportsAllConversations(t *testing.T) {
 	// GrepTool should accept all_conversations parameter
 	if _, ok := props["all_conversations"]; !ok {
 		t.Error("Parameters missing 'all_conversations' field")
+	}
+}
+
+func TestRetrievalRespectsCurrentSession(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	victim, _ := s.GetOrCreateConversation(ctx, "victim")
+	attacker, _ := s.GetOrCreateConversation(ctx, "attacker")
+	id, err := s.AddMessage(ctx, victim.ConversationID, "user", "private secret", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = attacker
+	r := &RetrievalEngine{store: s}
+	scoped := tools.WithToolSessionContext(tools.WithToolContext(ctx, "telegram", "chat"), "main", "attacker", nil)
+	for _, all := range []bool{false, true} {
+		result, err := r.Grep(scoped, GrepInput{Pattern: "%secret%", AllConversations: all})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Messages) != 0 {
+			t.Fatal("cross-session search leaked content")
+		}
+	}
+	expanded, err := r.ExpandMessages(scoped, []int64{id.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(expanded.Messages) != 0 {
+		t.Fatal("cross-session expansion leaked content")
 	}
 }

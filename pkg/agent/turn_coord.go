@@ -350,6 +350,7 @@ func (ts *turnState) saveTurnCheckpoint(status, tool string) error {
 		Activities: ts.activitiesSnapshot(),
 		Usage:      ts.contextUsageSnapshot(),
 	}
+	checkpoint.Deliveries = append([]session.TurnDelivery(nil), previous.Deliveries...)
 	if previous.Delivery != nil {
 		checkpoint.Delivery = previous.Delivery
 	}

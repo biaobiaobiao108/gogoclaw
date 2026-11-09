@@ -624,7 +624,7 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) string {
 			"__chat_id": chatID,
 		}
 
-		result := t.execTool.Execute(ctx, args)
+		result := t.execTool.Execute(WithToolContext(ctx, channel, chatID), args)
 		var output string
 		if result.IsError {
 			output = fmt.Sprintf("Error executing scheduled command: %s", result.ForLLM)

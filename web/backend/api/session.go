@@ -20,6 +20,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/messageutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/seahorse"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
@@ -124,7 +125,7 @@ const (
 
 	// Keep the session API aligned with the shared JSONL store reader limit in
 	// pkg/memory/jsonl.go so oversized lines fail consistently everywhere.
-	maxSessionJSONLLineSize = 10 * 1024 * 1024
+	maxSessionJSONLLineSize = 64 * 1024 * 1024
 	maxSessionTitleRunes    = 60
 
 	handledToolResponseSummaryText = "Requested output delivered via tool attachment."
@@ -1348,6 +1349,18 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	removed := false
 	if ref, err := h.findPicoJSONLSession(dir, sessionID); err == nil {
 		base := filepath.Join(dir, sanitizeSessionKey(ref.Key))
+		if sess, _, err := h.readJSONLSessionInfo(dir, ref.Key); err != nil {
+			http.Error(w, "failed to read session", http.StatusInternalServerError)
+			return
+		} else if sess.Turn.Status == "running" && h.gatewayAvailableForProxy() {
+			http.Error(w, "stop the active task before deleting this session", http.StatusConflict)
+			return
+		}
+		if err := clearSessionSQLite(r, dir, ref.Key); err != nil {
+			http.Error(w, "failed to delete session context", http.StatusInternalServerError)
+			return
+		}
+
 		for _, path := range []string{base + ".jsonl", base + ".meta.json"} {
 			if err := os.Remove(path); err != nil {
 				if os.IsNotExist(err) {
@@ -1361,6 +1374,19 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if legacyRef, err := h.findLegacyPicoSession(dir, sessionID); err == nil {
+		legacy, err := h.readLegacySession(legacyRef.Path)
+		if err != nil {
+			http.Error(w, "failed to read session", http.StatusInternalServerError)
+			return
+		}
+		if legacy.Turn.Status == "running" && h.gatewayAvailableForProxy() {
+			http.Error(w, "stop the active task before deleting this session", http.StatusConflict)
+			return
+		}
+		if err := clearSessionSQLite(r, dir, legacy.Key); err != nil {
+			http.Error(w, "failed to delete session context", http.StatusInternalServerError)
+			return
+		}
 		if err := os.Remove(legacyRef.Path); err != nil {
 			if !os.IsNotExist(err) {
 				http.Error(w, "failed to delete session", http.StatusInternalServerError)
@@ -1503,4 +1529,20 @@ func (h *Handler) saveSessionIndex(dir string, valid map[string]struct{}) {
 		return
 	}
 	_ = fileutil.WriteFileAtomic(path, data, 0o644)
+}
+
+func clearSessionSQLite(r *http.Request, dir, key string) error {
+	dbPath := filepath.Join(dir, "seahorse.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	engine, err := seahorse.NewEngine(seahorse.Config{DBPath: dbPath}, nil)
+	if err != nil {
+		return err
+	}
+	clearErr := engine.ClearSession(r.Context(), key)
+	return errors.Join(clearErr, engine.Close())
 }

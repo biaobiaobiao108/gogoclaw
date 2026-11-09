@@ -67,3 +67,18 @@ test("identical repeated messages retain separate stable IDs", () => {
   const second = { ...first, id: "second", timestamp: 2 }
   expect(mergeHistoryMessages([first, second], [first])).toHaveLength(2)
 })
+
+test("persisted complete answer replaces a disconnected stream prefix", () => {
+  const saved = {
+    id: "answer",
+    role: "assistant" as const,
+    content: "complete",
+    timestamp: 2,
+  }
+  expect(
+    mergeHistoryMessages(
+      [saved],
+      [{ ...saved, content: "comp", timestamp: 1 }],
+    ),
+  ).toEqual([saved])
+})

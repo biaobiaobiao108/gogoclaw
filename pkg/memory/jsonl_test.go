@@ -1247,3 +1247,19 @@ func BenchmarkGetHistory_1000(b *testing.B) {
 		_, _ = store.GetHistory(ctx, "bench")
 	}
 }
+
+func TestMultiImageMessageRoundTrip(t *testing.T) {
+	store := newTestStore(t)
+	image := "data:image/png;base64," + strings.Repeat("A", 4*1024*1024*4/3+4)
+	err := store.AddFullMessage(context.Background(), "images", providers.Message{Role: "user", Media: []string{image, image}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := store.GetHistory(context.Background(), "images")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 1 || len(history[0].Media) != 2 {
+		t.Fatal("images lost")
+	}
+}
