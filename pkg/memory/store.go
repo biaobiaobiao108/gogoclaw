@@ -15,7 +15,8 @@ type Store interface {
 	// AddFullMessage appends a complete message (with tool calls, etc.) to a session.
 	AddFullMessage(ctx context.Context, sessionKey string, msg providers.Message) error
 
-	// GetHistory returns all messages for a session in insertion order.
+	// GetHistory returns the active model context in insertion order.
+	// Summarized messages remain in the transcript but are excluded here.
 	// Returns an empty slice (not nil) if the session does not exist.
 	GetHistory(ctx context.Context, sessionKey string) ([]providers.Message, error)
 

@@ -761,6 +761,122 @@ func TestCachedSessionSearchMatchesEscapedContent(t *testing.T) {
 	}
 }
 
+func TestSummarizationPreservesHistoryPaginationSearchAndAttachments(t *testing.T) {
+	h, mux, dir := setupChatFeatureTest(t)
+	const id = "summarized-transcript"
+	key := legacyPicoSessionPrefix + id
+	raw, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := session.NewJSONLBackend(raw)
+	uploaded := uploadChatAttachment(t, mux, id, "original.txt", "text/plain", "original attachment")
+	attachmentPath := filepath.Join(dir, ".attachments", id, uploaded.ID)
+	for i := range 125 {
+		message := providers.Message{ID: fmt.Sprintf("message-%d", i), Role: "user", Content: fmt.Sprintf("archived-message-%d", i)}
+		if i == 0 {
+			message.Attachments = []providers.Attachment{{Ref: attachmentPath, Filename: "original.txt", Type: "file"}}
+		}
+		backend.AddFullMessage(key, message)
+	}
+	active := backend.GetHistory(key)
+	committed, err := backend.CommitSummary(key, active[:120], "", "summary")
+	if err != nil || !committed {
+		t.Fatalf("summary commit: %t, %v", committed, err)
+	}
+	if err := backend.Save(key); err != nil {
+		t.Fatal(err)
+	}
+	if len(backend.GetHistory(key)) != 5 {
+		t.Fatal("context was not reduced")
+	}
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(attachmentPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.cleanupOrphanedSessionAttachments(dir, id, 24*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(attachmentPath); err != nil {
+		t.Fatalf("summarized attachment removed: %v", err)
+	}
+	var all []sessionChatMessage
+	cursor := ""
+	for {
+		rec := performJSONRequest(t, mux, http.MethodGet, "/api/sessions/"+id+"?limit=17&cursor="+cursor, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("history: %s", rec.Body.String())
+		}
+		var page struct {
+			Messages []sessionChatMessage `json:"messages"`
+			Cursor   string               `json:"next_cursor"`
+			HasMore  bool                 `json:"has_more"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+			t.Fatal(err)
+		}
+		all = append(page.Messages, all...)
+		if !page.HasMore {
+			break
+		}
+		if page.Cursor == cursor || page.Cursor == "" {
+			t.Fatal("pagination did not advance")
+		}
+		cursor = page.Cursor
+	}
+	if len(all) != 125 || all[0].ID != "message-0" || all[124].ID != "message-124" {
+		t.Fatalf("transcript incomplete: %d", len(all))
+	}
+	performJSONRequest(t, mux, http.MethodGet, "/api/sessions", nil)
+	rec := performJSONRequest(t, mux, http.MethodGet, "/api/sessions/search?q=archived-message-0", nil)
+	var results []sessionSearchResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &results); err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("summarized history not searchable: %s", rec.Body.String())
+	}
+}
+
+func TestLegacySessionPaginationRetainsAllMessages(t *testing.T) {
+	_, mux, dir := setupChatFeatureTest(t)
+	manager := session.NewSessionManager(dir)
+	key := legacyPicoSessionPrefix + "legacy-pages"
+	for i := range 125 {
+		manager.AddFullMessage(key, providers.Message{ID: fmt.Sprintf("legacy-%d", i), Role: "user", Content: fmt.Sprintf("question %d", i)})
+	}
+	if err := manager.Save(key); err != nil {
+		t.Fatal(err)
+	}
+	cursor := ""
+	var messages []sessionChatMessage
+	for {
+		rec := performJSONRequest(t, mux, http.MethodGet, "/api/sessions/legacy-pages?limit=17&cursor="+cursor, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("legacy history: %s", rec.Body.String())
+		}
+		var page struct {
+			Messages []sessionChatMessage `json:"messages"`
+			Cursor   string               `json:"next_cursor"`
+			HasMore  bool                 `json:"has_more"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+			t.Fatal(err)
+		}
+		messages = append(page.Messages, messages...)
+		if !page.HasMore {
+			break
+		}
+		if page.Cursor == "" || page.Cursor == cursor {
+			t.Fatal("legacy cursor did not advance")
+		}
+		cursor = page.Cursor
+	}
+	if len(messages) != 125 || messages[0].ID != "legacy-0" || messages[124].ID != "legacy-124" {
+		t.Fatalf("incomplete legacy transcript: %d", len(messages))
+	}
+}
+
 func TestDeleteSessionProtectsLiveTurnStates(t *testing.T) {
 	resetGatewayTestState(t)
 	_, mux, dir := setupChatFeatureTest(t)

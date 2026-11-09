@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
@@ -17,9 +18,11 @@ import (
 
 // seahorseContextManager adapts seahorse.Engine to agent.ContextManager.
 type seahorseContextManager struct {
-	engine   *seahorse.Engine
-	sessions session.SessionStore // for startup bootstrap
-	al       *AgentLoop           // for resolving the agent that owns a session
+	engine       *seahorse.Engine
+	sessions     session.SessionStore // for lazy history reconciliation
+	al           *AgentLoop           // for resolving the agent that owns a session
+	bootstrapMu  sync.Mutex
+	bootstrapped map[string]struct{}
 }
 
 // Close releases the SQLite engine and its background compaction workers.
@@ -63,14 +66,6 @@ func newSeahorseContextManager(_ json.RawMessage, al *AgentLoop) (ContextManager
 	al.RegisterTool(seahorse.NewGrepTool(retrieval))
 	al.RegisterTool(seahorse.NewExpandTool(retrieval))
 
-	// Bootstrap all existing sessions at startup
-	if agent.Sessions != nil {
-		ctx := context.Background()
-		for _, sessionKey := range agent.Sessions.ListSessions() {
-			mgr.bootstrapSession(ctx, sessionKey)
-		}
-	}
-
 	return mgr, nil
 }
 
@@ -112,6 +107,9 @@ func providerToCompleteFn(provider providers.LLMProvider, model string) seahorse
 func (m *seahorseContextManager) Assemble(ctx context.Context, req *AssembleRequest) (*AssembleResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("seahorse assemble: nil request")
+	}
+	if err := m.ensureBootstrapped(ctx, req.SessionKey); err != nil {
+		return nil, err
 	}
 
 	budget := req.Budget
@@ -165,8 +163,7 @@ func (m *seahorseContextManager) Compact(ctx context.Context, req *CompactReques
 	return err
 }
 
-// Ingest records a message into seahorse SQLite.
-// All existing sessions are bootstrapped at startup, so this only ingests new messages.
+// Ingest records a new message after Assemble has reconciled the session.
 func (m *seahorseContextManager) Ingest(ctx context.Context, req *IngestRequest) error {
 	if req == nil {
 		return nil
@@ -179,6 +176,9 @@ func (m *seahorseContextManager) Ingest(ctx context.Context, req *IngestRequest)
 
 // Clear removes all stored context for a session (seahorse DB + JSONL).
 func (m *seahorseContextManager) Clear(ctx context.Context, sessionKey string) error {
+	m.bootstrapMu.Lock()
+	delete(m.bootstrapped, sessionKey)
+	m.bootstrapMu.Unlock()
 	if err := m.engine.ClearSession(ctx, sessionKey); err != nil {
 		return err
 	}
@@ -198,15 +198,26 @@ func (m *seahorseContextManager) Clear(ctx context.Context, sessionKey string) e
 	return nil
 }
 
-// bootstrapSession reconciles JSONL session history into seahorse SQLite.
-func (m *seahorseContextManager) bootstrapSession(ctx context.Context, sessionKey string) {
-	if m.sessions == nil {
-		return
+// Reconcile on first use, not at startup. The bounded cache avoids retaining
+// every session key for the lifetime of a long-running gateway.
+func (m *seahorseContextManager) ensureBootstrapped(ctx context.Context, sessionKey string) error {
+	m.bootstrapMu.Lock()
+	defer m.bootstrapMu.Unlock()
+	if _, ok := m.bootstrapped[sessionKey]; ok {
+		return nil
 	}
-
-	history := m.sessions.GetHistory(sessionKey)
-	if len(history) == 0 {
-		return
+	sessions := m.sessions
+	if m.al != nil {
+		if agent := m.al.agentForSession(sessionKey); agent != nil {
+			sessions = agent.Sessions
+		}
+	}
+	if sessions == nil {
+		return nil
+	}
+	history, err := session.TranscriptChecked(sessions, sessionKey)
+	if err != nil {
+		return fmt.Errorf("read seahorse bootstrap history: %w", err)
 	}
 
 	// Convert provider messages to seahorse messages
@@ -216,11 +227,19 @@ func (m *seahorseContextManager) bootstrapSession(ctx context.Context, sessionKe
 	}
 
 	if err := m.engine.Bootstrap(ctx, sessionKey, msgs); err != nil {
-		logger.WarnCF("seahorse", "bootstrap", map[string]any{
-			"session": sessionKey,
-			"error":   err.Error(),
-		})
+		return fmt.Errorf("bootstrap seahorse: %w", err)
 	}
+	if m.bootstrapped == nil {
+		m.bootstrapped = make(map[string]struct{})
+	}
+	if len(m.bootstrapped) >= 128 {
+		for key := range m.bootstrapped {
+			delete(m.bootstrapped, key)
+			break
+		}
+	}
+	m.bootstrapped[sessionKey] = struct{}{}
+	return nil
 }
 
 // providerToSeahorseMessage converts a providers.Message to a seahorse.Message.

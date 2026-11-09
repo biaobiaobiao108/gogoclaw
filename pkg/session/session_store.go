@@ -120,6 +120,14 @@ func SetSummaryChecked(store SessionStore, key, summary string) error {
 	return nil
 }
 
+func TruncateHistoryChecked(store SessionStore, key string, keepLast int) error {
+	if checked, ok := store.(interface{ TruncateHistoryChecked(string, int) error }); ok {
+		return checked.TruncateHistoryChecked(key, keepLast)
+	}
+	store.TruncateHistory(key, keepLast)
+	return nil
+}
+
 func AppendChecked(store SessionStore, key string, msg providers.Message) error {
 	if checked, ok := store.(CheckedStore); ok {
 		return checked.AddFullMessageChecked(key, msg)
@@ -133,6 +141,16 @@ func HistoryChecked(store SessionStore, key string) ([]providers.Message, error)
 		return checked.GetHistoryChecked(key)
 	}
 	return store.GetHistory(key), nil
+}
+
+// TranscriptChecked reads the durable chat log rather than the active model context.
+func TranscriptChecked(store SessionStore, key string) ([]providers.Message, error) {
+	if transcript, ok := store.(interface {
+		GetTranscriptChecked(string) ([]providers.Message, error)
+	}); ok {
+		return transcript.GetTranscriptChecked(key)
+	}
+	return HistoryChecked(store, key)
 }
 
 func SummaryChecked(store SessionStore, key string) (string, error) {
@@ -155,7 +173,7 @@ type SessionStore interface {
 	AddMessage(sessionKey, role, content string)
 	// AddFullMessage appends a complete message including tool calls.
 	AddFullMessage(sessionKey string, msg providers.Message)
-	// GetHistory returns the full message history for the session.
+	// GetHistory returns the active model context; use TranscriptChecked for the chat log.
 	GetHistory(key string) []providers.Message
 	// GetSummary returns the conversation summary, or "" if none.
 	GetSummary(key string) string

@@ -206,6 +206,14 @@ docker compose -f docker/docker-compose.yml --profile launcher up -d
 
 ## Backup And Restore
 
+Stop every container writing to the same volume before backing up, including the launcher-managed gateway, standalone gateways, and one-shot agents:
+
+```bash
+docker compose -f docker/docker-compose.yml --profile gateway --profile launcher --profile agent stop
+```
+
+Also stop instances launched directly with Docker or a NAS UI. A read-only mount does not stop other containers from writing. Archiving live SQLite, WAL, and JSONL files does not produce a consistent snapshot. These are offline backups; restart your original deployment after completion. Online backups require the SQLite Backup API or a consistent snapshot, not a copy of only the `.db` file.
+
 Back up a named volume:
 
 ```bash
@@ -223,6 +231,14 @@ sudo tar czf gogoclaw-data-$(date +%F).tar.gz \
 ```
 
 Stop the container and restore into an empty target directory. After restoring, set ownership back to `10001:10001`.
+
+## Memory And History Retention
+
+Compose defaults to a `2g` container memory limit and a `512MiB` `GOMEMLIMIT` per Go process, with Docker log rotation at `10m × 3`. Override these with `GOGOCLAW_MEMORY_LIMIT` and `GOGOCLAW_GO_MEMORY_LIMIT`. The launcher and its gateway share the container limit but each has its own Go budget. Leave additional room for MCP servers, model CLIs, Python, Bun, and `/tmp`. The Go soft limit does not cap the whole container; increase the container limit for heavier tools based on measured peak usage.
+
+JSONL keeps the complete transcript. Summarization moves only the model context offset, so history and search still include earlier messages. Explicit clearing, deletion, editing, or branch selection can replace the current transcript. History physically removed by previous versions cannot be recovered automatically. Back up regularly and delete unused sessions to manage disk usage.
+
+Memory prompt excerpts default to approximately `2048` estimated tokens, capped at one eighth of the model's available input context. Configure `agents.defaults.memory_context_tokens` or `GOGOCLAW_AGENTS_DEFAULTS_MEMORY_CONTEXT_TOKENS`. The original `MEMORY.md` and last three days of notes remain intact and readable with file tools. Seahorse reconciles sessions on first use rather than loading every transcript during startup.
 
 ## Security Boundary
 

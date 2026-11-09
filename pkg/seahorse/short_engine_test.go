@@ -2,6 +2,7 @@ package seahorse
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -184,6 +185,88 @@ func TestNewEngine(t *testing.T) {
 	retrieval := eng.GetRetrieval()
 	if retrieval == nil {
 		t.Error("expected GetRetrieval to return non-nil RetrievalEngine")
+	}
+}
+
+func TestEngineInitializesEveryConnectionAndBoundsPool(t *testing.T) {
+	e, err := NewEngine(Config{DBPath: filepath.Join(t.TempDir(), "space # test.db")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var connections []*sql.Conn
+	defer func() {
+		for _, conn := range connections {
+			conn.Close()
+		}
+	}()
+	for range 4 {
+		conn, err := e.store.db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		connections = append(connections, conn)
+		var timeout, synchronous int
+		if err := conn.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&timeout); err != nil {
+			t.Fatal(err)
+		}
+		if err := conn.QueryRowContext(ctx, "PRAGMA synchronous").Scan(&synchronous); err != nil {
+			t.Fatal(err)
+		}
+		if timeout != 5000 || synchronous != 1 {
+			t.Fatalf("connection settings = %d, %d", timeout, synchronous)
+		}
+	}
+	if e.store.db.Stats().MaxOpenConnections != 4 {
+		t.Fatal("unbounded connection pool")
+	}
+}
+
+func TestSessionStatusesReleaseCursorBeforeNestedQueries(t *testing.T) {
+	e := newTestEngine(t)
+	e.store.db.SetMaxOpenConns(1)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	for _, key := range []string{"one", "two"} {
+		if _, err := e.Ingest(ctx, key, []Message{{Role: "user", Content: "hello"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	statuses, err := e.store.GetAllSessionStatuses(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 2 {
+		t.Fatalf("statuses = %+v", statuses)
+	}
+}
+
+func TestBootstrapRemovesStaleSuffixAndHandlesClearedTranscript(t *testing.T) {
+	e := newTestEngine(t)
+	ctx := context.Background()
+	messages := []Message{{Role: "user", Content: "one"}, {Role: "assistant", Content: "two"}, {Role: "user", Content: "three"}}
+	if err := e.Bootstrap(ctx, "truncate", messages); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Bootstrap(ctx, "truncate", messages[:1]); err != nil {
+		t.Fatal(err)
+	}
+	conv, err := e.store.GetConversationBySessionKey(ctx, "truncate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	count, err := e.store.GetMessageCount(ctx, conv.ConversationID)
+	if err != nil || count != 1 {
+		t.Fatalf("stale suffix: %d, %v", count, err)
+	}
+	if err := e.Bootstrap(ctx, "truncate", nil); err != nil {
+		t.Fatal(err)
+	}
+	count, err = e.store.GetMessageCount(ctx, conv.ConversationID)
+	if err != nil || count != 0 {
+		t.Fatalf("cleared transcript: %d, %v", count, err)
 	}
 }
 

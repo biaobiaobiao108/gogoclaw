@@ -446,21 +446,12 @@ func (h *Handler) handleSearchSessions(w http.ResponseWriter, r *http.Request) {
 		cacheKey := "jsonl:" + filepath.Clean(dir) + ":" + ref.ID
 		item, cached := h.cachedSessionListItem(cacheKey, base+".jsonl", base+".meta.json")
 		if !cached {
-			sess, loadErr := h.readJSONLSession(dir, ref.Key)
-			if loadErr != nil || isEmptySession(sess) {
+			var loadErr error
+			item, loadErr = h.readJSONLSessionListItem(dir, ref.Key, ref.ID, toolFeedbackMaxArgsLength)
+			if loadErr != nil {
 				continue
 			}
-			item = buildSessionListItem(ref.ID, sess, toolFeedbackMaxArgsLength)
-			applySessionMeta(&item, uiMeta.Sessions[ref.ID])
-			if item.Archived != archivedOnly {
-				continue
-			}
-			if result, ok := searchSessionResultForItem(item, normalizedQuery); ok {
-				results = append(results, result)
-			} else if result, ok := searchSessionMessages(item, sess.Messages, normalizedQuery, query); ok {
-				results = append(results, result)
-			}
-			continue
+			h.storeCachedSessionListItem(cacheKey, item, base+".jsonl", base+".meta.json")
 		}
 		applySessionMeta(&item, uiMeta.Sessions[ref.ID])
 		if item.Archived != archivedOnly {
@@ -567,10 +558,6 @@ func (h *Handler) searchJSONLSession(
 	ctx context.Context,
 ) (sessionSearchResult, bool, error) {
 	base := filepath.Join(dir, sanitizeSessionKey(sessionKey))
-	meta, err := h.readSessionMeta(base+".meta.json", sessionKey)
-	if err != nil {
-		return sessionSearchResult{}, false, err
-	}
 	file, err := os.Open(base + ".jsonl")
 	if err != nil {
 		return sessionSearchResult{}, false, err
@@ -582,9 +569,6 @@ func (h *Handler) searchJSONLSession(
 	lineNumber := 0
 	for scanner.Scan() {
 		lineNumber++
-		if lineNumber <= meta.Skip {
-			continue
-		}
 		if lineNumber%256 == 0 && ctx.Err() != nil {
 			return sessionSearchResult{}, false, ctx.Err()
 		}

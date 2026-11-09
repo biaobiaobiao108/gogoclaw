@@ -10,6 +10,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/chatmeta"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
@@ -66,6 +67,57 @@ func TestPrepareChatBranchRequestRegeneratesAndStoresPreviousAnswer(t *testing.T
 	group, version, ok := store.FindVersion("branch-test", "answer-1")
 	if !ok || group.RootMessageID != "user-1" || version.Preview != "first answer" {
 		t.Fatalf("stored branch = %+v %+v %v", group, version, ok)
+	}
+}
+
+func TestBranchRollbackPreservesTranscriptAndSummarizedContext(t *testing.T) {
+	t.Setenv("GOGOCLAW_HOME", t.TempDir())
+	al, _, _, _, cleanup := newTestAgentLoop(t)
+	defer cleanup()
+	agent := al.registry.GetDefaultAgent()
+	raw, err := memory.NewJSONLStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent.Sessions = session.NewJSONLBackend(raw)
+	const key = "agent:main:pico:direct:pico:archive-rollback"
+	history := []providers.Message{
+		{ID: "old-user", Role: "user", Content: "old question"},
+		{ID: "old-answer", Role: "assistant", Content: "old answer"},
+		{ID: "new-user", Role: "user", Content: "new question"},
+		{ID: "new-answer", Role: "assistant", Content: "new answer"},
+	}
+	if err := session.SetHistoryChecked(agent.Sessions, key, history); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.SetSummaryChecked(agent.Sessions, key, "old summary"); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.TruncateHistoryChecked(agent.Sessions, key, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := al.recordBranchSnapshotByID(agent, key, "archive-rollback", "old-answer"); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	backup, err := al.resetSessionHistory(ctx, agent, key, history[:1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := al.restoreSessionHistory(ctx, agent, key, backup); err != nil {
+		t.Fatal(err)
+	}
+	transcript, err := session.TranscriptChecked(agent.Sessions, key)
+	if err != nil || len(transcript) != 4 {
+		t.Fatalf("transcript lost: %d, %v", len(transcript), err)
+	}
+	active, err := session.HistoryChecked(agent.Sessions, key)
+	if err != nil || len(active) != 2 || active[0].ID != "new-user" {
+		t.Fatalf("context offset lost: %+v, %v", active, err)
+	}
+	summary, err := session.SummaryChecked(agent.Sessions, key)
+	if err != nil || summary != "old summary" {
+		t.Fatalf("summary lost: %q, %v", summary, err)
 	}
 }
 

@@ -3,15 +3,18 @@ package agent
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/protocoltypes"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/seahorse"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
 
 // seahorseTestProvider implements providers.LLMProvider for seahorse tests.
@@ -43,6 +46,52 @@ func TestSeahorseCMRegistration(t *testing.T) {
 	}
 	if factory == nil {
 		t.Error("expected non-nil factory")
+	}
+}
+
+func TestSeahorseReconcilesOnlyRequestedSessionIncludingSummarizedMessages(t *testing.T) {
+	root := t.TempDir()
+	raw, err := memory.NewJSONLStore(filepath.Join(root, "sessions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions := session.NewJSONLBackend(raw)
+	for _, key := range []string{"one", "unused"} {
+		sessions.AddMessage(key, "user", "old history")
+		sessions.AddMessage(key, "assistant", "recent answer")
+	}
+	sessions.TruncateHistory("one", 1)
+	engine, err := seahorse.NewEngine(seahorse.Config{DBPath: filepath.Join(root, "memory.db")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	mgr := &seahorseContextManager{engine: engine, sessions: sessions}
+	ctx := context.Background()
+	if conv, err := engine.GetRetrieval().Store().GetConversationBySessionKey(ctx, "unused"); err != nil || conv != nil {
+		t.Fatalf("eager bootstrap: %+v, %v", conv, err)
+	}
+	if _, err := mgr.Assemble(ctx, &AssembleRequest{SessionKey: "one", Budget: 8000, MaxTokens: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	store := engine.GetRetrieval().Store()
+	conv, err := store.GetConversationBySessionKey(ctx, "one")
+	if err != nil || conv == nil {
+		t.Fatalf("missing bootstrap: %v", err)
+	}
+	count, err := store.GetMessageCount(ctx, conv.ConversationID)
+	if err != nil || count != 2 {
+		t.Fatalf("archived history not reconciled: %d, %v", count, err)
+	}
+	if _, err := mgr.Assemble(ctx, &AssembleRequest{SessionKey: "one", Budget: 8000, MaxTokens: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	count, _ = store.GetMessageCount(ctx, conv.ConversationID)
+	if count != 2 {
+		t.Fatalf("duplicated bootstrap: %d", count)
+	}
+	if conv, err := store.GetConversationBySessionKey(ctx, "unused"); err != nil || conv != nil {
+		t.Fatalf("unrequested session loaded: %+v, %v", conv, err)
 	}
 }
 

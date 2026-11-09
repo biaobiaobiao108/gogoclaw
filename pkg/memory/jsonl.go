@@ -788,6 +788,14 @@ func (s *JSONLStore) GetHistory(
 	return msgs, nil
 }
 
+// GetTranscript includes summarized messages for history, exports and branches.
+func (s *JSONLStore) GetTranscript(_ context.Context, key string) ([]providers.Message, error) {
+	l := s.sessionLock(key)
+	l.Lock()
+	defer l.Unlock()
+	return readMessages(s.jsonlPath(key), 0)
+}
+
 func (s *JSONLStore) GetSummary(
 	_ context.Context, sessionKey string,
 ) (string, error) {

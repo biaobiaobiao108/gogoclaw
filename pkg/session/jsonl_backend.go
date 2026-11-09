@@ -295,21 +295,37 @@ func (b *JSONLBackend) SetHistory(key string, history []providers.Message) {
 }
 
 func (b *JSONLBackend) TruncateHistory(key string, keepLast int) {
-	key = b.resolveSessionKey(key)
-	if err := b.store.TruncateHistory(context.Background(), key, keepLast); err != nil {
+	if err := b.TruncateHistoryChecked(key, keepLast); err != nil {
 		log.Printf("session: truncate history: %v", err)
 	}
 }
 
-// Save persists session state. Since the JSONL store fsyncs every write
-// immediately, the data is already durable. Save runs compaction to reclaim
-// space from logically truncated messages (no-op when there are none).
-func (b *JSONLBackend) Save(key string) error {
+func (b *JSONLBackend) TruncateHistoryChecked(key string, keepLast int) error {
 	key, err := b.resolveSessionKeyChecked(key)
 	if err != nil {
 		return err
 	}
-	return b.store.Compact(context.Background(), key)
+	return b.store.TruncateHistory(context.Background(), key, keepLast)
+}
+
+// Save has no pending writes: each mutation is already synced. Keep logically
+// summarized messages in the transcript; Skip only controls model context.
+func (b *JSONLBackend) Save(key string) error {
+	_, err := b.resolveSessionKeyChecked(key)
+	return err
+}
+
+func (b *JSONLBackend) GetTranscriptChecked(key string) ([]providers.Message, error) {
+	key, err := b.resolveSessionKeyChecked(key)
+	if err != nil {
+		return nil, err
+	}
+	if store, ok := b.store.(interface {
+		GetTranscript(context.Context, string) ([]providers.Message, error)
+	}); ok {
+		return store.GetTranscript(context.Background(), key)
+	}
+	return b.store.GetHistory(context.Background(), key)
 }
 
 // Close releases resources held by the underlying store.

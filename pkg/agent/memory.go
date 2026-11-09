@@ -8,12 +8,14 @@ package agent
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/tokenizer"
 )
 
 // MemoryStore manages persistent memory for the agent.
@@ -132,27 +134,63 @@ func (ms *MemoryStore) GetRecentDailyNotes(days int) string {
 // GetMemoryContext returns formatted memory context for the agent prompt.
 // Includes long-term memory and recent daily notes.
 func (ms *MemoryStore) GetMemoryContext() string {
-	longTerm := ms.ReadLongTerm()
-	recentNotes := ms.GetRecentDailyNotes(3)
+	return ms.GetMemoryContextWithBudget(2048)
+}
 
-	if longTerm == "" && recentNotes == "" {
+// Read bounded excerpts for prompt injection. Original files remain available
+// through read_file; large notes must not crowd out the user's current task.
+func (ms *MemoryStore) GetMemoryContextWithBudget(budget int) string {
+	if budget <= 0 {
 		return ""
 	}
-
-	var sb strings.Builder
-
-	if longTerm != "" {
-		sb.WriteString("## Long-term Memory\n\n")
-		sb.WriteString(longTerm)
-	}
-
-	if recentNotes != "" {
-		if longTerm != "" {
-			sb.WriteString("\n\n---\n\n")
+	readExcerpt := func(path string, tokens int) string {
+		f, err := os.Open(path)
+		if err != nil {
+			return ""
 		}
-		sb.WriteString("## Recent Daily Notes\n\n")
-		sb.WriteString(recentNotes)
+		defer f.Close()
+		data, err := io.ReadAll(io.LimitReader(f, int64(tokens)*4+1))
+		if err != nil {
+			return ""
+		}
+		return trimMemoryTokens(strings.ToValidUTF8(string(data), ""), tokens)
 	}
+	var sections []string
+	longTerm := readExcerpt(ms.memoryFile, budget/2)
+	if longTerm != "" {
+		sections = append(sections, "## Long-term Memory (memory/MEMORY.md)\n\n"+longTerm)
+	}
+	for i := range 3 {
+		date := time.Now().AddDate(0, 0, -i).Format("20060102")
+		path := filepath.Join("memory", date[:6], date+".md")
+		remaining := budget - tokenizer.EstimateTextTokens(strings.Join(sections, "\n\n")) - 64
+		if remaining <= 0 {
+			break
+		}
+		text := readExcerpt(filepath.Join(ms.workspace, path), remaining)
+		if text != "" {
+			sections = append(sections, "## Recent Daily Notes ("+filepath.ToSlash(path)+")\n\n"+text)
+		}
+	}
+	if len(sections) == 0 {
+		return ""
+	}
+	return trimMemoryTokens("Memory excerpts; use read_file on the listed paths for omitted details.\n\n"+strings.Join(sections, "\n\n"), budget)
+}
 
-	return sb.String()
+func trimMemoryTokens(text string, budget int) string {
+	if tokenizer.EstimateTextTokens(text) <= budget {
+		return text
+	}
+	runes := []rune(text)
+	low, high := 0, len(runes)
+	for low < high {
+		mid := (low + high + 1) / 2
+		if tokenizer.EstimateTextTokens(string(runes[:mid])) <= budget {
+			low = mid
+		} else {
+			high = mid - 1
+		}
+	}
+	return string(runes[:low])
 }

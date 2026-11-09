@@ -3,6 +3,12 @@ name: gogoclaw
 x-production-security: &production-security
   user: "10001:10001"
   read_only: true
+  mem_limit: ${GOGOCLAW_MEMORY_LIMIT:-2g}
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
   cap_drop:
     - ALL
   security_opt:
@@ -18,6 +24,7 @@ services:
     <<: *production-security
     environment:
       TZ: ${TZ:-Asia/Shanghai}
+      GOMEMLIMIT: ${GOGOCLAW_GO_MEMORY_LIMIT:-512MiB}
       GOGOCLAW_GATEWAY_HOST: 0.0.0.0
     ports:
       - "${GOGOCLAW_GATEWAY_BIND:-127.0.0.1}:18790:18790"
@@ -37,6 +44,7 @@ services:
     <<: *production-security
     environment:
       TZ: ${TZ:-Asia/Shanghai}
+      GOMEMLIMIT: ${GOGOCLAW_GO_MEMORY_LIMIT:-512MiB}
       GOGOCLAW_GATEWAY_HOST: 0.0.0.0
     command: ["gogoclaw-launcher", "-public", "-no-browser"]
     ports:
@@ -56,6 +64,7 @@ services:
     <<: *production-security
     environment:
       TZ: ${TZ:-Asia/Shanghai}
+      GOMEMLIMIT: ${GOGOCLAW_GO_MEMORY_LIMIT:-512MiB}
     command: ["agent"]
     stdin_open: true
     tty: true

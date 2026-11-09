@@ -206,6 +206,7 @@ func NewAgentInstance(
 		// forceCompression handles any overshoot.
 		contextWindow = maxTokens * 4
 	}
+	contextBuilder.WithMemoryContextBudget(min(defaults.GetMemoryContextTokens(), max(1, (contextWindow-maxTokens)/8)))
 
 	temperature := 0.7
 	if defaults.Temperature != nil {

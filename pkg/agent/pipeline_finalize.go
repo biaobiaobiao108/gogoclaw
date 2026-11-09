@@ -78,7 +78,7 @@ func (p *Pipeline) Finalize(
 			branchGroupID = strings.TrimSpace(inbound.Raw["branch_group_id"])
 		}
 		if branchGroupID != "" {
-			if history, historyErr := session.HistoryChecked(ts.agent.Sessions, ts.sessionKey); historyErr == nil {
+			if history, historyErr := session.TranscriptChecked(ts.agent.Sessions, ts.sessionKey); historyErr == nil {
 				if branchErr := al.recordBranchSnapshot(ts, branchGroupID, finalMsg, history); branchErr != nil {
 					logger.WarnCF("agent", "Failed to record chat branch snapshot", map[string]any{
 						"session_key": ts.sessionKey,

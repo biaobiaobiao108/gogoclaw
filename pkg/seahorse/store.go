@@ -122,22 +122,30 @@ func (s *Store) GetAllSessionStatuses(ctx context.Context) ([]SessionStatus, err
 	}
 	defer rows.Close()
 
-	var statuses []SessionStatus
+	var keys []string
 	for rows.Next() {
 		var sessionKey string
 		if err := rows.Scan(&sessionKey); err != nil {
-			continue
+			return nil, fmt.Errorf("scan session key: %w", err)
 		}
+		keys = append(keys, sessionKey)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sessions: %w", err)
+	}
+	// Release the cursor before issuing more queries on the bounded pool.
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	var statuses []SessionStatus
+	for _, sessionKey := range keys {
 		status, err := s.GetSessionStatus(ctx, sessionKey)
 		if err != nil {
-			continue
+			return nil, err
 		}
 		if status != nil {
 			statuses = append(statuses, *status)
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate sessions: %w", err)
 	}
 	return statuses, nil
 }

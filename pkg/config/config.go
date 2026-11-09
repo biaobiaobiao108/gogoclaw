@@ -436,6 +436,7 @@ type AgentDefaults struct {
 	SummarizeMessageThreshold int                `json:"summarize_message_threshold"      env:"GOGOCLAW_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
 	SummarizeTokenPercent     int                `json:"summarize_token_percent"          env:"GOGOCLAW_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
 	MaxMediaSize              int                `json:"max_media_size,omitempty"         env:"GOGOCLAW_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
+	MemoryContextTokens       int                `json:"memory_context_tokens,omitempty" env:"GOGOCLAW_AGENTS_DEFAULTS_MEMORY_CONTEXT_TOKENS"`
 	Routing                   *RoutingConfig     `json:"routing,omitempty"`
 	SteeringMode              string             `json:"steering_mode,omitempty"          env:"GOGOCLAW_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
 	MaxParallelTurns          int                `json:"max_parallel_turns,omitempty"     env:"GOGOCLAW_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
@@ -450,6 +451,13 @@ type AgentDefaults struct {
 }
 
 const DefaultMaxMediaSize = 20 * 1024 * 1024 // 20 MB
+
+func (d *AgentDefaults) GetMemoryContextTokens() int {
+	if d.MemoryContextTokens > 0 {
+		return d.MemoryContextTokens
+	}
+	return 2048
+}
 
 func (d *AgentDefaults) GetMaxMediaSize() int {
 	if d.MaxMediaSize > 0 {

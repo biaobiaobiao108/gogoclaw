@@ -212,6 +212,14 @@ docker compose -f docker/docker-compose.yml --profile launcher up -d
 
 ## 备份与恢复
 
+备份前先停止所有写入同一数据卷的容器，包括 Launcher 启动的网关、独立网关和一次性 Agent。Compose 部署可执行：
+
+```bash
+docker compose -f docker/docker-compose.yml --profile gateway --profile launcher --profile agent stop
+```
+
+直接使用 Docker 或 NAS 界面部署的实例也必须停止。只读挂载不能阻止其他容器写入；运行中直接打包 SQLite、WAL 和 JSONL 文件不能保证一致性。以下是停机备份，完成后按原来的部署方式启动服务。在线备份应使用 SQLite Backup API 或一致性快照，不能只复制 `.db` 文件。
+
 命名卷备份：
 
 ```bash
@@ -229,6 +237,14 @@ sudo tar czf gogoclaw-data-$(date +%F).tar.gz \
 ```
 
 恢复前确认容器已停止，目标数据目录为空。恢复后把目录所有权重新设为 `10001:10001`。
+
+## 内存与历史保留
+
+Compose 默认容器内存上限为 `2g`，每个 Go 进程的 `GOMEMLIMIT` 为 `512MiB`，Docker 日志按 `10m × 3` 轮转。可通过 `GOGOCLAW_MEMORY_LIMIT` 和 `GOGOCLAW_GO_MEMORY_LIMIT` 调整。Launcher 和它启动的网关共享容器上限，但各自有 Go 内存预算；MCP、模型 CLI、Python、Bun 子进程以及 `/tmp` 还需要额外空间。Go 的软限制不是整个容器的硬限制。较重的工具任务应提高容器上限，依据实际峰值留出余量。
+
+默认 JSONL 保留完整聊天记录，摘要只移动模型上下文的起点，网页历史和搜索仍可访问原消息。显式清空、删除会话或编辑/切换分支仍会替换当前记录。过去版本已经物理删除的历史无法自动恢复。完整历史、分支和附件会占用磁盘，应定期备份，并主动删除不再需要的会话。
+
+长期记忆注入默认限制为约 `2048` 个估算 token，且最多使用当前模型可用上下文的八分之一。可用 `agents.defaults.memory_context_tokens` 或 `GOGOCLAW_AGENTS_DEFAULTS_MEMORY_CONTEXT_TOKENS` 配置；`MEMORY.md` 和最近三天日记的原文件不受截取影响，Agent 可用文件工具读取完整内容。Seahorse 在首次使用会话时核对历史，不再启动时全量加载。
 
 ## 安全边界
 

@@ -167,18 +167,26 @@ func sanitizeSessionKey(key string) string {
 	return key
 }
 
-func pageLegacySessionMessages(messages []providers.Message, limit int) sessionMessagesPage {
-	if limit <= 0 {
-		return sessionMessagesPage{Messages: messages}
+func pageLegacySessionMessages(messages []providers.Message, limit, before int) sessionMessagesPage {
+	end := len(messages)
+	if before > 0 {
+		end = min(end, before-1)
 	}
-	start := len(messages) - limit
+	if limit <= 0 {
+		return sessionMessagesPage{Messages: messages[:end]}
+	}
+	start := end - limit
 	if start < 0 {
 		start = 0
 	}
-	return sessionMessagesPage{
-		Messages: messages[start:],
+	page := sessionMessagesPage{
+		Messages: messages[start:end],
 		HasMore:  start > 0,
 	}
+	if start > 0 {
+		page.NextCursor = strconv.Itoa(start + 1)
+	}
+	return page
 }
 
 func (h *Handler) readLegacySession(path string) (sessionFile, error) {
@@ -265,13 +273,20 @@ func (h *Handler) readSessionMessagesPage(
 		line    int
 		message providers.Message
 	}
+	if limit > 200 {
+		limit = 200
+	}
 	records := make([]lineMessage, 0)
+	next := 0
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxSessionJSONLLineSize)
 	lineNumber := 0
 	for scanner.Scan() {
 		lineNumber++
-		if lineNumber <= skip || (beforeLine > 0 && lineNumber >= beforeLine) {
+		if beforeLine > 0 && lineNumber >= beforeLine {
+			break
+		}
+		if lineNumber <= skip {
 			continue
 		}
 		line := scanner.Bytes()
@@ -285,10 +300,19 @@ func (h *Handler) readSessionMessagesPage(
 		if messageutil.IsTransientAssistantThoughtMessage(msg) {
 			continue
 		}
-		records = append(records, lineMessage{line: lineNumber, message: msg})
+		record := lineMessage{line: lineNumber, message: msg}
+		if limit > 0 && len(records) == limit+1 {
+			records[next] = record
+			next = (next + 1) % len(records)
+		} else {
+			records = append(records, record)
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		return sessionMessagesPage{}, err
+	}
+	if next > 0 {
+		records = append(append(make([]lineMessage, 0, len(records)), records[next:]...), records[:next]...)
 	}
 
 	if limit <= 0 {
@@ -297,9 +321,6 @@ func (h *Handler) readSessionMessagesPage(
 			messages = append(messages, record.message)
 		}
 		return sessionMessagesPage{Messages: messages}, nil
-	}
-	if limit > 200 {
-		limit = 200
 	}
 	start := len(records) - limit
 	if start < 0 {
@@ -359,12 +380,7 @@ func (h *Handler) readJSONLSession(dir, sessionKey string) (sessionFile, error) 
 	if err != nil {
 		return sessionFile{}, err
 	}
-	base := filepath.Join(dir, sanitizeSessionKey(sessionKey))
-	meta, err := h.readSessionMeta(base+".meta.json", sessionKey)
-	if err != nil {
-		return sessionFile{}, err
-	}
-	messages, err := h.readSessionMessages(jsonlPath, meta.Skip)
+	messages, err := h.readSessionMessages(jsonlPath, 0)
 	if err != nil {
 		return sessionFile{}, err
 	}
@@ -696,6 +712,53 @@ func buildSessionListItem(sessionID string, sess sessionFile, toolFeedbackMaxArg
 		Updated:      sess.Updated.Format(time.RFC3339),
 		updatedAt:    sess.Updated,
 	}
+}
+
+// Build the sidebar index without retaining an entire archived transcript.
+func (h *Handler) readJSONLSessionListItem(dir, key, id string, maxArgs int) (sessionListItem, error) {
+	sess, path, err := h.readJSONLSessionInfo(dir, key)
+	if err != nil {
+		return sessionListItem{}, err
+	}
+	item := buildSessionListItem(id, sess, maxArgs)
+	file, err := os.Open(path)
+	if err != nil {
+		return sessionListItem{}, err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSessionJSONLLineSize)
+	hasMessages, hasTitle := false, false
+	for scanner.Scan() {
+		var message providers.Message
+		if err := json.Unmarshal(scanner.Bytes(), &message); err != nil || messageutil.IsTransientAssistantThoughtMessage(message) {
+			continue
+		}
+		hasMessages = true
+		visible := visibleSessionMessages(id, []providers.Message{message}, maxArgs)
+		item.MessageCount += len(visible)
+		if !hasTitle {
+			for _, msg := range visible {
+				if msg.Role != "user" {
+					continue
+				}
+				preview := truncateRunes(sessionChatMessagePreview(msg), maxSessionTitleRunes)
+				if preview != "" {
+					item.Title = preview
+					item.Preview = preview
+					hasTitle = true
+					break
+				}
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return sessionListItem{}, err
+	}
+	if !hasMessages && strings.TrimSpace(sess.Summary) == "" {
+		return sessionListItem{}, os.ErrNotExist
+	}
+	return item, nil
 }
 
 func isEmptySession(sess sessionFile) bool {
@@ -1208,12 +1271,11 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				}
 				continue
 			}
-			sess, loadErr := h.readJSONLSession(dir, ref.Key)
-			if loadErr != nil || isEmptySession(sess) {
+			item, loadErr := h.readJSONLSessionListItem(dir, ref.Key, ref.ID, toolFeedbackMaxArgsLength)
+			if loadErr != nil {
 				continue
 			}
 			seen[ref.ID] = struct{}{}
-			item := buildSessionListItem(ref.ID, sess, toolFeedbackMaxArgsLength)
 			h.storeCachedSessionListItem(cacheKey, item, base+".jsonl", base+".meta.json")
 			applySessionMeta(&item, uiMeta.Sessions[ref.ID])
 			if item.Archived == archivedOnly {
@@ -1367,7 +1429,7 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 0
+	limit := 80
 	if value, parseErr := strconv.Atoi(r.URL.Query().Get("limit")); parseErr == nil && value > 0 {
 		limit = value
 	}
@@ -1392,13 +1454,8 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		sess, _, err = h.readJSONLSessionInfo(dir, ref.Key)
 		if err == nil {
 			base := filepath.Join(dir, sanitizeSessionKey(ref.Key))
-			meta, metaErr := h.readSessionMeta(base+".meta.json", ref.Key)
-			if metaErr != nil {
-				err = metaErr
-			} else {
-				page, err = h.readSessionMessagesPage(base+".jsonl", meta.Skip, limit, beforeLine)
-				sess.Messages = page.Messages
-			}
+			page, err = h.readSessionMessagesPage(base+".jsonl", 0, limit, beforeLine)
+			sess.Messages = page.Messages
 		}
 	}
 	if err == nil && isEmptySession(sess) {
@@ -1409,7 +1466,7 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 			if legacyRef, legacyErr := h.findLegacyPicoSession(dir, sessionID); legacyErr == nil {
 				sess, err = h.readLegacySession(legacyRef.Path)
 				if err == nil {
-					page = pageLegacySessionMessages(sess.Messages, limit)
+					page = pageLegacySessionMessages(sess.Messages, limit, beforeLine)
 					sess.Messages = page.Messages
 				}
 			}

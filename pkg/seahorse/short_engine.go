@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -106,23 +107,23 @@ func NewEngine(config Config, completeFn CompleteFn) (*Engine, error) {
 		}
 	}
 
-	db, err := sql.Open("sqlite", config.DBPath)
+	// Connection-local PRAGMAs must run for every connection opened by sql.DB.
+	params := url.Values{"_pragma": {"busy_timeout(5000)", "synchronous(NORMAL)"}}
+	separator := "?"
+	if strings.Contains(config.DBPath, "?") {
+		separator = "&"
+	}
+	db, err := sql.Open("sqlite", config.DBPath+separator+params.Encode())
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
 
-	// Configure SQLite for concurrent access
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
+	// WAL is persistent database state, unlike the per-connection PRAGMAs above.
 	if _, err := db.Exec("PRAGMA journal_mode = WAL;"); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("enable WAL: %w", err)
-	}
-	if _, err := db.Exec("PRAGMA busy_timeout = 5000;"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("set busy_timeout: %w", err)
-	}
-	if _, err := db.Exec("PRAGMA synchronous = NORMAL;"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("set synchronous: %w", err)
 	}
 
 	if err := runSchema(db); err != nil {
@@ -410,7 +411,7 @@ func (e *Engine) ClearSession(ctx context.Context, sessionKey string) error {
 }
 
 // Bootstrap reconciles a session's messages with the database.
-// Called once at startup for each known session.
+// Called on first use of a session after startup.
 // Bootstrap reconciles JSONL history with SQLite by ingesting only the delta.
 // Simple approach: find longest matching prefix and append delta.
 // If any mismatch is detected, clear and rebuild.
@@ -422,7 +423,7 @@ func (e *Engine) Bootstrap(ctx context.Context, sessionKey string, messages []Me
 		return nil
 	}
 	if len(messages) == 0 {
-		return nil
+		return e.ClearSession(ctx, sessionKey)
 	}
 
 	conv, err := e.store.GetOrCreateConversation(ctx, sessionKey)
@@ -431,6 +432,17 @@ func (e *Engine) Bootstrap(ctx context.Context, sessionKey string, messages []Me
 	}
 
 	// Get messages already in DB
+	count, err := e.store.GetMessageCount(ctx, conv.ConversationID)
+	if err != nil {
+		return err
+	}
+	if count > len(messages) {
+		if err := e.store.ClearConversation(ctx, conv.ConversationID); err != nil {
+			return err
+		}
+		_, err := e.Ingest(ctx, sessionKey, messages)
+		return err
+	}
 	dbMsgs, err := e.store.GetMessages(ctx, conv.ConversationID, len(messages), 0)
 	if err != nil {
 		return fmt.Errorf("bootstrap: get messages: %w", err)

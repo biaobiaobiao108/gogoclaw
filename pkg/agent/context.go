@@ -25,12 +25,13 @@ import (
 )
 
 type ContextBuilder struct {
-	workspace      string
-	skillsLoader   *skills.SkillsLoader
-	memory         *MemoryStore
-	splitOnMarker  bool
-	agentDiscovery func(agentID string) []AgentDescriptor
-	promptRegistry *PromptRegistry
+	workspace           string
+	skillsLoader        *skills.SkillsLoader
+	memory              *MemoryStore
+	splitOnMarker       bool
+	agentDiscovery      func(agentID string) []AgentDescriptor
+	promptRegistry      *PromptRegistry
+	memoryContextTokens int
 
 	// Cache for system prompt to avoid rebuilding on every call.
 	// This fixes issue #607: repeated reprocessing of the entire context.
@@ -68,6 +69,11 @@ func (cb *ContextBuilder) WithToolDiscovery(enabled bool) *ContextBuilder {
 
 func (cb *ContextBuilder) WithSplitOnMarker(enabled bool) *ContextBuilder {
 	cb.splitOnMarker = enabled
+	return cb
+}
+
+func (cb *ContextBuilder) WithMemoryContextBudget(tokens int) *ContextBuilder {
+	cb.memoryContextTokens = tokens
 	return cb
 }
 
@@ -114,10 +120,11 @@ func NewContextBuilder(workspace string) *ContextBuilder {
 	globalSkillsDir := filepath.Join(getGlobalConfigDir(), "skills")
 
 	return &ContextBuilder{
-		workspace:      workspace,
-		skillsLoader:   skills.NewSkillsLoader(workspace, globalSkillsDir, builtinSkillsDir),
-		memory:         NewMemoryStore(workspace),
-		promptRegistry: NewPromptRegistry(),
+		workspace:           workspace,
+		skillsLoader:        skills.NewSkillsLoader(workspace, globalSkillsDir, builtinSkillsDir),
+		memory:              NewMemoryStore(workspace),
+		promptRegistry:      NewPromptRegistry(),
+		memoryContextTokens: 2048,
 	}
 }
 
@@ -296,7 +303,7 @@ func (cb *ContextBuilder) buildSystemPromptParts(opts systemPromptBuildOptions) 
 	}
 
 	// Memory context
-	memoryContext := cb.memory.GetMemoryContext()
+	memoryContext := cb.memory.GetMemoryContextWithBudget(cb.memoryContextTokens)
 	if memoryContext != "" {
 		add(PromptPart{
 			ID:      "context.memory",

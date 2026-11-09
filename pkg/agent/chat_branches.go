@@ -251,7 +251,7 @@ func (al *AgentLoop) recordBranchSnapshotByID(
 	agent *AgentInstance,
 	sessionKey, sessionID, assistantID string,
 ) error {
-	history, err := session.HistoryChecked(agent.Sessions, sessionKey)
+	history, err := session.TranscriptChecked(agent.Sessions, sessionKey)
 	if err != nil {
 		return err
 	}
@@ -262,16 +262,17 @@ func (al *AgentLoop) recordBranchSnapshotByID(
 }
 
 type sessionHistoryBackup struct {
-	history    []providers.Message
-	summary    string
-	checkpoint session.TurnCheckpoint
+	history       []providers.Message
+	contextLength int
+	summary       string
+	checkpoint    session.TurnCheckpoint
 }
 
 func (al *AgentLoop) captureSessionHistory(
 	agent *AgentInstance,
 	sessionKey string,
 ) (sessionHistoryBackup, error) {
-	history, err := session.HistoryChecked(agent.Sessions, sessionKey)
+	history, err := session.TranscriptChecked(agent.Sessions, sessionKey)
 	if err != nil {
 		return sessionHistoryBackup{}, err
 	}
@@ -283,6 +284,11 @@ func (al *AgentLoop) captureSessionHistory(
 		history: chatmeta.CloneMessages(history),
 		summary: summary,
 	}
+	active, err := session.HistoryChecked(agent.Sessions, sessionKey)
+	if err != nil {
+		return sessionHistoryBackup{}, err
+	}
+	backup.contextLength = len(active)
 	if store, ok := agent.Sessions.(session.TurnCheckpointStore); ok {
 		checkpoint, err := store.GetTurnCheckpoint(sessionKey)
 		if err != nil {
@@ -338,6 +344,11 @@ func (al *AgentLoop) restoreStoredSessionHistory(
 	var restoreErrs []error
 	if err := session.SetHistoryChecked(agent.Sessions, sessionKey, backup.history); err != nil {
 		restoreErrs = append(restoreErrs, fmt.Errorf("restore session history: %w", err))
+	}
+	if backup.contextLength < len(backup.history) {
+		if err := session.TruncateHistoryChecked(agent.Sessions, sessionKey, backup.contextLength); err != nil {
+			restoreErrs = append(restoreErrs, fmt.Errorf("restore context offset: %w", err))
+		}
 	}
 	if err := session.SetSummaryChecked(agent.Sessions, sessionKey, backup.summary); err != nil {
 		restoreErrs = append(restoreErrs, fmt.Errorf("restore session summary: %w", err))
@@ -414,7 +425,7 @@ func (al *AgentLoop) prepareChatBranchRequest(ctx context.Context, msg bus.Inbou
 	lock := al.branchLock(sessionID)
 	lock.Lock()
 	defer lock.Unlock()
-	history, err := session.HistoryChecked(agent.Sessions, sessionKey)
+	history, err := session.TranscriptChecked(agent.Sessions, sessionKey)
 	if err != nil {
 		return msg, true, err
 	}

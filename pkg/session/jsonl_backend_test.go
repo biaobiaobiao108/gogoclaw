@@ -228,12 +228,20 @@ func TestJSONLBackend_TruncateAndSave(t *testing.T) {
 		t.Errorf("got %q, want %q", history[0].Content, "msg 7")
 	}
 
-	// Save triggers compaction.
+	// Save keeps the complete transcript while the model sees only the tail.
 	if err := b.Save("s1"); err != nil {
 		t.Fatal(err)
 	}
 
-	// Messages still accessible after compaction.
+	transcript, err := b.GetTranscriptChecked("s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(transcript) != 10 {
+		t.Fatalf("transcript lost summarized messages: %d", len(transcript))
+	}
+
+	// Model context remains trimmed after saving.
 	history = b.GetHistory("s1")
 	if len(history) != 3 {
 		t.Fatalf("after save: got %d, want 3", len(history))
