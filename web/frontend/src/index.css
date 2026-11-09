@@ -380,3 +380,25 @@ textarea {
     opacity: 1;
   }
 }
+
+@keyframes streaming-dot {
+  0%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+.streaming-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background-color: currentColor;
+  vertical-align: 0.05em;
+  animation: streaming-dot 1s ease-in-out infinite;
+}

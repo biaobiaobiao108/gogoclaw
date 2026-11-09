@@ -180,7 +180,26 @@
     "filterHistory": "筛选已加载的对话",
     "noMatchingHistory": "没有匹配的对话",
     "loadMoreSessions": "加载更多对话",
-    "scrollToBottom": "回到底部"
+    "scrollToBottom": "回到底部",
+    "composerDisclaimer": "GoGoClaw 可能会产生错误，请核对重要信息。",
+    "promptExamples": [
+      {
+        "label": "分析项目结构",
+        "prompt": "请帮我分析当前项目的文件结构和核心模块划分。"
+      },
+      {
+        "label": "编写单元测试",
+        "prompt": "请为核心业务逻辑编写覆盖边界场景的单元测试。"
+      },
+      {
+        "label": "性能排查与优化",
+        "prompt": "检查现有代码中是否存在潜在的性能瓶颈或资源泄漏。"
+      },
+      {
+        "label": "重构与代码审查",
+        "prompt": "从架构清晰度与可维护性角度对当前代码进行审查并给出优化建议。"
+      }
+    ]
   },
   "header": {
     "home": "GoGoClaw 控制台",

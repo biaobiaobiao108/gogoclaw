@@ -109,15 +109,14 @@ export function MessageCodeBlock({
     <div
       data-gogoclaw-code-block=""
       className={cn(
-        "not-prose border-border/80 bg-muted/20 text-foreground my-3 overflow-hidden rounded-lg border shadow-xs",
+        "not-prose border-border/70 my-3.5 overflow-hidden rounded-2xl border bg-[var(--chat-composer)] shadow-xs",
         className,
       )}
     >
       {/* Precision terminal header bar */}
-      <div className="border-border/60 bg-muted/40 flex items-center justify-between gap-2 border-b px-3 py-1.5">
+      <div className="border-border/60 bg-muted/40 flex items-center justify-between gap-2 border-b px-3.5 py-1.5">
         <div className="flex items-center gap-2">
-          <span className="bg-border size-2 rounded-full" />
-          <span className="text-muted-foreground font-mono text-xs font-medium">
+          <span className="text-muted-foreground/80 font-mono text-[11px] font-medium lowercase">
             {blockLabel}
           </span>
         </div>
@@ -136,9 +135,7 @@ export function MessageCodeBlock({
             ) : (
               <IconCopy className="size-3.5" />
             )}
-            <span className="hidden font-mono text-[11px] sm:inline">
-              {copyLabel}
-            </span>
+            <span className="font-mono text-[11px]">{copyLabel}</span>
           </Button>
           <Button
             type="button"
@@ -178,7 +175,7 @@ export function MessageCodeBlock({
       {isExpanded && (
         <pre
           className={cn(
-            "bg-card/60 m-0 overflow-x-auto p-3 font-mono text-xs leading-relaxed",
+            "m-0 overflow-x-auto p-4 font-mono text-[13px] leading-relaxed",
             bodyClassName,
           )}
         >
@@ -203,13 +200,13 @@ export function MessageCodeBlock({
                   } as CSSProperties
                 }
               >
-                <span className="bg-card/60 text-muted-foreground/40 sticky left-0 z-1 text-right font-mono text-[11px] select-none">
+                <span className="text-muted-foreground/35 sticky left-0 z-1 text-right font-mono text-[11px] select-none">
                   {index + 1}
                 </span>
                 {!children && highlightedLines ? (
                   <span
                     className={cn(
-                      "min-w-0 font-mono text-xs",
+                      "min-w-0 font-mono text-[13px]",
                       wrapLongLines
                         ? "break-words whitespace-pre-wrap"
                         : "whitespace-pre",
@@ -219,7 +216,7 @@ export function MessageCodeBlock({
                 ) : (
                   <span
                     className={cn(
-                      "min-w-0 font-mono text-xs",
+                      "min-w-0 font-mono text-[13px]",
                       wrapLongLines
                         ? "break-words whitespace-pre-wrap"
                         : "whitespace-pre",

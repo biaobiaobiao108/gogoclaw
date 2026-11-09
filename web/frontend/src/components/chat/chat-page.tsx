@@ -5,6 +5,7 @@ import {
   type ChangeEvent,
   type ClipboardEvent,
   type DragEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -149,6 +150,7 @@ export function ChatPage() {
   const [hasScrolled, setHasScrolled] = useState(false)
   const [drafts, setDrafts] = useAtom(chatDraftsAtom)
   const [isDragActive, setIsDragActive] = useState(false)
+  const autoScrollEnabledRef = useRef(true)
 
   const {
     messages,
@@ -253,14 +255,26 @@ export function ChatPage() {
 
   useEffect(() => {
     void loadSessions(true)
-    // Refresh titles after the current response finishes or the session changes.
   }, [activeSessionId, Boolean(activeTurn), isTyping])
 
-  const syncScrollState = (element: HTMLDivElement) => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior,
+    })
+    setIsAtBottom(true)
+    autoScrollEnabledRef.current = true
+  }, [])
+
+  const syncScrollState = useCallback((element: HTMLDivElement) => {
     const { clientHeight, scrollHeight, scrollTop } = element
+    const atBottom = scrollHeight - scrollTop - clientHeight <= 48
     setHasScrolled(scrollTop > 0)
-    setIsAtBottom(scrollHeight - scrollTop <= clientHeight + 10)
-  }
+    setIsAtBottom(atBottom)
+    autoScrollEnabledRef.current = atBottom
+  }, [])
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     syncScrollState(e.currentTarget)
@@ -305,6 +319,11 @@ export function ChatPage() {
     ) {
       setInput("")
       setAttachments([])
+      // Always auto-scroll on new user message send
+      autoScrollEnabledRef.current = true
+      requestAnimationFrame(() => {
+        scrollToBottom("smooth")
+      })
     }
   }
 
@@ -479,13 +498,26 @@ export function ChatPage() {
     return undefined
   })()
 
+  // Follow stream output smoothly to bottom when auto-scroll is active
   useEffect(() => {
     if (!scrollRef.current) return
-    if (isAtBottom) {
+    if (autoScrollEnabledRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      setIsAtBottom(true)
     }
-    syncScrollState(scrollRef.current)
-  }, [streamRows, isAtBottom])
+  }, [streamRows])
+
+  // Scroll to bottom on initial session switch
+  useEffect(() => {
+    autoScrollEnabledRef.current = true
+    const timer = setTimeout(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+        setIsAtBottom(true)
+      }
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [activeSessionId])
 
   return (
     <div className="chat-surface flex h-full min-w-0 flex-col">
@@ -656,6 +688,9 @@ export function ChatPage() {
                           hasAvailableModels={hasAvailableModels}
                           defaultModelName={defaultModelName}
                           isConnected={isGatewayRunning}
+                          onSelectPrompt={(prompt) => {
+                            setInput(prompt)
+                          }}
                         />
                       ))}
                     {row.kind === "message" &&
@@ -710,20 +745,16 @@ export function ChatPage() {
             </div>
           </div>
 
+          {/* Floating ChatGPT-style Scroll to Bottom button */}
           {!isAtBottom && (
-            <Button
-              variant="outline"
-              size="icon"
-              className="absolute right-6 bottom-40 z-30 rounded-full"
+            <button
+              type="button"
+              className="bg-card text-foreground hover:bg-muted border-border/80 absolute right-6 bottom-36 z-30 flex size-9 cursor-pointer items-center justify-center rounded-full border shadow-md transition-all active:scale-95"
               aria-label={t("chat.scrollToBottom")}
-              onClick={() => {
-                const element = scrollRef.current
-                if (element) element.scrollTop = element.scrollHeight
-                setIsAtBottom(true)
-              }}
+              onClick={() => scrollToBottom("smooth")}
             >
               <IconArrowDown className="size-4" />
-            </Button>
+            </button>
           )}
           <input
             ref={fileInputRef}

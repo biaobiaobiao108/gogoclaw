@@ -180,7 +180,26 @@
     "filterHistory": "Filter loaded chats",
     "noMatchingHistory": "No matching chats",
     "loadMoreSessions": "Load more chats",
-    "scrollToBottom": "Scroll to bottom"
+    "scrollToBottom": "Scroll to bottom",
+    "composerDisclaimer": "GoGoClaw can make mistakes. Verify important info.",
+    "promptExamples": [
+      {
+        "label": "Analyze Project",
+        "prompt": "Analyze the file structure and key modules of this project."
+      },
+      {
+        "label": "Write Unit Tests",
+        "prompt": "Write unit tests covering edge cases for core logic."
+      },
+      {
+        "label": "Performance Audit",
+        "prompt": "Check for potential performance bottlenecks or resource leaks."
+      },
+      {
+        "label": "Code Review",
+        "prompt": "Review the codebase for maintainability and suggest improvements."
+      }
+    ]
   },
   "header": {
     "home": "GoGoClaw console",

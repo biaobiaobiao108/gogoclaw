@@ -78,55 +78,14 @@ export function AssistantMessage({
   const copyMessageLabel = isCopied
     ? t("chat.copiedLabel")
     : t("chat.copyMessage")
-  const trimmedModelName = modelName?.trim() ?? ""
 
   return (
-    <div className="group relative flex w-full flex-col gap-1.5 py-1">
-      {/* Meta header */}
-      {!isCollapsedBlock && (
-        <div className="chat-message-meta flex items-center justify-between gap-2 px-0.5 text-xs">
-          <div className="text-muted-foreground/80 flex items-center gap-1.5 font-mono text-[11px]">
-            <span className="text-foreground/90 font-semibold">GoGoClaw</span>
-            {trimmedModelName && (
-              <>
-                <span className="text-muted-foreground/40">/</span>
-                <span>{trimmedModelName}</span>
-              </>
-            )}
-            {formattedTimestamp && (
-              <>
-                <span className="text-muted-foreground/60">/</span>
-                <span className="text-muted-foreground">
-                  {formattedTimestamp}
-                </span>
-              </>
-            )}
-          </div>
-
-          {hasText && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-muted-foreground hover:text-foreground h-6 w-6 opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
-              onClick={() => void copy(content)}
-              aria-label={copyMessageLabel}
-              title={copyMessageLabel}
-            >
-              {isCopied ? (
-                <IconCheck className="text-success h-3.5 w-3.5" />
-              ) : (
-                <IconCopy className="h-3.5 w-3.5" />
-              )}
-            </Button>
-          )}
-        </div>
-      )}
-
+    <div className="group relative flex w-full flex-col gap-2 py-2">
       {/* Main Content Area */}
       {(hasText || isCollapsedBlock || hasToolCalls) && (
         <div
           className={cn(
-            "relative w-full rounded-lg text-sm",
+            "relative w-full text-[15px]",
             isCollapsedBlock
               ? "text-muted-foreground"
               : "text-foreground leading-relaxed",
@@ -136,23 +95,23 @@ export function AssistantMessage({
           {isCollapsedBlock && (
             <button
               type="button"
-              className="hover:bg-muted/40 flex w-full items-center justify-between px-3 py-2 font-mono text-xs transition-colors"
+              className="hover:bg-muted/50 bg-muted/20 border-border/60 flex w-fit max-w-full cursor-pointer items-center gap-2 rounded-full border px-3.5 py-1.5 text-xs transition-colors select-none"
               onClick={() => setIsExpanded(!isExpanded)}
               aria-expanded={isExpanded}
             >
-              <div className="flex items-center gap-2">
-                {isThought ? (
-                  <IconBrain className="text-muted-foreground/80 size-3.5" />
-                ) : (
-                  <IconTerminal2 className="text-muted-foreground/80 size-3.5" />
-                )}
-                <span className="font-medium">{collapsedLabel}</span>
-                {hasToolCalls && (
-                  <span className="bg-muted py-0.2 text-muted-foreground rounded px-1.5 font-mono text-[10px]">
-                    {toolCalls.length} calls
-                  </span>
-                )}
-              </div>
+              {isThought ? (
+                <IconBrain className="text-muted-foreground size-3.5" />
+              ) : (
+                <IconTerminal2 className="text-muted-foreground size-3.5" />
+              )}
+              <span className="text-foreground/80 font-medium">
+                {collapsedLabel}
+              </span>
+              {hasToolCalls && (
+                <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 font-mono text-[11px]">
+                  {toolCalls.length} calls
+                </span>
+              )}
               <IconChevronDown
                 className={cn(
                   "text-muted-foreground size-3.5 transition-transform duration-200",
@@ -164,7 +123,7 @@ export function AssistantMessage({
 
           {/* Tool Calls Content */}
           {isCollapsedBlock && isExpanded && isToolCalls && hasToolCalls && (
-            <div className="border-border/40 space-y-2.5 border-t p-3">
+            <div className="border-border/60 bg-muted/20 mt-2.5 space-y-2.5 rounded-2xl border p-3.5">
               {toolCalls.map((toolCall, index) => {
                 const explanation =
                   toolCall.extraContent?.toolFeedbackExplanation?.trim() ?? ""
@@ -177,7 +136,7 @@ export function AssistantMessage({
                     className="space-y-1.5"
                   >
                     {toolName && (
-                      <div className="text-foreground/80 flex items-center gap-1.5 font-mono text-xs">
+                      <div className="text-foreground/90 flex items-center gap-1.5 font-mono text-xs">
                         <span className="text-success font-bold">❯</span>
                         <span className="font-semibold">{toolName}</span>
                       </div>
@@ -203,19 +162,17 @@ export function AssistantMessage({
 
           {/* Thought Content */}
           {isCollapsedBlock && isExpanded && isThought && hasText && (
-            <div className="border-border/40 text-muted-foreground border-t p-3 font-mono text-xs leading-relaxed">
-              <div className="whitespace-pre-wrap">
-                {visibleContent}
-                {isStreaming && (
-                  <span className="streaming-caret ml-0.5" aria-hidden="true" />
-                )}
-              </div>
+            <div className="border-border/60 bg-muted/20 text-muted-foreground mt-2.5 rounded-2xl border p-4 text-xs leading-relaxed whitespace-pre-wrap">
+              {visibleContent}
+              {isStreaming && (
+                <span className="streaming-dot ml-1" aria-hidden="true" />
+              )}
             </div>
           )}
 
           {/* Normal Assistant Markdown Text */}
           {!isCollapsedBlock && hasVisibleText && (
-            <div className="prose dark:prose-invert max-w-none text-base leading-relaxed [overflow-wrap:anywhere] break-words">
+            <div className="prose dark:prose-invert max-w-none text-[15px] leading-7 [overflow-wrap:anywhere] break-words">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeHighlight]}
@@ -226,7 +183,7 @@ export function AssistantMessage({
                 {visibleContent}
               </ReactMarkdown>
               {isStreaming && (
-                <span className="streaming-caret ml-0.5" aria-hidden="true" />
+                <span className="streaming-dot ml-1" aria-hidden="true" />
               )}
             </div>
           )}
@@ -242,7 +199,7 @@ export function AssistantMessage({
               href={attachment.url}
               target="_blank"
               rel="noreferrer"
-              className="border-border/60 hover:border-border relative overflow-hidden rounded-lg border shadow-xs transition-opacity hover:opacity-95"
+              className="border-border/60 hover:border-border relative overflow-hidden rounded-2xl border shadow-xs transition-opacity hover:opacity-95"
             >
               <img
                 src={attachment.url}
@@ -262,7 +219,7 @@ export function AssistantMessage({
               key={`${attachment.url}-${index}`}
               href={attachment.url}
               download={attachment.filename}
-              className="border-border/60 bg-card hover:bg-muted/40 flex w-fit max-w-sm min-w-[200px] items-center gap-3 rounded-lg border px-3 py-2 text-xs transition-colors"
+              className="border-border/60 bg-card hover:bg-muted/40 flex w-fit max-w-sm min-w-[200px] items-center gap-3 rounded-2xl border px-3.5 py-2.5 text-xs transition-colors"
             >
               <IconFileText className="text-muted-foreground h-4 w-4" />
               <div className="flex min-w-0 flex-1 flex-col">
@@ -277,6 +234,38 @@ export function AssistantMessage({
               <IconDownload className="text-muted-foreground h-3.5 w-3.5" />
             </a>
           ))}
+        </div>
+      )}
+
+      {/* Bottom Action Row (ChatGPT style: appears under message on hover) */}
+      {!isCollapsedBlock && hasText && !isStreaming && (
+        <div className="mt-1 flex items-center gap-2 text-xs">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-foreground h-7 w-7 rounded-md opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+            onClick={() => void copy(content)}
+            aria-label={copyMessageLabel}
+            title={copyMessageLabel}
+          >
+            {isCopied ? (
+              <IconCheck className="text-success h-3.5 w-3.5" />
+            ) : (
+              <IconCopy className="h-3.5 w-3.5" />
+            )}
+          </Button>
+
+          {modelName && (
+            <span className="text-muted-foreground/50 font-mono text-[11px] opacity-0 transition-opacity group-hover:opacity-100">
+              {modelName}
+            </span>
+          )}
+
+          {formattedTimestamp && (
+            <span className="text-muted-foreground/40 text-[11px] opacity-0 transition-opacity group-hover:opacity-100">
+              {formattedTimestamp}
+            </span>
+          )}
         </div>
       )}
     </div>

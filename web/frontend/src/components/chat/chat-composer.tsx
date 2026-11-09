@@ -101,11 +101,11 @@ export function ChatComposer({
   }
 
   return (
-    <div className="relative z-20 shrink-0 px-4 pb-4 md:px-8">
+    <div className="relative z-20 shrink-0 px-4 pb-3 md:px-8">
       <div className="mx-auto flex w-full max-w-3xl flex-col">
         <div
           className={cn(
-            "border-border focus-within:border-muted-foreground relative flex w-full flex-col rounded-3xl border bg-[var(--chat-composer)] shadow-xs transition-[background-color,border-color,box-shadow] duration-[var(--motion-state)] ease-out",
+            "border-border/80 focus-within:border-muted-foreground/60 relative flex w-full flex-col rounded-[28px] border bg-[var(--chat-composer)] shadow-[0_4px_20px_-4px_rgba(0,0,0,0.06)] transition-[background-color,border-color,box-shadow] duration-150 ease-out dark:shadow-[0_4px_24px_-4px_rgba(0,0,0,0.3)]",
             isDragActive &&
               "border-accent/80 bg-accent/5 ring-accent/20 ring-2",
           )}
@@ -115,7 +115,7 @@ export function ChatComposer({
           onDrop={onDrop}
         >
           {isDragActive && (
-            <div className="border-accent/60 bg-card/95 pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed">
+            <div className="border-accent/60 bg-card/95 pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[28px] border-2 border-dashed">
               <div className="text-foreground font-mono text-xs font-medium">
                 {t("chat.dropImagesActive")}
               </div>
@@ -124,11 +124,11 @@ export function ChatComposer({
 
           {/* Attachments preview row */}
           {attachments.length > 0 && (
-            <div className="border-border/40 flex flex-wrap gap-2 border-b p-2.5">
+            <div className="border-border/40 flex flex-wrap gap-2 border-b p-3">
               {attachments.map((attachment, index) => (
                 <div
                   key={`${attachment.url}-${index}`}
-                  className="bg-muted border-border relative size-14 overflow-hidden rounded-md border"
+                  className="bg-muted border-border relative size-14 overflow-hidden rounded-xl border shadow-xs"
                 >
                   <img
                     src={attachment.url}
@@ -138,7 +138,7 @@ export function ChatComposer({
                   <button
                     type="button"
                     onClick={() => onRemoveAttachment(index)}
-                    className="bg-background/90 text-foreground hover:bg-background focus-visible:ring-ring absolute top-1 right-1 inline-flex size-6 items-center justify-center rounded-full border shadow-xs focus-visible:ring-2 focus-visible:outline-none"
+                    className="bg-background/90 text-foreground hover:bg-background focus-visible:ring-ring absolute top-1 right-1 inline-flex size-5 items-center justify-center rounded-full border shadow-xs focus-visible:ring-2 focus-visible:outline-none"
                     aria-label={t("chat.removeImage")}
                   >
                     <IconX className="size-2.5" />
@@ -164,7 +164,7 @@ export function ChatComposer({
             disabled={!canInput}
             title={disabledMessage || undefined}
             className={cn(
-              "placeholder:text-muted-foreground/45 max-h-[220px] min-h-[48px] resize-none border-0 bg-transparent px-5 py-4 text-base leading-relaxed shadow-none focus-visible:outline-none dark:bg-transparent",
+              "placeholder:text-muted-foreground/50 max-h-[220px] min-h-[48px] resize-none border-0 bg-transparent px-5 pt-3.5 pb-2 text-[15px] leading-relaxed shadow-none focus-visible:outline-none dark:bg-transparent",
               !canInput && "cursor-not-allowed opacity-60",
             )}
             minRows={1}
@@ -172,19 +172,19 @@ export function ChatComposer({
           />
 
           {/* Action bar bottom */}
-          <div className="flex items-center justify-between px-2.5 py-1.5">
-            <div className="flex items-center gap-1">
+          <div className="flex items-center justify-between px-3 pb-2.5">
+            <div className="flex items-center gap-1.5">
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="text-muted-foreground hover:text-foreground size-11 rounded-full md:size-8"
+                className="text-muted-foreground hover:text-foreground size-8 rounded-full transition-colors"
                 onClick={onAddImages}
                 disabled={!canInput}
                 aria-label={t("chat.attachImage")}
                 title={t("chat.attachImage")}
               >
-                <IconPaperclip className="size-3.5" />
+                <IconPaperclip className="size-4" />
               </Button>
             </div>
 
@@ -195,39 +195,42 @@ export function ChatComposer({
                   onDetailClick={onContextDetail}
                 />
               )}
-              {isRunning && canInput && (
-                <Button
+              {isRunning && canInput ? (
+                <button
                   type="button"
-                  variant="outline"
-                  size="icon"
-                  className="size-11 rounded-full md:size-8"
                   onClick={onStop}
+                  className="bg-foreground text-background hover:bg-foreground/90 flex size-8 items-center justify-center rounded-full transition-all active:scale-95"
                   aria-label={t("chat.stopTask")}
                   title={t("chat.stopTask")}
                 >
-                  <IconPlayerStopFilled className="size-3" />
-                </Button>
-              )}
-              {canInput && (
-                <Button
-                  type="button"
-                  size="icon"
-                  className={cn(
-                    "size-11 rounded-full transition-[color,background-color,transform] duration-[var(--motion-state)] ease-out active:duration-[var(--motion-press)] md:size-8",
-                    canSend
-                      ? "bg-foreground text-background hover:bg-foreground/90"
-                      : "bg-muted text-muted-foreground/40",
-                  )}
-                  onClick={onSend}
-                  disabled={!canSend}
-                  aria-label={t("chat.sendMessage")}
-                >
-                  <IconArrowUp className="size-3.5" />
-                </Button>
+                  <IconPlayerStopFilled className="size-3.5" />
+                </button>
+              ) : (
+                canInput && (
+                  <button
+                    type="button"
+                    onClick={onSend}
+                    disabled={!canSend}
+                    aria-label={t("chat.sendMessage")}
+                    className={cn(
+                      "flex size-8 items-center justify-center rounded-full transition-all duration-150 active:scale-95",
+                      canSend
+                        ? "bg-foreground text-background hover:bg-foreground/90 cursor-pointer shadow-xs"
+                        : "bg-muted text-muted-foreground/35 cursor-not-allowed",
+                    )}
+                  >
+                    <IconArrowUp className="size-4 stroke-[2.5]" />
+                  </button>
+                )
               )}
             </div>
           </div>
         </div>
+
+        {/* Minimal ChatGPT-like subtle disclaimer at the bottom */}
+        <p className="text-muted-foreground/60 pt-2 text-center text-[11px] select-none">
+          {t("chat.composerDisclaimer")}
+        </p>
       </div>
     </div>
   )

@@ -20,18 +20,18 @@ export function TypingIndicator() {
   }, [thinkingSteps.length])
 
   return (
-    <div className="flex w-full items-center gap-2 py-2">
-      <div className="border-border/60 bg-muted/30 flex items-center gap-1.5 rounded-md border px-3 py-1.5 shadow-xs">
-        <span className="bg-accent size-1.5 animate-pulse rounded-full" />
-        <span className="bg-accent size-1.5 animate-pulse rounded-full [animation-delay:0.2s]" />
-        <span className="bg-accent size-1.5 animate-pulse rounded-full [animation-delay:0.4s]" />
-        <span
-          key={stepIndex}
-          className="text-muted-foreground ml-2 animate-[fadeSlideIn_0.3s_ease-out] font-mono text-xs"
-        >
-          {thinkingSteps[stepIndex]}
-        </span>
+    <div className="flex w-full items-center gap-3 py-3">
+      <div className="flex items-center gap-2">
+        <span className="bg-foreground/70 size-2 animate-bounce rounded-full [animation-delay:-0.3s]" />
+        <span className="bg-foreground/70 size-2 animate-bounce rounded-full [animation-delay:-0.15s]" />
+        <span className="bg-foreground/70 size-2 animate-bounce rounded-full" />
       </div>
+      <span
+        key={stepIndex}
+        className="text-muted-foreground/80 animate-[fadeSlideIn_0.3s_ease-out] text-xs font-normal"
+      >
+        {thinkingSteps[stepIndex]}
+      </span>
     </div>
   )
 }

@@ -36,13 +36,13 @@ export function UserMessage({
     timestamp !== "" ? formatMessageTime(timestamp) : ""
 
   return (
-    <div className="group flex w-full flex-col items-end gap-1.5">
+    <div className="group flex w-full flex-col items-end gap-1.5 py-1">
       {imageAttachments.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap justify-end gap-2 sm:max-w-[70%]">
           {imageAttachments.map((attachment, index) => (
             <div
               key={`${attachment.url}-${index}`}
-              className="border-border/80 overflow-hidden rounded-lg border shadow-xs"
+              className="border-border/60 overflow-hidden rounded-2xl border shadow-xs"
             >
               <img
                 src={attachment.url}
@@ -58,10 +58,10 @@ export function UserMessage({
         <div className="relative max-w-[85%] sm:max-w-[75%]">
           <div
             className={cn(
-              "rounded-3xl px-5 py-3 text-base leading-relaxed wrap-break-word whitespace-pre-wrap",
+              "px-4.5 py-3 text-[15px] leading-relaxed break-words whitespace-pre-wrap shadow-xs",
               isCommand
-                ? "border-border/80 bg-muted/40 text-foreground border font-mono"
-                : "text-foreground bg-[var(--chat-user)] font-normal",
+                ? "border-border/80 bg-muted/40 text-foreground rounded-2xl border font-mono text-sm"
+                : "text-foreground rounded-[24px] bg-[var(--chat-user)] font-normal",
             )}
           >
             {isCommand ? (
@@ -73,35 +73,34 @@ export function UserMessage({
               content
             )}
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className={cn(
-              "mt-1 ml-auto h-6 w-6 rounded-md opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100",
-              isCommand
-                ? "text-muted-foreground hover:bg-muted"
-                : "text-muted-foreground hover:bg-muted",
-            )}
-            onClick={() => void copy(content)}
-            aria-label={copyMessageLabel}
-            title={copyMessageLabel}
-          >
-            {isCopied ? (
-              <IconCheck className="text-success h-3.5 w-3.5" />
-            ) : (
-              <IconCopy className="h-3.5 w-3.5" />
-            )}
-          </Button>
+
+          {/* Action button floating under / next to bubble on hover */}
+          <div className="mt-1 flex justify-end gap-1 px-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground h-6 w-6 rounded-md opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+              onClick={() => void copy(content)}
+              aria-label={copyMessageLabel}
+              title={copyMessageLabel}
+            >
+              {isCopied ? (
+                <IconCheck className="text-success h-3.5 w-3.5" />
+              ) : (
+                <IconCopy className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          </div>
         </div>
       )}
 
       {(formattedTimestamp || deliveryStatus) && (
-        <span className="text-muted-foreground px-1 text-xs opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
+        <span className="text-muted-foreground/70 px-2 text-[11px] opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
           {formattedTimestamp}
           {deliveryStatus === "sending" && <> · {t("chat.deliverySending")}</>}
           {deliveryStatus === "failed" && (
-            <span className="text-destructive">
+            <span className="text-destructive font-medium">
               {" "}
               · {t("chat.deliveryFailed")}
             </span>
@@ -111,7 +110,7 @@ export function UserMessage({
             onRetry && (
               <button
                 type="button"
-                className="ml-2 underline"
+                className="hover:text-foreground ml-2 underline"
                 onClick={onRetry}
               >
                 {t("chat.deliveryRetry")}
