@@ -75,17 +75,17 @@ func (al *AgentLoop) drainQueuedSteeringContinuations(
 	}
 
 	finalResponse := ""
-	for al.pendingSteeringCountForScope(target.SessionKey) > 0 {
+	for al.pendingContinuationCount(target.SessionKey) > 0 {
 		if err := ctx.Err(); err != nil {
 			return finalResponse, err
 		}
 
-		logger.InfoCF("agent", "Continuing queued steering after turn end",
+		logger.InfoCF("agent", "Continuing queued work after turn end",
 			map[string]any{
 				"channel":     target.Channel,
 				"chat_id":     target.ChatID,
 				"session_key": target.SessionKey,
-				"queue_depth": al.pendingSteeringCountForScope(target.SessionKey),
+				"queue_depth": al.pendingContinuationCount(target.SessionKey),
 			})
 
 		continued, continueErr := al.Continue(ctx, target.SessionKey, target.Channel, target.ChatID)
@@ -99,6 +99,14 @@ func (al *AgentLoop) drainQueuedSteeringContinuations(
 	}
 
 	return finalResponse, nil
+}
+
+func (al *AgentLoop) pendingContinuationCount(scope string) int {
+	count := al.pendingSteeringCountForScope(scope)
+	if al.followUpQueue != nil {
+		count += al.followUpQueue.lenScope(scope) + al.followUpQueue.lenScope(manualSteeringScope)
+	}
+	return count
 }
 
 func (al *AgentLoop) resolveSteeringTarget(msg bus.InboundMessage) (string, string, bool) {

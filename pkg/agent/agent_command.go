@@ -303,7 +303,11 @@ func (al *AgentLoop) buildCommandsRuntime(
 		rt.SwitchModel = func(value string) (string, error) {
 			value = strings.TrimSpace(value)
 			modelMu := agent.modelStateMutex()
-			modelMu.Lock()
+			// Do not queue a writer behind a running parent: its child turns
+			// need the same read lock before the parent can finish.
+			if !modelMu.TryLock() {
+				return "", fmt.Errorf("agent is busy; switch models after its active turns finish")
+			}
 			defer modelMu.Unlock()
 			modelFound := false
 			for _, modelCfg := range cfg.ModelList {

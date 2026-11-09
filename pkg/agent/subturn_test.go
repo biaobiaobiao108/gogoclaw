@@ -1130,8 +1130,11 @@ func TestInjectFollowUp(t *testing.T) {
 	}
 
 	// Verify message was enqueued
-	if al.steering.len() != 1 {
-		t.Errorf("Expected 1 message in queue, got %d", al.steering.len())
+	if al.followUpQueue.len() != 1 {
+		t.Errorf("Expected 1 follow-up in queue, got %d", al.followUpQueue.len())
+	}
+	if al.steering.len() != 0 {
+		t.Fatal("follow-up entered the steering queue")
 	}
 }
 

@@ -442,6 +442,9 @@ func (al *AgentLoop) Continue(ctx context.Context, sessionKey, channel, chatID s
 	}
 
 	steeringMsgs := al.dequeueSteeringMessagesForScopeWithFallback(sessionKey)
+	if len(steeringMsgs) == 0 && al.followUpQueue != nil {
+		steeringMsgs = al.followUpQueue.dequeueScopeWithFallback(sessionKey)
+	}
 	defer func() {
 		for _, msg := range steeringMsgs {
 			media.Unpin(al.mediaStore, msg.Media)
@@ -626,14 +629,36 @@ func (al *AgentLoop) HardAbort(sessionKey string) error {
 //
 // The message will be processed via Continue() when the agent becomes idle.
 func (al *AgentLoop) InjectFollowUp(msg providers.Message) error {
-	// InjectFollowUp uses the same steering queue mechanism as Steer(),
-	// but the semantic difference is in when it's called:
-	// - Steer() is called during active execution to interrupt
-	// - InjectFollowUp() is called when planning future work
-	//
-	// Both end up in the same queue and are processed by Continue()
-	// when the agent is idle.
-	return al.Steer(msg)
+	ts, unique := al.getSoleActiveTurnState()
+	if !unique {
+		return fmt.Errorf("multiple turns are active; use InjectFollowUpForSession with a session key")
+	}
+	scope := ""
+	if ts != nil {
+		scope = ts.sessionKey
+	}
+	return al.enqueueFollowUp(scope, msg)
+}
+
+// InjectFollowUpForSession queues work for Continue without steering a live turn.
+func (al *AgentLoop) InjectFollowUpForSession(sessionKey string, msg providers.Message) error {
+	if strings.TrimSpace(sessionKey) == "" {
+		return fmt.Errorf("session key is required")
+	}
+	return al.enqueueFollowUp(strings.TrimSpace(sessionKey), msg)
+}
+
+func (al *AgentLoop) enqueueFollowUp(scope string, msg providers.Message) error {
+	if al.followUpQueue == nil {
+		return fmt.Errorf("follow-up queue is not initialized")
+	}
+	msg = steeringPromptMessage(msg)
+	media.Pin(al.mediaStore, msg.Media)
+	if err := al.followUpQueue.pushScope(scope, msg); err != nil {
+		media.Unpin(al.mediaStore, msg.Media)
+		return err
+	}
+	return nil
 }
 
 // ====================== API Aliases for Design Document Compatibility ======================
