@@ -23,6 +23,9 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 	if ts.al == nil {
 		ts.al = al
 	}
+	if err := ts.transitionPhase(TurnPhaseSetup); err != nil {
+		return turnResult{}, err
+	}
 	if ts.concurrencySem == nil {
 		ts.concurrencySem = make(chan struct{}, al.getSubTurnConfig().maxConcurrent)
 	}
@@ -92,25 +95,6 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		_ = ts.requestHardAbort()
 	}
 
-	if !ts.opts.NoHistory {
-		if err := ts.saveTurnCheckpoint("running", ""); err != nil {
-			return turnResult{}, fmt.Errorf("save turn checkpoint: %w", err)
-		}
-		defer func() {
-			status := "completed"
-			reason := ts.endReasonSnapshot()
-			if turnStatus == TurnEndStatusAborted {
-				status = "interrupted"
-			} else if turnStatus == TurnEndStatusError || retErr != nil || result.status == "" {
-				status = "failed"
-			} else if reason != TurnEndReasonCompleted {
-				status = "interrupted"
-			}
-			if err := ts.saveTurnCheckpoint(status, ""); err != nil && retErr == nil {
-				retErr = fmt.Errorf("save turn checkpoint: %w", err)
-			}
-		}()
-	}
 	defer func() {
 		if retErr != nil {
 			ts.setEndReason(TurnEndReasonError)
@@ -175,12 +159,6 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 			panic(r)
 		}
 	}()
-
-	if ts.hardAbortRequested() {
-		turnStatus = TurnEndStatusAborted
-		return al.abortTurn(ts)
-	}
-
 	al.emitEvent(
 		runtimeevents.KindAgentTurnStart,
 		ts.eventMeta("runTurn", "turn.start"),
@@ -189,6 +167,32 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 			MediaCount:  len(ts.media),
 		},
 	)
+	if !ts.opts.NoHistory {
+		if err := ts.saveTurnCheckpoint("running", ""); err != nil {
+			turnStatus = TurnEndStatusError
+			retErr = fmt.Errorf("save turn checkpoint: %w", err)
+			return turnResult{}, retErr
+		}
+		defer func() {
+			status := "completed"
+			reason := ts.endReasonSnapshot()
+			if turnStatus == TurnEndStatusAborted {
+				status = "interrupted"
+			} else if turnStatus == TurnEndStatusError || retErr != nil || result.status == "" {
+				status = "failed"
+			} else if reason != TurnEndReasonCompleted {
+				status = "interrupted"
+			}
+			if err := ts.saveTurnCheckpoint(status, ""); err != nil && retErr == nil {
+				retErr = fmt.Errorf("save turn checkpoint: %w", err)
+			}
+		}()
+	}
+
+	if ts.hardAbortRequested() {
+		turnStatus = TurnEndStatusAborted
+		return al.abortTurn(ts)
+	}
 
 	// SetupTurn extracts the one-time initialization phase.
 	exec, err := pipeline.SetupTurn(turnCtx, ts)

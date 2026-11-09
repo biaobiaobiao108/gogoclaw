@@ -94,9 +94,9 @@ GOGOCLAW_EVENTS_LOGGING_INCLUDE_PAYLOAD=false
 | `agent.llm.retry` | LLM 请求因上下文、限流、临时错误等原因准备重试前 | `attempt`, `max_retries`, `reason`, `error`, `backoff_ms` |
 | `agent.context.compress` | 上下文历史被压缩时，例如主动预算检查或 LLM retry 处理 | `reason`, `dropped_messages`, `remaining_messages` |
 | `agent.session.summarize` | 会话历史异步摘要完成时 | `summarized_messages`, `kept_messages`, `summary_len`, `omitted_oversized` |
-| `agent.tool.exec_start` | agent 准备执行一个工具调用前 | `tool`, `args_count`; 默认不打印完整参数 |
-| `agent.tool.exec_end` | 工具调用完成后，包括成功、工具错误和 async 结果 | `tool`, `duration_ms`, `for_llm_len`, `for_user_len`, `is_error`, `async` |
-| `agent.tool.exec_skipped` | 工具调用被跳过时，例如工具不可用、参数无效或 turn 控制逻辑要求跳过 | `tool`, `reason` |
+| `agent.tool.exec_start` | agent 准备执行一个工具调用前 | `call_id`, `tool`, `args_count`; 默认不打印完整参数 |
+| `agent.tool.exec_end` | 工具调用完成后，包括成功、工具错误和 async 结果 | `call_id`, `tool`, `duration_ms`, `for_llm_len`, `for_user_len`, `is_error`, `async`, `error` |
+| `agent.tool.exec_skipped` | 工具调用被跳过时，例如工具不可用、参数无效或 turn 控制逻辑要求跳过 | `call_id`, `tool`, `reason` |
 | `agent.approval.requested` | 配置的工具或 hook 在执行前需要人工决定时 | `approval_id`, `tool`, `tool_call_id`, `status` |
 | `agent.approval.resolved` | 人工审批被批准、拒绝、超时或取消时 | `approval_id`, `tool`, `tool_call_id`, `status`, `scope`, `reason` |
 | `agent.steering.injected` | queued steering message 被注入下一轮 LLM 上下文时 | `count`, `total_content_len` |
@@ -195,9 +195,9 @@ agent 事件还会追加 payload 摘要字段：
 | `agent.llm.retry` | `attempt`, `max_retries`, `reason`, `error`, `backoff_ms` |
 | `agent.context.compress` | `reason`, `dropped_messages`, `remaining_messages` |
 | `agent.session.summarize` | `summarized_messages`, `kept_messages`, `summary_len`, `omitted_oversized` |
-| `agent.tool.exec_start` | `tool`, `args_count` |
-| `agent.tool.exec_end` | `tool`, `duration_ms`, `for_llm_len`, `for_user_len`, `is_error`, `async` |
-| `agent.tool.exec_skipped` | `tool`, `reason` |
+| `agent.tool.exec_start` | `call_id`, `tool`, `args_count` |
+| `agent.tool.exec_end` | `call_id`, `tool`, `duration_ms`, `for_llm_len`, `for_user_len`, `is_error`, `async`, `error` |
+| `agent.tool.exec_skipped` | `call_id`, `tool`, `reason` |
 | `agent.steering.injected` | `count`, `total_content_len` |
 | `agent.follow_up.queued` | `source_tool`, `content_len` |
 | `agent.interrupt.received` | `interrupt_kind`, `role`, `content_len`, `queue_depth`, `hint_len` |

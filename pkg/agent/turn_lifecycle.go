@@ -28,6 +28,21 @@ func (p TurnPhase) terminal() bool {
 	return p == TurnPhaseCompleted || p == TurnPhaseFailed || p == TurnPhaseAborted
 }
 
+// IsTerminalTurnPhase reports whether a phase is a final lifecycle state.
+func IsTerminalTurnPhase(phase TurnPhase) bool {
+	return phase.terminal()
+}
+
+// ValidTurnPhaseTransition reports whether an edge is allowed by the turn
+// lifecycle state machine. Equal phases are valid no-ops.
+func ValidTurnPhaseTransition(from, to TurnPhase) bool {
+	if from == to {
+		return true
+	}
+	_, ok := turnPhaseTransitions[from][to]
+	return ok
+}
+
 // turnPhaseTransitions is the complete allowlist of legal edges. A transition
 // to the current phase is a no-op so repeated loop iterations stay explicit
 // without producing history noise.

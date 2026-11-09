@@ -266,7 +266,9 @@ func (p *Pipeline) ExecuteTools(
 					ts.mu.Unlock()
 					execCtx := tools.WithToolInboundContext(turnCtx, ts.channel, ts.chatID, ts.opts.Dispatch.MessageID(), ts.opts.Dispatch.ReplyToMessageID())
 					execCtx = tools.WithToolSessionContext(execCtx, ts.agent.ID, ts.sessionKey, ts.opts.Dispatch.SessionScope)
-					al.emitEvent(runtimeevents.KindAgentToolExecStart, ts.eventMeta("runTurn", "turn.tool.start"), ToolExecStartPayload{Tool: call.Name, Arguments: cloneEventArguments(call.Arguments)})
+					callID := toolCallIDFromCall(call)
+					execCtx = tools.WithToolCallID(execCtx, callID)
+					al.emitEvent(runtimeevents.KindAgentToolExecStart, ts.eventMeta("runTurn", "turn.tool.start"), ToolExecStartPayload{CallID: callID, Tool: call.Name, Arguments: cloneEventArguments(call.Arguments)})
 					result := ts.toolRegistry().ExecuteWithContext(execCtx, call.Name, cloneStringAnyMap(call.Arguments), ts.channel, ts.chatID, nil)
 					if result == nil {
 						result = tools.ErrorResult("tool returned nil result")
@@ -274,7 +276,7 @@ func (p *Pipeline) ExecuteTools(
 					ts.finishToolItemFromResult(al, toolBatchID, i, ts.toolPolicy(call.Name), result, false)
 					preExecutedResults[i] = result
 					parallelDurations[i] = time.Since(start)
-					al.emitEvent(runtimeevents.KindAgentToolExecEnd, ts.eventMeta("runTurn", "turn.tool.end"), ToolExecEndPayload{Tool: call.Name, Duration: parallelDurations[i], ForLLMLen: len(result.ContentForLLM()), ForUserLen: len(result.ForUser), IsError: result.IsError, Async: result.Async})
+					al.emitEvent(runtimeevents.KindAgentToolExecEnd, ts.eventMeta("runTurn", "turn.tool.end"), ToolExecEndPayload{CallID: callID, Tool: call.Name, Duration: parallelDurations[i], ForLLMLen: len(result.ContentForLLM()), ForUserLen: len(result.ForUser), IsError: result.IsError, Async: result.Async, Error: toolErrorSummary(result)})
 					ts.finishTurnActivity(parallelActivities[i], func(a *session.TurnActivity) {
 						a.Status = "completed"
 						if result.IsError {
@@ -313,6 +315,7 @@ toolLoop:
 				runtimeevents.KindAgentToolExecSkipped,
 				ts.eventMeta("runTurn", "turn.tool.skipped"),
 				ToolExecSkippedPayload{
+					CallID: tc.ID,
 					Tool:   toolName,
 					Reason: denyContent,
 				},
@@ -372,6 +375,7 @@ toolLoop:
 						runtimeevents.KindAgentToolExecStart,
 						ts.eventMeta("runTurn", "turn.tool.start"),
 						ToolExecStartPayload{
+							CallID:    tc.ID,
 							Tool:      toolName,
 							Arguments: cloneEventArguments(toolArgs),
 						},
@@ -491,12 +495,14 @@ toolLoop:
 						runtimeevents.KindAgentToolExecEnd,
 						ts.eventMeta("runTurn", "turn.tool.end"),
 						ToolExecEndPayload{
+							CallID:     tc.ID,
 							Tool:       toolName,
 							Duration:   toolDuration,
 							ForLLMLen:  len(contentForLLM),
 							ForUserLen: len(hookResult.ForUser),
 							IsError:    hookResult.IsError,
 							Async:      hookResult.Async,
+							Error:      toolErrorSummary(hookResult),
 						},
 					)
 					ts.recordToolExecution(
@@ -555,6 +561,7 @@ toolLoop:
 									runtimeevents.KindAgentToolExecSkipped,
 									ts.eventMeta("runTurn", "turn.tool.skipped"),
 									ToolExecSkippedPayload{
+										CallID: skippedTC.ID,
 										Tool:   skippedTC.Name,
 										Reason: skipReason,
 									},
@@ -593,6 +600,7 @@ toolLoop:
 					runtimeevents.KindAgentToolExecSkipped,
 					ts.eventMeta("runTurn", "turn.tool.skipped"),
 					ToolExecSkippedPayload{
+						CallID: tc.ID,
 						Tool:   toolName,
 						Reason: denyContent,
 					},
@@ -644,6 +652,7 @@ toolLoop:
 					runtimeevents.KindAgentToolExecSkipped,
 					ts.eventMeta("runTurn", "turn.tool.skipped"),
 					ToolExecSkippedPayload{
+						CallID: tc.ID,
 						Tool:   toolName,
 						Reason: denyContent,
 					},
@@ -684,7 +693,7 @@ toolLoop:
 				al.emitEvent(
 					runtimeevents.KindAgentToolExecSkipped,
 					ts.eventMeta("runTurn", "turn.tool.skipped"),
-					ToolExecSkippedPayload{Tool: toolName, Reason: denyContent},
+					ToolExecSkippedPayload{CallID: tc.ID, Tool: toolName, Reason: denyContent},
 				)
 				deniedMsg := providers.Message{Role: "tool", Content: denyContent, ToolCallID: tc.ID}
 				messages = append(messages, deniedMsg)
@@ -729,6 +738,7 @@ toolLoop:
 				runtimeevents.KindAgentToolExecStart,
 				ts.eventMeta("runTurn", "turn.tool.start"),
 				ToolExecStartPayload{
+					CallID:    tc.ID,
 					Tool:      toolName,
 					Arguments: cloneEventArguments(toolArgs),
 				},
@@ -762,7 +772,7 @@ toolLoop:
 			fbCancel()
 		}
 
-		toolCallID := tc.ID
+		toolCallID := toolCallIDFromCall(tc)
 		asyncToolName := toolName
 		asyncCallback := func(_ context.Context, result *tools.ToolResult) {
 			if result == nil {
@@ -797,6 +807,7 @@ toolLoop:
 			ts.sessionKey,
 			ts.opts.Dispatch.SessionScope,
 		)
+		execCtx = tools.WithToolCallID(execCtx, toolCallID)
 		var toolResult *tools.ToolResult
 		if duplicateReadOnly {
 			content := "This exact read-only call already ran successfully earlier in this turn. It was not executed again. Use the earlier result instead of repeating the call."
@@ -997,12 +1008,14 @@ toolLoop:
 				runtimeevents.KindAgentToolExecEnd,
 				ts.eventMeta("runTurn", "turn.tool.end"),
 				ToolExecEndPayload{
+					CallID:     toolCallID,
 					Tool:       toolName,
 					Duration:   toolDuration,
 					ForLLMLen:  len(contentForLLM),
 					ForUserLen: len(toolResult.ForUser),
 					IsError:    toolResult.IsError,
 					Async:      toolResult.Async,
+					Error:      toolErrorSummary(toolResult),
 				},
 			)
 		}
@@ -1082,6 +1095,7 @@ toolLoop:
 						runtimeevents.KindAgentToolExecSkipped,
 						ts.eventMeta("runTurn", "turn.tool.skipped"),
 						ToolExecSkippedPayload{
+							CallID: skippedTC.ID,
 							Tool:   skippedTC.Name,
 							Reason: skipReason,
 						},

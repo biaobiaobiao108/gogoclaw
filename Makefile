@@ -196,7 +196,8 @@ test: generate
 
 ## harness-test: Run trajectory-level evaluation and fault-injection scenarios
 harness-test:
-	@$(GO) test $(GOFLAGS) ./pkg/harness/...
+	@CGO_ENABLED=1 $(GO) test -race $(GOFLAGS) ./pkg/harness/...
+	@$(GO) test $(GOFLAGS) ./cmd/gogoclaw-harness
 
 ## integration-test: Run Docker-backed integration test suites
 integration-test:

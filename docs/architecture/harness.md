@@ -1,0 +1,78 @@
+# Evaluation Harness
+
+`pkg/harness` evaluates real `AgentLoop` runs through deterministic scenarios.
+It is not a second agent implementation: providers, tools, session persistence,
+runtime events, and turn state all pass through the production path.
+
+## Scenario Model
+
+A `Scenario` can define:
+
+- One or more user turns in the same session.
+- Scripted provider responses, errors, panics, delays, and context waits.
+- Ordinary, delayed, error, panic, context-canceled, and async tools.
+- Session-store failures at checked read/write and checkpoint boundaries.
+- Async follow-up processing and bus shutdown during follow-up publication.
+- A persistent workspace for restart/recovery scenarios.
+
+`Result` records each turn's model calls, tool calls, runtime events, terminal
+state, history, outbound messages, and queued async follow-ups. Async tool
+completion follows the same unified queue and follow-up rules as production.
+
+## Assertions
+
+`Expect` supports:
+
+- Exact and substring final-answer assertions, including exact empty values.
+- Exact/min/max model-call counts, including zero.
+- Turn count, status, reason, and complete phase sequence.
+- Tool call ID, name, arguments, status, error, and observed result text.
+- Event presence, ordered subsequence, exact sequence, payload substrings, and
+  turn IDs.
+- Per-model-call message and tool-list assertions.
+- Persisted golden-trace comparison.
+
+Every `Verify` call also checks structural invariants: one start and end event
+per turn, a `created` lifecycle origin, legal phase transitions, a terminal
+phase matching the turn status, and no tool start left without a terminal
+record.
+
+## Trace Persistence And Replay
+
+`Result.Snapshot`, `SaveTrace`, `LoadTrace`, and `CompareTrace` produce a
+timestamp-free canonical trace for golden tests. Volatile IDs, durations,
+workspace paths, and timestamps are removed.
+
+`RecordPath` records model responses during a run. A later run can set
+`ReplayPath` to execute the same trajectory through `ReplayProvider` without a
+live provider.
+
+## Suites And CLI
+
+`RunSuite` returns a structured `Report` containing each scenario's pass/fail
+result and canonical trace. Scenario definitions may include an optional
+`Expectation`.
+
+The standalone CLI runs JSON scenarios and exits non-zero on failure:
+
+```bash
+go run ./cmd/gogoclaw-harness \
+  -scenario scenario.json \
+  -report report.json
+```
+
+The `-scenario` flag accepts a single scenario JSON file, a suite JSON file
+(`{"scenarios": [...]}`), or a directory containing JSON scenario files.
+Supported JSON tool kinds are `text`, `error`, `panic`, and `async_text`.
+JSON scenarios can also configure `session_faults` (`get_history`,
+`add_message`, `set_checkpoint`, `save`, etc.) without writing Go test code.
+Go-based custom scenarios can additionally use `SessionFault`, `ToolFactory`,
+and `Setup` for hook, MCP, channel, or other integration-specific faults.
+
+## Commands
+
+```bash
+make harness-test
+```
+
+The target runs the harness under the race detector and also compiles the CLI.

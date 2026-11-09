@@ -404,7 +404,7 @@ func newTurnState(agent *AgentInstance, opts processOptions, scope turnEventScop
 		workspace:        agent.Workspace,
 		userMessage:      opts.Dispatch.UserMessage,
 		media:            append([]string(nil), opts.Dispatch.Media...),
-		lifecycle:        newTurnLifecycleAt(TurnPhaseSetup),
+		lifecycle:        newTurnLifecycle(),
 		startedAt:        time.Now(),
 		endReason:        TurnEndReasonCompleted,
 		budget:           defaultTurnBudget(agent.MaxIterations),

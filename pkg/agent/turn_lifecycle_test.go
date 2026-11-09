@@ -89,6 +89,9 @@ func TestConsumeAsyncDeliveriesInjectsExactlyOnce(t *testing.T) {
 	ts := newTurnState(agent, makeTestProcessOpts("async-consume"), turnEventScope{
 		turnID: "async-consume", context: newTurnContext(nil, nil, nil),
 	})
+	if err := ts.transitionPhase(TurnPhaseSetup); err != nil {
+		t.Fatal(err)
+	}
 	if err := ts.transitionPhase(TurnPhaseRunning); err != nil {
 		t.Fatal(err)
 	}

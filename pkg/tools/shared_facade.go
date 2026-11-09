@@ -30,6 +30,11 @@ type (
 	ToolResult             = toolshared.ToolResult
 )
 
+var (
+	WithToolCallID = toolshared.WithToolCallID
+	ToolCallID     = toolshared.ToolCallID
+)
+
 const (
 	handledToolLLMNote   = toolshared.HandledToolLLMNote
 	artifactPathsLLMNote = toolshared.ArtifactPathsLLMNote

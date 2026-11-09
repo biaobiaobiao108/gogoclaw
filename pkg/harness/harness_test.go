@@ -27,11 +27,18 @@ func TestTrajectoryToolOrderAndFinalAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := result.Verify(Expect{
-		Final:         "finished",
-		Tools:         []string{"read_file"},
+		Final: "finished",
+		Tools: []string{"read_file"},
+		ToolCalls: []ToolCallExpectation{{
+			CallID:         "call-1",
+			Name:           "read_file",
+			Arguments:      map[string]any{"path": "a.txt"},
+			Status:         "completed",
+			ResultContains: "file contents",
+		}},
 		ModelCalls:    2,
 		TurnStatus:    agent.TurnEndStatusCompleted,
-		Phases:        []agent.TurnPhase{agent.TurnPhaseSetup, agent.TurnPhaseRunning, agent.TurnPhaseTools, agent.TurnPhaseRunning, agent.TurnPhaseFinalizing, agent.TurnPhaseCompleted},
+		Phases:        []agent.TurnPhase{agent.TurnPhaseCreated, agent.TurnPhaseSetup, agent.TurnPhaseRunning, agent.TurnPhaseTools, agent.TurnPhaseRunning, agent.TurnPhaseFinalizing, agent.TurnPhaseCompleted},
 		Events:        []runtimeevents.Kind{runtimeevents.KindAgentToolExecStart, runtimeevents.KindAgentToolExecEnd},
 		EventSequence: []runtimeevents.Kind{runtimeevents.KindAgentTurnStart, runtimeevents.KindAgentToolExecStart, runtimeevents.KindAgentTurnEnd},
 	}); err != nil {

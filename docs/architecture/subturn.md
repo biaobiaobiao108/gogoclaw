@@ -124,12 +124,12 @@ This ensures that:
 - Messages from the **same session** are strictly **serialized** — they go to the steering queue and are processed sequentially within the active turn
 - No background drain goroutine is needed; steering is handled by the worker itself after processing
 
-### Pending Result Polling
+### Unified Async Delivery
 
-The agent loop polls for async SubTurn results at two points per iteration:
-1. **Before the LLM call**: injects any arrived results as `[SubTurn Result]` messages into the conversation context.
-2. **After all tool executions**: polls again during the tool loop to catch results that arrived during tool execution.
-3. **After the final iteration**: one last poll before the turn ends to avoid losing late-arriving results.
+The coordinator drains the owning turn's unified async delivery queue once
+before each model call. Tool results and SubTurn results use the same queue;
+pipeline stages do not maintain private polling channels. Results that arrive
+after the turn stops consuming become follow-up inbound turns.
 
 ### Turn State Tracking
 

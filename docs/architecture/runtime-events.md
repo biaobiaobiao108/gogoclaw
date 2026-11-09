@@ -94,9 +94,9 @@ The table below lists the current runtime event kinds, when they are emitted, an
 | `agent.llm.retry` | Before retrying an LLM request after context, rate-limit, transient provider, or fallback handling. | `attempt`, `max_retries`, `reason`, `error`, `backoff_ms` |
 | `agent.context.compress` | Agent context history is compressed, for example during proactive budget checks or LLM retry handling. | `reason`, `dropped_messages`, `remaining_messages` |
 | `agent.session.summarize` | Async session history summarization completes. | `summarized_messages`, `kept_messages`, `summary_len`, `omitted_oversized` |
-| `agent.tool.exec_start` | Before the agent executes a tool call. | `tool`, `args_count`; full arguments are not logged by default |
-| `agent.tool.exec_end` | After a tool call completes, including successful results, tool errors, and async results. | `tool`, `duration_ms`, `for_llm_len`, `for_user_len`, `is_error`, `async` |
-| `agent.tool.exec_skipped` | A tool call is skipped because the tool is unavailable, arguments are invalid, or turn control logic requires skipping it. | `tool`, `reason` |
+| `agent.tool.exec_start` | Before the agent executes a tool call. | `call_id`, `tool`, `args_count`; full arguments are not logged by default |
+| `agent.tool.exec_end` | After a tool call completes, including successful results, tool errors, and async results. | `call_id`, `tool`, `duration_ms`, `for_llm_len`, `for_user_len`, `is_error`, `async`, `error` |
+| `agent.tool.exec_skipped` | A tool call is skipped because the tool is unavailable, arguments are invalid, or turn control logic requires skipping it. | `call_id`, `tool`, `reason` |
 | `agent.approval.requested` | A configured tool or hook requires a human decision before execution. | `approval_id`, `tool`, `tool_call_id`, `status` |
 | `agent.approval.resolved` | A human approval request is approved, denied, expired, or canceled. | `approval_id`, `tool`, `tool_call_id`, `status`, `scope`, `reason` |
 | `agent.steering.injected` | Queued steering messages are injected into the next LLM context. | `count`, `total_content_len` |
@@ -195,9 +195,9 @@ Agent events add safe payload summaries:
 | `agent.llm.retry` | `attempt`, `max_retries`, `reason`, `error`, `backoff_ms` |
 | `agent.context.compress` | `reason`, `dropped_messages`, `remaining_messages` |
 | `agent.session.summarize` | `summarized_messages`, `kept_messages`, `summary_len`, `omitted_oversized` |
-| `agent.tool.exec_start` | `tool`, `args_count` |
-| `agent.tool.exec_end` | `tool`, `duration_ms`, `for_llm_len`, `for_user_len`, `is_error`, `async` |
-| `agent.tool.exec_skipped` | `tool`, `reason` |
+| `agent.tool.exec_start` | `call_id`, `tool`, `args_count` |
+| `agent.tool.exec_end` | `call_id`, `tool`, `duration_ms`, `for_llm_len`, `for_user_len`, `is_error`, `async`, `error` |
+| `agent.tool.exec_skipped` | `call_id`, `tool`, `reason` |
 | `agent.steering.injected` | `count`, `total_content_len` |
 | `agent.follow_up.queued` | `source_tool`, `content_len` |
 | `agent.interrupt.received` | `interrupt_kind`, `role`, `content_len`, `queue_depth`, `hint_len` |

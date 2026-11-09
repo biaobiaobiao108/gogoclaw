@@ -33,6 +33,7 @@ the old turn has been unregistered.
 
 `pkg/harness` runs scripted scenarios against the real `AgentLoop`. It records
 provider calls, executed tool order, runtime events, final history, and outbound
-messages, then evaluates declarative trajectory expectations. Provider and tool
-faults (errors, panics, delays, context cancellation) are injected without
-modifying production dependencies.
+messages, then evaluates declarative trajectory expectations. It supports
+multi-turn sessions, async delivery and follow-up turns, provider/tool/session
+faults, canonical golden traces, provider record/replay, and structured suite
+reports. See [Evaluation Harness](harness.md).

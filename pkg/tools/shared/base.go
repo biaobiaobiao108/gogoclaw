@@ -158,6 +158,19 @@ func ToolSessionScope(ctx context.Context) *session.SessionScope {
 // The result parameter contains the tool's execution result.
 type AsyncCallback func(ctx context.Context, result *ToolResult)
 
+type toolCallIDContextKey struct{}
+
+// WithToolCallID attaches the provider tool-call ID to a tool invocation.
+func WithToolCallID(ctx context.Context, callID string) context.Context {
+	return context.WithValue(ctx, toolCallIDContextKey{}, callID)
+}
+
+// ToolCallID returns the provider tool-call ID for the current invocation.
+func ToolCallID(ctx context.Context) string {
+	value, _ := ctx.Value(toolCallIDContextKey{}).(string)
+	return value
+}
+
 // AsyncExecutor is an optional interface that tools can implement to support
 // asynchronous execution with completion callbacks.
 //
