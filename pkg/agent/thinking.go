@@ -116,6 +116,9 @@ func applyTurnThinkingOptions(
 	}
 	delete(exec.llmOpts, "thinking_level")
 	settings := activeThinkingSettings(agent, exec.activeModelConfig)
+	if isConfiguredThinkingLevel(exec.thinkingLevel) {
+		settings = thinkingSettings{level: parseThinkingLevel(exec.thinkingLevel), configured: true}
+	}
 	agentID := ""
 	if agent != nil {
 		agentID = agent.ID

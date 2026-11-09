@@ -66,6 +66,7 @@ Do not use all-caps eyebrow labels or decorative letter spacing. Acronyms and ma
 - Return: 420ms lightly overshooting spring.
 - State/color/focus: 140ms `ease-out`. Large surfaces: 220-320ms with the standard curve.
 - Motion is limited to feedback, causality, orientation, value change, or real activity. No continuous status ping, ambient pulse, decorative reveal, or `transition: all`.
+- While a turn is running, only the current collapsed process row may use a restrained 1.9s text highlight. Historical and settled rows stay static; reduced motion renders the label in the accent color without animation.
 - Reduced motion keeps the pressed/selected state but removes spatial transforms and shortens transitions to 1ms.
 
 ## Components
@@ -97,9 +98,11 @@ Use direct sentence case. Name the object and the action. Avoid page introductio
 
 ## Conversation workspace
 
-Chat follows the requested ChatGPT direction: white / #212121 canvas, #f4f4f4 / #303030 user bubbles, unboxed assistant replies, 16px reading text, a 768px reading column and composer, and 24px bubble/composer radii. The history rail is 256px wide at desktop widths and becomes an accessible Sheet on mobile. History uses explicit cursor pagination and filters only loaded titles/previews. Continuous thought/tool messages share one collapsed process row; expansion is owned by the page so virtualization cannot reset it. Existing shared controls supply press/focus feedback.
+Chat follows the requested ChatGPT direction: white / #212121 canvas, #f4f4f4 / #303030 user bubbles, unboxed assistant replies, 16px reading text, a 768px reading column and composer, and 24px bubble/composer radii. The history rail is 256px wide at desktop widths and becomes an accessible Sheet on mobile. History uses explicit cursor pagination and server-side search across sessions. Continuous thought/tool messages share one collapsed process row; expansion is owned by the page so virtualization cannot reset it. Existing shared controls supply press/focus feedback.
 
-History navigation inherits the console background, 6px control radius, 40px single-line rows and muted date metadata. A 240px history pane sits below the page header; its named toggle stays on the left of that header in both open and closed states. App navigation and conversation history remain distinct controls.
+Assistant answers expose copy, feedback, regenerate and recorded answer-version controls in one compact row. Source citations render as a numbered list below the answer. Attachments support images and other files through upload, drag/drop and paste, with pending and failed states kept in the composer.
+
+History navigation inherits the console background, 6px control radius, 40px single-line rows and muted date metadata. A 240px history pane sits below the page header; its named toggle stays on the left of that header in both open and closed states. App navigation and conversation history remain distinct controls. History search queries server-side across all sessions; pin, rename and archive are available from each row, while archived sessions use the same pane with a named filter toggle.
 
 The desktop app menu is always expanded; page headers and the app menu edge have no collapse controls. Mobile keeps its menu drawer trigger. Conversation history retains its own left-aligned toggle.
 

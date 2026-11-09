@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -93,12 +94,17 @@ func resolveMediaRefs(
 		var pathTags []string
 
 		for _, ref := range m.Media {
-			if !strings.HasPrefix(ref, "media://") {
+			if !strings.HasPrefix(ref, "media://") && !filepath.IsAbs(ref) {
 				resolved = append(resolved, ref)
 				continue
 			}
 
-			localPath, meta, err := store.ResolveWithMeta(ref)
+			localPath := ref
+			meta := media.MediaMeta{}
+			var err error
+			if strings.HasPrefix(ref, "media://") {
+				localPath, meta, err = store.ResolveWithMeta(ref)
+			}
 			if err != nil {
 				fields := map[string]any{
 					"ref":   ref,

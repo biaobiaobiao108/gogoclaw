@@ -18,6 +18,8 @@ type DispatchRequest struct {
 	SessionScope   *session.SessionScope
 	UserMessage    string
 	Media          []string
+	Attachments    []bus.InboundAttachment
+	ThinkingLevel  string
 }
 
 func (r DispatchRequest) Channel() string {
@@ -75,6 +77,9 @@ func normalizeProcessOptions(opts processOptions) processOptions {
 	if len(opts.Dispatch.Media) == 0 && len(opts.Media) > 0 {
 		opts.Dispatch.Media = append([]string(nil), opts.Media...)
 	}
+	if len(opts.Dispatch.Attachments) == 0 && len(opts.Attachments) > 0 {
+		opts.Dispatch.Attachments = append([]bus.InboundAttachment(nil), opts.Attachments...)
+	}
 	if opts.Dispatch.RouteResult == nil {
 		opts.Dispatch.RouteResult = cloneResolvedRoute(opts.RouteResult)
 	}
@@ -107,6 +112,8 @@ func normalizeProcessOptions(opts processOptions) processOptions {
 	opts.SessionAliases = append([]string(nil), opts.Dispatch.SessionAliases...)
 	opts.UserMessage = opts.Dispatch.UserMessage
 	opts.Media = append([]string(nil), opts.Dispatch.Media...)
+	opts.Attachments = append([]bus.InboundAttachment(nil), opts.Dispatch.Attachments...)
+	opts.ThinkingLevel = strings.TrimSpace(opts.Dispatch.ThinkingLevel)
 	opts.InboundContext = cloneInboundContext(opts.Dispatch.InboundContext)
 	opts.RouteResult = cloneResolvedRoute(opts.Dispatch.RouteResult)
 	opts.SessionScope = session.CloneScope(opts.Dispatch.SessionScope)

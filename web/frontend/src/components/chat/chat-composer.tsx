@@ -1,7 +1,11 @@
 import {
+  IconAlertTriangle,
   IconArrowUp,
+  IconFile,
+  IconLoader2,
   IconPaperclip,
   IconPlayerStopFilled,
+  IconRefresh,
   IconX,
 } from "@tabler/icons-react"
 import {
@@ -36,13 +40,14 @@ interface ChatComposerProps {
   input: string
   attachments: ChatAttachment[]
   onInputChange: (value: string) => void
-  onAddImages: () => void
+  onAddAttachments: () => void
   onPaste: (event: ReactClipboardEvent<HTMLTextAreaElement>) => void
   onDragEnter: (event: ReactDragEvent<HTMLDivElement>) => void
   onDragLeave: (event: ReactDragEvent<HTMLDivElement>) => void
   onDragOver: (event: ReactDragEvent<HTMLDivElement>) => void
   onDrop: (event: ReactDragEvent<HTMLDivElement>) => void
   onRemoveAttachment: (index: number) => void
+  onRetryAttachment: (index: number) => void
   onSend: () => void
   onStop: () => void
   isRunning: boolean
@@ -51,19 +56,24 @@ interface ChatComposerProps {
   canSend: boolean
   isDragActive: boolean
   contextUsage?: ContextUsage
+  thinkingLevel: string
+  onThinkingLevelChange: (value: string) => void
+  editing?: boolean
+  onCancelEdit?: () => void
 }
 
 export function ChatComposer({
   input,
   attachments,
   onInputChange,
-  onAddImages,
+  onAddAttachments,
   onPaste,
   onDragEnter,
   onDragLeave,
   onDragOver,
   onDrop,
   onRemoveAttachment,
+  onRetryAttachment,
   onSend,
   onStop,
   isRunning,
@@ -72,6 +82,10 @@ export function ChatComposer({
   canSend,
   isDragActive,
   contextUsage,
+  thinkingLevel,
+  onThinkingLevelChange,
+  editing = false,
+  onCancelEdit,
 }: ChatComposerProps) {
   const { t } = useTranslation()
   const canInput = inputDisabledReason === null
@@ -117,29 +131,83 @@ export function ChatComposer({
           {isDragActive && (
             <div className="border-accent/60 bg-card/95 pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[24px] border-2 border-dashed">
               <div className="text-foreground font-mono text-xs font-medium">
-                {t("chat.dropImagesActive")}
+                {t("chat.dropAttachmentsActive")}
               </div>
             </div>
           )}
 
           {/* Attachments preview row */}
+          {editing && (
+            <div className="border-border/40 flex items-center justify-between gap-3 border-b px-4 py-2 text-xs">
+              <span className="text-muted-foreground">
+                {t("chat.editingMessage")}
+              </span>
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground rounded-sm px-1 py-0.5 underline underline-offset-2"
+                onClick={onCancelEdit}
+              >
+                {t("chat.cancelEdit")}
+              </button>
+            </div>
+          )}
+
           {attachments.length > 0 && (
             <div className="border-border/40 flex flex-wrap gap-2 border-b p-3">
               {attachments.map((attachment, index) => (
                 <div
                   key={`${attachment.url}-${index}`}
-                  className="bg-muted border-border relative size-14 overflow-hidden rounded-xl border shadow-xs"
+                  className="bg-muted border-border relative flex max-w-[240px] items-center gap-2 overflow-hidden rounded-md border px-2.5 py-2"
                 >
-                  <img
-                    src={attachment.url}
-                    alt={attachment.filename || t("chat.uploadedImage")}
-                    className="size-full object-cover"
-                  />
+                  {attachment.type === "image" && attachment.url ? (
+                    <img
+                      src={attachment.url}
+                      alt={attachment.filename || t("chat.uploadedImage")}
+                      className="size-9 shrink-0 rounded-sm object-cover"
+                    />
+                  ) : (
+                    <span className="bg-background flex size-9 shrink-0 items-center justify-center rounded-sm">
+                      <IconFile className="text-muted-foreground size-4" />
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs">
+                      {attachment.filename || t("chat.attachmentFallback")}
+                    </span>
+                    <span className="text-muted-foreground flex items-center gap-1 text-[10px]">
+                      {attachment.status === "uploading" && (
+                        <>
+                          <IconLoader2 className="size-3 animate-spin" />
+                          {t("chat.uploadingAttachment")}
+                        </>
+                      )}
+                      {attachment.status === "failed" && (
+                        <>
+                          <IconAlertTriangle className="text-destructive size-3" />
+                          {t("chat.attachmentFailed")}
+                        </>
+                      )}
+                      {attachment.status !== "uploading" &&
+                        attachment.status !== "failed" &&
+                        attachment.type.toUpperCase()}
+                    </span>
+                  </span>
+                  {attachment.status === "failed" && (
+                    <button
+                      type="button"
+                      onClick={() => onRetryAttachment(index)}
+                      className="text-muted-foreground hover:text-foreground inline-flex size-6 shrink-0 items-center justify-center rounded-full"
+                      aria-label={t("chat.retryAttachment")}
+                      title={t("chat.retryAttachment")}
+                    >
+                      <IconRefresh className="size-3" />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => onRemoveAttachment(index)}
-                    className="bg-background/90 text-foreground hover:bg-background focus-visible:ring-ring absolute top-1 right-1 inline-flex size-5 items-center justify-center rounded-full border shadow-xs focus-visible:ring-2 focus-visible:outline-none"
-                    aria-label={t("chat.removeImage")}
+                    className="bg-background/90 text-foreground hover:bg-background focus-visible:ring-ring inline-flex size-6 shrink-0 items-center justify-center rounded-full border shadow-xs focus-visible:ring-2 focus-visible:outline-none"
+                    aria-label={t("chat.removeAttachment")}
                   >
                     <IconX className="size-2.5" />
                   </button>
@@ -179,16 +247,43 @@ export function ChatComposer({
                 variant="ghost"
                 size="icon"
                 className="text-muted-foreground hover:text-foreground size-8 rounded-full transition-colors"
-                onClick={onAddImages}
+                onClick={onAddAttachments}
                 disabled={!canInput}
-                aria-label={t("chat.attachImage")}
-                title={t("chat.attachImage")}
+                aria-label={t("chat.attachFile")}
+                title={t("chat.attachFile")}
               >
                 <IconPaperclip className="size-4" />
               </Button>
             </div>
 
             <div className="flex items-center gap-2">
+              <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                <span className="sr-only">{t("chat.thinkingLevel")}</span>
+                <select
+                  value={thinkingLevel}
+                  onChange={(event) =>
+                    onThinkingLevelChange(event.target.value)
+                  }
+                  disabled={!canInput}
+                  className="bg-transparent text-xs outline-none disabled:opacity-50"
+                  aria-label={t("chat.thinkingLevel")}
+                  title={t("chat.thinkingLevel")}
+                >
+                  <option value="">{t("chat.thinkingLevels.default")}</option>
+                  <option value="adaptive">
+                    {t("chat.thinkingLevels.adaptive")}
+                  </option>
+                  <option value="off">{t("chat.thinkingLevels.off")}</option>
+                  <option value="low">{t("chat.thinkingLevels.low")}</option>
+                  <option value="medium">
+                    {t("chat.thinkingLevels.medium")}
+                  </option>
+                  <option value="high">{t("chat.thinkingLevels.high")}</option>
+                  <option value="xhigh">
+                    {t("chat.thinkingLevels.xhigh")}
+                  </option>
+                </select>
+              </label>
               {contextUsage && (
                 <ContextUsageRing
                   usage={contextUsage}

@@ -475,6 +475,15 @@ func setupAndStartServices(
 					return result
 				}
 				result := map[string]any{"active": true, "turn_id": turn.TurnID, "phase": turn.Phase, "iteration": turn.Iteration, "plan": turn.Plan}
+				if len(turn.Activities) > 0 {
+					result["activities"] = turn.Activities
+					for i := len(turn.Activities) - 1; i >= 0; i-- {
+						if turn.Activities[i].Status == "running" {
+							result["activity"] = turn.Activities[i]
+							break
+						}
+					}
+				}
 				if usage, err := agentLoop.ConversationUsage(config.ChannelPico, chatID, "pico-user"); err == nil {
 					result["context_usage"] = usage
 				}
@@ -488,10 +497,12 @@ func setupAndStartServices(
 			SetApprovalHandler(func(context.Context, approval.Response) error)
 			SendApprovalRequest(context.Context, approval.Request) error
 			SetDeliveryAckHandler(func(context.Context, string, string, string) error)
+			SetBranchHandler(func(context.Context, string, string) error)
 		}); ok {
 			approvalChannel.SetApprovalHandler(agentLoop.RespondApproval)
 			agentLoop.SetApprovalNotifier(approvalChannel.SendApprovalRequest)
 			approvalChannel.SetDeliveryAckHandler(agentLoop.AcknowledgeDelivery)
+			approvalChannel.SetBranchHandler(agentLoop.SelectBranch)
 		}
 	}
 	agentLoop.SetMediaStore(runningServices.MediaStore)

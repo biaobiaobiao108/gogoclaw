@@ -31,6 +31,7 @@ type Handler struct {
 	sessionListCache map[string]cachedSessionListItem
 	sessionRefCache  map[string]cachedSessionRefs
 	sessionIndexRead map[string]bool
+	sessionMetaMu    sync.Mutex
 }
 
 // NewHandler creates an instance of the API handler.

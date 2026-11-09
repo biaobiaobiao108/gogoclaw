@@ -1,19 +1,23 @@
-import { IconChevronRight } from "@tabler/icons-react"
+import { IconBrain, IconChevronRight, IconTool } from "@tabler/icons-react"
 import { useTranslation } from "react-i18next"
 
 import { AssistantMessage } from "@/components/chat/assistant-message"
-import type { ChatMessage } from "@/store/chat"
+import type { ChatActivity, ChatMessage, ChatStoreState } from "@/store/chat"
 
 export function ProcessMessage({
   messages,
   expanded,
   onToggle,
   streamingMessageId,
+  activeTurn,
+  activities = [],
 }: {
   messages: ChatMessage[]
   expanded: boolean
   onToggle: () => void
   streamingMessageId?: string
+  activeTurn?: ChatStoreState["activeTurn"]
+  activities?: ChatActivity[]
 }) {
   const { t } = useTranslation()
   const calls = messages.reduce(
@@ -24,6 +28,19 @@ export function ProcessMessage({
     streamingMessageId &&
     messages.some((m) => m.id === streamingMessageId && m.kind === "thought"),
   )
+  const turnActivities = activeTurn?.activities ?? []
+  const isActive = Boolean(activeTurn || isStreamingThought)
+  const currentActivity = isActive
+    ? (activeTurn?.activity ??
+      [...turnActivities, ...activities]
+        .reverse()
+        .find((activity) => activity.status === "running"))
+    : undefined
+  const label = currentActivity?.title
+    ? currentActivity.title
+    : isStreamingThought
+      ? t("chat.reasoningStreamingLabel")
+      : t("chat.processLabel")
   return (
     <div className="text-muted-foreground text-sm">
       <button
@@ -32,14 +49,16 @@ export function ProcessMessage({
         aria-expanded={expanded}
         onClick={onToggle}
       >
-        <span>
-          {isStreamingThought
-            ? t("chat.reasoningStreamingLabel")
-            : t("chat.processLabel")}
+        {isActive ? (
+          currentActivity ? (
+            <IconTool className="text-accent size-3.5" />
+          ) : (
+            <IconBrain className="text-accent size-3.5" />
+          )
+        ) : null}
+        <span className={isActive ? "process-shimmer" : undefined}>
+          {label}
         </span>
-        {isStreamingThought && (
-          <span className="streaming-dot bg-accent size-1.5 animate-pulse rounded-full" />
-        )}
         {calls > 0 && <span>{t("chat.toolCallCount", { count: calls })}</span>}
         <IconChevronRight
           className={`size-4 transition-transform ${expanded ? "rotate-90" : ""}`}

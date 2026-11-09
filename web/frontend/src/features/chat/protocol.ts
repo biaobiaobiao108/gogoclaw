@@ -7,11 +7,17 @@ import {
 import { normalizeUnixTimestamp } from "@/features/chat/state"
 import i18n from "@/i18n"
 import {
+  type ChatActivity,
   type ChatApproval,
   type ChatAttachment,
   type ContextUsage,
   updateChatStore,
 } from "@/store/chat"
+
+export interface PicoMessageHandlerOptions {
+  onBranchUpdated?: () => void
+  onTurnSettled?: () => void
+}
 
 export interface PicoMessage {
   type: string
@@ -22,6 +28,51 @@ export interface PicoMessage {
 }
 
 let lastTurnErrorSignature = ""
+
+function parseActivities(raw: unknown): ChatActivity[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const activities = raw.flatMap((item) => {
+    if (!item || typeof item !== "object") return []
+    const value = item as Record<string, unknown>
+    if (typeof value.id !== "string" || typeof value.title !== "string") {
+      return []
+    }
+    return [
+      {
+        id: value.id,
+        kind: typeof value.kind === "string" ? value.kind : "tool",
+        status: typeof value.status === "string" ? value.status : "pending",
+        title: value.title,
+        toolCallId:
+          typeof value.tool_call_id === "string"
+            ? value.tool_call_id
+            : undefined,
+        tool: typeof value.tool === "string" ? value.tool : undefined,
+        detail: typeof value.detail === "string" ? value.detail : undefined,
+        output: typeof value.output === "string" ? value.output : undefined,
+        durationMs:
+          typeof value.duration_ms === "number" ? value.duration_ms : undefined,
+        exitCode:
+          typeof value.exit_code === "number" ? value.exit_code : undefined,
+        diff: typeof value.diff === "string" ? value.diff : undefined,
+        artifacts: Array.isArray(value.artifacts)
+          ? value.artifacts.filter(
+              (entry): entry is string => typeof entry === "string",
+            )
+          : undefined,
+        startedAt:
+          typeof value.started_at === "string"
+            ? value.started_at
+            : new Date().toISOString(),
+        completedAt:
+          typeof value.completed_at === "string"
+            ? value.completed_at
+            : undefined,
+      } satisfies ChatActivity,
+    ]
+  })
+  return activities.length > 0 ? activities : undefined
+}
 
 function parseAttachments(
   payload: Record<string, unknown>,
@@ -57,12 +108,15 @@ function parseAttachments(
       typeof attachment.content_type === "string"
         ? attachment.content_type
         : undefined
+    const path =
+      typeof attachment.path === "string" ? attachment.path : undefined
 
     attachments.push({
       type,
       url,
       ...(filename ? { filename } : {}),
       ...(contentType ? { contentType } : {}),
+      ...(path ? { path } : {}),
     })
   }
 
@@ -157,6 +211,7 @@ function parseApproval(raw: unknown): ChatApproval | undefined {
 export function handlePicoMessage(
   message: PicoMessage,
   expectedSessionId: string,
+  options: PicoMessageHandlerOptions = {},
 ): string | undefined {
   if (message.session_id && message.session_id !== expectedSessionId) {
     return
@@ -192,6 +247,8 @@ export function handlePicoMessage(
               typeof step.status === "string",
           )
         : undefined
+      const activities = parseActivities(payload.activities)
+      const activity = parseActivities([payload.activity])?.[0]
       updateChatStore({
         ...(contextUsage ? { contextUsage } : {}),
         activeTurn: active
@@ -201,6 +258,8 @@ export function handlePicoMessage(
               phase: typeof payload.phase === "string" ? payload.phase : "",
               iteration: Number(payload.iteration) || 0,
               plan,
+              activities,
+              activity,
             }
           : undefined,
         ...(plan ? { recentPlan: plan } : {}),
@@ -213,6 +272,11 @@ export function handlePicoMessage(
           ? { pendingApproval: approval }
           : { pendingApproval: undefined }),
       })
+      if (!active) options.onTurnSettled?.()
+      break
+    }
+    case "branch.updated": {
+      options.onBranchUpdated?.()
       break
     }
     case "message.create":

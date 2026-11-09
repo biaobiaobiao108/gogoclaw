@@ -168,6 +168,18 @@ func (al *AgentLoop) processMessageResult(ctx context.Context, msg bus.InboundMe
 	// agent-scoped keys supplied by the caller.
 	scopeKey := resolveScopeKey(allocation.SessionKey, msg.SessionKey)
 	sessionKey := scopeKey
+	var branchHandled bool
+	var branchErr error
+	msg, branchHandled, branchErr = al.prepareChatBranchRequest(ctx, msg, agent, sessionKey)
+	if branchErr != nil {
+		return processMessageResult{}, branchErr
+	}
+	if branchHandled {
+		logger.InfoCF("agent", "Prepared branched chat request", map[string]any{
+			"session_key":   sessionKey,
+			"branch_action": msg.Context.Raw["regenerate_from_message_id"] + msg.Context.Raw["edit_message_id"],
+		})
+	}
 
 	// Reset message-tool state for this round so we don't skip publishing due to a previous round.
 	if tool, ok := agent.Tools.Get("message"); ok {
@@ -196,6 +208,8 @@ func (al *AgentLoop) processMessageResult(ctx context.Context, msg bus.InboundMe
 			SessionScope:   session.CloneScope(&allocation.Scope),
 			UserMessage:    msg.Content,
 			Media:          append([]string(nil), msg.Media...),
+			Attachments:    append([]bus.InboundAttachment(nil), msg.Attachments...),
+			ThinkingLevel:  strings.TrimSpace(msg.Context.Raw["thinking_level"]),
 		},
 		SenderID:                msg.SenderID,
 		SenderDisplayName:       msg.Sender.DisplayName,

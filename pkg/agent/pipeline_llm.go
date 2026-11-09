@@ -268,6 +268,9 @@ func (p *Pipeline) CallLLM(
 				p.Cfg.Agents.Defaults.Provider,
 			)
 			candidateThinking := thinkingSettingsFromModelConfig(candidateCfg)
+			if isConfiguredThinkingLevel(exec.thinkingLevel) {
+				candidateThinking = thinkingSettings{level: parseThinkingLevel(exec.thinkingLevel), configured: true}
+			}
 			applyThinkingOption(callOpts, candidateProvider, candidateThinking, true, ts.agent.ID)
 			exec.suppressReasoning = shouldSuppressReasoningFor(candidateThinking)
 			ts.recordRequestContext(messagesForCall, candidateTools)

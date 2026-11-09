@@ -19,6 +19,8 @@ const (
 	TypeApprovalAck      = "approval.ack"
 	TypeApprovalResolved = "approval.resolved"
 	TypeDeliveryAck      = "delivery.ack"
+	TypeBranchSelect     = "branch.select"
+	TypeBranchUpdated    = "branch.updated"
 
 	// TypeMessageCreate is sent from server to client.
 	TypeMessageCreate = "message.create"
@@ -38,6 +40,7 @@ const (
 	PayloadKeyModelName   = "model_name"
 	PayloadKeyUsage       = "usage"
 	PayloadKeyDeliveryID  = "delivery_id"
+	PayloadKeyThinking    = "thinking_level"
 
 	MessageKindThought   = "thought"
 	MessageKindToolCalls = "tool_calls"

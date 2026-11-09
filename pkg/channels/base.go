@@ -321,6 +321,17 @@ func (c *BaseChannel) HandleMessageWithContext(
 	inboundCtx bus.InboundContext,
 	senderOpts ...bus.SenderInfo,
 ) error {
+	return c.handleMessageWithContext(ctx, deliveryChatID, content, media, nil, inboundCtx, senderOpts...)
+}
+
+func (c *BaseChannel) handleMessageWithContext(
+	ctx context.Context,
+	deliveryChatID, content string,
+	media []string,
+	attachments []bus.InboundAttachment,
+	inboundCtx bus.InboundContext,
+	senderOpts ...bus.SenderInfo,
+) error {
 	// Use SenderInfo-based allow check when available, else fall back to string
 	var sender bus.SenderInfo
 	if len(senderOpts) > 0 {
@@ -374,11 +385,12 @@ func (c *BaseChannel) HandleMessageWithContext(
 	scope := BuildMediaScope(c.name, deliveryChatID, inboundCtx.MessageID)
 
 	msg := bus.InboundMessage{
-		Context:    inboundCtx,
-		Sender:     sender,
-		Content:    content,
-		Media:      media,
-		MediaScope: scope,
+		Context:     inboundCtx,
+		Sender:      sender,
+		Content:     content,
+		Media:       media,
+		Attachments: append([]bus.InboundAttachment(nil), attachments...),
+		MediaScope:  scope,
 	}
 	msg = bus.NormalizeInboundMessage(msg)
 
@@ -437,7 +449,20 @@ func (c *BaseChannel) HandleInboundContext(
 	inboundCtx bus.InboundContext,
 	senderOpts ...bus.SenderInfo,
 ) error {
-	return c.HandleMessageWithContext(ctx, deliveryChatID, content, media, inboundCtx, senderOpts...)
+	return c.handleMessageWithContext(ctx, deliveryChatID, content, media, nil, inboundCtx, senderOpts...)
+}
+
+// HandleInboundContextWithAttachments publishes an inbound message with durable
+// attachments in addition to the legacy media reference list.
+func (c *BaseChannel) HandleInboundContextWithAttachments(
+	ctx context.Context,
+	deliveryChatID, content string,
+	media []string,
+	attachments []bus.InboundAttachment,
+	inboundCtx bus.InboundContext,
+	senderOpts ...bus.SenderInfo,
+) error {
+	return c.handleMessageWithContext(ctx, deliveryChatID, content, media, attachments, inboundCtx, senderOpts...)
 }
 
 func (c *BaseChannel) SetRunning(running bool) {

@@ -14,10 +14,37 @@ import {
 } from "@/features/chat/state"
 
 export interface ChatAttachment {
+  clientId?: string
   type: "image" | "audio" | "video" | "file"
   url: string
   filename?: string
   contentType?: string
+  path?: string
+  status?: "uploading" | "ready" | "failed"
+  error?: string
+  file?: File
+}
+
+export type ChatFeedbackValue = "up" | "down"
+
+export interface ChatSource {
+  title?: string
+  url: string
+  snippet?: string
+}
+
+export interface ChatBranchVersion {
+  id: string
+  preview: string
+  modelName?: string
+  createdAt?: string
+}
+
+export interface ChatBranchGroup {
+  rootMessageId: string
+  sessionKey?: string
+  activeVersionId: string
+  versions: ChatBranchVersion[]
 }
 
 export const chatDraftsAtom = atom<
@@ -55,6 +82,8 @@ export interface ChatMessage {
   toolCalls?: ChatToolCall[]
   deliveryId?: string
   deliveryStatus?: MessageDeliveryStatus
+  feedback?: ChatFeedbackValue
+  sources?: ChatSource[]
 }
 
 export interface ContextUsage {
@@ -123,6 +152,8 @@ export interface ChatStoreState {
     phase: string
     iteration: number
     plan?: { text: string; status: string }[]
+    activities?: ChatActivity[]
+    activity?: ChatActivity
   }
   recentActivities?: ChatActivity[]
   recentPlan?: ChatPlanStep[]
@@ -137,6 +168,7 @@ export interface ChatStoreState {
   historyCursor?: string
   hasOlderHistory?: boolean
   contextUsage?: ContextUsage
+  branches?: ChatBranchGroup[]
 }
 
 type ChatStorePatch = Partial<ChatStoreState>

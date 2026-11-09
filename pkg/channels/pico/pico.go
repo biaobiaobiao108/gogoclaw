@@ -125,6 +125,7 @@ type PicoChannel struct {
 	broadcastFn      func(chatID string, msg PicoMessage) error
 	turnStatus       func(chatID string, includeRecovery bool) map[string]any
 	approvalHandler  func(context.Context, approval.Response) error
+	branchHandler    func(context.Context, string, string) error
 	approvalMu       sync.Mutex
 	approvalSessions map[string]string
 	deliveryAck      func(context.Context, string, string, string) error
@@ -141,6 +142,12 @@ func (c *PicoChannel) SetTurnStatusProvider(provider func(string, bool) map[stri
 
 func (c *PicoChannel) SetApprovalHandler(handler func(context.Context, approval.Response) error) {
 	c.approvalHandler = handler
+}
+
+// SetBranchHandler lets the gateway switch the live agent context to a
+// previously recorded answer branch.
+func (c *PicoChannel) SetBranchHandler(handler func(context.Context, string, string) error) {
+	c.branchHandler = handler
 }
 
 func (c *PicoChannel) SetDeliveryAckHandler(
@@ -1409,9 +1416,35 @@ func (c *PicoChannel) handleMessage(pc *picoConn, msg PicoMessage) {
 	case TypeDeliveryAck:
 		c.handleDeliveryAck(pc, msg)
 
+	case TypeBranchSelect:
+		c.handleBranchSelect(pc, msg)
+
 	default:
 		errMsg := newError("unknown_type", fmt.Sprintf("unknown message type: %s", msg.Type))
 		pc.writeJSON(errMsg)
+	}
+}
+
+func (c *PicoChannel) handleBranchSelect(pc *picoConn, msg PicoMessage) {
+	versionID, _ := msg.Payload["branch_id"].(string)
+	versionID = strings.TrimSpace(versionID)
+	if versionID == "" {
+		_ = pc.writeJSON(newErrorWithPayload("invalid_branch", "branch_id is required", map[string]any{"request_id": msg.ID}))
+		return
+	}
+	if c.branchHandler == nil {
+		_ = pc.writeJSON(newErrorWithPayload("branch_unavailable", "branch switching is unavailable", map[string]any{"request_id": msg.ID}))
+		return
+	}
+	if err := c.branchHandler(c.ctx, pc.sessionID, versionID); err != nil {
+		_ = pc.writeJSON(newErrorWithPayload("branch_switch_failed", err.Error(), map[string]any{"request_id": msg.ID}))
+		return
+	}
+	updated := newMessage(TypeBranchUpdated, map[string]any{"branch_id": versionID})
+	updated.SessionID = pc.sessionID
+	updated.ID = msg.ID
+	if err := c.broadcastToSession("pico:"+pc.sessionID, updated); err != nil {
+		_ = pc.writeJSON(newErrorWithPayload("branch_switch_failed", err.Error(), map[string]any{"request_id": msg.ID}))
 	}
 }
 
@@ -1516,7 +1549,7 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		}
 	}
 	content, _ := msg.Payload["content"].(string)
-	media, err := parseInlineImageMedia(msg.Payload)
+	media, attachments, err := parsePicoAttachmentPayload(msg.Payload)
 	if err != nil {
 		c.releaseMessage(dedupeKey)
 		errMsg := newErrorWithPayload("invalid_media", err.Error(), map[string]any{
@@ -1526,7 +1559,9 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		return
 	}
 
-	if strings.TrimSpace(content) == "" && len(media) == 0 {
+	regenerateID, _ := msg.Payload["regenerate_from_message_id"].(string)
+	editID, _ := msg.Payload["edit_message_id"].(string)
+	if strings.TrimSpace(content) == "" && len(media) == 0 && strings.TrimSpace(regenerateID) == "" && strings.TrimSpace(editID) == "" {
 		c.releaseMessage(dedupeKey)
 		errMsg := newErrorWithPayload("empty_content", "message content is empty", map[string]any{
 			"request_id": msg.ID,
@@ -1544,6 +1579,11 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		"platform":   "pico",
 		"session_id": sessionID,
 		"conn_id":    pc.id,
+	}
+	for _, key := range []string{"thinking_level", "regenerate_from_message_id", "edit_message_id"} {
+		if value, ok := msg.Payload[key].(string); ok && strings.TrimSpace(value) != "" {
+			metadata[key] = strings.TrimSpace(value)
+		}
 	}
 
 	logger.DebugCF("pico", "Received message", map[string]any{
@@ -1572,7 +1612,7 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		Raw:       metadata,
 	}
 
-	if err := c.HandleInboundContext(c.ctx, chatID, content, media, inboundCtx, sender); err != nil {
+	if err := c.HandleInboundContextWithAttachments(c.ctx, chatID, content, media, attachments, inboundCtx, sender); err != nil {
 		c.releaseMessage(dedupeKey)
 		errMsg := newErrorWithPayload("send_failed", err.Error(), map[string]any{"request_id": msg.ID})
 		_ = pc.writeJSON(errMsg)
@@ -1737,6 +1777,85 @@ func parseInlineImageMedia(payload map[string]any) ([]string, error) {
 	media = append(media, attachments...)
 
 	return media, nil
+}
+
+// parsePicoAttachmentPayload accepts the legacy inline-image shape and the
+// durable attachment shape used by the web console. Durable uploads carry a
+// local path so the agent can inspect them after a browser refresh.
+func parsePicoAttachmentPayload(payload map[string]any) ([]string, []bus.InboundAttachment, error) {
+	if len(payload) == 0 {
+		return nil, nil, nil
+	}
+	media, err := parseInlineImageValues(payload["media"])
+	if err != nil {
+		return nil, nil, err
+	}
+	attachments := make([]bus.InboundAttachment, 0)
+	rawAttachments, ok := payload["attachments"]
+	if ok && rawAttachments != nil {
+		values, ok := rawAttachments.([]any)
+		if !ok {
+			return nil, nil, fmt.Errorf("attachments must be an array")
+		}
+		for i, item := range values {
+			attachment, ok := item.(map[string]any)
+			if !ok {
+				return nil, nil, fmt.Errorf("attachments[%d]: attachment must be an object", i)
+			}
+			path, _ := attachment["path"].(string)
+			path = strings.TrimSpace(path)
+			urlValue, _ := attachment["url"].(string)
+			urlValue = strings.TrimSpace(urlValue)
+			attachmentType, _ := attachment["type"].(string)
+			filename, _ := attachment["filename"].(string)
+			contentType, _ := attachment["content_type"].(string)
+			if path != "" {
+				if err := validatePicoAttachmentPath(path); err != nil {
+					return nil, nil, fmt.Errorf("attachments[%d]: %w", i, err)
+				}
+				media = append(media, path)
+				attachments = append(attachments, bus.InboundAttachment{
+					Type: attachmentType, URL: urlValue, Path: path,
+					Filename: filename, ContentType: contentType,
+				})
+				continue
+			}
+			if strings.HasPrefix(urlValue, "data:image/") {
+				if err := validateInlineImageDataURL(urlValue); err != nil {
+					return nil, nil, fmt.Errorf("attachments[%d]: %w", i, err)
+				}
+				media = append(media, urlValue)
+				attachments = append(attachments, bus.InboundAttachment{Type: "image", URL: urlValue, Filename: filename, ContentType: contentType})
+				continue
+			}
+			if attachmentType != "" || filename != "" {
+				return nil, nil, fmt.Errorf("attachments[%d]: durable attachment path is required", i)
+			}
+		}
+	}
+	return media, attachments, nil
+}
+
+func validatePicoAttachmentPath(path string) error {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	clean := filepath.Clean(absolute)
+	if !strings.Contains(strings.ToLower(clean), string(filepath.Separator)+".attachments"+string(filepath.Separator)) {
+		return fmt.Errorf("attachment path is outside the managed upload directory")
+	}
+	info, err := os.Stat(clean)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("attachment path is a directory")
+	}
+	if info.Size() > int64(config.DefaultMaxMediaSize) {
+		return fmt.Errorf("attachment exceeds %d byte limit", config.DefaultMaxMediaSize)
+	}
+	return nil
 }
 
 func parseInlineImageValues(raw any) ([]string, error) {

@@ -13,6 +13,7 @@ import {
 } from "react"
 import { useTranslation } from "react-i18next"
 
+import { ActiveWorkIndicator } from "@/components/chat/active-work-indicator"
 import { ActivityTimeline } from "@/components/chat/activity-timeline"
 import { ApprovalPanel } from "@/components/chat/approval-panel"
 import { AssistantMessage } from "@/components/chat/assistant-message"
@@ -24,17 +25,22 @@ import { ChatEmptyState } from "@/components/chat/chat-empty-state"
 import { ModelSelector } from "@/components/chat/model-selector"
 import { ProcessMessage } from "@/components/chat/process-message"
 import { SessionHistoryMenu } from "@/components/chat/session-history-menu"
-import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { UserMessage } from "@/components/chat/user-message"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
-import { retryChatMessage } from "@/features/chat/controller"
+import {
+  retryChatMessage,
+  saveMessageFeedback,
+  selectChatBranch,
+} from "@/features/chat/controller"
 import { groupChatMessages } from "@/features/chat/group-messages"
 import {
-  buildChatImageAttachments,
-  CHAT_IMAGE_ACCEPT,
+  CHAT_ATTACHMENT_ACCEPT,
   getTransferredFiles,
   hasFileTransfer,
+  releaseAttachmentPreview,
+  retryChatAttachment,
+  uploadChatAttachments,
 } from "@/features/chat/image-input"
 import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
@@ -100,8 +106,8 @@ type ChatStreamRow =
   | { kind: "historyError" }
   | { kind: "empty" }
   | { kind: "message"; message: ChatMessage }
-  | { kind: "process"; messages: ChatMessage[] }
-  | { kind: "typing" }
+  | { kind: "process"; messages: ChatMessage[]; active?: boolean }
+  | { kind: "working" }
   | {
       kind: "activity"
       plan?: ChatPlanStep[]
@@ -126,7 +132,7 @@ function estimateChatStreamRow(row: ChatStreamRow): number {
       return 104
     case "empty":
       return 420
-    case "typing":
+    case "working":
       return 56
     case "activity":
       return 180
@@ -169,6 +175,8 @@ export function ChatPage() {
   const [hasScrolled, setHasScrolled] = useState(false)
   const [drafts, setDrafts] = useAtom(chatDraftsAtom)
   const [isDragActive, setIsDragActive] = useState(false)
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [thinkingLevel, setThinkingLevel] = useState("")
   const autoScrollEnabledRef = useRef(true)
 
   const {
@@ -183,6 +191,7 @@ export function ChatPage() {
     interrupted,
     activeSessionId,
     contextUsage,
+    branches,
     sendMessage,
     respondToApproval,
     switchSession,
@@ -229,6 +238,10 @@ export function ChatPage() {
         typeof update === "function" ? update(draft.attachments) : update,
     }))
 
+  useEffect(() => {
+    setEditingMessageId(null)
+  }, [activeSessionId])
+
   const { state: gwState } = useGateway()
   const isGatewayRunning = gwState === "running"
 
@@ -265,8 +278,11 @@ export function ChatPage() {
     loadErrorMessage,
     isLoading: isLoadingHistory,
     deleteError,
+    archived: showingArchived,
+    setArchived,
     loadSessions,
     handleDeleteSession,
+    handleUpdateSession,
   } = useSessionHistory({
     activeSessionId,
     onDeletedActiveSession: newChat,
@@ -274,7 +290,7 @@ export function ChatPage() {
 
   useEffect(() => {
     void loadSessions(true)
-  }, [activeSessionId, Boolean(activeTurn), isTyping])
+  }, [activeSessionId, Boolean(activeTurn), isTyping, showingArchived])
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const el = scrollRef.current
@@ -329,15 +345,32 @@ export function ChatPage() {
   }, [])
 
   const handleSend = () => {
-    if ((!input.trim() && attachments.length === 0) || !canInput) return
+    const readyAttachments = attachments.filter(
+      (attachment) =>
+        attachment.status === undefined || attachment.status === "ready",
+    )
+    if (
+      (!input.trim() && readyAttachments.length === 0) ||
+      !canInput ||
+      attachments.some(
+        (attachment) =>
+          attachment.status === "uploading" || attachment.status === "failed",
+      )
+    )
+      return
     if (
       sendMessage({
         content: input,
-        attachments,
+        attachments: readyAttachments,
+        thinkingLevel,
+        ...(editingMessageId
+          ? { action: "edit" as const, targetMessageId: editingMessageId }
+          : {}),
       })
     ) {
       setInput("")
       setAttachments([])
+      setEditingMessageId(null)
       // Always auto-scroll on new user message send
       autoScrollEnabledRef.current = true
       requestAnimationFrame(() => {
@@ -346,29 +379,92 @@ export function ChatPage() {
     }
   }
 
-  const handleAddImages = () => {
+  const handleEditMessage = (message: ChatMessage) => {
+    if (message.role !== "user" || message.deliveryStatus === "sending") return
+    setEditingMessageId(message.id)
+    setInput(message.content)
+    setAttachments(
+      (message.attachments ?? []).map((attachment) => ({
+        ...attachment,
+        status: attachment.url ? ("ready" as const) : ("failed" as const),
+      })),
+    )
+  }
+
+  const handleRegenerateMessage = (messageId: string) => {
+    if (!canInput) return
+    sendMessage({
+      content: "",
+      action: "regenerate",
+      targetMessageId: messageId,
+      thinkingLevel,
+    })
+  }
+
+  const branchByVersion = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof branches>[number]>()
+    for (const group of branches ?? []) {
+      for (const version of group.versions) map.set(version.id, group)
+    }
+    return map
+  }, [branches])
+
+  const cancelEditingMessage = () => {
+    for (const attachment of attachments) releaseAttachmentPreview(attachment)
+    setEditingMessageId(null)
+    setInput("")
+    setAttachments([])
+  }
+
+  const handleAddAttachments = () => {
     if (!canInput) return
     fileInputRef.current?.click()
   }
 
   const handleRemoveAttachment = (index: number) => {
+    const attachment = attachments[index]
+    if (attachment) releaseAttachmentPreview(attachment)
     setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
   }
 
-  const appendImageFiles = async (files: readonly File[]) => {
+  const handleRetryAttachment = (index: number) => {
+    const attachment = attachments[index]
+    if (!attachment) return
+    void retryChatAttachment({
+      attachment,
+      sessionId: activeSessionId,
+      t,
+      onAttachment: (next) => {
+        setAttachments((previous) =>
+          previous.map((item) =>
+            item.clientId === next.clientId ? next : item,
+          ),
+        )
+      },
+    })
+  }
+
+  const appendFiles = async (files: readonly File[]) => {
     if (!canInput || files.length === 0) {
       return
     }
 
-    const nextAttachments = await buildChatImageAttachments(files, t)
-    if (nextAttachments.length === 0) {
-      return
-    }
-
-    updateDraft(activeSessionId, (draft) => ({
-      ...draft,
-      attachments: [...draft.attachments, ...nextAttachments],
-    }))
+    await uploadChatAttachments({
+      files,
+      sessionId: activeSessionId,
+      t,
+      onAttachment: (attachment) => {
+        setAttachments((previous) => {
+          const index = previous.findIndex(
+            (item) => item.clientId && item.clientId === attachment.clientId,
+          )
+          if (index < 0) return [...previous, attachment]
+          const next = [...previous]
+          next[index] = attachment
+          return next
+        })
+      },
+    })
   }
 
   const handleImageSelection = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -379,7 +475,7 @@ export function ChatPage() {
       return
     }
 
-    await appendImageFiles(files)
+    await appendFiles(files)
   }
 
   const resetDragState = () => {
@@ -395,7 +491,7 @@ export function ChatPage() {
       return
     }
 
-    await appendImageFiles(files)
+    await appendFiles(files)
   }
 
   const handleComposerDragEnter = (event: DragEvent<HTMLDivElement>) => {
@@ -449,11 +545,16 @@ export function ChatPage() {
       return
     }
 
-    await appendImageFiles(files)
+    await appendFiles(files)
   }
 
   const canSubmit =
-    canInput && (Boolean(input.trim()) || attachments.length > 0)
+    canInput &&
+    !attachments.some(
+      (attachment) =>
+        attachment.status === "uploading" || attachment.status === "failed",
+    ) &&
+    (Boolean(input.trim()) || attachments.length > 0)
 
   const streamRows = useMemo<ChatStreamRow[]>(() => {
     const rows: ChatStreamRow[] = []
@@ -468,8 +569,16 @@ export function ChatPage() {
     ) {
       rows.push({ kind: "empty" })
     }
-    rows.push(...groupChatMessages(messages))
-    if (isTyping) rows.push({ kind: "typing" })
+    const groupedRows: ChatStreamRow[] = groupChatMessages(messages)
+    const lastGroupedIndex = groupedRows.length - 1
+    const lastGroupedRow = groupedRows[lastGroupedIndex]
+    const activeProcess =
+      Boolean(activeTurn || isTyping) && lastGroupedRow?.kind === "process"
+    if (activeProcess && lastGroupedRow?.kind === "process") {
+      groupedRows[lastGroupedIndex] = { ...lastGroupedRow, active: true }
+    }
+    rows.push(...groupedRows)
+    if (isTyping && !activeProcess) rows.push({ kind: "working" })
     if (!isHistoryLoading && !historyError && !activeTurn) {
       rows.push({
         kind: "activity",
@@ -615,6 +724,9 @@ export function ChatPage() {
           onLoadMore={() => void loadSessions(false)}
           onSwitchSession={switchSession}
           onDeleteSession={handleDeleteSession}
+          archived={showingArchived}
+          onArchivedChange={setArchived}
+          onUpdateSession={handleUpdateSession}
         />
         <div className="relative flex min-w-0 flex-1 flex-col">
           {modelsError && (
@@ -753,6 +865,16 @@ export function ChatPage() {
                           kind={row.message.kind}
                           modelName={row.message.modelName}
                           toolCalls={row.message.toolCalls}
+                          feedback={row.message.feedback}
+                          sources={row.message.sources}
+                          branchGroup={branchByVersion.get(row.message.id)}
+                          onFeedback={(value) =>
+                            void saveMessageFeedback(row.message.id, value)
+                          }
+                          onRegenerate={() =>
+                            handleRegenerateMessage(row.message.id)
+                          }
+                          onSelectBranch={selectChatBranch}
                           timestamp={row.message.timestamp}
                           isStreaming={row.message.id === streamingMessageId}
                         />
@@ -762,6 +884,7 @@ export function ChatPage() {
                           attachments={row.message.attachments}
                           timestamp={row.message.timestamp}
                           deliveryStatus={row.message.deliveryStatus}
+                          onEdit={() => handleEditMessage(row.message)}
                           onRetry={
                             connectionState === "connected"
                               ? () => retryChatMessage(row.message.id)
@@ -773,24 +896,27 @@ export function ChatPage() {
                       <ProcessMessage
                         messages={row.messages}
                         streamingMessageId={streamingMessageId}
+                        activeTurn={row.active ? activeTurn : undefined}
+                        activities={row.active ? recentActivities : []}
                         expanded={
-                          expandedProcesses[row.messages[0].id] ??
-                          row.messages.some((m) => m.id === streamingMessageId)
+                          expandedProcesses[row.messages[0].id] ?? false
                         }
                         onToggle={() =>
                           setExpandedProcesses((previous) => ({
                             ...previous,
                             [row.messages[0].id]: !(
-                              previous[row.messages[0].id] ??
-                              row.messages.some(
-                                (m) => m.id === streamingMessageId,
-                              )
+                              previous[row.messages[0].id] ?? false
                             ),
                           }))
                         }
                       />
                     )}
-                    {row.kind === "typing" && <TypingIndicator />}
+                    {row.kind === "working" && (
+                      <ActiveWorkIndicator
+                        activeTurn={activeTurn}
+                        activities={recentActivities ?? []}
+                      />
+                    )}
                     {row.kind === "activity" && (
                       <ActivityTimeline
                         plan={row.plan}
@@ -818,20 +944,12 @@ export function ChatPage() {
           <input
             ref={fileInputRef}
             type="file"
-            accept={CHAT_IMAGE_ACCEPT}
+            accept={CHAT_ATTACHMENT_ACCEPT || undefined}
             multiple
             className="hidden"
             onChange={handleImageSelection}
           />
 
-          {activeTurn && (
-            <div
-              role="status"
-              className="text-muted-foreground mx-auto w-full max-w-3xl px-4 pb-1 text-xs"
-            >
-              {t("chat.taskRunning", { iteration: activeTurn.iteration })}
-            </div>
-          )}
           {activeTurn?.plan && activeTurn.plan.length > 0 && (
             <details
               open
@@ -883,13 +1001,14 @@ export function ChatPage() {
             input={input}
             attachments={attachments}
             onInputChange={setInput}
-            onAddImages={handleAddImages}
+            onAddAttachments={handleAddAttachments}
             onPaste={handleComposerPaste}
             onDragEnter={handleComposerDragEnter}
             onDragLeave={handleComposerDragLeave}
             onDragOver={handleComposerDragOver}
             onDrop={handleComposerDrop}
             onRemoveAttachment={handleRemoveAttachment}
+            onRetryAttachment={handleRetryAttachment}
             onSend={handleSend}
             onStop={() => sendMessage({ content: "/stop" })}
             isRunning={Boolean(activeTurn) || isTyping}
@@ -900,6 +1019,10 @@ export function ChatPage() {
             canSend={canSubmit}
             isDragActive={isDragActive}
             contextUsage={contextUsage}
+            thinkingLevel={thinkingLevel}
+            onThinkingLevelChange={setThinkingLevel}
+            editing={editingMessageId !== null}
+            onCancelEdit={cancelEditingMessage}
           />
         </div>
       </div>

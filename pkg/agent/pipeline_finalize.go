@@ -8,6 +8,7 @@ import (
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
@@ -70,6 +71,15 @@ func (p *Pipeline) Finalize(
 			)
 			cancelConfiguredStreamingLLM(turnCtx, exec)
 			return turnResult{status: TurnEndStatusError}, err
+		}
+		if history, historyErr := session.HistoryChecked(ts.agent.Sessions, ts.sessionKey); historyErr == nil {
+			if branchErr := al.recordBranchSnapshot(ts, finalMsg, history); branchErr != nil {
+				logger.WarnCF("agent", "Failed to record chat branch snapshot", map[string]any{
+					"session_key": ts.sessionKey,
+					"message_id":  finalMsg.ID,
+					"error":       branchErr.Error(),
+				})
+			}
 		}
 	}
 

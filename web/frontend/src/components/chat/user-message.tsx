@@ -1,4 +1,9 @@
-import { IconCheck, IconCopy } from "@tabler/icons-react"
+import {
+  IconCheck,
+  IconCopy,
+  IconFileText,
+  IconPencil,
+} from "@tabler/icons-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
@@ -13,6 +18,7 @@ interface UserMessageProps {
   timestamp?: string | number
   deliveryStatus?: MessageDeliveryStatus
   onRetry?: () => void
+  onEdit?: () => void
 }
 
 export function UserMessage({
@@ -21,6 +27,7 @@ export function UserMessage({
   timestamp = "",
   deliveryStatus,
   onRetry,
+  onEdit,
 }: UserMessageProps) {
   const { t } = useTranslation()
   const { copy, isCopied } = useCopyToClipboard()
@@ -28,6 +35,9 @@ export function UserMessage({
   const isCommand = content.trim().startsWith("/")
   const imageAttachments = attachments.filter(
     (attachment) => attachment.type === "image",
+  )
+  const fileAttachments = attachments.filter(
+    (attachment) => attachment.type !== "image",
   )
   const copyMessageLabel = isCopied
     ? t("chat.copiedLabel")
@@ -54,6 +64,24 @@ export function UserMessage({
         </div>
       )}
 
+      {fileAttachments.length > 0 && (
+        <div className="flex max-w-[85%] flex-wrap justify-end gap-2 sm:max-w-[70%]">
+          {fileAttachments.map((attachment, index) => (
+            <a
+              key={`${attachment.url}-${index}`}
+              href={attachment.url}
+              download={attachment.filename}
+              className="border-border/60 bg-card hover:bg-muted/40 flex max-w-full min-w-[180px] items-center gap-2 rounded-lg border px-3 py-2 text-xs transition-colors"
+            >
+              <IconFileText className="text-muted-foreground size-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">
+                {attachment.filename || t("chat.attachmentFallback")}
+              </span>
+            </a>
+          ))}
+        </div>
+      )}
+
       {hasText && (
         <div className="relative max-w-[85%] sm:max-w-[75%]">
           <div
@@ -73,9 +101,25 @@ export function UserMessage({
               content
             )}
           </div>
+        </div>
+      )}
 
-          {/* Action button floating under / next to bubble on hover */}
-          <div className="mt-1 flex justify-end gap-1 px-1">
+      {(hasText || attachments.length > 0) && (
+        <div className="mt-1 flex justify-end gap-1 px-1">
+          {onEdit && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground h-6 w-6 rounded-md opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+              onClick={onEdit}
+              aria-label={t("chat.editMessage")}
+              title={t("chat.editMessage")}
+            >
+              <IconPencil className="h-3.5 w-3.5" />
+            </Button>
+          )}
+          {hasText && (
             <Button
               type="button"
               variant="ghost"
@@ -91,7 +135,7 @@ export function UserMessage({
                 <IconCopy className="h-3.5 w-3.5" />
               )}
             </Button>
-          </div>
+          )}
         </div>
       )}
 

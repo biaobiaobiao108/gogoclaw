@@ -108,6 +108,7 @@ type ActiveTurnInfo struct {
 	ParentTurnID string
 	ChildTurnIDs []string
 	Plan         []planStep
+	Activities   []session.TurnActivity
 }
 
 // =============================================================================
@@ -149,6 +150,7 @@ type turnExecution struct {
 	llmModel            string
 	llmModelName        string
 	llmOpts             map[string]any
+	thinkingLevel       string
 	gracefulTerminal    bool
 	useNativeSearch     bool
 	ownedProviders      []providers.LLMProvider
@@ -185,6 +187,7 @@ func newTurnExecution(
 		currentTurnStart: len(messages),
 		iteration:        0,
 		phase:            LLMPhaseSetup,
+		thinkingLevel:    strings.TrimSpace(opts.ThinkingLevel),
 	}
 }
 
@@ -470,6 +473,7 @@ func (ts *turnState) snapshot() ActiveTurnInfo {
 		ParentTurnID: ts.parentTurnID,
 		ChildTurnIDs: append([]string(nil), ts.childTurnIDs...),
 		Plan:         append([]planStep(nil), ts.plan...),
+		Activities:   append([]session.TurnActivity(nil), ts.activities...),
 	}
 }
 

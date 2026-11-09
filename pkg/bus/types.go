@@ -35,13 +35,25 @@ type InboundContext struct {
 	Raw          map[string]string `json:"raw,omitempty"`
 }
 
+// InboundAttachment describes a durable user-provided attachment. Path is the
+// local path used by the agent for media resolution; URL is the durable
+// browser-facing location stored in session history.
+type InboundAttachment struct {
+	Type        string `json:"type,omitempty"`
+	URL         string `json:"url,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Filename    string `json:"filename,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
+}
+
 type InboundMessage struct {
-	Context    InboundContext `json:"context"`
-	Sender     SenderInfo     `json:"sender"`
-	Content    string         `json:"content"`
-	Media      []string       `json:"media,omitempty"`
-	MediaScope string         `json:"media_scope,omitempty"` // media lifecycle scope
-	SessionKey string         `json:"session_key"`
+	Context     InboundContext      `json:"context"`
+	Sender      SenderInfo          `json:"sender"`
+	Content     string              `json:"content"`
+	Media       []string            `json:"media,omitempty"`
+	Attachments []InboundAttachment `json:"attachments,omitempty"`
+	MediaScope  string              `json:"media_scope,omitempty"` // media lifecycle scope
+	SessionKey  string              `json:"session_key"`
 
 	// Convenience mirrors derived from Context for runtime consumers.
 	Channel   string `json:"channel"`

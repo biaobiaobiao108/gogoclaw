@@ -1,10 +1,23 @@
-import { IconMessageCircle, IconSearch, IconTrash } from "@tabler/icons-react"
+import {
+  IconArchive,
+  IconArchiveOff,
+  IconDotsVertical,
+  IconMessageCircle,
+  IconPencil,
+  IconPin,
+  IconSearch,
+  IconTrash,
+} from "@tabler/icons-react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import dayjs from "dayjs"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import type { SessionSummary } from "@/api/sessions"
+import {
+  searchSessions,
+  type SessionSearchResult,
+  type SessionSummary,
+} from "@/api/sessions"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,6 +29,21 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useIsMobile } from "@/hooks/use-mobile"
 
@@ -31,9 +59,21 @@ interface SessionHistoryMenuProps {
   loadErrorMessage: string
   isLoading: boolean
   deleteError: boolean
+  archived: boolean
+  onArchivedChange: (archived: boolean) => void
   onOpenChange: (open: boolean) => void
   onSwitchSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void
+  onUpdateSession: (
+    sessionId: string,
+    update: { title?: string; pinned?: boolean; archived?: boolean },
+  ) => Promise<void>
+}
+
+type HistoryItem = SessionSummary | SessionSearchResult
+
+function itemSnippet(item: HistoryItem): string | undefined {
+  return "snippet" in item ? item.snippet : undefined
 }
 
 export function SessionHistoryMenu({
@@ -48,31 +88,62 @@ export function SessionHistoryMenu({
   loadErrorMessage,
   isLoading,
   deleteError,
+  archived,
+  onArchivedChange,
   onOpenChange,
   onSwitchSession,
   onDeleteSession,
+  onUpdateSession,
 }: SessionHistoryMenuProps) {
   const { t } = useTranslation()
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null)
-
+  const [renameTarget, setRenameTarget] = useState<SessionSummary | null>(null)
+  const [renameValue, setRenameValue] = useState("")
   const [query, setQuery] = useState("")
+  const [searchResults, setSearchResults] = useState<SessionSearchResult[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [searchError, setSearchError] = useState(false)
   const isMobile = useIsMobile()
   const scrollRef = useRef<HTMLElement>(null)
-  const filtered = useMemo(
-    () =>
-      sessions.filter((session) =>
-        `${session.title} ${session.preview}`
-          .toLocaleLowerCase()
-          .includes(query.toLocaleLowerCase()),
-      ),
-    [sessions, query],
-  )
   const visible = isMobile ? open : !collapsed
+  const normalizedQuery = query.trim()
+  const items: HistoryItem[] = normalizedQuery ? searchResults : sessions
+
+  useEffect(() => {
+    if (!normalizedQuery) {
+      setSearchResults([])
+      setIsSearching(false)
+      setSearchError(false)
+      return
+    }
+    let cancelled = false
+    setIsSearching(true)
+    setSearchResults([])
+    setSearchError(false)
+    const timer = window.setTimeout(() => {
+      void searchSessions(normalizedQuery)
+        .then((results) => {
+          if (!cancelled) setSearchResults(results)
+        })
+        .catch((error) => {
+          console.error("Failed to search chat history:", error)
+          if (!cancelled) setSearchError(true)
+        })
+        .finally(() => {
+          if (!cancelled) setIsSearching(false)
+        })
+    }, 220)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [normalizedQuery])
+
   const virtualizer = useVirtualizer({
-    count: filtered.length,
+    count: items.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 40,
-    getItemKey: (index) => filtered[index].id,
+    estimateSize: () => (normalizedQuery ? 64 : 40),
+    getItemKey: (index) => items[index].id,
     overscan: 6,
     enabled: visible,
   })
@@ -81,40 +152,78 @@ export function SessionHistoryMenu({
   useEffect(() => {
     if (
       visible &&
-      !query &&
+      !normalizedQuery &&
       hasMore &&
       !isLoading &&
       !loadError &&
-      lastIndex >= filtered.length - 4 &&
-      filtered.length > 0
+      lastIndex >= items.length - 4 &&
+      items.length > 0
     )
       onLoadMore()
   }, [
     visible,
-    query,
+    normalizedQuery,
     hasMore,
     isLoading,
     loadError,
     lastIndex,
-    filtered.length,
+    items.length,
     onLoadMore,
   ])
   useEffect(() => {
     virtualizer.scrollToOffset(0)
-  }, [query])
+  }, [normalizedQuery, archived, virtualizer])
+
+  const openRename = (session: SessionSummary) => {
+    setRenameTarget(session)
+    setRenameValue(session.title)
+  }
+
+  const saveRename = () => {
+    if (!renameTarget) return
+    const title = renameValue.trim()
+    if (!title) return
+    void onUpdateSession(renameTarget.id, { title })
+    setRenameTarget(null)
+  }
+
   const content = (
     <div className="flex h-full min-h-0 flex-col gap-3 p-3">
-      <h2 className="text-muted-foreground px-2 text-xs font-medium">
-        {t("chat.history")}
-      </h2>
+      <div className="flex items-center justify-between gap-2 px-2">
+        <h2 className="text-muted-foreground text-xs font-medium">
+          {t("chat.history")}
+        </h2>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="text-muted-foreground hover:text-foreground size-7"
+          onClick={() => {
+            setQuery("")
+            onArchivedChange(!archived)
+          }}
+          aria-label={
+            archived ? t("chat.showActiveChats") : t("chat.showArchivedChats")
+          }
+          title={
+            archived ? t("chat.showActiveChats") : t("chat.showArchivedChats")
+          }
+        >
+          {archived ? (
+            <IconArchiveOff className="size-3.5" />
+          ) : (
+            <IconArchive className="size-3.5" />
+          )}
+        </Button>
+      </div>
       <label className="bg-card border-input focus-within:ring-ring/40 flex items-center gap-2 rounded-md border px-3 py-2 focus-within:ring-2">
         <IconSearch className="text-muted-foreground size-4 shrink-0" />
         <input
           className="placeholder:text-muted-foreground w-full min-w-0 bg-transparent text-sm outline-none"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder={t("chat.filterHistory")}
-          aria-label={t("chat.filterHistory")}
+          placeholder={t("chat.searchAllHistory")}
+          aria-label={t("chat.searchAllHistory")}
         />
       </label>
       <nav
@@ -127,9 +236,18 @@ export function SessionHistoryMenu({
             {t("chat.deleteSessionFailed")}
           </p>
         )}
-        {!isLoading && !loadError && filtered.length === 0 && (
-          <p className="text-muted-foreground p-2 text-sm">
-            {t(query ? "chat.noMatchingHistory" : "chat.noHistory")}
+        {!isLoading &&
+          !loadError &&
+          !isSearching &&
+          !searchError &&
+          items.length === 0 && (
+            <p className="text-muted-foreground p-2 text-sm">
+              {t(normalizedQuery ? "chat.noMatchingHistory" : "chat.noHistory")}
+            </p>
+          )}
+        {searchError && (
+          <p role="alert" className="text-destructive p-2 text-sm">
+            {t("chat.searchFailed")}
           </p>
         )}
         <div
@@ -137,7 +255,9 @@ export function SessionHistoryMenu({
           style={{ height: virtualizer.getTotalSize() }}
         >
           {virtualRows.map((row) => {
-            const session = filtered[row.index]
+            const session = items[row.index]
+            const snippet = itemSnippet(session)
+            const rowHeight = normalizedQuery ? 64 : 40
             return (
               <div
                 key={session.id}
@@ -146,7 +266,7 @@ export function SessionHistoryMenu({
                   top: 0,
                   left: 0,
                   width: "100%",
-                  height: 40,
+                  height: rowHeight,
                   transform: `translateY(${row.start}px)`,
                 }}
                 className={`group hover:bg-muted flex items-center rounded-md transition-colors ${session.id === activeSessionId ? "bg-muted font-medium" : ""}`}
@@ -163,30 +283,91 @@ export function SessionHistoryMenu({
                     onOpenChange(false)
                   }}
                 >
-                  <IconMessageCircle className="text-muted-foreground size-4 shrink-0" />
+                  {session.pinned ? (
+                    <IconPin className="text-accent size-3.5 shrink-0" />
+                  ) : (
+                    <IconMessageCircle className="text-muted-foreground size-4 shrink-0" />
+                  )}
                   <span className="block min-w-0 flex-1 truncate text-sm">
                     {session.title}
+                    {snippet && (
+                      <span className="text-muted-foreground block truncate text-[11px] leading-4">
+                        {snippet}
+                      </span>
+                    )}
                   </span>
-                  <span className="text-muted-foreground shrink-0 text-[11px] font-normal">
-                    {dayjs(session.updated).format("MM-DD")}
-                  </span>
+                  {!normalizedQuery && (
+                    <span className="text-muted-foreground shrink-0 text-[11px] font-normal">
+                      {dayjs(session.updated).format("MM-DD")}
+                    </span>
+                  )}
                 </button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-muted-foreground mr-1 size-8 shrink-0 md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100"
-                  aria-label={t("chat.deleteSession")}
-                  onClick={() => setDeleteTarget(session)}
-                >
-                  <IconTrash className="size-4" />
-                </Button>
+                {!normalizedQuery && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-muted-foreground mr-1 size-8 shrink-0 md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100"
+                        aria-label={t("chat.sessionActions")}
+                        title={t("chat.sessionActions")}
+                      >
+                        <IconDotsVertical className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-40">
+                      <DropdownMenuItem onSelect={() => openRename(session)}>
+                        <IconPencil />
+                        {t("chat.renameSession")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          void onUpdateSession(session.id, {
+                            pinned: !session.pinned,
+                          })
+                        }
+                      >
+                        <IconPin />
+                        {session.pinned
+                          ? t("chat.unpinSession")
+                          : t("chat.pinSession")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          void onUpdateSession(session.id, {
+                            archived: !session.archived,
+                          })
+                        }
+                      >
+                        {session.archived ? (
+                          <IconArchiveOff />
+                        ) : (
+                          <IconArchive />
+                        )}
+                        {session.archived
+                          ? t("chat.unarchiveSession")
+                          : t("chat.archiveSession")}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onSelect={() => setDeleteTarget(session)}
+                      >
+                        <IconTrash />
+                        {t("chat.deleteSession")}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </div>
             )
           })}
         </div>
-        {isLoading && (
+        {(isLoading || isSearching) && (
           <p role="status" className="text-muted-foreground px-2 py-3 text-xs">
-            {t(sessions.length ? "chat.loadingMore" : "chat.loadingHistory")}
+            {isSearching
+              ? t("chat.searchingHistory")
+              : t(sessions.length ? "chat.loadingMore" : "chat.loadingHistory")}
           </p>
         )}
         {loadError && (
@@ -209,6 +390,7 @@ export function SessionHistoryMenu({
       </nav>
     </div>
   )
+
   return (
     <>
       {!isMobile && (
@@ -230,8 +412,8 @@ export function SessionHistoryMenu({
       </Sheet>
       <AlertDialog
         open={deleteTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null)
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setDeleteTarget(null)
         }}
       >
         <AlertDialogContent size="sm">
@@ -257,6 +439,34 @@ export function SessionHistoryMenu({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <Dialog
+        open={renameTarget !== null}
+        onOpenChange={(nextOpen) => !nextOpen && setRenameTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("chat.renameSession")}</DialogTitle>
+          </DialogHeader>
+          <Input
+            autoFocus
+            value={renameValue}
+            onChange={(event) => setRenameValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return
+              if (event.key === "Enter") saveRename()
+            }}
+            aria-label={t("chat.renameSession")}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameTarget(null)}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={saveRename} disabled={!renameValue.trim()}>
+              {t("common.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

@@ -1,92 +1,13 @@
 import type { TFunction } from "i18next"
 import { toast } from "sonner"
 
+import { uploadSessionAttachment } from "@/api/sessions"
 import type { ChatAttachment } from "@/store/chat"
 
-const CHAT_IMAGE_MIME_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-  "image/bmp",
-] as const
+export const CHAT_ATTACHMENT_ACCEPT = ""
 
-const CHAT_IMAGE_MIME_TYPE_SET = new Set<string>(CHAT_IMAGE_MIME_TYPES)
-const CHAT_IMAGE_EXTENSION_BY_MIME: Record<string, string> = {
-  "image/jpeg": ".jpg",
-  "image/png": ".png",
-  "image/gif": ".gif",
-  "image/webp": ".webp",
-  "image/bmp": ".bmp",
-}
-const CHAT_IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".png": "image/png",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".bmp": "image/bmp",
-}
-
-export const CHAT_IMAGE_ACCEPT = CHAT_IMAGE_MIME_TYPES.join(",")
-
-const MAX_CHAT_IMAGE_SIZE_BYTES = 7 * 1024 * 1024
-const MAX_CHAT_IMAGE_SIZE_LABEL = "7 MB"
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result)
-        return
-      }
-      reject(new Error("Failed to read file"))
-    }
-    reader.onerror = () =>
-      reject(reader.error || new Error("Failed to read file"))
-    reader.readAsDataURL(file)
-  })
-}
-
-function getFileExtension(fileName: string): string {
-  const lastDotIndex = fileName.lastIndexOf(".")
-  if (lastDotIndex === -1) {
-    return ""
-  }
-  return fileName.slice(lastDotIndex).toLowerCase()
-}
-
-function getSupportedImageMimeType(file: File): string | null {
-  const normalizedType = file.type.trim().toLowerCase()
-  if (normalizedType && CHAT_IMAGE_MIME_TYPE_SET.has(normalizedType)) {
-    return normalizedType
-  }
-
-  const extension = getFileExtension(file.name)
-  return CHAT_IMAGE_MIME_BY_EXTENSION[extension] ?? null
-}
-
-function normalizeImageFileForDataUrl(file: File, filename: string): File {
-  const mimeType = getSupportedImageMimeType(file)
-  if (!mimeType || file.type.trim().toLowerCase() === mimeType) {
-    return file
-  }
-
-  const normalizedName = file.name.trim() || filename
-  return new File([file], normalizedName, { type: mimeType })
-}
-
-function getAttachmentFilename(file: File, index: number): string {
-  const trimmedName = file.name.trim()
-  if (trimmedName) {
-    return trimmedName
-  }
-
-  const mimeType = getSupportedImageMimeType(file)
-  const extension = mimeType ? CHAT_IMAGE_EXTENSION_BY_MIME[mimeType] : ".png"
-  return `image-${index + 1}${extension}`
-}
+const MAX_CHAT_ATTACHMENT_SIZE_BYTES = 20 * 1024 * 1024
+const MAX_CHAT_ATTACHMENT_SIZE_LABEL = "20 MB"
 
 function getTransferItemFiles(dataTransfer: DataTransfer | null): File[] {
   if (!dataTransfer) {
@@ -120,51 +41,146 @@ export function getTransferredFiles(dataTransfer: DataTransfer | null) {
   return getTransferItemFiles(dataTransfer)
 }
 
-export async function buildChatImageAttachments(
-  files: readonly File[],
-  t: TFunction,
-): Promise<ChatAttachment[]> {
-  const nextAttachments: ChatAttachment[] = []
+function attachmentType(file: File): ChatAttachment["type"] {
+  const type = file.type.toLowerCase()
+  if (type.startsWith("image/")) return "image"
+  if (type.startsWith("audio/")) return "audio"
+  if (type.startsWith("video/")) return "video"
+  return "file"
+}
 
+function attachmentMime(file: File): string | undefined {
+  return file.type.trim() || undefined
+}
+
+function attachmentPreview(file: File): string {
+  if (typeof URL !== "undefined" && typeof URL.createObjectURL === "function") {
+    return URL.createObjectURL(file)
+  }
+  return ""
+}
+
+export function releaseAttachmentPreview(attachment: ChatAttachment) {
+  if (attachment.url.startsWith("blob:")) {
+    URL.revokeObjectURL(attachment.url)
+  }
+}
+
+export async function uploadChatAttachments({
+  files,
+  sessionId,
+  t,
+  onAttachment,
+}: {
+  files: readonly File[]
+  sessionId: string
+  t: TFunction
+  onAttachment: (attachment: ChatAttachment) => void
+}) {
   for (const [index, file] of files.entries()) {
-    const filename = getAttachmentFilename(file, index)
-
-    const mimeType = getSupportedImageMimeType(file)
-    if (!mimeType) {
-      toast.error(
-        t("chat.invalidImage", {
-          name: filename,
-        }),
-      )
-      continue
-    }
-
-    if (file.size > MAX_CHAT_IMAGE_SIZE_BYTES) {
-      toast.error(
-        t("chat.imageTooLarge", {
-          name: filename,
-          size: MAX_CHAT_IMAGE_SIZE_LABEL,
-        }),
-      )
-      continue
-    }
-
-    try {
-      const normalizedFile = normalizeImageFileForDataUrl(file, filename)
-      nextAttachments.push({
-        type: "image",
+    const filename = file.name.trim() || `attachment-${index + 1}`
+    const clientId = `${Date.now()}-${index}-${filename}`
+    const sizeError =
+      file.size > MAX_CHAT_ATTACHMENT_SIZE_BYTES
+        ? t("chat.attachmentTooLarge", {
+            name: filename,
+            size: MAX_CHAT_ATTACHMENT_SIZE_LABEL,
+          })
+        : ""
+    if (sizeError) {
+      toast.error(sizeError)
+      onAttachment({
+        clientId,
+        type: attachmentType(file),
+        url: attachmentPreview(file),
         filename,
-        url: await readFileAsDataUrl(normalizedFile),
-        contentType: mimeType,
+        contentType: attachmentMime(file),
+        status: "failed",
+        error: sizeError,
+        file,
       })
-    } catch {
-      toast.error(
-        t("chat.imageReadFailed", {
-          name: filename,
-        }),
-      )
+      continue
+    }
+
+    const pending: ChatAttachment = {
+      clientId,
+      type: attachmentType(file),
+      url: attachmentPreview(file),
+      filename,
+      contentType: attachmentMime(file),
+      status: "uploading",
+      file,
+    }
+    onAttachment(pending)
+    try {
+      const uploaded = await uploadSessionAttachment(sessionId, file)
+      releaseAttachmentPreview(pending)
+      onAttachment({
+        clientId,
+        type: uploaded.type,
+        url: uploaded.url,
+        path: uploaded.path,
+        filename: uploaded.filename || filename,
+        contentType: uploaded.content_type || attachmentMime(file),
+        status: "ready",
+        file,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ""
+      onAttachment({
+        ...pending,
+        status: "failed",
+        error: message || t("chat.attachmentUploadFailed", { name: filename }),
+      })
+      toast.error(t("chat.attachmentUploadFailed", { name: filename }))
     }
   }
+}
 
-  return nextAttachments
+export async function retryChatAttachment({
+  attachment,
+  sessionId,
+  t,
+  onAttachment,
+}: {
+  attachment: ChatAttachment
+  sessionId: string
+  t: TFunction
+  onAttachment: (attachment: ChatAttachment) => void
+}) {
+  if (!attachment.file) {
+    toast.error(t("chat.attachmentRetryUnavailable"))
+    return
+  }
+  const pending = {
+    ...attachment,
+    status: "uploading" as const,
+    error: undefined,
+  }
+  onAttachment(pending)
+  try {
+    const uploaded = await uploadSessionAttachment(sessionId, attachment.file)
+    releaseAttachmentPreview(pending)
+    onAttachment({
+      ...pending,
+      type: uploaded.type,
+      url: uploaded.url,
+      path: uploaded.path,
+      filename: uploaded.filename || attachment.filename,
+      contentType: uploaded.content_type || attachment.contentType,
+      status: "ready",
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ""
+    onAttachment({
+      ...pending,
+      status: "failed",
+      error:
+        message ||
+        t("chat.attachmentUploadFailed", { name: attachment.filename || "" }),
+    })
+    toast.error(
+      t("chat.attachmentUploadFailed", { name: attachment.filename || "" }),
+    )
+  }
 }

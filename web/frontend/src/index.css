@@ -296,6 +296,42 @@ textarea {
   }
 }
 
+@keyframes process-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.process-shimmer {
+  color: transparent;
+  background-image: linear-gradient(
+    100deg,
+    var(--muted-foreground) 0%,
+    var(--muted-foreground) 35%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 65%,
+    var(--muted-foreground) 100%
+  );
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: process-shimmer 1.9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .process-shimmer {
+    color: var(--accent);
+    background: none;
+    -webkit-text-fill-color: currentColor;
+    animation: none;
+  }
+}
+
 @keyframes fadeSlideIn {
   0% {
     opacity: 0;
@@ -379,26 +415,4 @@ textarea {
   .chat-message-meta {
     opacity: 1;
   }
-}
-
-@keyframes streaming-dot {
-  0%,
-  100% {
-    transform: scale(0.8);
-    opacity: 0.4;
-  }
-  50% {
-    transform: scale(1.15);
-    opacity: 1;
-  }
-}
-
-.streaming-dot {
-  display: inline-block;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 9999px;
-  background-color: currentColor;
-  vertical-align: 0.05em;
-  animation: streaming-dot 1s ease-in-out infinite;
 }

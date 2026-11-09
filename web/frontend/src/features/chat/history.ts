@@ -7,6 +7,7 @@ import {
 import type {
   ChatActivity,
   ChatAttachment,
+  ChatBranchGroup,
   ChatMessage,
   ChatPlanStep,
   ChatTurnHistory,
@@ -21,6 +22,7 @@ function toChatAttachments({
   attachments?: {
     type?: "image" | "audio" | "video" | "file"
     url: string
+    path?: string
     filename?: string
     content_type?: string
   }[]
@@ -32,6 +34,7 @@ function toChatAttachments({
         ({
           type: attachment.type ?? "file",
           url: attachment.url,
+          path: attachment.path,
           filename: attachment.filename,
           contentType: attachment.content_type,
         }) satisfies ChatAttachment,
@@ -60,24 +63,31 @@ export async function loadSessionHistory(sessionId: string): Promise<{
   contextUsage?: ContextUsage
   nextCursor?: string
   hasOlder: boolean
+  branches?: ChatBranchGroup[]
 }> {
   const detail = await getSessionHistory(sessionId, { limit: 80 })
-  const messages = detail.messages.map((message, index) => ({
-    id: historyMessageId(message, index),
-    role: message.role,
-    content: message.content,
-    kind: message.role === "assistant" ? (message.kind ?? "normal") : undefined,
-    modelName: message.model_name,
-    toolCalls:
-      message.role === "assistant"
-        ? parseToolCallsValue(message.tool_calls)
-        : undefined,
-    attachments: toChatAttachments({
-      media: message.media,
-      attachments: message.attachments,
-    }),
-    timestamp: message.created_at ?? detail.updated,
-  }))
+  const messages = detail.messages.map((message, index) => {
+    const id = historyMessageId(message, index)
+    return {
+      id,
+      role: message.role,
+      content: message.content,
+      kind:
+        message.role === "assistant" ? (message.kind ?? "normal") : undefined,
+      modelName: message.model_name,
+      toolCalls:
+        message.role === "assistant"
+          ? parseToolCallsValue(message.tool_calls)
+          : undefined,
+      attachments: toChatAttachments({
+        media: message.media,
+        attachments: message.attachments,
+      }),
+      sources: message.sources,
+      feedback: detail.feedback?.[id],
+      timestamp: message.created_at ?? detail.updated,
+    }
+  })
 
   const toActivities = (
     activities:
@@ -133,6 +143,17 @@ export async function loadSessionHistory(sessionId: string): Promise<{
       })),
     nextCursor: detail.next_cursor,
     hasOlder: detail.has_more === true,
+    branches: (detail.branches ?? []).map((group) => ({
+      rootMessageId: group.root_message_id,
+      sessionKey: group.session_key,
+      activeVersionId: group.active_version_id,
+      versions: group.versions.map((version) => ({
+        id: version.id,
+        preview: version.preview,
+        modelName: version.model_name,
+        createdAt: version.created_at,
+      })),
+    })),
   }
 }
 
@@ -146,23 +167,28 @@ export async function loadOlderSessionHistory(
 }> {
   const detail = await getSessionHistory(sessionId, { cursor, limit: 60 })
   return {
-    messages: detail.messages.map((message, index) => ({
-      id: historyMessageId(message, index, cursor),
-      role: message.role,
-      content: message.content,
-      kind:
-        message.role === "assistant" ? (message.kind ?? "normal") : undefined,
-      modelName: message.model_name,
-      toolCalls:
-        message.role === "assistant"
-          ? parseToolCallsValue(message.tool_calls)
-          : undefined,
-      attachments: toChatAttachments({
-        media: message.media,
-        attachments: message.attachments,
-      }),
-      timestamp: message.created_at ?? detail.updated,
-    })),
+    messages: detail.messages.map((message, index) => {
+      const id = historyMessageId(message, index, cursor)
+      return {
+        id,
+        role: message.role,
+        content: message.content,
+        kind:
+          message.role === "assistant" ? (message.kind ?? "normal") : undefined,
+        modelName: message.model_name,
+        toolCalls:
+          message.role === "assistant"
+            ? parseToolCallsValue(message.tool_calls)
+            : undefined,
+        attachments: toChatAttachments({
+          media: message.media,
+          attachments: message.attachments,
+        }),
+        sources: message.sources,
+        feedback: detail.feedback?.[id],
+        timestamp: message.created_at ?? detail.updated,
+      }
+    }),
     nextCursor: detail.next_cursor,
     hasOlder: detail.has_more === true,
   }

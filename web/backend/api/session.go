@@ -17,6 +17,7 @@ import (
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/messageutil"
@@ -28,8 +29,14 @@ import (
 // registerSessionRoutes binds session list and detail endpoints to the ServeMux.
 func (h *Handler) registerSessionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions", h.handleListSessions)
+	mux.HandleFunc("GET /api/sessions/search", h.handleSearchSessions)
+	mux.HandleFunc("GET /api/sessions/{id}/branches", h.handleListBranches)
+	mux.HandleFunc("PATCH /api/sessions/{id}", h.handlePatchSession)
+	mux.HandleFunc("PUT /api/sessions/{id}/feedback/{message_id}", h.handleSetSessionFeedback)
 	mux.HandleFunc("GET /api/sessions/{id}", h.handleGetSession)
 	mux.HandleFunc("DELETE /api/sessions/{id}", h.handleDeleteSession)
+	mux.HandleFunc("POST /api/uploads", h.handleUpload)
+	mux.HandleFunc("GET /api/attachments/{session_id}/{name}", h.handleAttachment)
 }
 
 // sessionFile mirrors the on-disk session JSON structure from pkg/session.
@@ -51,6 +58,8 @@ type sessionListItem struct {
 	MessageCount int    `json:"message_count"`
 	Created      string `json:"created"`
 	Updated      string `json:"updated"`
+	Pinned       bool   `json:"pinned,omitempty"`
+	Archived     bool   `json:"archived,omitempty"`
 	updatedAt    time.Time
 }
 
@@ -102,6 +111,7 @@ type sessionChatMessage struct {
 	Media       []string                `json:"media,omitempty"`
 	Attachments []sessionChatAttachment `json:"attachments,omitempty"`
 	ToolCalls   []utils.VisibleToolCall `json:"tool_calls,omitempty"`
+	Sources     []sessionChatSource     `json:"sources,omitempty"`
 }
 
 type sessionMessagesPage struct {
@@ -113,6 +123,7 @@ type sessionMessagesPage struct {
 type sessionChatAttachment struct {
 	Type        string `json:"type,omitempty"`
 	URL         string `json:"url,omitempty"`
+	Path        string `json:"path,omitempty"`
 	Filename    string `json:"filename,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
 }
@@ -741,15 +752,18 @@ func sessionTranscriptMessages(
 	includeThoughts bool,
 ) []sessionChatMessage {
 	transcript := make([]sessionChatMessage, 0, len(messages))
+	pendingSources := make([]sessionChatSource, 0)
 
 	for _, msg := range messages {
 		attachments := sessionAttachments(msg)
 
 		switch msg.Role {
 		case "tool":
+			pendingSources = append(pendingSources, extractSessionSources(msg.Content)...)
 			continue
 
 		case "user":
+			pendingSources = pendingSources[:0]
 			chatMsg := sessionChatMessage{
 				ID:          msg.ID,
 				Role:        "user",
@@ -812,6 +826,7 @@ func sessionTranscriptMessages(
 				CreatedAt:   msg.CreatedAt,
 				Media:       append([]string(nil), msg.Media...),
 				Attachments: attachments,
+				Sources:     mergeSessionSources(pendingSources, extractSessionSources(content)),
 			}
 			if !sessionChatMessageVisible(chatMsg) {
 				if hasToolCallsMsg {
@@ -824,6 +839,7 @@ func sessionTranscriptMessages(
 			}
 
 			transcript = append(transcript, chatMsg)
+			pendingSources = pendingSources[:0]
 			if hasToolCallsMsg {
 				transcript = append(transcript, toolCallsMsg)
 			}
@@ -865,6 +881,7 @@ func sessionAttachments(msg providers.Message) []sessionChatAttachment {
 		attachments = append(attachments, sessionChatAttachment{
 			Type:        attachmentType,
 			URL:         urlValue,
+			Path:        durableAttachmentPath(attachment),
 			Filename:    strings.TrimSpace(attachment.Filename),
 			ContentType: strings.TrimSpace(attachment.ContentType),
 		})
@@ -874,6 +891,14 @@ func sessionAttachments(msg providers.Message) []sessionChatAttachment {
 		return nil
 	}
 	return attachments
+}
+
+func durableAttachmentPath(attachment providers.Attachment) string {
+	path := strings.TrimSpace(attachment.Ref)
+	if path == "" || (!strings.HasPrefix(path, "/") && !strings.Contains(path, ":\\")) {
+		return ""
+	}
+	return path
 }
 
 func sessionAttachmentURL(attachment providers.Attachment) (string, bool) {
@@ -1087,6 +1112,8 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.ensureSessionIndexLoaded(dir)
+	uiMeta := h.readChatUIMeta(dir)
+	archivedOnly := r.URL.Query().Get("archived") == "1" || r.URL.Query().Get("archived") == "true"
 
 	items := []sessionListItem{}
 	seen := make(map[string]struct{})
@@ -1098,8 +1125,11 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			cacheKey := "jsonl:" + filepath.Clean(dir) + ":" + ref.ID
 			validCacheKeys[cacheKey] = struct{}{}
 			if item, ok := h.cachedSessionListItem(cacheKey, base+".jsonl", base+".meta.json"); ok {
+				applySessionMeta(&item, uiMeta.Sessions[ref.ID])
 				seen[ref.ID] = struct{}{}
-				items = append(items, item)
+				if item.Archived == archivedOnly {
+					items = append(items, item)
+				}
 				continue
 			}
 			sess, loadErr := h.readJSONLSession(dir, ref.Key)
@@ -1109,7 +1139,10 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			seen[ref.ID] = struct{}{}
 			item := buildSessionListItem(ref.ID, sess, toolFeedbackMaxArgsLength)
 			h.storeCachedSessionListItem(cacheKey, item, base+".jsonl", base+".meta.json")
-			items = append(items, item)
+			applySessionMeta(&item, uiMeta.Sessions[ref.ID])
+			if item.Archived == archivedOnly {
+				items = append(items, item)
+			}
 		}
 	}
 
@@ -1121,8 +1154,11 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			cacheKey := "legacy:" + filepath.Clean(dir) + ":" + ref.ID
 			validCacheKeys[cacheKey] = struct{}{}
 			if item, ok := h.cachedSessionListItem(cacheKey, ref.Path); ok {
+				applySessionMeta(&item, uiMeta.Sessions[ref.ID])
 				seen[ref.ID] = struct{}{}
-				items = append(items, item)
+				if item.Archived == archivedOnly {
+					items = append(items, item)
+				}
 				continue
 			}
 			sess, loadErr := h.readLegacySession(ref.Path)
@@ -1132,14 +1168,20 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			seen[ref.ID] = struct{}{}
 			item := buildSessionListItem(ref.ID, sess, toolFeedbackMaxArgsLength)
 			h.storeCachedSessionListItem(cacheKey, item, ref.Path)
-			items = append(items, item)
+			applySessionMeta(&item, uiMeta.Sessions[ref.ID])
+			if item.Archived == archivedOnly {
+				items = append(items, item)
+			}
 		}
 	}
 	h.pruneSessionListCache(validCacheKeys, dir)
 	h.saveSessionIndex(dir, validCacheKeys)
 
-	// Sort by updated descending, then ID for a stable cursor boundary.
+	// Pinned sessions come first; remaining sessions use update time descending.
 	sort.Slice(items, func(i, j int) bool {
+		if items[i].Pinned != items[j].Pinned {
+			return items[i].Pinned
+		}
 		if !items[i].updatedAt.Equal(items[j].updatedAt) {
 			return items[i].updatedAt.After(items[j].updatedAt)
 		}
@@ -1315,10 +1357,19 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	messages := detailSessionMessages(sess.Messages, toolFeedbackMaxArgsLength)
+	uiMeta := h.readChatUIMeta(dir)
+	item := buildSessionListItem(sessionID, sess, toolFeedbackMaxArgsLength)
+	applySessionMeta(&item, uiMeta.Sessions[sessionID])
+	branches, branchErr := h.readSessionBranches(dir, sessionID)
+	if branchErr != nil {
+		logger.Warnf("failed to read chat branches for session %s: %v", sessionID, branchErr)
+		branches = nil
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"id":           sessionID,
+		"title":        item.Title,
 		"messages":     messages,
 		"next_cursor":  page.NextCursor,
 		"has_more":     page.HasMore,
@@ -1327,6 +1378,8 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		"updated":      sess.Updated.Format(time.RFC3339),
 		"turn":         sess.Turn,
 		"turn_history": sess.TurnHistory,
+		"feedback":     uiMeta.Sessions[sessionID].Feedback,
+		"branches":     publicBranchGroups(branches),
 	})
 }
 
@@ -1400,6 +1453,9 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	if !removed {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
+	}
+	if cleanupErr := h.cleanupDeletedSessionData(dir, sessionID); cleanupErr != nil {
+		logger.Warnf("failed to clean chat data for deleted session %s: %v", sessionID, cleanupErr)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

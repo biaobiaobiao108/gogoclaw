@@ -1,6 +1,7 @@
 import { getDefaultStore } from "jotai"
 import { toast } from "sonner"
 
+import { setSessionFeedback } from "@/api/sessions"
 import {
   loadOlderSessionHistory,
   loadSessionHistory,
@@ -12,6 +13,7 @@ import { invalidateSocket, isCurrentSocket } from "@/features/chat/websocket"
 import i18n from "@/i18n"
 import {
   type ChatAttachment,
+  type ChatFeedbackValue,
   getChatState,
   updateChatStore,
 } from "@/store/chat"
@@ -221,6 +223,7 @@ export async function connectChat() {
               recentActivities: history.activities,
               recentPlan: history.plan,
               turnHistory: history.turnHistory,
+              branches: history.branches ?? [],
               historyCursor: history.nextCursor,
               hasOlderHistory: history.hasOlder,
             }))
@@ -249,7 +252,15 @@ export async function connectChat() {
 
       try {
         const message = JSON.parse(event.data) as PicoMessage
-        const deliveryId = handlePicoMessage(message, sessionId)
+        const previousState = getChatState()
+        const wasActive =
+          Boolean(previousState.activeTurn) || previousState.isTyping
+        const deliveryId = handlePicoMessage(message, sessionId, {
+          onBranchUpdated: () => void refreshActiveSessionHistory(sessionId),
+          onTurnSettled: () => {
+            if (wasActive) void refreshActiveSessionHistory(sessionId)
+          },
+        })
         if (deliveryId && socket.readyState === WebSocket.OPEN) {
           socket.send(
             JSON.stringify({
@@ -373,6 +384,7 @@ export async function hydrateActiveSession({
           recentActivities: history.activities,
           recentPlan: history.plan,
           turnHistory: history.turnHistory,
+          branches: history.branches ?? [],
           hasHydratedActiveSession: true,
           isHistoryLoading: false,
           historyError: false,
@@ -388,6 +400,7 @@ export async function hydrateActiveSession({
         recentActivities: history.activities,
         recentPlan: history.plan,
         turnHistory: history.turnHistory,
+        branches: history.branches ?? [],
         isTyping: false,
         hasHydratedActiveSession: true,
         isHistoryLoading: false,
@@ -436,11 +449,17 @@ export function retryActiveSessionHistory() {
 interface SendChatMessageInput {
   content: string
   attachments?: ChatAttachment[]
+  thinkingLevel?: string
+  action?: "send" | "regenerate" | "edit"
+  targetMessageId?: string
 }
 
 export function sendChatMessage({
   content,
   attachments = [],
+  thinkingLevel,
+  action = "send",
+  targetMessageId,
 }: SendChatMessageInput) {
   if (!wsRef || wsRef.readyState !== WebSocket.OPEN) {
     console.warn("WebSocket not connected")
@@ -449,38 +468,102 @@ export function sendChatMessage({
 
   const normalizedContent = content.trim()
   const normalizedAttachments = attachments
-    .filter((attachment) => attachment.type === "image" && attachment.url)
+    .filter(
+      (attachment) =>
+        attachment.url &&
+        (attachment.status === undefined || attachment.status === "ready"),
+    )
     .map((attachment) => ({ ...attachment }))
 
-  if (!normalizedContent && normalizedAttachments.length === 0) {
+  if (
+    action === "send" &&
+    !normalizedContent &&
+    normalizedAttachments.length === 0
+  ) {
     return false
   }
 
   const socket = wsRef
   const id = `msg-${++msgIdCounter}-${Date.now()}`
 
-  updateChatStore((prev) => ({
-    messages: [
-      ...prev.messages,
-      {
-        id,
-        role: "user",
-        content: normalizedContent,
-        attachments:
-          normalizedAttachments.length > 0 ? normalizedAttachments : undefined,
-        timestamp: Date.now(),
-        deliveryStatus: "sending",
-      },
-    ],
-    isTyping: true,
-    interrupted: false,
-  }))
+  updateChatStore((prev) => {
+    const targetIndex = targetMessageId
+      ? prev.messages.findIndex((message) => message.id === targetMessageId)
+      : -1
+    if (action === "regenerate") {
+      return {
+        messages:
+          targetIndex >= 0
+            ? prev.messages.slice(0, targetIndex)
+            : prev.messages,
+        isTyping: true,
+        interrupted: false,
+        activeTurn: undefined,
+      }
+    }
+    if (action === "edit") {
+      return {
+        messages:
+          targetIndex >= 0
+            ? [
+                ...prev.messages.slice(0, targetIndex),
+                {
+                  ...prev.messages[targetIndex],
+                  content: normalizedContent,
+                  attachments:
+                    normalizedAttachments.length > 0
+                      ? normalizedAttachments
+                      : undefined,
+                  deliveryStatus: "sending" as const,
+                },
+              ]
+            : prev.messages,
+        isTyping: true,
+        interrupted: false,
+        activeTurn: undefined,
+      }
+    }
+    return {
+      messages: [
+        ...prev.messages,
+        {
+          id,
+          role: "user",
+          content: normalizedContent,
+          attachments:
+            normalizedAttachments.length > 0
+              ? normalizedAttachments
+              : undefined,
+          timestamp: Date.now(),
+          deliveryStatus: "sending",
+        },
+      ],
+      isTyping: true,
+      interrupted: false,
+    }
+  })
 
   try {
     const payload: Record<string, unknown> = {
       content: normalizedContent,
-      media: normalizedAttachments.map((attachment) => attachment.url),
+      media: normalizedAttachments
+        .filter((attachment) => attachment.url.startsWith("data:image/"))
+        .map((attachment) => attachment.url),
+      attachments: normalizedAttachments.map((attachment) => ({
+        type: attachment.type,
+        url: attachment.url,
+        ...(attachment.path ? { path: attachment.path } : {}),
+        ...(attachment.filename ? { filename: attachment.filename } : {}),
+        ...(attachment.contentType
+          ? { content_type: attachment.contentType }
+          : {}),
+      })),
     }
+    if (thinkingLevel) payload.thinking_level = thinkingLevel
+    if (action === "regenerate" && targetMessageId)
+      payload.regenerate_from_message_id = targetMessageId
+    if (action === "edit" && targetMessageId)
+      payload.edit_message_id = targetMessageId
 
     socket.send(
       JSON.stringify({
@@ -511,8 +594,15 @@ export function retryChatMessage(id: string) {
         payload: {
           content: message.content,
           media: (message.attachments ?? [])
-            .filter((item) => item.type === "image")
+            .filter((item) => item.url.startsWith("data:image/"))
             .map((item) => item.url),
+          attachments: (message.attachments ?? []).map((item) => ({
+            type: item.type,
+            url: item.url,
+            ...(item.path ? { path: item.path } : {}),
+            ...(item.filename ? { filename: item.filename } : {}),
+            ...(item.contentType ? { content_type: item.contentType } : {}),
+          })),
         },
       }),
     )
@@ -526,6 +616,82 @@ export function retryChatMessage(id: string) {
     console.error("Failed to retry pico message:", error)
     toast.error(i18n.t("chat.deliveryRetryFailed"))
     return false
+  }
+}
+
+export async function refreshActiveSessionHistory(sessionId?: string) {
+  const expectedSessionId = sessionId ?? activeSessionIdRef
+  const selection = sessionSelectionGeneration
+  try {
+    const history = await loadSessionHistory(expectedSessionId)
+    if (
+      getChatState().activeSessionId !== expectedSessionId ||
+      selection !== sessionSelectionGeneration
+    ) {
+      return
+    }
+    updateChatStore({
+      messages: history.messages,
+      ...(history.contextUsage ? { contextUsage: history.contextUsage } : {}),
+      recentActivities: history.activities,
+      recentPlan: history.plan,
+      turnHistory: history.turnHistory,
+      branches: history.branches ?? [],
+      historyCursor: history.nextCursor,
+      hasOlderHistory: history.hasOlder,
+      isTyping: false,
+      activeTurn: undefined,
+      pendingApproval: undefined,
+      historyError: false,
+    })
+  } catch (error) {
+    console.error("Failed to refresh chat history:", error)
+  }
+}
+
+export function selectChatBranch(branchId: string) {
+  if (!wsRef || wsRef.readyState !== WebSocket.OPEN) {
+    toast.error(i18n.t("chat.branchSwitchFailed"))
+    return false
+  }
+  try {
+    wsRef.send(
+      JSON.stringify({
+        type: "branch.select",
+        payload: { branch_id: branchId },
+      }),
+    )
+    return true
+  } catch (error) {
+    console.error("Failed to select chat branch:", error)
+    toast.error(i18n.t("chat.branchSwitchFailed"))
+    return false
+  }
+}
+
+export async function saveMessageFeedback(
+  messageId: string,
+  value: ChatFeedbackValue,
+) {
+  const sessionId = getChatState().activeSessionId
+  const message = getChatState().messages.find((item) => item.id === messageId)
+  if (!message) return
+  const nextValue = message.feedback === value ? undefined : value
+  updateChatStore((prev) => ({
+    messages: prev.messages.map((item) =>
+      item.id === messageId ? { ...item, feedback: nextValue } : item,
+    ),
+  }))
+  try {
+    await setSessionFeedback(sessionId, messageId, nextValue ?? "")
+  } catch (error) {
+    console.error("Failed to save message feedback:", error)
+    updateChatStore((prev) => ({
+      messages: prev.messages.map((item) =>
+        item.id === messageId ? { ...item, feedback: message.feedback } : item,
+      ),
+    }))
+    toast.error(i18n.t("chat.feedbackSaveFailed"))
   }
 }
 
@@ -636,6 +802,7 @@ export async function switchChatSession(sessionId: string) {
       recentActivities: history.activities,
       recentPlan: history.plan,
       turnHistory: history.turnHistory,
+      branches: history.branches ?? [],
       isTyping: false,
       hasHydratedActiveSession: true,
       isHistoryLoading: false,
@@ -671,6 +838,7 @@ export async function newChatSession() {
     recentActivities: undefined,
     recentPlan: undefined,
     turnHistory: undefined,
+    branches: undefined,
     contextUsage: undefined,
     historyCursor: undefined,
     hasOlderHistory: false,
