@@ -185,6 +185,28 @@ func TestParseStreamResponse_AssemblesFinalToolCall(t *testing.T) {
 	}
 }
 
+func TestParseStreamResponse_UsesOutputItemWhenCompletedEventIsMissing(t *testing.T) {
+	stream := strings.Join([]string{
+		`data: {"type":"response.output_item.done","output_index":0,"sequence_number":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"weather","arguments":"{\"city\":\"Shanghai\"}","status":"completed"}}`,
+		"",
+	}, "\n")
+
+	resp, err := parseStreamResponse(context.Background(), strings.NewReader(stream), nil)
+	if err != nil {
+		t.Fatalf("parseStreamResponse() error = %v", err)
+	}
+	if resp.FinishReason != "tool_calls" {
+		t.Errorf("FinishReason = %q, want tool_calls", resp.FinishReason)
+	}
+	if len(resp.ToolCalls) != 1 {
+		t.Fatalf("ToolCalls = %d, want 1", len(resp.ToolCalls))
+	}
+	call := resp.ToolCalls[0]
+	if call.ID != "call_1" || call.Name != "weather" || call.Arguments["city"] != "Shanghai" {
+		t.Errorf("ToolCall = %#v", call)
+	}
+}
+
 func TestParseStreamResponse_ReturnsErrorEvents(t *testing.T) {
 	stream := `data: {"type":"error","code":"overloaded","message":"try later","param":"","sequence_number":1}` + "\n\n"
 	_, err := parseStreamResponse(context.Background(), strings.NewReader(stream), nil)

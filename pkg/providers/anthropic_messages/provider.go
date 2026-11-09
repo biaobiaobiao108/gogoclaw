@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -693,12 +694,15 @@ func parseStreamResponse(
 		}
 	}
 
+	toolIndexes := make([]int, 0, len(tools))
+	for index := range tools {
+		toolIndexes = append(toolIndexes, index)
+	}
+	sort.Ints(toolIndexes)
+
 	toolCalls := make([]ToolCall, 0, len(tools))
-	for i := 0; i < len(tools); i++ {
-		acc, ok := tools[i]
-		if !ok {
-			continue
-		}
+	for _, index := range toolIndexes {
+		acc := tools[index]
 		args := make(map[string]any)
 		raw := acc.argsJSON.String()
 		if raw != "" {

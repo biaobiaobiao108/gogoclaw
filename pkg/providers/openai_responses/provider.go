@@ -384,11 +384,12 @@ func parseStreamResponse(
 		}
 	}
 
-	if completed {
-		if len(final.Output) == 0 && len(outputItems) > 0 {
-			final.Output = outputItems
+	if completed || len(outputItems) > 0 {
+		response := final
+		if len(response.Output) == 0 {
+			response.Output = outputItems
 		}
-		parsed := orc.ParseResponseFromStruct(&final)
+		parsed := orc.ParseResponseFromStruct(&response)
 		if parsed.Content == "" {
 			parsed.Content = content.String()
 		}

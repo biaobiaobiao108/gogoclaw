@@ -117,6 +117,52 @@ func TestParseStreamResponse_AssemblesToolCall(t *testing.T) {
 	}
 }
 
+func TestParseStreamResponse_AssemblesToolCallsAfterThinkingAndTextBlocks(t *testing.T) {
+	stream := strings.Join([]string{
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`,
+		"",
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"先查垂类子域"}}`,
+		"",
+		`data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}`,
+		"",
+		`data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"先取子域清单。"}}`,
+		"",
+		`data: {"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"toolu_2","name":"get_sub_domains"}}`,
+		"",
+		`data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"domain\":\"finance\"}"}}`,
+		"",
+		`data: {"type":"content_block_start","index":3,"content_block":{"type":"tool_use","id":"toolu_3","name":"get_sub_domains"}}`,
+		"",
+		`data: {"type":"content_block_delta","index":3,"delta":{"type":"input_json_delta","partial_json":"{\"domain\":\"academic\"}"}}`,
+		"",
+		`data: {"type":"message_delta","delta":{"stop_reason":"tool_use"}}`,
+		"",
+	}, "\n")
+
+	resp, err := parseStreamResponse(context.Background(), strings.NewReader(stream), nil)
+	if err != nil {
+		t.Fatalf("parseStreamResponse() error = %v", err)
+	}
+	if resp.FinishReason != "tool_calls" {
+		t.Errorf("FinishReason = %q, want tool_calls", resp.FinishReason)
+	}
+	if resp.ReasoningContent != "先查垂类子域" {
+		t.Errorf("ReasoningContent = %q, want %q", resp.ReasoningContent, "先查垂类子域")
+	}
+	if resp.Content != "先取子域清单。" {
+		t.Errorf("Content = %q, want %q", resp.Content, "先取子域清单。")
+	}
+	if len(resp.ToolCalls) != 2 {
+		t.Fatalf("ToolCalls length = %d, want 2", len(resp.ToolCalls))
+	}
+	if resp.ToolCalls[0].ID != "toolu_2" || resp.ToolCalls[0].Arguments["domain"] != "finance" {
+		t.Errorf("first ToolCall = %#v, want toolu_2 domain=finance", resp.ToolCalls[0])
+	}
+	if resp.ToolCalls[1].ID != "toolu_3" || resp.ToolCalls[1].Arguments["domain"] != "academic" {
+		t.Errorf("second ToolCall = %#v, want toolu_3 domain=academic", resp.ToolCalls[1])
+	}
+}
+
 func TestParseStreamResponse_ReturnsStreamErrors(t *testing.T) {
 	stream := "data: {\"type\":\"error\",\"error\":{\"message\":\"overloaded\"}}\n\n"
 	_, err := parseStreamResponse(context.Background(), strings.NewReader(stream), nil)

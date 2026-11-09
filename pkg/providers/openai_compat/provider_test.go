@@ -1524,6 +1524,33 @@ func TestProviderChatStream_ParsesReasoningContent(t *testing.T) {
 	}
 }
 
+func TestParseStreamResponse_AssemblesSparseToolCallIndexes(t *testing.T) {
+	stream := strings.Join([]string{
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":2,"id":"call_2","function":{"name":"second_tool","arguments":"{\"q\":\"second\"}"}}]}}]}`,
+		"",
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":3,"id":"call_3","function":{"name":"third_tool","arguments":"{\"q\":\"third\"}"}}]}}]}`,
+		"",
+		`data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+
+	resp, err := parseStreamResponse(t.Context(), strings.NewReader(stream), nil)
+	if err != nil {
+		t.Fatalf("parseStreamResponse() error = %v", err)
+	}
+	if len(resp.ToolCalls) != 2 {
+		t.Fatalf("ToolCalls length = %d, want 2", len(resp.ToolCalls))
+	}
+	if resp.ToolCalls[0].ID != "call_2" || resp.ToolCalls[0].Arguments["q"] != "second" {
+		t.Errorf("first ToolCall = %#v, want call_2 q=second", resp.ToolCalls[0])
+	}
+	if resp.ToolCalls[1].ID != "call_3" || resp.ToolCalls[1].Arguments["q"] != "third" {
+		t.Errorf("second ToolCall = %#v, want call_3 q=third", resp.ToolCalls[1])
+	}
+}
+
 func TestProviderChatStreamEvents_EmitsReasoningBeforeContentFromSameEvent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
