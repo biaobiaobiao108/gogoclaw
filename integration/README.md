@@ -1,6 +1,6 @@
 # Integration Test Suites
 
-This directory contains the integration test suites that CI runs before merging PRs and before building `main`.
+This directory contains the integration test suites run by CI on pull requests and branch pushes, including pushes to `main`. Whether the integration check blocks a merge depends on the repository's branch protection settings.
 
 These tests exist to catch regressions that are easy to miss with unit tests alone, especially when different PRs touch adjacent code paths and the breakage only appears once the pieces are wired together. Typical examples are:
 
@@ -98,7 +98,7 @@ TEST_COMMAND='go test ./pkg/mcp -run TestIntegration_RealConfiguredServer -v'
 ### Prerequisites
 
 - Docker with the `docker compose` plugin for Docker-backed suites
-- Go 1.25+ only if you want to run tagged integration tests directly on your host instead of through Docker
+- Go 1.27.3+ only if you want to run tagged integration tests directly on your host instead of through Docker
 
 ### Run Everything That CI Runs
 

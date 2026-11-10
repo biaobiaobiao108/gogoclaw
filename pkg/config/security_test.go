@@ -238,6 +238,35 @@ skills:
 		assert.Equal(t, "key2", cfg.ModelList[0].APIKeys[1].String())
 		assert.Equal(t, "model2_key", cfg.ModelList[1].APIKeys[0].String())
 		assert.EqualValues(t, original.Tools.Web.Brave.APIKeys, cfg.Tools.Web.Brave.APIKeys)
+
+		channelSecret := func(channelName string, expectedType any) string {
+			t.Helper()
+			channel := cfg.Channels.Get(channelName)
+			require.NotNil(t, channel, "channel %q should be preserved", channelName)
+			decoded, err := channel.GetDecoded()
+			require.NoError(t, err)
+			require.IsType(t, expectedType, decoded)
+			switch value := decoded.(type) {
+			case *TelegramSettings:
+				return value.Token.String()
+			case *FeishuSettings:
+				return value.AppSecret.String()
+			case *DiscordSettings:
+				return value.Token.String()
+			case *QQSettings:
+				return value.AppSecret.String()
+			case *PicoClientSettings:
+				return value.Token.String()
+			default:
+				t.Fatalf("unsupported channel settings type %T", decoded)
+				return ""
+			}
+		}
+		assert.Equal(t, "telegram_token", channelSecret(ChannelTelegram, (*TelegramSettings)(nil)))
+		assert.Equal(t, "feishu_app_secret", channelSecret(ChannelFeishu, (*FeishuSettings)(nil)))
+		assert.Equal(t, "discord_token", channelSecret(ChannelDiscord, (*DiscordSettings)(nil)))
+		assert.Equal(t, "qq_app_secret", channelSecret(ChannelQQ, (*QQSettings)(nil)))
+		assert.Equal(t, "pico_client_token", channelSecret(ChannelPicoClient, (*PicoClientSettings)(nil)))
 	})
 
 	t.Run("test for env overwrite", func(t *testing.T) {

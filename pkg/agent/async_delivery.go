@@ -252,16 +252,9 @@ func (al *AgentLoop) publishAsyncFollowUp(ts *turnState, delivery asyncDelivery)
 
 	result := delivery.Result
 	if delivery.PublishForUser && !result.Silent && result.ForUser != "" {
-		outCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		outMsg := outboundMessageForTurn(ts, result.ForUser)
-		if ts.originSessionKey != "" {
-			outMsg.SessionKey = ts.originSessionKey
+		if err := al.publishAsyncUserResult(ts, delivery); err != nil {
+			al.reportAsyncUserResultFailure(ts, delivery, err)
 		}
-		if ts.originAgentID != "" {
-			outMsg.AgentID = ts.originAgentID
-		}
-		_ = al.bus.PublishOutbound(outCtx, outMsg)
-		cancel()
 	}
 
 	content := result.ContentForLLM()
@@ -349,17 +342,8 @@ func (al *AgentLoop) consumeAsyncDeliveries(ctx context.Context, ts *turnState, 
 			continue
 		}
 		if delivery.PublishForUser && !result.Silent && result.ForUser != "" {
-			if al.bus != nil {
-				outCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				outMsg := outboundMessageForTurn(ts, result.ForUser)
-				if ts.originSessionKey != "" {
-					outMsg.SessionKey = ts.originSessionKey
-				}
-				if ts.originAgentID != "" {
-					outMsg.AgentID = ts.originAgentID
-				}
-				_ = al.bus.PublishOutbound(outCtx, outMsg)
-				cancel()
+			if err := al.publishAsyncUserResult(ts, delivery); err != nil {
+				al.reportAsyncUserResultFailure(ts, delivery, err)
 			}
 		}
 
@@ -403,6 +387,50 @@ func (al *AgentLoop) consumeAsyncDeliveries(ctx context.Context, ts *turnState, 
 		)
 	}
 	return nil
+}
+
+func (al *AgentLoop) publishAsyncUserResult(ts *turnState, delivery asyncDelivery) error {
+	if al == nil || ts == nil || delivery.Result == nil {
+		return fmt.Errorf("async delivery context unavailable")
+	}
+	if al.bus == nil {
+		return fmt.Errorf("message bus unavailable")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	outMsg := outboundMessageForTurn(ts, delivery.Result.ForUser)
+	if ts.originSessionKey != "" {
+		outMsg.SessionKey = ts.originSessionKey
+	}
+	if ts.originAgentID != "" {
+		outMsg.AgentID = ts.originAgentID
+	}
+	sessionKey := outMsg.SessionKey
+	if sessionKey == "" {
+		sessionKey = ts.sessionKey
+	}
+	return al.publishTrackedOutbound(ctx, sessionKey, outMsg)
+}
+
+func (al *AgentLoop) reportAsyncUserResultFailure(ts *turnState, delivery asyncDelivery, err error) {
+	if al == nil || ts == nil || err == nil {
+		return
+	}
+	logger.WarnCF("agent", "Failed to publish async result to user", map[string]any{
+		"turn_id": ts.turnID,
+		"source":  delivery.Source,
+		"error":   err.Error(),
+	})
+	al.emitEvent(
+		runtimeevents.KindAgentError,
+		ts.eventMeta("deliverAsyncResult", "turn.error"),
+		ErrorPayload{
+			Stage:   "async_user_notification",
+			Message: fmt.Sprintf("async result from %s could not be sent to the user", delivery.Source),
+		},
+	)
 }
 
 func asyncResultPromptMessage(origin asyncOrigin, source, content string) providers.Message {

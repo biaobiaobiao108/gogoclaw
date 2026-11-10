@@ -43,12 +43,14 @@ model_list:
 	    - "sk-ant-your-actual-anthropic-key"  # Single key in array format
 
 # Channel Tokens
-channels:
+channel_list:
 
 	telegram:
-	  token: "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
+	  settings:
+	    token: "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
 	discord:
-	  token: "your-discord-bot-token"
+	  settings:
+	    token: "your-discord-bot-token"
 
 # Web Tool Keys
 # Brave, Tavily, Perplexity, Kagi: Use 'api_keys' array
@@ -105,13 +107,17 @@ Note: Sensitive fields are omitted because they're loaded from .security.yml
 	      // api_key is automatically loaded from .security.yml
 	    }
 	  ],
-	  "channels": {
+	  "channel_list": {
 	    "telegram": {
-	      "enabled": true
+	      "enabled": true,
+	      "type": "telegram",
+	      "settings": {}
 	      // token is automatically loaded from .security.yml
 	    },
 	    "discord": {
-	      "enabled": true
+	      "enabled": true,
+	      "type": "discord",
+	      "settings": {}
 	      // token is automatically loaded from .security.yml
 	    }
 	  },
@@ -195,8 +201,11 @@ model_list:
 
 ## Channel Tokens/Secrets
 
+Channel-specific values are nested under `settings` in new configurations.
+Legacy flat channel-secret fields remain readable for existing files.
+
 ```yaml
-channels:
+channel_list:
 
 	telegram:
 	  token: "value"

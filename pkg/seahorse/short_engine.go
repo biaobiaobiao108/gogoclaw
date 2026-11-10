@@ -365,30 +365,26 @@ func (e *Engine) CompactUntilUnder(ctx context.Context, sessionKey string, budge
 
 // initCompactionOnce lazily initializes the compaction engine.
 func (e *Engine) initCompactionOnce() {
+	e.compactionMu.Lock()
+	defer e.compactionMu.Unlock()
 	if e.compaction == nil {
-		e.compactionMu.Lock()
-		defer e.compactionMu.Unlock()
-		if e.compaction == nil {
-			shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-			e.compaction = &CompactionEngine{
-				store:          e.store,
-				config:         e.config,
-				complete:       e.complete,
-				shutdownCtx:    shutdownCtx,
-				shutdownCancel: shutdownCancel,
-			}
+		shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+		e.compaction = &CompactionEngine{
+			store:          e.store,
+			config:         e.config,
+			complete:       e.complete,
+			shutdownCtx:    shutdownCtx,
+			shutdownCancel: shutdownCancel,
 		}
 	}
 }
 
 // initAssemblerOnce lazily initializes the assembler.
 func (e *Engine) initAssemblerOnce() {
+	e.assemblerMu.Lock()
+	defer e.assemblerMu.Unlock()
 	if e.assembler == nil {
-		e.assemblerMu.Lock()
-		defer e.assemblerMu.Unlock()
-		if e.assembler == nil {
-			e.assembler = &Assembler{store: e.store, config: e.config}
-		}
+		e.assembler = &Assembler{store: e.store, config: e.config}
 	}
 }
 

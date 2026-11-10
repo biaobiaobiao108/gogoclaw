@@ -1,0 +1,30 @@
+# Copy to ~/.gogoclaw/.security.yml and replace each placeholder.
+# Model keys are matched by the model_name in config.json.
+model_list:
+  my-model:
+    api_keys:
+      - "REPLACE_WITH_MODEL_API_KEY"
+
+# Channel secrets belong under settings to match channel_list in config.json.
+channel_list:
+  telegram:
+    settings:
+      token: "REPLACE_WITH_TELEGRAM_BOT_TOKEN"
+  discord:
+    settings:
+      token: "REPLACE_WITH_DISCORD_BOT_TOKEN"
+  feishu:
+    settings:
+      app_secret: "REPLACE_WITH_FEISHU_APP_SECRET"
+      encrypt_key: "REPLACE_WITH_FEISHU_ENCRYPT_KEY"
+      verification_token: "REPLACE_WITH_FEISHU_VERIFICATION_TOKEN"
+
+web:
+  brave:
+    api_keys:
+      - "REPLACE_WITH_BRAVE_API_KEY"
+  tavily:
+    api_keys:
+      - "REPLACE_WITH_TAVILY_API_KEY"
+  glm_search:
+    api_key: "REPLACE_WITH_GLM_SEARCH_API_KEY"

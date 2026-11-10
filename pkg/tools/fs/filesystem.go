@@ -11,8 +11,10 @@ import (
 	"math"
 	"net/http"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -1151,7 +1153,7 @@ func (r *sandboxFs) ReadFile(path string) ([]byte, error) {
 
 func (r *sandboxFs) WriteFile(path string, data []byte) error {
 	return r.execute(path, func(root *os.Root, relPath string) error {
-		dir := filepath.Dir(relPath)
+		dir := pathpkg.Dir(relPath)
 		if dir != "." && dir != "/" {
 			if err := root.MkdirAll(dir, 0o755); err != nil {
 				return fmt.Errorf("failed to create parent directories: %w", err)
@@ -1160,7 +1162,11 @@ func (r *sandboxFs) WriteFile(path string, data []byte) error {
 
 		// Use atomic write pattern with explicit sync for flash storage reliability.
 		// Using 0o600 (owner read/write only) for secure default permissions.
-		tmpRelPath := fmt.Sprintf(".tmp-%d-%d", os.Getpid(), time.Now().UnixNano())
+		tmpName := fmt.Sprintf(".tmp-%d-%d", os.Getpid(), time.Now().UnixNano())
+		tmpRelPath := tmpName
+		if dir != "." && dir != "/" {
+			tmpRelPath = pathpkg.Join(dir, tmpName)
+		}
 
 		tmpFile, err := root.OpenFile(tmpRelPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {
@@ -1192,14 +1198,45 @@ func (r *sandboxFs) WriteFile(path string, data []byte) error {
 			return fmt.Errorf("failed to rename temp file over target: %w", err)
 		}
 
-		// Sync directory to ensure rename is durable
-		if dirFile, err := root.Open("."); err == nil {
-			_ = dirFile.Sync()
-			_ = dirFile.Close()
+		// On platforms that support directory sync, persist the destination
+		// entry and any directories created above. Windows does not expose
+		// portable directory syncing through os.File.Sync.
+		if err := syncDirectoryHierarchy(root, dir); err != nil {
+			return fmt.Errorf("failed to sync target directory: %w", err)
 		}
 
 		return nil
 	})
+}
+
+func syncDirectoryHierarchy(root *os.Root, dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+
+	current := pathpkg.Clean(dir)
+	for {
+		dirFile, err := root.Open(current)
+		if err != nil {
+			return fmt.Errorf("open %q: %w", current, err)
+		}
+		syncErr := dirFile.Sync()
+		closeErr := dirFile.Close()
+		if syncErr != nil {
+			return fmt.Errorf("sync %q: %w", current, syncErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("close %q: %w", current, closeErr)
+		}
+		if current == "." || current == "/" {
+			return nil
+		}
+		parent := pathpkg.Dir(current)
+		if parent == current {
+			return nil
+		}
+		current = parent
+	}
 }
 
 func (r *sandboxFs) ReadDir(path string) ([]os.DirEntry, error) {
