@@ -23,6 +23,39 @@ func newTestStore(t *testing.T) *JSONLStore {
 	return store
 }
 
+func TestJSONLStoreConcurrentMetaReadAndReplace(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	sessionKey := "agent:main:concurrent-meta"
+	turn := json.RawMessage(`{"turn_id":"turn-1"}`)
+	if err := store.SetTurn(ctx, sessionKey, turn); err != nil {
+		t.Fatalf("SetTurn(seed): %v", err)
+	}
+
+	const iterations = 100
+	for i := 0; i < iterations; i++ {
+		errCh := make(chan error, 2)
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			errCh <- store.SetTurn(ctx, sessionKey, turn)
+		}()
+		go func() {
+			defer wg.Done()
+			_, _, err := store.ResolveSessionKey(ctx, "agent:other:missing-alias")
+			errCh <- err
+		}()
+		wg.Wait()
+		close(errCh)
+		for err := range errCh {
+			if err != nil {
+				t.Fatalf("iteration %d: %v", i, err)
+			}
+		}
+	}
+}
+
 func TestNewJSONLStore_CreatesDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "sessions")
 	store, err := NewJSONLStore(dir)

@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
@@ -36,13 +35,12 @@ func pidFilePath(homePath string) string {
 }
 
 // generateToken creates a cryptographically random 32-character hex token.
-func generateToken() string {
+func generateToken() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		// Fallback to something pseudo-random if crypto/rand fails
-		return fmt.Sprintf("%032x", time.Now().UnixNano())
+		return "", fmt.Errorf("read cryptographic randomness: %w", err)
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }
 
 // WritePidFile creates (or overwrites) the PID file atomically.
@@ -86,7 +84,10 @@ func WritePidFile(homePath, host string, port int) (*PidFileData, error) {
 		Host:    host,
 	}
 
-	token := generateToken()
+	token, err := generateToken()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate pid token: %w", err)
+	}
 	data.Token = token
 
 	raw, err := json.MarshalIndent(data, "", "  ")

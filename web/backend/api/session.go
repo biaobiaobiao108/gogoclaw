@@ -203,7 +203,7 @@ func (h *Handler) readLegacySession(path string) (sessionFile, error) {
 }
 
 func (h *Handler) readSessionMeta(path, sessionKey string) (memory.SessionMeta, error) {
-	data, err := os.ReadFile(path)
+	data, err := fileutil.ReadFileShared(path)
 	if os.IsNotExist(err) {
 		return memory.SessionMeta{Key: sessionKey}, nil
 	}

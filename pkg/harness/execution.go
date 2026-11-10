@@ -70,6 +70,8 @@ func Run(ctx context.Context, scenario Scenario) (*Result, error) {
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	collectCtx, collectCancel := context.WithTimeout(ctx, timeout+5*time.Second)
+	defer collectCancel()
 
 	workspace := strings.TrimSpace(scenario.Workspace)
 	removeWorkspace := false
@@ -170,10 +172,9 @@ func Run(ctx context.Context, scenario Scenario) (*Result, error) {
 	var (
 		mu       sync.Mutex
 		events   []runtimeevents.Event
-		outbound []string
+		outbound []bus.OutboundMessage
 	)
-	turnEnd := make(chan struct{}, 64)
-	outboundFinal := make(chan struct{}, 1)
+	stateChanged := make(chan struct{}, 1)
 	eventsDone := make(chan struct{})
 	go func() {
 		defer close(eventsDone)
@@ -181,12 +182,7 @@ func Run(ctx context.Context, scenario Scenario) (*Result, error) {
 			mu.Lock()
 			events = append(events, evt)
 			mu.Unlock()
-			if evt.Kind == runtimeevents.KindAgentTurnEnd && evt.Correlation.ParentTurnID == "" {
-				select {
-				case turnEnd <- struct{}{}:
-				default:
-				}
-			}
+			notifyStateChange(stateChanged)
 		}
 	}()
 	outboundDone := make(chan struct{})
@@ -194,14 +190,9 @@ func Run(ctx context.Context, scenario Scenario) (*Result, error) {
 		defer close(outboundDone)
 		for msg := range msgBus.OutboundChan() {
 			mu.Lock()
-			outbound = append(outbound, msg.Content)
+			outbound = append(outbound, msg)
 			mu.Unlock()
-			if msg.Context.Raw["outbound_kind"] == "final" {
-				select {
-				case outboundFinal <- struct{}{}:
-				default:
-				}
-			}
+			notifyStateChange(stateChanged)
 		}
 	}()
 	if scenario.ConcurrentSetup != nil {
@@ -212,15 +203,7 @@ func Run(ctx context.Context, scenario Scenario) (*Result, error) {
 			<-outboundDone
 			return nil, fmt.Errorf("harness: concurrent setup: %w", err)
 		}
-		for {
-			select {
-			case <-turnEnd:
-			default:
-				goto concurrentTurnsCollected
-			}
-		}
 	}
-concurrentTurnsCollected:
 
 	result := &Result{Name: scenario.Name, workspace: workspace}
 	if scenario.ProductionIngress {
@@ -235,9 +218,8 @@ concurrentTurnsCollected:
 	modelCursor := 0
 	for _, userMessage := range messages {
 		turn, nextModel, err := runScenarioTurn(
-			ctx, runCtx, loop, provider, msgBus, scenario, registeredTools, userMessage, sessionKey,
-			modelCursor, turnEnd, &mu, &events, &outbound,
-			outboundFinal,
+			runCtx, collectCtx, loop, provider, msgBus, scenario, registeredTools, userMessage, sessionKey,
+			modelCursor, stateChanged, &mu, &events, &outbound,
 		)
 		modelCursor = nextModel
 		if err != nil {
@@ -294,9 +276,8 @@ concurrentTurnsCollected:
 			}
 			followUp := result.AsyncFollowUps[processed]
 			turn, nextModel, err := runScenarioTurn(
-				ctx, runCtx, loop, provider, msgBus, scenario, registeredTools, followUp.Content, sessionKey,
-				modelCursor, turnEnd, &mu, &events, &outbound,
-				outboundFinal,
+				runCtx, collectCtx, loop, provider, msgBus, scenario, registeredTools, followUp.Content, sessionKey,
+				modelCursor, stateChanged, &mu, &events, &outbound,
 			)
 			modelCursor = nextModel
 			if err != nil {
@@ -335,7 +316,10 @@ concurrentTurnsCollected:
 
 	mu.Lock()
 	traceEvents := append([]runtimeevents.Event(nil), events...)
-	traceOutbound := append([]string(nil), outbound...)
+	traceOutbound := make([]string, 0, len(outbound))
+	for _, message := range outbound {
+		traceOutbound = append(traceOutbound, message.Content)
+	}
 	mu.Unlock()
 	result.ModelCalls = callsFromProvider(provider)
 	result.ToolCalls = mergeToolObservations(toolCallsFromEvents(traceEvents), registeredTools)
@@ -361,8 +345,8 @@ concurrentTurnsCollected:
 }
 
 func runScenarioTurn(
-	ctx context.Context,
 	runCtx context.Context,
+	collectCtx context.Context,
 	loop *agent.AgentLoop,
 	provider providers.LLMProvider,
 	msgBus *bus.MessageBus,
@@ -371,13 +355,17 @@ func runScenarioTurn(
 	userMessage string,
 	sessionKey string,
 	modelCursor int,
-	turnEnd <-chan struct{},
+	stateChanged <-chan struct{},
 	mu *sync.Mutex,
 	events *[]runtimeevents.Event,
-	outbound *[]string,
-	outboundFinal <-chan struct{},
+	outbound *[]bus.OutboundMessage,
 ) (TurnResult, int, error) {
 	started := time.Now()
+	mu.Lock()
+	eventStart := len(*events)
+	outboundStart := len(*outbound)
+	mu.Unlock()
+
 	var content string
 	var runErr error
 	if scenario.ProductionIngress {
@@ -394,34 +382,19 @@ func runScenarioTurn(
 	if scenario.ProductionIngress && runErr != nil {
 		return TurnResult{}, modelCursor, runErr
 	}
-	timer := time.NewTimer(time.Second)
-	defer timer.Stop()
-	select {
-	case <-turnEnd:
-	case <-timer.C:
+	turnEndIndex, err := waitForRootTurnEnd(collectCtx, sessionKey, eventStart, stateChanged, mu, events)
+	if err != nil {
 		if runErr != nil {
 			return TurnResult{}, modelCursor, fmt.Errorf("harness: turn ended without root TurnEnd event: %w", runErr)
 		}
-		return TurnResult{}, modelCursor, errors.New("harness: turn ended without root TurnEnd event")
+		return TurnResult{}, modelCursor, err
 	}
 	if scenario.ProductionIngress && runErr == nil {
-		deadline := time.Now().Add(time.Second)
-		for loop.GetActiveTurnBySession(sessionKey) != nil {
-			if !time.Now().Before(deadline) {
-				return TurnResult{}, modelCursor, errors.New("harness: inbound turn did not release its session")
-			}
-			select {
-			case <-runCtx.Done():
-				return TurnResult{}, modelCursor, runCtx.Err()
-			case <-time.After(time.Millisecond):
-			}
+		if err := waitForSessionRelease(collectCtx, loop, sessionKey); err != nil {
+			return TurnResult{}, modelCursor, err
 		}
-		select {
-		case <-outboundFinal:
-		case <-runCtx.Done():
-			return TurnResult{}, modelCursor, runCtx.Err()
-		case <-time.After(time.Second):
-			return TurnResult{}, modelCursor, errors.New("harness: production ingress did not publish a final outbound")
+		if _, err := waitForFinalOutbound(collectCtx, sessionKey, outboundStart, stateChanged, mu, outbound); err != nil {
+			return TurnResult{}, modelCursor, err
 		}
 	}
 
@@ -433,11 +406,8 @@ func runScenarioTurn(
 	modelCursor = len(calls)
 
 	mu.Lock()
-	turnEvents := append([]runtimeevents.Event(nil), (*events)...)
+	turnEvents := eventsForTurnRange(*events, eventStart, turnEndIndex)
 	mu.Unlock()
-	if len(turnEvents) > 0 {
-		turnEvents = eventsForLastTurn(turnEvents)
-	}
 	turnEndPayload := lastTurnEnd(turnEvents)
 	if scenario.ProductionIngress && turnEndPayload != nil {
 		content = turnEndPayload.FinalContent
@@ -467,6 +437,82 @@ func runScenarioTurn(
 		Events:      turnEvents,
 		TurnEnd:     turnEndPayload,
 	}, modelCursor, nil
+}
+
+func notifyStateChange(ch chan<- struct{}) {
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
+}
+
+func waitForRootTurnEnd(
+	ctx context.Context,
+	sessionKey string,
+	start int,
+	stateChanged <-chan struct{},
+	mu *sync.Mutex,
+	events *[]runtimeevents.Event,
+) (int, error) {
+	for {
+		mu.Lock()
+		for i := start; i < len(*events); i++ {
+			evt := (*events)[i]
+			if evt.Kind == runtimeevents.KindAgentTurnEnd &&
+				evt.Correlation.ParentTurnID == "" &&
+				evt.Scope.SessionKey == sessionKey {
+				mu.Unlock()
+				return i, nil
+			}
+		}
+		mu.Unlock()
+
+		select {
+		case <-ctx.Done():
+			return 0, fmt.Errorf("harness: turn ended without root TurnEnd event: %w", ctx.Err())
+		case <-stateChanged:
+		}
+	}
+}
+
+func waitForSessionRelease(ctx context.Context, loop *agent.AgentLoop, sessionKey string) error {
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for loop.GetActiveTurnBySession(sessionKey) != nil {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("harness: inbound turn did not release its session: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+	return nil
+}
+
+func waitForFinalOutbound(
+	ctx context.Context,
+	sessionKey string,
+	start int,
+	stateChanged <-chan struct{},
+	mu *sync.Mutex,
+	outbound *[]bus.OutboundMessage,
+) (int, error) {
+	for {
+		mu.Lock()
+		for i := start; i < len(*outbound); i++ {
+			msg := (*outbound)[i]
+			if msg.SessionKey == sessionKey && msg.Context.Raw["outbound_kind"] == "final" {
+				mu.Unlock()
+				return i, nil
+			}
+		}
+		mu.Unlock()
+
+		select {
+		case <-ctx.Done():
+			return 0, fmt.Errorf("harness: production ingress did not publish a final outbound: %w", ctx.Err())
+		case <-stateChanged:
+		}
+	}
 }
 
 func processTurnSafely(

@@ -2265,7 +2265,7 @@ func TestLoadConfig_TelegramPlaceholderTextAcceptsSingleString(t *testing.T) {
 func TestLoadConfig_WarnsForPlaintextAPIKey(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.json")
-	const original = `{"version":2,"model_list":[{"model_name":"test","model":"openai/gpt-4","api_keys":["sk-plaintext"]}]}`
+	const original = `{"version":3,"model_list":[{"model_name":"test","model":"openai/gpt-4","api_keys":["sk-plaintext"]}]}`
 	if err := os.WriteFile(cfgPath, []byte(original), 0o600); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
@@ -2285,6 +2285,23 @@ func TestLoadConfig_WarnsForPlaintextAPIKey(t *testing.T) {
 	raw, _ := os.ReadFile(cfgPath)
 	if string(raw) != original {
 		t.Errorf("LoadConfig must not modify the config file; got:\n%s", string(raw))
+	}
+}
+
+func TestLoadConfigMigrationReturnsSaveError(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	const legacy = `{"version":2,"model_list":[{"model_name":"test","model":"openai/gpt-4","api_keys":["sk-plaintext"]}]}`
+	if err := os.WriteFile(cfgPath, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	t.Setenv("GOGOCLAW_KEY_PASSPHRASE", "test-passphrase")
+	t.Setenv("GOGOCLAW_SSH_KEY_PATH", "")
+
+	_, err := LoadConfig(cfgPath)
+	if err == nil || !strings.Contains(err.Error(), "save migrated config") {
+		t.Fatalf("LoadConfig() error = %v, want migration save error", err)
 	}
 }
 

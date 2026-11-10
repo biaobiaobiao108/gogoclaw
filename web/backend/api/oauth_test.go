@@ -157,6 +157,31 @@ func TestOAuthCallbackUnknownState(t *testing.T) {
 	}
 }
 
+func TestOAuthCallbackPageUsesExternalScript(t *testing.T) {
+	h := NewHandler(filepath.Join(t.TempDir(), "config.json"))
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/oauth/callback?state=unknown", nil))
+	body := rec.Body.String()
+	if !strings.Contains(body, `type="application/json"`) || !strings.Contains(body, `src="/oauth-callback.js"`) {
+		t.Fatalf("callback page does not use external script: %s", body)
+	}
+	if strings.Contains(body, "<script>(function") {
+		t.Fatalf("callback page still contains inline executable script: %s", body)
+	}
+
+	scriptRec := httptest.NewRecorder()
+	mux.ServeHTTP(scriptRec, httptest.NewRequest(http.MethodGet, "/oauth/callback.js", nil))
+	if scriptRec.Code != http.StatusOK {
+		t.Fatalf("script status = %d, want %d", scriptRec.Code, http.StatusOK)
+	}
+	if got := scriptRec.Header().Get("Content-Type"); got != "application/javascript; charset=utf-8" {
+		t.Fatalf("script Content-Type = %q", got)
+	}
+}
+
 func TestOAuthLogoutClearsCredentialAndConfig(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

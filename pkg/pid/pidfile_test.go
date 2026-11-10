@@ -21,7 +21,10 @@ func tmpDir(t *testing.T) string {
 
 // TestGenerateToken verifies that generateToken produces a 32-character hex string.
 func TestGenerateToken(t *testing.T) {
-	token := generateToken()
+	token, err := generateToken()
+	if err != nil {
+		t.Fatalf("generateToken() error = %v", err)
+	}
 	if len(token) != 32 {
 		t.Errorf("expected token length 32, got %d (token: %q)", len(token), token)
 	}
@@ -35,8 +38,14 @@ func TestGenerateToken(t *testing.T) {
 
 // TestGenerateTokenUniqueness checks that two consecutive tokens differ.
 func TestGenerateTokenUniqueness(t *testing.T) {
-	a := generateToken()
-	b := generateToken()
+	a, err := generateToken()
+	if err != nil {
+		t.Fatalf("generateToken() first error = %v", err)
+	}
+	b, err := generateToken()
+	if err != nil {
+		t.Fatalf("generateToken() second error = %v", err)
+	}
 	if a == b {
 		t.Error("two consecutive tokens should not be equal")
 	}

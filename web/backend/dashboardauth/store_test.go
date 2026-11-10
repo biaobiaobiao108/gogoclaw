@@ -3,10 +3,29 @@ package dashboardauth
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 )
+
+func TestOpenCreatesPrivateDatabaseFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), DBFilename)
+	store, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat() error = %v", err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("database permissions = %o, want no group/other access", info.Mode().Perm())
+	}
+}
 
 func TestSetPasswordIfUninitializedHasSingleWinner(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), DBFilename))

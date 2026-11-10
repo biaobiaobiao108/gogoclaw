@@ -84,9 +84,14 @@ func (h *Handler) handleStartWeixinFlow(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	flowID, err := newWeixinFlowID()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to generate Weixin flow id: %v", err), http.StatusInternalServerError)
+		return
+	}
 	now := time.Now()
 	flow := &weixinFlow{
-		ID:        newWeixinFlowID(),
+		ID:        flowID,
 		Qrcode:    qrResp.Qrcode,
 		QRDataURI: dataURI,
 		Status:    weixinStatusWait,
@@ -292,12 +297,12 @@ func generateQRDataURI(content string) (string, error) {
 	return "data:image/png;base64," + encoded, nil
 }
 
-func newWeixinFlowID() string {
+func newWeixinFlowID() (string, error) {
 	buf := make([]byte, 12)
 	if _, err := rand.Read(buf); err != nil {
-		return fmt.Sprintf("wx_%d", time.Now().UnixNano())
+		return "", fmt.Errorf("read cryptographic randomness: %w", err)
 	}
-	return "wx_" + hex.EncodeToString(buf)
+	return "wx_" + hex.EncodeToString(buf), nil
 }
 
 func (h *Handler) storeWeixinFlow(flow *weixinFlow) {

@@ -105,6 +105,27 @@ func clientIPFromXForwardedFor(header string, trustedProxyNets []*net.IPNet, fal
 	return ips[0]
 }
 
+// ClientIPFromRequest resolves the client address while trusting forwarded
+// headers only when the immediate peer is in one of trustedProxyCIDRs.
+func ClientIPFromRequest(r *http.Request, trustedProxyCIDRs []string) string {
+	if r == nil {
+		return ""
+	}
+	peerIP := clientIPFromRemoteAddr(r.RemoteAddr)
+	if peerIP == nil {
+		return strings.TrimSpace(r.RemoteAddr)
+	}
+	trustedProxyNets, err := parseCIDRNets(trustedProxyCIDRs)
+	if err != nil {
+		return peerIP.String()
+	}
+	ip := peerIP
+	if containsIP(trustedProxyNets, peerIP) {
+		ip = clientIPFromXForwardedFor(r.Header.Get("X-Forwarded-For"), trustedProxyNets, peerIP)
+	}
+	return ip.String()
+}
+
 func parseIPToken(raw string) net.IP {
 	token := strings.Trim(strings.TrimSpace(raw), `"`)
 	if token == "" {

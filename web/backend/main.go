@@ -667,9 +667,10 @@ func main() {
 	mux := http.NewServeMux()
 
 	api.RegisterLauncherAuthRoutes(mux, api.LauncherAuthRouteOpts{
-		Sessions:      dashboardSessions,
-		SetupToken:    setupToken,
-		PasswordStore: passwordStore,
+		Sessions:          dashboardSessions,
+		SetupToken:        setupToken,
+		PasswordStore:     passwordStore,
+		TrustedProxyCIDRs: launcherCfg.TrustedProxyCIDRs,
 	})
 
 	// API Routes (e.g. /api/status)

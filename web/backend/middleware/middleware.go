@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -18,9 +20,59 @@ func JSONContentType(next http.Handler) http.Handler {
 		if len(r.URL.Path) >= 5 && r.URL.Path[:5] == "/api/" {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Cache-Control", "no-store")
+			w = &apiJSONResponseWriter{ResponseWriter: w}
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// apiJSONResponseWriter converts plain-text API error bodies emitted by
+// http.Error into JSON while preserving status codes and streaming support.
+type apiJSONResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+	errorBody  bool
+}
+
+func (w *apiJSONResponseWriter) WriteHeader(code int) {
+	w.statusCode = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *apiJSONResponseWriter) Write(data []byte) (int, error) {
+	if w.statusCode >= http.StatusBadRequest && !w.errorBody {
+		w.errorBody = true
+		trimmed := bytes.TrimSpace(data)
+		if len(trimmed) > 0 && !json.Valid(trimmed) {
+			encoded, err := json.Marshal(map[string]string{"error": string(trimmed)})
+			if err != nil {
+				return 0, err
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if _, err := w.ResponseWriter.Write(encoded); err != nil {
+				return 0, err
+			}
+			return len(data), nil
+		}
+	}
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *apiJSONResponseWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (w *apiJSONResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hijacker, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return hijacker.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
+}
+
+func (w *apiJSONResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 // responseRecorder wraps http.ResponseWriter to capture the status code.

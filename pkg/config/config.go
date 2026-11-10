@@ -1226,6 +1226,7 @@ func LoadConfig(path string) (*Config, error) {
 
 	// Load config based on detected version
 	var cfg *Config
+	needsMigrationSave := false
 	switch versionInfo.Version {
 	case 0:
 		logger.InfoF(
@@ -1281,9 +1282,7 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, err
 		}
 
-		defer func(cfg *Config) {
-			_ = SaveConfig(path, cfg)
-		}(cfg)
+		needsMigrationSave = true
 	case 1:
 		// V1→V3 migration: rename channels→channel_list, infer Enabled, migrate channel configs
 		logger.InfoF(
@@ -1335,13 +1334,7 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, err
 		}
 
-		defer func(cfg *Config) {
-			_ = SaveConfig(path, cfg)
-		}(cfg)
-		logger.InfoF(
-			"config migrate success",
-			map[string]any{"from": versionInfo.Version, "to": CurrentVersion},
-		)
+		needsMigrationSave = true
 	case 2:
 		// V2→V3 migration: rename channels→channel_list, convert flat→nested
 		logger.InfoF(
@@ -1387,13 +1380,7 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, err
 		}
 
-		defer func(cfg *Config) {
-			_ = SaveConfig(path, cfg)
-		}(cfg)
-		logger.InfoF(
-			"config migrate success",
-			map[string]any{"from": versionInfo.Version, "to": CurrentVersion},
-		)
+		needsMigrationSave = true
 	case CurrentVersion:
 		// Current version
 		cfg, err = loadConfig(data)
@@ -1457,6 +1444,15 @@ func LoadConfig(path string) (*Config, error) {
 
 	cfg.Session.ApplyDmScope()
 	cfg.Session.DeriveDmScope()
+	if needsMigrationSave {
+		if err := SaveConfig(path, cfg); err != nil {
+			return nil, fmt.Errorf("save migrated config: %w", err)
+		}
+		logger.InfoF(
+			"config migrate success",
+			map[string]any{"from": versionInfo.Version, "to": CurrentVersion},
+		)
+	}
 
 	return cfg, nil
 }

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httputil"
-	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
@@ -213,15 +212,20 @@ func (h *Handler) handleGetPicoInfo(w http.ResponseWriter, r *http.Request) {
 //	POST /api/pico/token
 func (h *Handler) handleRegenPicoToken(w http.ResponseWriter, r *http.Request) {
 	h.configMu.Lock()
-	defer h.configMu.Unlock()
 
 	cfg, err := config.LoadConfig(h.configPath)
 	if err != nil {
+		h.configMu.Unlock()
 		http.Error(w, fmt.Sprintf("Failed to load config: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	token := generateSecureToken()
+	token, err := generateSecureToken()
+	if err != nil {
+		h.configMu.Unlock()
+		http.Error(w, fmt.Sprintf("Failed to generate Pico token: %v", err), http.StatusInternalServerError)
+		return
+	}
 	if bc := cfg.Channels.GetByType(config.ChannelPico); bc != nil {
 		decoded, err := bc.GetDecoded()
 		if err == nil && decoded != nil {
@@ -232,9 +236,11 @@ func (h *Handler) handleRegenPicoToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := config.SaveConfig(h.configPath, cfg); err != nil {
+		h.configMu.Unlock()
 		http.Error(w, fmt.Sprintf("Failed to save config: %v", err), http.StatusInternalServerError)
 		return
 	}
+	h.configMu.Unlock()
 
 	gateway.mu.Lock()
 	gateway.picoToken = token
@@ -270,7 +276,11 @@ func (h *Handler) EnsurePicoChannel() (bool, error) {
 	if decoded, err := bc.GetDecoded(); err == nil && decoded != nil {
 		if picoCfg, ok := decoded.(*config.PicoSettings); ok {
 			if picoCfg.Token.String() == "" {
-				picoCfg.Token = *config.NewSecureString(generateSecureToken())
+				token, tokenErr := generateSecureToken()
+				if tokenErr != nil {
+					return false, fmt.Errorf("generate Pico token: %w", tokenErr)
+				}
+				picoCfg.Token = *config.NewSecureString(token)
 				changed = true
 			}
 		}
@@ -306,11 +316,10 @@ func (h *Handler) handlePicoSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 // generateSecureToken creates a random 32-character hex string.
-func generateSecureToken() string {
+func generateSecureToken() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		// Fallback to something pseudo-random if crypto/rand fails
-		return fmt.Sprintf("%032x", time.Now().UnixNano())
+		return "", fmt.Errorf("read cryptographic randomness: %w", err)
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }

@@ -185,28 +185,25 @@ func callsFromProvider(provider providers.LLMProvider) []ModelCall {
 	return recorder.Calls()
 }
 
-func eventsForLastTurn(events []runtimeevents.Event) []runtimeevents.Event {
-	if len(events) == 0 {
+func eventsForTurnRange(events []runtimeevents.Event, rangeStart, rangeEnd int) []runtimeevents.Event {
+	if rangeStart < 0 {
+		rangeStart = 0
+	}
+	if rangeStart >= len(events) || rangeEnd < rangeStart || rangeEnd >= len(events) {
 		return nil
 	}
-	turnID := ""
-	for i := len(events) - 1; i >= 0; i-- {
-		if events[i].Kind == runtimeevents.KindAgentTurnEnd && events[i].Correlation.ParentTurnID == "" {
-			turnID = events[i].Scope.TurnID
-			break
+
+	start := rangeStart
+	turnID := events[rangeEnd].Scope.TurnID
+	if turnID != "" {
+		for i := rangeStart; i <= rangeEnd; i++ {
+			if events[i].Scope.TurnID == turnID {
+				start = i
+				break
+			}
 		}
 	}
-	if turnID == "" {
-		return append([]runtimeevents.Event(nil), events...)
-	}
-	start := 0
-	for i := len(events) - 1; i >= 0; i-- {
-		if events[i].Kind == runtimeevents.KindAgentTurnStart && events[i].Scope.TurnID == turnID {
-			start = i
-			break
-		}
-	}
-	return append([]runtimeevents.Event(nil), events[start:]...)
+	return append([]runtimeevents.Event(nil), events[start:rangeEnd+1]...)
 }
 
 func lastTurnEnd(events []runtimeevents.Event) *agent.TurnEndPayload {

@@ -26,9 +26,10 @@ type PasswordStore interface {
 
 // LauncherAuthRouteOpts configures dashboard auth handlers.
 type LauncherAuthRouteOpts struct {
-	Sessions     *middleware.LauncherDashboardSessions
-	SetupToken   string
-	SecureCookie func(*http.Request) bool
+	Sessions          *middleware.LauncherDashboardSessions
+	SetupToken        string
+	SecureCookie      func(*http.Request) bool
+	TrustedProxyCIDRs []string
 	// PasswordStore enables password login. It must be non-nil for auth to work.
 	PasswordStore PasswordStore
 }
@@ -55,12 +56,13 @@ func RegisterLauncherAuthRoutes(mux *http.ServeMux, opts LauncherAuthRouteOpts) 
 		secure = middleware.DefaultLauncherDashboardSecureCookie
 	}
 	h := &launcherAuthHandlers{
-		sessions:     opts.Sessions,
-		setupToken:   opts.SetupToken,
-		secureCookie: secure,
-		store:        opts.PasswordStore,
-		loginLimit:   newLoginRateLimiter(),
-		setupLimit:   newLoginRateLimiter(),
+		sessions:          opts.Sessions,
+		setupToken:        opts.SetupToken,
+		secureCookie:      secure,
+		store:             opts.PasswordStore,
+		loginLimit:        newLoginRateLimiter(),
+		setupLimit:        newLoginRateLimiter(),
+		trustedProxyCIDRs: append([]string(nil), opts.TrustedProxyCIDRs...),
 	}
 	mux.HandleFunc("POST /api/auth/login", h.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", h.handleLogout)
@@ -69,12 +71,13 @@ func RegisterLauncherAuthRoutes(mux *http.ServeMux, opts LauncherAuthRouteOpts) 
 }
 
 type launcherAuthHandlers struct {
-	sessions     *middleware.LauncherDashboardSessions
-	setupToken   string
-	secureCookie func(*http.Request) bool
-	store        PasswordStore
-	loginLimit   *loginRateLimiter
-	setupLimit   *loginRateLimiter
+	sessions          *middleware.LauncherDashboardSessions
+	setupToken        string
+	secureCookie      func(*http.Request) bool
+	store             PasswordStore
+	loginLimit        *loginRateLimiter
+	setupLimit        *loginRateLimiter
+	trustedProxyCIDRs []string
 }
 
 // isStoreInitialized safely queries the store.
@@ -149,7 +152,7 @@ func (h *launcherAuthHandlers) handleLogin(w http.ResponseWriter, r *http.Reques
 		_, _ = w.Write([]byte(`{"error":"invalid JSON"}`))
 		return
 	}
-	ip := clientIPForLimiter(r)
+	ip := clientIPForLimiter(r, h.trustedProxyCIDRs)
 	if !h.loginLimit.allow(ip) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte(`{"error":"too many login attempts"}`))
@@ -275,7 +278,7 @@ func (h *launcherAuthHandlers) handleSetup(w http.ResponseWriter, r *http.Reques
 		_, _ = w.Write([]byte(`{"error":"password store not configured"}`))
 		return
 	}
-	if !h.setupLimit.allow(clientIPForLimiter(r)) {
+	if !h.setupLimit.allow(clientIPForLimiter(r, h.trustedProxyCIDRs)) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte(`{"error":"too many setup attempts"}`))
 		return

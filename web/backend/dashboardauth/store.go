@@ -8,7 +8,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite" // register "sqlite" driver
@@ -36,6 +38,9 @@ func New(dir string) (*Store, error) {
 
 // Open opens (or creates) the SQLite database at path and migrates the schema.
 func Open(path string) (*Store, error) {
+	if err := preparePrivateDatabaseFile(path); err != nil {
+		return nil, err
+	}
 	db, err := sql.Open(sqliteDriver, path)
 	if err != nil {
 		return nil, err
@@ -52,6 +57,24 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	return &Store{db: db, path: path}, nil
+}
+
+func preparePrivateDatabaseFile(path string) error {
+	if path == ":memory:" || strings.HasPrefix(path, "file:") {
+		return nil
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("create private database file: %w", err)
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("secure database file permissions: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close private database file: %w", err)
+	}
+	return nil
 }
 
 // Close releases the database handle.

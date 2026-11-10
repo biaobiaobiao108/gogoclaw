@@ -1,11 +1,11 @@
 package api
 
 import (
-	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/biaobiaobiao108/gogoclaw/web/backend/middleware"
 )
 
 const (
@@ -67,10 +67,6 @@ func (l *loginRateLimiter) allow(ip string) bool {
 	return true
 }
 
-func clientIPForLimiter(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return strings.TrimSpace(r.RemoteAddr)
-	}
-	return host
+func clientIPForLimiter(r *http.Request, trustedProxyCIDRs []string) string {
+	return middleware.ClientIPFromRequest(r, trustedProxyCIDRs)
 }

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	ppid "github.com/biaobiaobiao108/gogoclaw/pkg/pid"
@@ -355,6 +356,74 @@ func TestHandlePicoSetup_Response(t *testing.T) {
 	if resp["configured"] != true {
 		t.Error("response should have configured=true")
 	}
+}
+
+func TestRegenPicoTokenReleasesConfigLockBeforeGatewayLock(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := config.SaveConfig(configPath, config.DefaultConfig()); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+	h := NewHandler(configPath)
+	if _, err := h.EnsurePicoChannel(); err != nil {
+		t.Fatalf("EnsurePicoChannel() error = %v", err)
+	}
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	originalToken := picoTokenFromConfig(t, cfg)
+
+	gateway.mu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			gateway.mu.Unlock()
+		}
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.handleRegenPicoToken(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/pico/token", nil))
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		cfg, err = config.LoadConfig(configPath)
+		if err == nil && picoTokenFromConfig(t, cfg) != originalToken {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("token regeneration did not update config while gateway lock was held")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if !h.configMu.TryLock() {
+		t.Fatal("config mutex remained held while waiting for gateway mutex")
+	}
+	h.configMu.Unlock()
+	gateway.mu.Unlock()
+	locked = false
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("token regeneration did not finish after gateway mutex was released")
+	}
+}
+
+func picoTokenFromConfig(t *testing.T, cfg *config.Config) string {
+	t.Helper()
+	bc := cfg.Channels.GetByType(config.ChannelPico)
+	if bc == nil {
+		t.Fatal("pico channel not configured")
+	}
+	decoded, err := bc.GetDecoded()
+	if err != nil {
+		t.Fatalf("GetDecoded() error = %v", err)
+	}
+	return decoded.(*config.PicoSettings).Token.String()
 }
 
 func TestHandleGetPicoInfo_OmitsToken(t *testing.T) {

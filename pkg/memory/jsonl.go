@@ -219,7 +219,7 @@ func sanitizeKey(key string) string {
 // readMeta loads the metadata file for a session.
 // Returns a zero-value sessionMeta if the file does not exist.
 func (s *JSONLStore) readMeta(key string) (SessionMeta, error) {
-	data, err := os.ReadFile(s.metaPath(key))
+	data, err := fileutil.ReadFileShared(s.metaPath(key))
 	if os.IsNotExist(err) {
 		return SessionMeta{Key: key}, nil
 	}
@@ -426,7 +426,7 @@ func (s *JSONLStore) ResolveSessionKey(_ context.Context, sessionKey string) (st
 			continue
 		}
 
-		data, readErr := os.ReadFile(filepath.Join(s.dir, entry.Name()))
+		data, readErr := fileutil.ReadFileShared(filepath.Join(s.dir, entry.Name()))
 		if readErr != nil {
 			log.Printf("memory: skipping unreadable meta %s: %v", entry.Name(), readErr)
 			continue
@@ -1027,7 +1027,7 @@ func (s *JSONLStore) ListSessions() []string {
 			continue
 		}
 		// Read the meta file to get the original key
-		data, err := os.ReadFile(filepath.Join(s.dir, entry.Name()))
+		data, err := fileutil.ReadFileShared(filepath.Join(s.dir, entry.Name()))
 		if err != nil {
 			continue
 		}

@@ -124,6 +124,34 @@ func (h *Handler) registerOAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/oauth/flows/{id}/poll", h.handlePollOAuthFlow)
 	mux.HandleFunc("POST /api/oauth/logout", h.handleOAuthLogout)
 	mux.HandleFunc("GET /oauth/callback", h.handleOAuthCallback)
+	mux.HandleFunc("GET /oauth/callback.js", handleOAuthCallbackScript)
+}
+
+func handleOAuthCallbackScript(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = io.WriteString(w, `(function () {
+  var result = document.getElementById("oauth-result");
+  var payload = {};
+  try { payload = JSON.parse(result ? result.textContent : "{}"); } catch (error) {}
+  var hasOpener = false;
+  try {
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage(payload, window.location.origin);
+      hasOpener = true;
+    }
+  } catch (error) {}
+  var target = "/credentials?oauth_flow_id=" + encodeURIComponent(payload.flowId || "") +
+    "&oauth_status=" + encodeURIComponent(payload.status || "");
+  setTimeout(function () {
+    if (hasOpener) {
+      window.close();
+      return;
+    }
+    window.location.replace(target);
+  }, 800);
+})();
+`)
 }
 
 func (h *Handler) handleListOAuthProviders(w http.ResponseWriter, r *http.Request) {
@@ -238,9 +266,14 @@ func (h *Handler) handleOAuthLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		flowID, err := newOAuthFlowID()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to generate OAuth flow id: %v", err), http.StatusInternalServerError)
+			return
+		}
 		now := oauthNow()
 		flow := &oauthFlow{
-			ID:           newOAuthFlowID(),
+			ID:           flowID,
 			Provider:     provider,
 			Method:       method,
 			Status:       oauthFlowPending,
@@ -288,9 +321,14 @@ func (h *Handler) handleOAuthLogin(w http.ResponseWriter, r *http.Request) {
 		redirectURI := buildOAuthRedirectURI(r)
 		authURL := oauthBuildAuthorizeURL(cfg, pkce, state, redirectURI)
 
+		flowID, err := newOAuthFlowID()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to generate OAuth flow id: %v", err), http.StatusInternalServerError)
+			return
+		}
 		now := oauthNow()
 		flow := &oauthFlow{
-			ID:           newOAuthFlowID(),
+			ID:           flowID,
 			Provider:     provider,
 			Method:       method,
 			Status:       oauthFlowPending,
@@ -515,7 +553,7 @@ func renderOAuthCallbackPage(w http.ResponseWriter, flowID, status, title, errMs
 
 	_, _ = fmt.Fprintf(
 		w,
-		"<!doctype html><html><head><meta charset=\"utf-8\"><title>GoGoClaw OAuth</title></head><body><script>(function(){var payload=%s;var hasOpener=false;try{if(window.opener&&!window.opener.closed){window.opener.postMessage(payload,window.location.origin);hasOpener=true}}catch(e){}var target='/credentials?oauth_flow_id='+encodeURIComponent(payload.flowId||'')+'&oauth_status='+encodeURIComponent(payload.status||'');setTimeout(function(){if(hasOpener){window.close();return}window.location.replace(target)},800)})();</script><div style=\"font-family:Inter,system-ui,sans-serif;padding:24px\"><h2>%s</h2><p>%s</p><p>You can close this window.</p></div></body></html>",
+		"<!doctype html><html><head><meta charset=\"utf-8\"><title>GoGoClaw OAuth</title></head><body><script id=\"oauth-result\" type=\"application/json\">%s</script><script src=\"/oauth-callback.js\" defer></script><div style=\"font-family:Inter,system-ui,sans-serif;padding:24px\"><h2>%s</h2><p>%s</p><p>You can close this window.</p></div></body></html>",
 		string(payloadJSON),
 		html.EscapeString(title),
 		html.EscapeString(message),
@@ -592,12 +630,12 @@ func flowToResponse(flow *oauthFlow) oauthFlowResponse {
 	return resp
 }
 
-func newOAuthFlowID() string {
+func newOAuthFlowID() (string, error) {
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
-		return fmt.Sprintf("oauth_%d", time.Now().UnixNano())
+		return "", fmt.Errorf("read cryptographic randomness: %w", err)
 	}
-	return hex.EncodeToString(buf)
+	return hex.EncodeToString(buf), nil
 }
 
 func (h *Handler) storeOAuthFlow(flow *oauthFlow) {
