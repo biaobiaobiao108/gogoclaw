@@ -152,6 +152,16 @@ If the reverse proxy cannot preserve the external port or protocol, declare the 
 
 Trusted proxy requests use `public_url` for origin checks, WebSocket/SSE URLs, secure cookies, OAuth callbacks, and HSTS. Direct LAN/local requests keep their own origin. Restart the launcher after changing it.
 
+The same settings can be supplied through container environment variables, which override `launcher-config.json`:
+
+```yaml
+environment:
+  GOGOCLAW_LAUNCHER_PUBLIC_URL: "http://gogoclaw.example.com:666"
+  GOGOCLAW_LAUNCHER_TRUSTED_PROXY_CIDRS: "192.168.31.228/32"
+```
+
+Use commas to separate multiple trusted proxy CIDRs. Restart the container after changing environment variables.
+
 ### Password Page Appears Although You Never Set One
 
 The console password is stored in `/data`, not an environment variable. This usually means an old directory or named volume is mounted. Use the old password for retained data or an empty `/data` for a fresh installation.

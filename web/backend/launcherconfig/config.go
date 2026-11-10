@@ -18,6 +18,11 @@ const (
 	DefaultPort = 18800
 	// EnvLauncherHost overrides launcher listen host.
 	EnvLauncherHost = "GOGOCLAW_LAUNCHER_HOST"
+	// EnvLauncherPublicURL overrides the browser-visible external origin.
+	EnvLauncherPublicURL = "GOGOCLAW_LAUNCHER_PUBLIC_URL"
+	// EnvLauncherTrustedProxyCIDRs overrides trusted reverse proxy CIDRs as a
+	// comma-separated list.
+	EnvLauncherTrustedProxyCIDRs = "GOGOCLAW_LAUNCHER_TRUSTED_PROXY_CIDRS"
 )
 
 // Config stores launch parameters for the web backend service.
@@ -135,6 +140,27 @@ func NormalizeCIDRs(cidrs []string) []string {
 		return nil
 	}
 	return out
+}
+
+// ApplyEnvOverrides applies non-empty launcher settings from environment
+// variables. Environment values take precedence over launcher-config.json.
+func ApplyEnvOverrides(cfg Config) (Config, error) {
+	if publicURL := strings.TrimSpace(os.Getenv(EnvLauncherPublicURL)); publicURL != "" {
+		cfg.PublicURL = publicURL
+	}
+	if rawCIDRs := strings.TrimSpace(os.Getenv(EnvLauncherTrustedProxyCIDRs)); rawCIDRs != "" {
+		cfg.TrustedProxyCIDRs = NormalizeCIDRs(strings.Split(rawCIDRs, ","))
+	}
+
+	publicURL, err := NormalizePublicURL(cfg.PublicURL)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.PublicURL = publicURL
+	if err := Validate(cfg); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
 }
 
 // PathForAppConfig returns launcher-config path near the app config file.

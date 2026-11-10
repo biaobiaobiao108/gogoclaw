@@ -156,6 +156,16 @@ sudo chown -R 10001:10001 /vol1/1000/docker/gogoclaw
 
 可信代理请求会把 `public_url` 用于同源校验、WebSocket/SSE 地址、登录 Cookie、OAuth 回调和 HSTS；直接通过局域网或本机访问时仍使用当前地址。修改后重启启动器。
 
+也可以用容器环境变量配置；环境变量优先于 `launcher-config.json`：
+
+```yaml
+environment:
+  GOGOCLAW_LAUNCHER_PUBLIC_URL: "http://gogoclaw.example.com:666"
+  GOGOCLAW_LAUNCHER_TRUSTED_PROXY_CIDRS: "192.168.31.228/32"
+```
+
+多个可信代理 CIDR 使用英文逗号分隔。修改环境变量后重启容器。
+
 ### 页面要求密码但从未设置
 
 控制台密码保存在 `/data` 中，不是环境变量。通常是因为挂载了之前使用过的目录或命名卷。保留旧数据时请使用旧密码；需要全新部署时使用空 `/data`。

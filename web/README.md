@@ -88,6 +88,11 @@ That file currently stores:
 If `-port` or `-public` are passed explicitly, the CLI flag wins for that run.
 If they are omitted, stored launcher settings are used.
 
+Reverse-proxy settings can override `launcher-config.json` through:
+
+- `GOGOCLAW_LAUNCHER_PUBLIC_URL`
+- `GOGOCLAW_LAUNCHER_TRUSTED_PROXY_CIDRS` (comma-separated CIDRs)
+
 ### First-Run Onboarding
 
 If the target config file does not exist, the launcher tries to bootstrap it automatically by running:

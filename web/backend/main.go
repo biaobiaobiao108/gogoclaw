@@ -541,6 +541,10 @@ func main() {
 		logger.ErrorC("web", fmt.Sprintf("Warning: Failed to load %s: %v", launcherPath, err))
 		launcherCfg = launcherconfig.Default()
 	}
+	launcherCfg, err = launcherconfig.ApplyEnvOverrides(launcherCfg)
+	if err != nil {
+		logger.Fatalf("Invalid launcher environment configuration: %v", err)
+	}
 	externalAccess, err := middleware.NewExternalAccess(launcherCfg.PublicURL, launcherCfg.TrustedProxyCIDRs)
 	if err != nil {
 		logger.Fatalf("Invalid launcher reverse proxy configuration: %v", err)

@@ -254,6 +254,45 @@ func TestValidateRejectsInvalidPublicURL(t *testing.T) {
 	}
 }
 
+func TestApplyEnvOverrides(t *testing.T) {
+	t.Setenv(EnvLauncherPublicURL, " http://gogoclaw.example.test:666/ ")
+	t.Setenv(EnvLauncherTrustedProxyCIDRs, " 192.168.31.228/32, 10.0.0.0/8,192.168.31.228/32 ")
+
+	got, err := ApplyEnvOverrides(Config{
+		Port:              18800,
+		PublicURL:         "https://ignored.example.test",
+		TrustedProxyCIDRs: []string{"172.16.0.0/12"},
+	})
+	if err != nil {
+		t.Fatalf("ApplyEnvOverrides() error = %v", err)
+	}
+	if got.PublicURL != "http://gogoclaw.example.test:666" {
+		t.Fatalf("public_url = %q, want environment override", got.PublicURL)
+	}
+	wantCIDRs := []string{"192.168.31.228/32", "10.0.0.0/8"}
+	if len(got.TrustedProxyCIDRs) != len(wantCIDRs) {
+		t.Fatalf("trusted_proxy_cidrs = %v, want %v", got.TrustedProxyCIDRs, wantCIDRs)
+	}
+	for i := range wantCIDRs {
+		if got.TrustedProxyCIDRs[i] != wantCIDRs[i] {
+			t.Fatalf("trusted_proxy_cidrs = %v, want %v", got.TrustedProxyCIDRs, wantCIDRs)
+		}
+	}
+}
+
+func TestApplyEnvOverridesRejectsInvalidValues(t *testing.T) {
+	t.Setenv(EnvLauncherPublicURL, "https://example.test/path")
+	if _, err := ApplyEnvOverrides(Default()); err == nil {
+		t.Fatal("ApplyEnvOverrides() expected invalid public_url error")
+	}
+
+	t.Setenv(EnvLauncherPublicURL, "")
+	t.Setenv(EnvLauncherTrustedProxyCIDRs, "not-a-cidr")
+	if _, err := ApplyEnvOverrides(Default()); err == nil {
+		t.Fatal("ApplyEnvOverrides() expected invalid CIDR error")
+	}
+}
+
 func TestNormalizeCIDRs(t *testing.T) {
 	got := NormalizeCIDRs([]string{" 192.168.1.0/24 ", "", "10.0.0.0/8", "192.168.1.0/24"})
 	want := []string{"192.168.1.0/24", "10.0.0.0/8"}
