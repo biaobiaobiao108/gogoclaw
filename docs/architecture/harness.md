@@ -74,6 +74,21 @@ regressions. `ProductionIngress` sends test messages through the message bus
 and `AgentLoop.Run`, including final outbound delivery. `ConcurrentSetup` can
 exercise multiple sessions on one loop while retaining the runtime event trace.
 
+## Product Scenarios And Model Behavior Evaluation
+
+The CI harness suite includes product-path scenarios for writing a real
+workspace artifact with the production filesystem tool, reopening a JSONL
+session store between AgentLoop instances, and receiving a production `spawn`
+tool result through the async follow-up path. These use scripted provider
+responses to keep regressions deterministic; they do not score model quality.
+
+Live model behavior is evaluated separately by
+[`gogoclaw-model-eval`](../operations/model-behavior-evaluation.md). Its
+versioned report records the model, task outcomes, observed tool calls,
+artifact digest, final answer, and provider-reported token usage. It runs a
+small task set against a configured OpenAI-compatible endpoint and is
+opt-in/manual so PR CI stays deterministic and does not incur API charges.
+
 ## Suites And CLI
 
 `RunSuite` and `RunSuiteWithOptions` return a structured `Report` containing
@@ -109,3 +124,4 @@ make harness-test
 ```
 
 The target runs the harness under the race detector and also compiles the CLI.
+The `agent scenarios` CI job invokes this target directly.

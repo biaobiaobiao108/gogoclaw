@@ -1,0 +1,41 @@
+name: Live Telegram contract
+
+on:
+  workflow_dispatch:
+    inputs:
+      send_test_message:
+        description: "Send one visible test message to the configured Telegram chat"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-telegram-contract-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    if: ${{ inputs.send_test_message }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify live Telegram inputs
+        env:
+          GOGOCLAW_LIVE_TELEGRAM_BOT_TOKEN: ${{ secrets.GOGOCLAW_LIVE_TELEGRAM_BOT_TOKEN }}
+          GOGOCLAW_LIVE_TELEGRAM_CHAT_ID: ${{ vars.GOGOCLAW_LIVE_TELEGRAM_CHAT_ID }}
+        run: |
+          test -n "$GOGOCLAW_LIVE_TELEGRAM_BOT_TOKEN" || { echo "Configure the GOGOCLAW_LIVE_TELEGRAM_BOT_TOKEN repository secret" >&2; exit 1; }
+          test -n "$GOGOCLAW_LIVE_TELEGRAM_CHAT_ID" || { echo "Configure the GOGOCLAW_LIVE_TELEGRAM_CHAT_ID repository variable" >&2; exit 1; }
+      - name: Send one live Telegram contract message
+        env:
+          GOGOCLAW_LIVE_TELEGRAM_BOT_TOKEN: ${{ secrets.GOGOCLAW_LIVE_TELEGRAM_BOT_TOKEN }}
+          GOGOCLAW_LIVE_TELEGRAM_CHAT_ID: ${{ vars.GOGOCLAW_LIVE_TELEGRAM_CHAT_ID }}
+        run: go test -tags goolm,stdjson,integration ./pkg/channels/telegram -run '^TestLiveContract_SendMessage$' -count=1 -v

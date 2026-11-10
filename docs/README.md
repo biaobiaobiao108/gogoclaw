@@ -6,12 +6,12 @@ GoGoClaw documentation is organized by document type. English documents use the 
 
 - [Guides](guides/README.md): setup, configuration, provider, and workflow guides.
 - [Reference](reference/README.md): precise configuration and behavior reference.
-- [Operations](operations/README.md): debugging and troubleshooting material.
+- [Operations](operations/README.md): debugging, troubleshooting, and model behavior evaluation.
 - [Security](security/README.md): security-focused guides and controls.
 - [Architecture](architecture/README.md): implementation notes and internal design docs.
 - [Migration](migration/README.md): upgrade and migration notes.
 
-For channel-specific setup, start with [Chat Apps Configuration](guides/chat-apps.md) and then use `docs/channels/<name>/README.md` as needed.
+For channel-specific setup, start with [Chat Apps Configuration](guides/chat-apps.md) and then use `docs/channels/<name>/README.md` as needed. See [Channel Validation Scope](channels/validation.md) for the distinction between CI fixtures and real platform checks.
 
 ## Translation Rules
 

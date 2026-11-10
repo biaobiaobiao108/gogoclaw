@@ -1,0 +1,51 @@
+name: Model behavior evaluation
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_behavior_evaluation:
+        description: "Send a small number of requests to the configured model and evaluate observable task results"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-behavior-evaluation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    if: ${{ inputs.run_behavior_evaluation }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify live model evaluation inputs
+        env:
+          GOGOCLAW_EVAL_API_BASE: ${{ vars.GOGOCLAW_EVAL_API_BASE }}
+          GOGOCLAW_EVAL_API_KEY: ${{ secrets.GOGOCLAW_EVAL_API_KEY }}
+          GOGOCLAW_EVAL_MODEL: ${{ vars.GOGOCLAW_EVAL_MODEL }}
+        run: |
+          test -n "$GOGOCLAW_EVAL_API_BASE" || { echo "Configure the GOGOCLAW_EVAL_API_BASE repository variable" >&2; exit 1; }
+          test -n "$GOGOCLAW_EVAL_API_KEY" || { echo "Configure the GOGOCLAW_EVAL_API_KEY repository secret" >&2; exit 1; }
+          test -n "$GOGOCLAW_EVAL_MODEL" || { echo "Configure the GOGOCLAW_EVAL_MODEL repository variable" >&2; exit 1; }
+      - name: Run model behavior tasks
+        env:
+          GOGOCLAW_EVAL_API_BASE: ${{ vars.GOGOCLAW_EVAL_API_BASE }}
+          GOGOCLAW_EVAL_API_KEY: ${{ secrets.GOGOCLAW_EVAL_API_KEY }}
+          GOGOCLAW_EVAL_MODEL: ${{ vars.GOGOCLAW_EVAL_MODEL }}
+        run: go run ./cmd/gogoclaw-model-eval -report build/evaluations/model-behavior.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: model-behavior-${{ github.sha }}
+          path: build/evaluations/model-behavior.json
+          if-no-files-found: warn
+          retention-days: 30
