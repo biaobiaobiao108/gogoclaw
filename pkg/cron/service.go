@@ -348,7 +348,12 @@ func (cs *CronService) recomputeNextRuns() {
 	for i := range cs.store.Jobs {
 		job := &cs.store.Jobs[i]
 		if job.Enabled {
-			job.State.NextRunAtMS = cs.computeNextRun(&job.Schedule, now)
+			// Enabled one-shot jobs are still pending, including those due during downtime.
+			if job.Schedule.Kind == "at" {
+				job.State.NextRunAtMS = job.Schedule.AtMS
+			} else {
+				job.State.NextRunAtMS = cs.computeNextRun(&job.Schedule, now)
+			}
 		}
 	}
 }

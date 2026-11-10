@@ -591,7 +591,7 @@ func (t *CronTool) enableJob(ctx context.Context, args map[string]any, enable bo
 }
 
 // ExecuteJob executes a cron job through the agent
-func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) string {
+func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) (string, error) {
 	// Get channel/chatID from job payload
 	channel := job.Payload.Channel
 	chatID := job.Payload.To
@@ -614,7 +614,7 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) string {
 				Context: bus.NewOutboundContext(channel, chatID, ""),
 				Content: output,
 			})
-			return "ok"
+			return "", fmt.Errorf("%s", output)
 		}
 
 		args := map[string]any{
@@ -638,7 +638,10 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) string {
 			Context: bus.NewOutboundContext(channel, chatID, ""),
 			Content: output,
 		})
-		return "ok"
+		if result.IsError {
+			return "", fmt.Errorf("%s", output)
+		}
+		return "ok", nil
 	}
 
 	sessionKey := fmt.Sprintf("agent:cron-%s-%s", job.ID, uuid.New().String())
@@ -652,11 +655,11 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) string {
 		chatID,
 	)
 	if err != nil {
-		return fmt.Sprintf("Error: %v", err)
+		return "", fmt.Errorf("execute scheduled agent task: %w", err)
 	}
 
 	if response != "" {
 		t.executor.PublishResponseIfNeeded(ctx, channel, chatID, sessionKey, response)
 	}
-	return "ok"
+	return "ok", nil
 }

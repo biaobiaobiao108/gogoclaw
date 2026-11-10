@@ -935,3 +935,51 @@ func TestDeleteSessionProtectsLiveTurnStates(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionListPaginationAcrossPinnedBoundary(t *testing.T) {
+	_, mux, dir := setupChatFeatureTest(t)
+	// ID ordering breaks timestamp ties deterministically in the same direction.
+	for _, id := range []string{"a-pinned", "b-unpinned", "c-pinned", "d-unpinned"} {
+		seedChatFeatureSession(t, dir, id)
+		if strings.HasSuffix(id, "-pinned") {
+			rec := performJSONRequest(t, mux, http.MethodPatch, "/api/sessions/"+id, map[string]any{"pinned": true})
+			if rec.Code != http.StatusOK {
+				t.Fatalf("pin: %s", rec.Body.String())
+			}
+		}
+	}
+	for _, limit := range []int{1, 2, 3} {
+		cursor := ""
+		seen := map[string]bool{}
+		unpinned := false
+		for pageNo := 0; ; pageNo++ {
+			if pageNo > 4 {
+				t.Fatal("pagination did not finish")
+			}
+			rec := performJSONRequest(t, mux, http.MethodGet, fmt.Sprintf("/api/sessions?limit=%d&cursor=%s", limit, url.QueryEscape(cursor)), nil)
+			var page sessionListResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+				t.Fatal(err)
+			}
+			for _, item := range page.Items {
+				if seen[item.ID] {
+					t.Fatalf("duplicate %s", item.ID)
+				}
+				seen[item.ID] = true
+				if item.Pinned && unpinned {
+					t.Fatal("pinned session after unpinned session")
+				}
+				if !item.Pinned {
+					unpinned = true
+				}
+			}
+			if !page.HasMore {
+				break
+			}
+			cursor = page.NextCursor
+		}
+		if len(seen) != 4 {
+			t.Fatalf("limit=%d: got sessions %v, want all four", limit, seen)
+		}
+	}
+}

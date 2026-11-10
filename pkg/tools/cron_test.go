@@ -1147,8 +1147,8 @@ func TestCronTool_ExecuteJobPublishesErrorWhenExecDisabled(t *testing.T) {
 	job.Payload.To = "direct"
 	job.Payload.Command = "df -h"
 
-	if got := tool.ExecuteJob(context.Background(), job); got != "ok" {
-		t.Fatalf("ExecuteJob() = %q, want ok", got)
+	if got, err := tool.ExecuteJob(context.Background(), job); err == nil || !strings.Contains(err.Error(), "command execution is disabled") {
+		t.Fatalf("ExecuteJob() = %q, %v, want exec disabled error", got, err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -1175,8 +1175,8 @@ func TestCronTool_ExecuteJobPublishesAgentResponse(t *testing.T) {
 	job.Payload.To = "chat-1"
 	job.Payload.Message = "send me a poem"
 
-	if got := tool.ExecuteJob(context.Background(), job); got != "ok" {
-		t.Fatalf("ExecuteJob() = %q, want ok", got)
+	if got, err := tool.ExecuteJob(context.Background(), job); got != "ok" || err != nil {
+		t.Fatalf("ExecuteJob() = %q, %v, want ok", got, err)
 	}
 
 	if !strings.HasPrefix(executor.lastKey, "agent:cron-job-1-") {
@@ -1208,8 +1208,8 @@ func TestCronTool_ExecuteJobSkipsEmptyAgentResponse(t *testing.T) {
 	job.Payload.To = "chat-1"
 	job.Payload.Message = "say nothing"
 
-	if got := tool.ExecuteJob(context.Background(), job); got != "ok" {
-		t.Fatalf("ExecuteJob() = %q, want ok", got)
+	if got, err := tool.ExecuteJob(context.Background(), job); got != "ok" || err != nil {
+		t.Fatalf("ExecuteJob() = %q, %v, want ok", got, err)
 	}
 
 	if executor.publishedResp != "" {
@@ -1226,8 +1226,8 @@ func TestCronTool_ExecuteJobSkipsWhenMessageToolAlreadySent(t *testing.T) {
 	job.Payload.To = "chat-1"
 	job.Payload.Message = "send weather"
 
-	if got := tool.ExecuteJob(context.Background(), job); got != "ok" {
-		t.Fatalf("ExecuteJob() = %q, want ok", got)
+	if got, err := tool.ExecuteJob(context.Background(), job); got != "ok" || err != nil {
+		t.Fatalf("ExecuteJob() = %q, %v, want ok", got, err)
 	}
 
 	if executor.publishedResp != "" {
@@ -1242,8 +1242,8 @@ func TestCronTool_ExecuteJobRunsCommand(t *testing.T) {
 	job.Payload.To = "direct"
 	job.Payload.Command = "echo cron-test-ok"
 
-	if got := tool.ExecuteJob(context.Background(), job); got != "ok" {
-		t.Fatalf("ExecuteJob() = %q, want ok", got)
+	if got, err := tool.ExecuteJob(context.Background(), job); got != "ok" || err != nil {
+		t.Fatalf("ExecuteJob() = %q, %v, want ok", got, err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -1272,12 +1272,23 @@ func TestCronTool_ExecuteJobReturnsErrorWithoutPublish(t *testing.T) {
 	job.Payload.To = "chat-1"
 	job.Payload.Message = "do something"
 
-	got := tool.ExecuteJob(context.Background(), job)
-	if !strings.Contains(got, "agent failure") {
-		t.Fatalf("ExecuteJob() = %q, want error message", got)
+	got, err := tool.ExecuteJob(context.Background(), job)
+	if err == nil || !strings.Contains(err.Error(), "agent failure") {
+		t.Fatalf("ExecuteJob() = %q, %v, want agent failure", got, err)
 	}
 
 	if executor.publishedResp != "" {
 		t.Fatalf("unexpected publish on error path: %q", executor.publishedResp)
+	}
+}
+
+func TestCronTool_ExecuteJobReturnsCommandFailure(t *testing.T) {
+	tool := newTestCronToolWithConfig(t, config.DefaultConfig())
+	job := &cron.CronJob{}
+	job.Payload.Channel = "cli"
+	job.Payload.To = "direct"
+	job.Payload.Command = "exit 1"
+	if _, err := tool.ExecuteJob(context.Background(), job); err == nil {
+		t.Fatal("failed command must return an error to the scheduler")
 	}
 }

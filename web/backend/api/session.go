@@ -74,6 +74,7 @@ type sessionListResponse struct {
 }
 
 type sessionListCursor struct {
+	Pinned  bool   `json:"pinned"`
 	Updated string `json:"updated"`
 	ID      string `json:"id"`
 }
@@ -1351,8 +1352,9 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				cursorUpdated, _ = time.Parse(time.RFC3339, cursor.Updated)
 			}
-			if item.updatedAt.After(cursorUpdated) ||
-				(item.updatedAt.Equal(cursorUpdated) && item.ID >= cursor.ID) {
+			if (item.Pinned && !cursor.Pinned) || (item.Pinned == cursor.Pinned &&
+				(item.updatedAt.After(cursorUpdated) ||
+					(item.updatedAt.Equal(cursorUpdated) && item.ID >= cursor.ID))) {
 				continue
 			}
 		}
@@ -1380,6 +1382,7 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 
 func encodeSessionListCursor(item sessionListItem) string {
 	data, err := json.Marshal(sessionListCursor{
+		Pinned:  item.Pinned,
 		Updated: item.updatedAt.UTC().Format(time.RFC3339Nano),
 		ID:      item.ID,
 	})

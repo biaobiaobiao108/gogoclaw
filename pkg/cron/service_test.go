@@ -365,3 +365,50 @@ func TestCronService_ConcurrentAccess(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestCronService_RestartRunsOverdueOneShot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	cs := NewCronService(path, nil)
+	at := time.Now().Add(-time.Minute).UnixMilli()
+	job, err := cs.AddJob("overdue", CronSchedule{Kind: "at", AtMS: &at}, "reminder", "cli", "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Persist the state of a pending task whose deadline passed while stopped.
+	job.State.NextRunAtMS = &at
+	if err := cs.UpdateJob(job); err != nil {
+		t.Fatal(err)
+	}
+	ran := make(chan string, 2)
+	restarted := NewCronService(path, func(j *CronJob) (string, error) { ran <- j.ID; return "ok", nil })
+	if err := restarted.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Stop()
+	select {
+	case id := <-ran:
+		if id != job.ID {
+			t.Fatalf("ran %q, want %q", id, job.ID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("overdue reminder did not run")
+	}
+}
+
+func TestCronService_PersistsExecutionFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	cs := NewCronService(path, func(*CronJob) (string, error) {
+		return "", fmt.Errorf("agent failure")
+	})
+	every := int64(60_000)
+	job, err := cs.AddJob("failure", CronSchedule{Kind: "every", EveryMS: &every}, "", "cli", "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs.executeJobByID(job.ID)
+	reloaded := NewCronService(path, nil)
+	got, ok := reloaded.GetJob(job.ID)
+	if !ok || got.State.LastStatus != "error" || got.State.LastError != "agent failure" {
+		t.Fatalf("persisted job = %+v, want error state", got)
+	}
+}
