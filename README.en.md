@@ -18,7 +18,9 @@
 
 ---
 
-GoGoClaw is a long-running general-purpose agent harness. Its core is written in Go, and its web console is a React 19 and Tailwind CSS v4 application built with Bun. It can connect to OpenAI, Anthropic, and Gemini model protocols and expose the same agent through Web, Telegram, WeChat, Discord, Feishu, and QQ channels.
+GoGoClaw is a single-host, private-deployment agent harness for long-running personal and small-team use. Its core is written in Go, and its web console is a React 19 and Tailwind CSS v4 application built with Bun. It can connect to OpenAI, Anthropic, and Gemini model protocols and expose the same agent through Web, Telegram, WeChat, Discord, Feishu, and QQ channels.
+
+GoGoClaw treats one trusted instance as its runtime boundary. It does not provide multi-tenancy, RBAC, or horizontal scaling, and only one GoGoClaw instance should manage a data directory.
 
 Production deployment is supported through the container image only. The container is the runtime security boundary, and tool approval is disabled by default.
 
@@ -313,7 +315,6 @@ Local binaries, direct gateway processes, and development containers are for dev
 - [Configuration](docs/guides/configuration.md)
 - [Tools and MCP](docs/reference/tools_configuration.md)
 - [Troubleshooting](docs/operations/troubleshooting.md)
-- [Contributing](CONTRIBUTING.md)
 
 ## License
 

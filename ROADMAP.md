@@ -70,7 +70,7 @@
 * **Multi-Agent Collaboration**
   * [**Basic Multi-Agent**](https://github.com/biaobiaobiao108/gogoclaw/issues/294) implement
   * [**Model Routing**](https://github.com/biaobiaobiao108/gogoclaw/issues/295): "Smart Routing" — dispatch simple tasks to small/local models (fast/cheap) and complex tasks to SOTA models (smart).
-  * [**Swarm Mode**](https://github.com/biaobiaobiao108/gogoclaw/issues/284): Collaboration between multiple GoGoClaw instances on the same network.
+  * [**Swarm Mode**](https://github.com/biaobiaobiao108/gogoclaw/issues/284): Experimental collaboration between independent GoGoClaw instances. This does not add shared data directories, multi-tenancy, or horizontal scaling.
   * [**AIEOS**](https://github.com/biaobiaobiao108/gogoclaw/issues/296): Exploring AI-Native Operating System interaction paradigms.
 
 

@@ -96,9 +96,9 @@ git checkout -b 你的功能分支名
 
 ### Commit 规范
 
-- 使用英文撰写清晰、简洁的 commit 信息。
-- 使用祈使句：写 "Add retry logic"，而不是 "Added retry logic"。
-- 有关联 Issue 时请引用：`Fix session leak (#123)`。
+- 使用中文撰写清晰、简洁的 commit 信息。
+- 使用 Conventional Commits 格式，例如 `fix(channels): 修复 Telegram 超时重试`。
+- 有关联 Issue 时请在 PR 描述中引用。
 - 保持 commit 专注，每个 commit 只做一件事。
 - 对于小的清理或拼写修正，提 PR 前请将其合并为一个 commit。
 - 按照 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/v1.0.0/) 规范来撰写

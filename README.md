@@ -18,7 +18,9 @@
 
 ---
 
-GoGoClaw 是一个面向长期运行的通用 Agent Harness。核心后端使用 Go，Web 控制台使用 React 19 与 Tailwind CSS v4，通过 Bun 构建。它可以连接 OpenAI、Anthropic、Gemini 等模型协议，并把同一个 Agent 暴露到 Web、Telegram、微信、Discord、飞书和 QQ 等频道。
+GoGoClaw 是一个面向单机长期运行与私有化部署的通用 Agent Harness。核心后端使用 Go，Web 控制台使用 React 19 与 Tailwind CSS v4，通过 Bun 构建。它可以连接 OpenAI、Anthropic、Gemini 等模型协议，并把同一个 Agent 暴露到 Web、Telegram、微信、Discord、飞书和 QQ 等频道。
+
+GoGoClaw 以单个可信实例为运行边界，不提供多租户、RBAC 或横向扩容能力；同一个数据目录只应由一个 GoGoClaw 实例管理。
 
 生产环境只支持容器部署。容器是运行时安全边界，工具调用审批默认关闭。
 

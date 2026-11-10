@@ -1,6 +1,6 @@
 # GoGoClaw Documentation
 
-GoGoClaw documentation is organized by document type. English documents use the base filename and Chinese translations use the `.zh.md` suffix beside the source file. The repository root provides a Chinese README by default and an English README at `README.en.md`.
+GoGoClaw is a single-host, private-deployment agent. One trusted instance owns a data directory; multi-tenancy, RBAC, and horizontal scaling are out of scope. Documentation is organized by document type. English documents use the base filename and Chinese translations use the `.zh.md` suffix beside the source file. The repository root provides a Chinese README by default and an English README at `README.en.md`.
 
 ## Reader Navigation
 

@@ -2,7 +2,7 @@
 
 ## 项目概述与定位
 
-GoGoClaw 是一个轻量级、面向多通道连接的私有化智能 Agent 框架与 Web 控制台系统。
+GoGoClaw 是一个面向单机长期运行与私有化部署的智能 Agent 框架与 Web 控制台系统。它以单个可信实例为运行边界，不提供多租户、RBAC 或横向扩容能力；同一个数据目录只应由一个 GoGoClaw 实例管理。
 
 - **运行形态**：生产环境**仅支持容器化部署**，本地电脑仅作开发与测试。
 - **核心架构**：
@@ -16,7 +16,7 @@ GoGoClaw 是一个轻量级、面向多通道连接的私有化智能 Agent 框�
 - `web/backend`：Go 控制台后端服务（嵌入前端构建产物）。
 - `web/frontend`：React 19 SPA（TanStack Router、Tailwind CSS v4、由 Bun 原生驱动）。
 - `docker/`：多阶段生产构建 `Dockerfile` 与开发环境 Compose 配置。
-- `docs/`：项目文档，仅保留中文与英文（`*.zh.md`）。
+- `docs/`：项目文档，仅保留英文基准文档与对应的 `.zh.md` 中文翻译。
 
 ## 构建、测试与开发常用命令
 
