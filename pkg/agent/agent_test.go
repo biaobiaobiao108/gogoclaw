@@ -365,94 +365,6 @@ func newTestAgentLoop(
 	return al, cfg, msgBus, provider, func() { os.RemoveAll(tmpDir) }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // Mock implementations for testing
 
 type simpleMockProvider struct {
@@ -779,24 +691,6 @@ func (m *toolFeedbackReasoningProvider) Chat(
 func (m *toolFeedbackReasoningProvider) GetDefaultModel() string {
 	return "tool-feedback-reasoning-model"
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 type picoInterleavedContentProvider struct {
 	calls int
@@ -1210,38 +1104,6 @@ func testInboundMessage(msg bus.InboundMessage) bus.InboundMessage {
 
 const responseTimeout = 3 * time.Second
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // failFirstMockProvider fails on the first N calls with a specific error
 type failFirstMockProvider struct {
 	failures    int
@@ -1270,8 +1132,6 @@ func (m *failFirstMockProvider) Chat(
 func (m *failFirstMockProvider) GetDefaultModel() string {
 	return "mock-fail-model"
 }
-
-
 
 type visionUnsupportedMediaProvider struct {
 	calls     int
@@ -1559,46 +1419,6 @@ func (p *loadImageThenTextFollowUpProvider) GetDefaultModel() string {
 	return "load-image-then-text-follow-up-model"
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 func assertToolFeedbackNotPublishedWhenDisabled(t *testing.T, channel string) {
 	t.Helper()
 
@@ -1648,62 +1468,6 @@ func assertToolFeedbackNotPublishedWhenDisabled(t *testing.T, channel string) {
 	}
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // --- Native search helper tests ---
 
 type nativeSearchProvider struct {
@@ -1733,20 +1497,6 @@ func (p *plainProvider) Chat(
 }
 
 func (p *plainProvider) GetDefaultModel() string { return "test-model" }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 type overflowProvider struct {
 	calls        int
@@ -1786,14 +1536,6 @@ func (p *overflowProvider) Chat(
 func (p *overflowProvider) GetDefaultModel() string {
 	return "test-model"
 }
-
-
-
-
-
-
-
-
 
 // concurrentMockProvider is a mock provider that allows tracking concurrency
 type concurrentMockProvider struct {

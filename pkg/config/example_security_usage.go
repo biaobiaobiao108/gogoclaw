@@ -44,12 +44,13 @@ model_list:
 
 # Channel Tokens
 channel_list:
-  telegram:
-    settings:
-      token: "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
-  discord:
-    settings:
-      token: "your-discord-bot-token"
+
+	telegram:
+	  settings:
+	    token: "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
+	discord:
+	  settings:
+	    token: "your-discord-bot-token"
 
 # Web Tool Keys
 # Brave, Tavily, Perplexity, Kagi: Use 'api_keys' array

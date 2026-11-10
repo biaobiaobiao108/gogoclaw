@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -302,6 +303,71 @@ func TestPublishTrackedOutboundPersistsFailureAndRetries(t *testing.T) {
 	}
 	if transport.outbound[0].ID != failedMessageID {
 		t.Fatalf("retried outbound ID = %q, want %q", transport.outbound[0].ID, failedMessageID)
+	}
+}
+
+func TestPublishTrackedOutboundPreservesConcurrentSessionDeliveries(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+
+	checkpointStore, ok := agent.Sessions.(session.TurnCheckpointStore)
+	if !ok {
+		t.Fatal("test session store does not support turn checkpoints")
+	}
+	transport := &deliveryTestBus{}
+	al.bus = transport
+
+	const deliveryCount = 32
+	sessionKey := "concurrent-deliveries"
+	start := make(chan struct{})
+	errCh := make(chan error, deliveryCount)
+	var workers sync.WaitGroup
+	workers.Add(deliveryCount)
+	for i := range deliveryCount {
+		go func(index int) {
+			defer workers.Done()
+			<-start
+			errCh <- al.publishTrackedOutbound(context.Background(), sessionKey, bus.OutboundMessage{
+				Context:    bus.InboundContext{Channel: "cli", ChatID: "chat", ChatType: "direct"},
+				SessionKey: sessionKey,
+				Content:    fmt.Sprintf("notification-%d", index),
+			})
+		}(i)
+	}
+	close(start)
+	workers.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("publishTrackedOutbound() error = %v", err)
+		}
+	}
+
+	checkpoint, err := checkpointStore.GetTurnCheckpoint(sessionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(checkpoint.Deliveries) != deliveryCount {
+		t.Fatalf("persisted deliveries = %d, want %d", len(checkpoint.Deliveries), deliveryCount)
+	}
+	contents := make(map[string]bool, deliveryCount)
+	for _, delivery := range checkpoint.Deliveries {
+		if delivery.Status != deliveryStatusAcknowledged {
+			t.Errorf("delivery %q status = %q, want %q", delivery.ID, delivery.Status, deliveryStatusAcknowledged)
+		}
+		contents[delivery.Content] = true
+	}
+	for i := range deliveryCount {
+		content := fmt.Sprintf("notification-%d", i)
+		if !contents[content] {
+			t.Errorf("delivery %q was lost from the checkpoint", content)
+		}
+	}
+
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	if len(transport.outbound) != deliveryCount {
+		t.Fatalf("published messages = %d, want %d", len(transport.outbound), deliveryCount)
 	}
 }
 

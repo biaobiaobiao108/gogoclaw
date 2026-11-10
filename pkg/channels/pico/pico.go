@@ -40,18 +40,6 @@ var allowedInlineImageMIMETypes = map[string]struct{}{
 // base64 expansion, plus the surrounding message and JSON overhead.
 const maxPicoMessageBytes = 32 << 20
 
-
-
-
-
-
-
-
-
-
-
-
-
 // PicoChannel implements the native Pico Protocol WebSocket channel.
 // It serves as the reference implementation for all optional capability interfaces.
 type PicoChannel struct {
@@ -196,54 +184,6 @@ func NewPicoChannel(
 	return ch, nil
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 type picoStreamer struct {
 	channel           *PicoChannel
 	chatID            string
@@ -272,84 +212,6 @@ const (
 	streamPacingMaxDuration    = 420 * time.Millisecond
 	streamPacingMaxFrames      = 18
 )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // truncate truncates a string to maxLen runes.
 func truncate(s string, maxLen int) string {

@@ -378,6 +378,7 @@ func (e *Engine) initCompactionOnce() {
 		}
 	}
 }
+
 // initAssemblerOnce lazily initializes the assembler.
 func (e *Engine) initAssemblerOnce() {
 	e.assemblerMu.Lock()

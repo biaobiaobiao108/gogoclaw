@@ -150,54 +150,6 @@ type asyncTask struct {
 	cancel context.CancelFunc
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 func NewManager(
 	cfg *config.Config,
 	messageBus *bus.MessageBus,
@@ -247,10 +199,6 @@ func (m *Manager) SetMediaStore(store media.MediaStore) {
 	}
 }
 
-
-
-
-
 type modelNameStreamer interface {
 	SetModelName(modelName string)
 }
@@ -259,15 +207,9 @@ type deliveryIDStreamer interface {
 	SetDeliveryID(deliveryID string)
 }
 
-
-
-
-
 type turnUsageStreamer interface {
 	SetTurnUsage(inputTokens, outputTokens int)
 }
-
-
 
 // splitMarkerStreamer turns accumulated streaming text containing
 // MessageSplitMarker into separate channel stream messages.
@@ -285,40 +227,6 @@ type splitMarkerStreamer struct {
 	turnInputTokens  int
 	turnOutputTokens int
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // finalizeHookStreamer wraps a Streamer to run a hook on Finalize.
 type finalizeHookStreamer struct {

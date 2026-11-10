@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,10 +37,44 @@ type deliveryLocation struct {
 	sessionKey string
 }
 
+type deliveryCheckpointLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+func (al *AgentLoop) lockDeliveryCheckpoint(sessionKey string) func() {
+	al.deliveryLocksMu.Lock()
+	if al.deliveryLocks == nil {
+		al.deliveryLocks = make(map[string]*deliveryCheckpointLock)
+	}
+	lock := al.deliveryLocks[sessionKey]
+	if lock == nil {
+		lock = &deliveryCheckpointLock{}
+		al.deliveryLocks[sessionKey] = lock
+	}
+	lock.refs++
+	al.deliveryLocksMu.Unlock()
+
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+
+		al.deliveryLocksMu.Lock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(al.deliveryLocks, sessionKey)
+		}
+		al.deliveryLocksMu.Unlock()
+	}
+}
+
 func (al *AgentLoop) setTurnDelivery(sessionKey string, delivery session.TurnDelivery) error {
 	if al == nil || sessionKey == "" {
 		return nil
 	}
+	unlock := al.lockDeliveryCheckpoint(sessionKey)
+	defer unlock()
+
 	agent := al.agentForSession(sessionKey)
 	if agent == nil {
 		return nil

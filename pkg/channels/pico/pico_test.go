@@ -153,10 +153,6 @@ func TestSend_UsesLogicalMessageIDAcrossRetries(t *testing.T) {
 	}
 }
 
-
-
-
-
 func TestFinalizeTrackedToolFeedbackMessage_StopsTrackingBeforeEdit(t *testing.T) {
 	ch := &PicoChannel{
 		progress: channels.NewToolFeedbackAnimator(nil),
@@ -420,34 +416,6 @@ func TestSendPlaceholder_EmitsNormalMessageWithoutKind(t *testing.T) {
 	}
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 func mustReceivePicoMessage(t *testing.T, received <-chan PicoMessage) PicoMessage {
 	t.Helper()
 	select {
@@ -488,10 +456,6 @@ func assertNoPicoMessage(t *testing.T, received <-chan PicoMessage) {
 	case <-time.After(150 * time.Millisecond):
 	}
 }
-
-
-
-
 
 func (c *PicoChannel) addConnForTest(pc *picoConn) {
 	c.connsMu.Lock()

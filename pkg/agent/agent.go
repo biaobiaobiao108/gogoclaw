@@ -74,6 +74,8 @@ type AgentLoop struct {
 	activeTurnStates  sync.Map
 	subTurnCounter    atomic.Int64
 	deliveryLocations sync.Map
+	deliveryLocksMu   sync.Mutex
+	deliveryLocks     map[string]*deliveryCheckpointLock
 	branchLocks       sync.Map
 
 	turnSeq atomic.Uint64

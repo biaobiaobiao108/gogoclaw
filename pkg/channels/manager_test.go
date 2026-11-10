@@ -210,14 +210,6 @@ func newTestManager() *Manager {
 	}
 }
 
-
-
-
-
-
-
-
-
 func testOutboundMessage(msg bus.OutboundMessage) bus.OutboundMessage {
 	if msg.Context.Channel == "" && msg.Context.ChatID == "" {
 		msg.Context = bus.NewOutboundContext(msg.Channel, msg.ChatID, msg.ReplyToMessageID)
@@ -247,44 +239,6 @@ func receiveChannelRuntimeEvent(t *testing.T, ch <-chan runtimeevents.Event) run
 	}
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // mockChannelWithLength implements MessageLengthProvider.
 type mockChannelWithLength struct {
 	mockChannel
@@ -294,8 +248,6 @@ type mockChannelWithLength struct {
 func (m *mockChannelWithLength) MaxMessageLength() int {
 	return m.maxLen
 }
-
-
 
 // --- Phase 10: preSend orchestration tests ---
 
@@ -381,134 +333,6 @@ func (m *mockPreparedToolFeedbackEditor) PrepareToolFeedbackMessageContent(conte
 	}
 	return content
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // turnUsageTrackingStreamer is a mockStreamer that records SetTurnUsage calls,
 // used to verify the manager's streamer wrappers forward per-turn token usage
