@@ -211,7 +211,9 @@ func TestLoadMessageDedupe_AcceptsSnapshotAndRecoversCorruptState(t *testing.T) 
 	}
 
 	t.Run("current snapshot format", func(t *testing.T) {
-		ch := newChannel(t, `[{"key":"sess-1\u0000msg-1","seen_at":"2026-11-09T00:00:00Z"}]`)
+		seenAt := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+		state := fmt.Sprintf(`[{"key":"sess-1\u0000msg-1","seen_at":%q}]`, seenAt)
+		ch := newChannel(t, state)
 		claimed, err := ch.claimMessage("sess-1\x00msg-1")
 		if err != nil {
 			t.Fatalf("claimMessage existing: %v", err)
@@ -229,7 +231,9 @@ func TestLoadMessageDedupe_AcceptsSnapshotAndRecoversCorruptState(t *testing.T) 
 	})
 
 	t.Run("legacy map format", func(t *testing.T) {
-		ch := newChannel(t, `{"sess-1\u0000msg-1":"2026-11-09T00:00:00Z"}`)
+		seenAt := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+		state := fmt.Sprintf(`{"sess-1\u0000msg-1":%q}`, seenAt)
+		ch := newChannel(t, state)
 		claimed, err := ch.claimMessage("sess-1\x00msg-1")
 		if err != nil {
 			t.Fatalf("claimMessage: %v", err)
