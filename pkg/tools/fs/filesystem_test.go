@@ -171,7 +171,7 @@ func TestFilesystemTool_WriteFile_PreservesCRLF(t *testing.T) {
 // TestFilesystemTool_WriteFile_CreateDir verifies directory creation
 func TestFilesystemTool_WriteFile_CreateDir(t *testing.T) {
 	tmpDir := t.TempDir()
-	testFile := filepath.Join(tmpDir, "subdir", "newfile.txt")
+	testFile := filepath.Join(tmpDir, "nested", "subdir", "newfile.txt")
 
 	tool := NewWriteFileTool("", false)
 	ctx := context.Background()
@@ -194,6 +194,13 @@ func TestFilesystemTool_WriteFile_CreateDir(t *testing.T) {
 	}
 	if string(content) != "test" {
 		t.Errorf("Expected file content 'test', got: %s", string(content))
+	}
+	entries, err := os.ReadDir(filepath.Dir(testFile))
+	if err != nil {
+		t.Fatalf("Failed to read target directory: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "newfile.txt" {
+		t.Errorf("Expected only the target file in nested directory, got: %v", entries)
 	}
 }
 

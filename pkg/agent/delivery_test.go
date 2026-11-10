@@ -9,16 +9,23 @@ import (
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 )
 
 type deliveryTestBus struct {
 	mu       sync.Mutex
 	failures int
+	inbound  []bus.InboundMessage
 	outbound []bus.OutboundMessage
 }
 
-func (b *deliveryTestBus) PublishInbound(context.Context, bus.InboundMessage) error {
+func (b *deliveryTestBus) PublishInbound(_ context.Context, msg bus.InboundMessage) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.inbound = append(b.inbound, msg)
 	return nil
 }
 
@@ -43,6 +50,115 @@ func (b *deliveryTestBus) GetStreamer(context.Context, string, string, string) (
 
 func (b *deliveryTestBus) InboundChan() <-chan bus.InboundMessage {
 	return make(chan bus.InboundMessage)
+}
+
+func TestConsumeAsyncDeliveryReportsUserNotificationFailure(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+
+	events, closeEvents := subscribeRuntimeEventsForTest(t, al, 4, runtimeevents.KindAgentError)
+	defer closeEvents()
+
+	al.bus = &deliveryTestBus{failures: 1}
+	ts := &turnState{
+		agent: agent,
+		opts: processOptions{
+			NoHistory: true,
+			Dispatch: DispatchRequest{
+				InboundContext: &bus.InboundContext{Channel: "cli", ChatID: "chat", ChatType: "direct"},
+			},
+		},
+		sessionKey: "async-notification-failure",
+		turnID:     "turn-async-notification-failure",
+		channel:    "cli",
+		chatID:     "chat",
+	}
+	if !ts.enqueueAsyncDelivery(asyncDelivery{
+		Origin:         asyncOriginTool,
+		Source:         "background_lookup",
+		Result:         &tools.ToolResult{ForLLM: "lookup result", ForUser: "lookup finished"},
+		PublishForUser: true,
+	}) {
+		t.Fatal("failed to queue async result")
+	}
+
+	var messages []providers.Message
+	if err := al.consumeAsyncDeliveries(context.Background(), ts, &messages); err != nil {
+		t.Fatalf("consumeAsyncDeliveries() error = %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0].Content, "lookup result") {
+		t.Fatalf("async result was not retained for the active turn: %+v", messages)
+	}
+
+	event := waitForRuntimeEvent(t, events, time.Second, func(evt runtimeevents.Event) bool {
+		return evt.Kind == runtimeevents.KindAgentError
+	})
+	payload, ok := event.Payload.(ErrorPayload)
+	if !ok {
+		t.Fatalf("error event payload = %T, want ErrorPayload", event.Payload)
+	}
+	if payload.Stage != "async_user_notification" {
+		t.Fatalf("error event stage = %q, want async_user_notification", payload.Stage)
+	}
+}
+
+func TestAsyncFollowUpReportsUserNotificationFailureAndContinues(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+
+	events, closeEvents := subscribeRuntimeEventsForTest(
+		t,
+		al,
+		4,
+		runtimeevents.KindAgentError,
+		runtimeevents.KindAgentFollowUpQueued,
+	)
+	defer closeEvents()
+
+	transport := &deliveryTestBus{failures: 1}
+	al.bus = transport
+	ts := &turnState{
+		agent: agent,
+		opts: processOptions{
+			Dispatch: DispatchRequest{
+				InboundContext: &bus.InboundContext{Channel: "cli", ChatID: "chat", ChatType: "direct"},
+			},
+		},
+		sessionKey:       "async-follow-up-notification-failure",
+		turnID:           "turn-async-follow-up-notification-failure",
+		channel:          "cli",
+		chatID:           "chat",
+		originSessionKey: "async-follow-up-notification-failure",
+	}
+	al.publishAsyncFollowUp(ts, asyncDelivery{
+		Origin:         asyncOriginSubTurn,
+		Source:         "child-turn",
+		Result:         &tools.ToolResult{ForLLM: "background result", ForUser: "background task finished"},
+		PublishForUser: true,
+	})
+
+	seen := map[runtimeevents.Kind]bool{}
+	for range 2 {
+		event := waitForRuntimeEvent(t, events, time.Second, func(evt runtimeevents.Event) bool {
+			return evt.Kind == runtimeevents.KindAgentError || evt.Kind == runtimeevents.KindAgentFollowUpQueued
+		})
+		seen[event.Kind] = true
+		if event.Kind == runtimeevents.KindAgentError {
+			payload, ok := event.Payload.(ErrorPayload)
+			if !ok || payload.Stage != "async_user_notification" {
+				t.Fatalf("async notification error payload = %#v", event.Payload)
+			}
+		}
+	}
+	if !seen[runtimeevents.KindAgentError] || !seen[runtimeevents.KindAgentFollowUpQueued] {
+		t.Fatalf("expected notification failure and follow-up events, got %v", seen)
+	}
+
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	if len(transport.inbound) != 1 {
+		t.Fatalf("follow-up inbound messages = %d, want 1", len(transport.inbound))
+	}
 }
 
 type deliveryCheckpointStore struct {
