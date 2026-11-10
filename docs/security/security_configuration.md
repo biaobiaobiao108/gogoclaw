@@ -403,26 +403,22 @@ The pattern is: `GOGOCLAW_<SECTION>_<KEY>_<FIELD>` with underscores separating p
 ### loadSecurityConfig
 
 ```go
-func loadSecurityConfig(securityPath string) (*SecurityConfig, error)
+func loadSecurityConfig(cfg *Config, securityPath string) error
 ```
 
-Loads the security configuration from `.security.yml`. Returns an empty `SecurityConfig` if the file doesn't exist.
+Merges values from `.security.yml` into an existing `Config`. A missing file is treated as an empty security configuration.
 
 ### saveSecurityConfig
 
 ```go
-func saveSecurityConfig(securityPath string, sec *SecurityConfig) error
+func saveSecurityConfig(securityPath string, cfg *Config) error
 ```
 
-Saves the security configuration to `.security.yml` with `0o600` permissions.
+Saves a config's sensitive values to `.security.yml` with `0o600` permissions.
 
-### applySecurityConfig
+### Channel secret format
 
-```go
-func applySecurityConfig(cfg *Config, sec *SecurityConfig) error
-```
-
-Applies security configuration to the main config by copying values from `.security.yml` to the corresponding fields in the config.
+Channel secrets use the same nested shape as `config.json`: `channel_list.<name>.settings.<field>`. The loader also accepts the older flat channel-secret format for existing files.
 
 ### securityPath
 
@@ -485,9 +481,10 @@ model_list:
     api_keys:
       - "sk-ant-actual-anthropic-key"
 
-channels:
+channel_list:
   telegram:
-    token: "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
+    settings:
+      token: "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
 
 web:
   brave:

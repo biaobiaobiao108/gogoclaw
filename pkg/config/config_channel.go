@@ -362,6 +362,54 @@ func (b *Channel) UnmarshalYAML(value *yaml.Node) error {
 		b.extend = nil
 	}
 
+	// Channel settings were historically written directly under the channel
+	// name in .security.yml (for example, `discord: {token: ...}`). Keep that
+	// format readable while the canonical config and current writer use the
+	// nested `settings` object.
+	if value.Kind != yaml.MappingNode {
+		return nil
+	}
+	flatSettings := make(map[string]any)
+	hasNestedSettings := false
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		key := value.Content[i].Value
+		if key == "settings" {
+			hasNestedSettings = true
+			continue
+		}
+		if key == "name" {
+			continue
+		}
+		if _, isBaseField := BaseFieldNames[key]; isBaseField {
+			continue
+		}
+
+		var setting any
+		if err := value.Content[i+1].Decode(&setting); err != nil {
+			return fmt.Errorf("decode flat channel setting %q: %w", key, err)
+		}
+		flatSettings[key] = setting
+	}
+	if hasNestedSettings || len(flatSettings) == 0 {
+		return nil
+	}
+
+	settings := make(map[string]any)
+	if len(b.Settings) > 0 {
+		if err := json.Unmarshal(b.Settings, &settings); err != nil {
+			return fmt.Errorf("decode existing channel settings: %w", err)
+		}
+	}
+	for key, setting := range flatSettings {
+		settings[key] = setting
+	}
+	settingsJSON, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("encode flat channel settings: %w", err)
+	}
+	b.Settings = RawNode(settingsJSON)
+	b.extend = nil
+
 	return nil
 }
 
