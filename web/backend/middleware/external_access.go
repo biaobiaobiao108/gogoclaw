@@ -31,10 +31,8 @@ func (o ExternalOrigin) WebSocketScheme() string {
 
 // ExternalAccess centralizes how browser-visible origins are resolved.
 type ExternalAccess struct {
-	publicOrigin      *url.URL
-	publicURL         string
-	trustedProxyNets  []*net.IPNet
-	trustedProxyCIDRs []string
+	publicOrigin     *url.URL
+	trustedProxyNets []*net.IPNet
 }
 
 // NewExternalAccess validates launcher reverse-proxy settings once at startup.
@@ -57,19 +55,9 @@ func NewExternalAccess(publicURL string, trustedProxyCIDRs []string) (ExternalAc
 	}
 
 	return ExternalAccess{
-		publicOrigin:      publicOrigin,
-		publicURL:         normalizedPublicURL,
-		trustedProxyNets:  nets,
-		trustedProxyCIDRs: launcherconfig.NormalizeCIDRs(trustedProxyCIDRs),
+		publicOrigin:     publicOrigin,
+		trustedProxyNets: nets,
 	}, nil
-}
-
-func (a ExternalAccess) PublicURL() string {
-	return a.publicURL
-}
-
-func (a ExternalAccess) TrustedProxyCIDRs() []string {
-	return append([]string(nil), a.trustedProxyCIDRs...)
 }
 
 func (a ExternalAccess) requestFromTrustedProxy(r *http.Request) bool {

@@ -153,10 +153,6 @@ export function ConfigPage() {
       publicAccess: launcherConfig.public,
       allowedCIDRsText: (launcherConfig.allowed_cidrs ?? []).join("\n"),
       allowLocalhostBypass: launcherConfig.allow_localhost_bypass ?? true,
-      trustedProxyCIDRsText: (launcherConfig.trusted_proxy_cidrs ?? []).join(
-        "\n",
-      ),
-      publicURL: launcherConfig.public_url ?? "",
       dashboardCurrentPassword: "",
       dashboardPassword: "",
       dashboardPasswordConfirm: "",
@@ -170,11 +166,7 @@ export function ConfigPage() {
     launcherForm.port !== launcherBaseline.port ||
     launcherForm.publicAccess !== launcherBaseline.publicAccess ||
     launcherForm.allowedCIDRsText !== launcherBaseline.allowedCIDRsText ||
-    launcherForm.allowLocalhostBypass !==
-      launcherBaseline.allowLocalhostBypass ||
-    launcherForm.trustedProxyCIDRsText !==
-      launcherBaseline.trustedProxyCIDRsText ||
-    launcherForm.publicURL !== launcherBaseline.publicURL
+    launcherForm.allowLocalhostBypass !== launcherBaseline.allowLocalhostBypass
   const launcherPasswordDirty =
     launcherForm.dashboardCurrentPassword.trim() !== "" ||
     launcherForm.dashboardPassword.trim() !== "" ||
@@ -602,16 +594,11 @@ export function ConfigPage() {
           max: 65535,
         })
         const allowedCIDRs = parseCIDRText(launcherForm.allowedCIDRsText)
-        const trustedProxyCIDRs = parseCIDRText(
-          launcherForm.trustedProxyCIDRsText,
-        )
         const savedLauncherConfig = await updateLauncherConfig({
           port,
           public: launcherForm.publicAccess,
           allowed_cidrs: allowedCIDRs,
           allow_localhost_bypass: launcherForm.allowLocalhostBypass,
-          trusted_proxy_cidrs: trustedProxyCIDRs,
-          public_url: launcherForm.publicURL.trim(),
         })
         const parsedLauncher: LauncherForm = {
           port: String(savedLauncherConfig.port),
@@ -621,10 +608,6 @@ export function ConfigPage() {
           ),
           allowLocalhostBypass:
             savedLauncherConfig.allow_localhost_bypass ?? true,
-          trustedProxyCIDRsText: (
-            savedLauncherConfig.trusted_proxy_cidrs ?? []
-          ).join("\n"),
-          publicURL: savedLauncherConfig.public_url ?? "",
           dashboardCurrentPassword: "",
           dashboardPassword: "",
           dashboardPasswordConfirm: "",

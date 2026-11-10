@@ -1192,21 +1192,6 @@ export function LauncherSection({
       </Field>
 
       <Field
-        label={t("pages.config.public_url")}
-        hint={t("pages.config.public_url_hint")}
-        layout="setting-row"
-        controlClassName="md:max-w-md"
-      >
-        <Input
-          type="url"
-          value={launcherForm.publicURL}
-          disabled={disabled}
-          placeholder={t("pages.config.public_url_placeholder")}
-          onChange={(e) => onFieldChange("publicURL", e.target.value)}
-        />
-      </Field>
-
-      <Field
         label={t("pages.config.allowed_cidrs")}
         hint={t("pages.config.allowed_cidrs_hint")}
         layout="setting-row"
@@ -1231,23 +1216,6 @@ export function LauncherSection({
           onFieldChange("allowLocalhostBypass", checked)
         }
       />
-
-      <Field
-        label={t("pages.config.trusted_proxy_cidrs")}
-        hint={t("pages.config.trusted_proxy_cidrs_hint")}
-        layout="setting-row"
-        controlClassName="md:max-w-md"
-      >
-        <Textarea
-          value={launcherForm.trustedProxyCIDRsText}
-          disabled={disabled}
-          placeholder={t("pages.config.trusted_proxy_cidrs_placeholder")}
-          className="min-h-[88px]"
-          onChange={(e) =>
-            onFieldChange("trustedProxyCIDRsText", e.target.value)
-          }
-        />
-      </Field>
     </ConfigSectionCard>
   )
 }

@@ -541,11 +541,14 @@ func main() {
 		logger.ErrorC("web", fmt.Sprintf("Warning: Failed to load %s: %v", launcherPath, err))
 		launcherCfg = launcherconfig.Default()
 	}
-	launcherCfg, err = launcherconfig.ApplyEnvOverrides(launcherCfg)
+	externalAccessCfg, err := launcherconfig.LoadExternalAccessEnv()
 	if err != nil {
 		logger.Fatalf("Invalid launcher environment configuration: %v", err)
 	}
-	externalAccess, err := middleware.NewExternalAccess(launcherCfg.PublicURL, launcherCfg.TrustedProxyCIDRs)
+	externalAccess, err := middleware.NewExternalAccess(
+		externalAccessCfg.PublicURL,
+		externalAccessCfg.TrustedProxyCIDRs,
+	)
 	if err != nil {
 		logger.Fatalf("Invalid launcher reverse proxy configuration: %v", err)
 	}
@@ -701,7 +704,7 @@ func main() {
 	accessControlledMux, err := middleware.IPAllowlist(middleware.IPAllowlistConfig{
 		AllowedCIDRs:         launcherCfg.AllowedCIDRs,
 		AllowLocalhostBypass: launcherCfg.AllowLocalhostBypass,
-		TrustedProxyCIDRs:    launcherCfg.TrustedProxyCIDRs,
+		TrustedProxyCIDRs:    externalAccessCfg.TrustedProxyCIDRs,
 	}, mux)
 	if err != nil {
 		logger.Fatalf("Invalid allowed CIDR configuration: %v", err)

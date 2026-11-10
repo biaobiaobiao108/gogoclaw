@@ -82,13 +82,11 @@ That file currently stores:
 - `public`
 - `allowed_cidrs`
 - `allow_localhost_bypass`
-- `trusted_proxy_cidrs`
-- `public_url`
 
 If `-port` or `-public` are passed explicitly, the CLI flag wins for that run.
 If they are omitted, stored launcher settings are used.
 
-Reverse-proxy settings can override `launcher-config.json` through:
+Reverse-proxy settings are configured only through environment variables:
 
 - `GOGOCLAW_LAUNCHER_PUBLIC_URL`
 - `GOGOCLAW_LAUNCHER_TRUSTED_PROXY_CIDRS` (comma-separated CIDRs)
@@ -161,21 +159,18 @@ When public access is enabled:
 - the launcher still protects the dashboard with password login
 - optional `allowed_cidrs` can restrict which client IP ranges may connect
 - `allow_localhost_bypass` defaults to `true`; set it to `false` when same-host proxies or tunnels should not bypass `allowed_cidrs`
-- optional `trusted_proxy_cidrs` can trust specific reverse proxies to supply the original client IP and HTTP origin through `X-Forwarded-*` or RFC 7239 `Forwarded` headers
-- optional `public_url` declares the browser-visible origin when a reverse proxy cannot preserve the external port or protocol. Trusted proxy requests use it for origin checks, WebSocket/SSE URLs, secure cookies, OAuth callbacks, and HSTS
-- direct requests keep their own origin, so local and LAN access remain usable; if `public_url` is empty, trusted proxy headers determine the external origin
+- `GOGOCLAW_LAUNCHER_TRUSTED_PROXY_CIDRS` can trust specific reverse proxies to supply the original client IP and HTTP origin through `X-Forwarded-*` or RFC 7239 `Forwarded` headers
+- `GOGOCLAW_LAUNCHER_PUBLIC_URL` declares the browser-visible origin when a reverse proxy cannot preserve the external port or protocol. Trusted proxy requests use it for origin checks, WebSocket/SSE URLs, secure cookies, OAuth callbacks, and HSTS
+- direct requests keep their own origin, so local and LAN access remain usable; if the public URL variable is empty, trusted proxy headers determine the external origin
 - trusted proxy deployments should overwrite or sanitize forwarding headers such as `X-Forwarded-For` and `X-Real-IP` instead of passing through user-supplied values
 - the gateway host is overridden so remote clients can still use the launcher-managed proxy paths
 
 Example for a proxy that forwards to GoGoClaw without preserving the external port:
 
-```json
-{
-  "port": 18800,
-  "public": true,
-  "trusted_proxy_cidrs": ["192.168.31.228/32"],
-  "public_url": "http://gogoclaw.example.com:666"
-}
+```yaml
+environment:
+  GOGOCLAW_LAUNCHER_PUBLIC_URL: "http://gogoclaw.example.com:666"
+  GOGOCLAW_LAUNCHER_TRUSTED_PROXY_CIDRS: "192.168.31.228/32"
 ```
 
 ## Build And Run

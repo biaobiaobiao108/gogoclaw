@@ -139,20 +139,7 @@ sudo chown -R 10001:10001 /vol1/1000/docker/gogoclaw
 - Check the NAS firewall and reverse proxy.
 - A reverse proxy must allow WebSocket upgrades because Pico chat uses WebSocket.
 
-If the reverse proxy cannot preserve the external port or protocol, declare the browser-visible address and trust the proxy source in `launcher-config.json`:
-
-```json
-{
-  "port": 18800,
-  "public": true,
-  "trusted_proxy_cidrs": ["192.168.31.228/32"],
-  "public_url": "http://gogoclaw.example.com:666"
-}
-```
-
-Trusted proxy requests use `public_url` for origin checks, WebSocket/SSE URLs, secure cookies, OAuth callbacks, and HSTS. Direct LAN/local requests keep their own origin. Restart the launcher after changing it.
-
-The same settings can be supplied through container environment variables, which override `launcher-config.json`:
+Reverse-proxy settings are configured only through environment variables. If the proxy cannot preserve the external port or protocol, declare the browser-visible address; if it supplies standard forwarding headers, add the proxy source to the trusted CIDRs:
 
 ```yaml
 environment:
@@ -160,7 +147,7 @@ environment:
   GOGOCLAW_LAUNCHER_TRUSTED_PROXY_CIDRS: "192.168.31.228/32"
 ```
 
-Use commas to separate multiple trusted proxy CIDRs. Restart the container after changing environment variables.
+Trusted proxy requests use `public_url` for origin checks, WebSocket/SSE URLs, secure cookies, OAuth callbacks, and HSTS. Direct LAN/local requests keep their own origin. Use commas to separate multiple trusted proxy CIDRs. Restart the container after changing environment variables.
 
 ### Password Page Appears Although You Never Set One
 

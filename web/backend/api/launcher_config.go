@@ -13,8 +13,6 @@ type launcherConfigPayload struct {
 	Public               bool     `json:"public"`
 	AllowedCIDRs         []string `json:"allowed_cidrs"`
 	AllowLocalhostBypass bool     `json:"allow_localhost_bypass"`
-	TrustedProxyCIDRs    []string `json:"trusted_proxy_cidrs"`
-	PublicURL            string   `json:"public_url"`
 }
 
 type launcherConfigUpdatePayload struct {
@@ -22,8 +20,6 @@ type launcherConfigUpdatePayload struct {
 	Public               bool     `json:"public"`
 	AllowedCIDRs         []string `json:"allowed_cidrs"`
 	AllowLocalhostBypass *bool    `json:"allow_localhost_bypass"`
-	TrustedProxyCIDRs    []string `json:"trusted_proxy_cidrs"`
-	PublicURL            string   `json:"public_url"`
 }
 
 func (h *Handler) registerLauncherConfigRoutes(mux *http.ServeMux) {
@@ -45,8 +41,6 @@ func (h *Handler) launcherFallbackConfig() launcherconfig.Config {
 		Public:               h.serverPublic,
 		AllowedCIDRs:         append([]string(nil), h.serverCIDRs...),
 		AllowLocalhostBypass: h.serverAllowLocalhostBypass,
-		TrustedProxyCIDRs:    h.serverExternalAccess.TrustedProxyCIDRs(),
-		PublicURL:            h.serverExternalAccess.PublicURL(),
 	}
 }
 
@@ -67,8 +61,6 @@ func (h *Handler) handleGetLauncherConfig(w http.ResponseWriter, r *http.Request
 		Public:               cfg.Public,
 		AllowedCIDRs:         append([]string(nil), cfg.AllowedCIDRs...),
 		AllowLocalhostBypass: cfg.AllowLocalhostBypass,
-		TrustedProxyCIDRs:    append([]string(nil), cfg.TrustedProxyCIDRs...),
-		PublicURL:            cfg.PublicURL,
 	})
 }
 
@@ -90,14 +82,6 @@ func (h *Handler) handleUpdateLauncherConfig(w http.ResponseWriter, r *http.Requ
 	if payload.AllowLocalhostBypass != nil {
 		cfg.AllowLocalhostBypass = *payload.AllowLocalhostBypass
 	}
-	cfg.TrustedProxyCIDRs = append([]string(nil), payload.TrustedProxyCIDRs...)
-	cfg.PublicURL = payload.PublicURL
-	publicURL, err := launcherconfig.NormalizePublicURL(cfg.PublicURL)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	cfg.PublicURL = publicURL
 	cfg.LegacyLauncherToken = ""
 	if err := launcherconfig.Validate(cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -115,7 +99,5 @@ func (h *Handler) handleUpdateLauncherConfig(w http.ResponseWriter, r *http.Requ
 		Public:               cfg.Public,
 		AllowedCIDRs:         append([]string(nil), cfg.AllowedCIDRs...),
 		AllowLocalhostBypass: cfg.AllowLocalhostBypass,
-		TrustedProxyCIDRs:    append([]string(nil), cfg.TrustedProxyCIDRs...),
-		PublicURL:            cfg.PublicURL,
 	})
 }

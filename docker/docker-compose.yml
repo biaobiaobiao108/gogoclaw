@@ -46,6 +46,8 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
       GOMEMLIMIT: ${GOGOCLAW_GO_MEMORY_LIMIT:-512MiB}
       GOGOCLAW_GATEWAY_HOST: 0.0.0.0
+      GOGOCLAW_LAUNCHER_PUBLIC_URL: ${GOGOCLAW_LAUNCHER_PUBLIC_URL:-}
+      GOGOCLAW_LAUNCHER_TRUSTED_PROXY_CIDRS: ${GOGOCLAW_LAUNCHER_TRUSTED_PROXY_CIDRS:-}
     command: ["gogoclaw-launcher", "-public", "-no-browser"]
     ports:
       - "${GOGOCLAW_LAUNCHER_BIND:-127.0.0.1}:18800:18800"

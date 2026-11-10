@@ -155,7 +155,7 @@ GoGoClaw 默认注入一份紧凑的通用系统提示词，分为两层：
 用 **gogoclaw-launcher** 打开浏览器控制台前需要先使用密码登录。首次启动时打开 `/launcher-setup` 创建 dashboard 登录密码；后续手动登录使用 `/launcher-login`。
 
 - **配置文件**：与 `config.json` 同一目录（若设置了 `GOGOCLAW_CONFIG`，则与它所指的文件同目录）。启动器专用文件名为 `launcher-config.json`。
-- **反向代理**：标准转发头需要配置 `trusted_proxy_cidrs`；代理无法保留浏览器可见端口或协议时，再配置 `public_url`。`public_url` 仅用于可信代理请求，直接通过局域网或本机访问时仍使用当前地址。两项均在重启后生效。
+- **反向代理**：只通过环境变量配置。标准转发头使用 `GOGOCLAW_LAUNCHER_TRUSTED_PROXY_CIDRS`；代理无法保留浏览器可见端口或协议时，再配置 `GOGOCLAW_LAUNCHER_PUBLIC_URL`。公开地址仅用于可信代理请求，直接通过局域网或本机访问时仍使用当前地址。修改后重启启动器。
 - **密码存储**：支持的平台会把 bcrypt 后的密码哈希存入 `launcher-auth.db`。如果当前平台不支持 SQLite 密码存储，则把 bcrypt 哈希存入 `launcher-config.json`。
 - **旧配置迁移**：旧版 `launcher_token` 会一次性迁移为密码登录，并从保存后的 launcher 配置中移除。
 - **本地自动登录**：launcher 启动后自动打开本地浏览器时，会使用仅允许 loopback 访问的一次性引导入口自动设置会话 Cookie。

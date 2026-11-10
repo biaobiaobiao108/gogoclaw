@@ -42,12 +42,6 @@ func TestGetLauncherConfigUsesRuntimeFallback(t *testing.T) {
 	if got.AllowLocalhostBypass {
 		t.Fatalf("response allow_localhost_bypass = true, want false")
 	}
-	if len(got.TrustedProxyCIDRs) != 1 || got.TrustedProxyCIDRs[0] != "10.0.0.0/8" {
-		t.Fatalf("response trusted_proxy_cidrs = %v, want [10.0.0.0/8]", got.TrustedProxyCIDRs)
-	}
-	if got.PublicURL != "http://public.example.test:666" {
-		t.Fatalf("response public_url = %q, want public URL", got.PublicURL)
-	}
 }
 
 func TestPutLauncherConfigPersists(t *testing.T) {
@@ -70,7 +64,7 @@ func TestPutLauncherConfigPersists(t *testing.T) {
 		http.MethodPut,
 		"/api/system/launcher-config",
 		strings.NewReader(
-			`{"port":18080,"public":true,"allowed_cidrs":["192.168.1.0/24"],"allow_localhost_bypass":false,"trusted_proxy_cidrs":["10.0.0.0/8"],"public_url":"https://public.example.test"}`,
+			`{"port":18080,"public":true,"allowed_cidrs":["192.168.1.0/24"],"allow_localhost_bypass":false}`,
 		),
 	)
 	req.Header.Set("Content-Type", "application/json")
@@ -79,14 +73,6 @@ func TestPutLauncherConfigPersists(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	var response launcherConfigPayload
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if response.PublicURL != "https://public.example.test" {
-		t.Fatalf("response public_url = %q", response.PublicURL)
-	}
-
 	cfg, err := launcherconfig.Load(path, launcherconfig.Default())
 	if err != nil {
 		t.Fatalf("launcherconfig.Load() error = %v", err)
@@ -106,12 +92,6 @@ func TestPutLauncherConfigPersists(t *testing.T) {
 	if cfg.AllowLocalhostBypass {
 		t.Fatalf("saved config allow_localhost_bypass = true, want false")
 	}
-	if len(cfg.TrustedProxyCIDRs) != 1 || cfg.TrustedProxyCIDRs[0] != "10.0.0.0/8" {
-		t.Fatalf("saved config trusted_proxy_cidrs = %v, want [10.0.0.0/8]", cfg.TrustedProxyCIDRs)
-	}
-	if cfg.PublicURL != "https://public.example.test" {
-		t.Fatalf("saved config public_url = %q, want https://public.example.test", cfg.PublicURL)
-	}
 }
 
 func TestPutLauncherConfigUsesDirectAccessFields(t *testing.T) {
@@ -126,7 +106,7 @@ func TestPutLauncherConfigUsesDirectAccessFields(t *testing.T) {
 		http.MethodPut,
 		"/api/system/launcher-config",
 		strings.NewReader(
-			`{"port":18080,"public":false,"allowed_cidrs":["192.168.1.0/24"],"allow_localhost_bypass":true,"trusted_proxy_cidrs":["10.0.0.0/8"]}`,
+			`{"port":18080,"public":false,"allowed_cidrs":["192.168.1.0/24"],"allow_localhost_bypass":true}`,
 		),
 	)
 	req.Header.Set("Content-Type", "application/json")
@@ -143,9 +123,6 @@ func TestPutLauncherConfigUsesDirectAccessFields(t *testing.T) {
 	if !cfg.AllowLocalhostBypass {
 		t.Fatal("saved config allow_localhost_bypass = false, want true")
 	}
-	if len(cfg.TrustedProxyCIDRs) != 1 || cfg.TrustedProxyCIDRs[0] != "10.0.0.0/8" {
-		t.Fatalf("saved config trusted_proxy_cidrs = %v, want [10.0.0.0/8]", cfg.TrustedProxyCIDRs)
-	}
 }
 
 func TestPutLauncherConfigKeepsLocalhostBypassWhenOmitted(t *testing.T) {
@@ -153,7 +130,7 @@ func TestPutLauncherConfigKeepsLocalhostBypassWhenOmitted(t *testing.T) {
 	path := launcherconfig.PathForAppConfig(configPath)
 	if err := os.WriteFile(
 		path,
-		[]byte(`{"port":18800,"public":false,"allow_localhost_bypass":true,"trusted_proxy_cidrs":["10.0.0.0/8"]}`),
+		[]byte(`{"port":18800,"public":false,"allow_localhost_bypass":true}`),
 		0o600,
 	); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -218,48 +195,6 @@ func TestPutLauncherConfigRejectsInvalidCIDR(t *testing.T) {
 		http.MethodPut,
 		"/api/system/launcher-config",
 		strings.NewReader(`{"port":18080,"public":false,"allowed_cidrs":["bad-cidr"]}`),
-	)
-	req.Header.Set("Content-Type", "application/json")
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
-	}
-}
-
-func TestPutLauncherConfigRejectsInvalidTrustedProxyCIDR(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	h := NewHandler(configPath)
-
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(
-		http.MethodPut,
-		"/api/system/launcher-config",
-		strings.NewReader(`{"port":18080,"public":false,"trusted_proxy_cidrs":["bad-cidr"]}`),
-	)
-	req.Header.Set("Content-Type", "application/json")
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
-	}
-}
-
-func TestPutLauncherConfigRejectsInvalidPublicURL(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	h := NewHandler(configPath)
-
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(
-		http.MethodPut,
-		"/api/system/launcher-config",
-		strings.NewReader(`{"port":18080,"public":false,"public_url":"https://example.test/path"}`),
 	)
 	req.Header.Set("Content-Type", "application/json")
 	mux.ServeHTTP(rec, req)

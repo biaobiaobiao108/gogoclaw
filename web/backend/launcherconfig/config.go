@@ -18,9 +18,9 @@ const (
 	DefaultPort = 18800
 	// EnvLauncherHost overrides launcher listen host.
 	EnvLauncherHost = "GOGOCLAW_LAUNCHER_HOST"
-	// EnvLauncherPublicURL overrides the browser-visible external origin.
+	// EnvLauncherPublicURL sets the browser-visible external origin.
 	EnvLauncherPublicURL = "GOGOCLAW_LAUNCHER_PUBLIC_URL"
-	// EnvLauncherTrustedProxyCIDRs overrides trusted reverse proxy CIDRs as a
+	// EnvLauncherTrustedProxyCIDRs sets trusted reverse proxy CIDRs as a
 	// comma-separated list.
 	EnvLauncherTrustedProxyCIDRs = "GOGOCLAW_LAUNCHER_TRUSTED_PROXY_CIDRS"
 )
@@ -32,8 +32,6 @@ type Config struct {
 	AllowedCIDRs               []string        `json:"allowed_cidrs,omitempty"`
 	AllowLocalhostBypass       bool            `json:"allow_localhost_bypass"`
 	AllowLocalhostBypassSource BoolFieldSource `json:"-"`
-	TrustedProxyCIDRs          []string        `json:"trusted_proxy_cidrs,omitempty"`
-	PublicURL                  string          `json:"public_url,omitempty"`
 	DashboardPasswordHash      string          `json:"dashboard_password_hash,omitempty"`
 	// LegacyLauncherToken is read only for one-time migration from the removed
 	// token login flow. Save always clears it so new configs do not persist it.
@@ -64,14 +62,6 @@ func Validate(cfg Config) error {
 		if _, _, err := net.ParseCIDR(cidr); err != nil {
 			return fmt.Errorf("invalid CIDR %q", cidr)
 		}
-	}
-	for _, cidr := range cfg.TrustedProxyCIDRs {
-		if _, _, err := net.ParseCIDR(cidr); err != nil {
-			return fmt.Errorf("invalid trusted proxy CIDR %q", cidr)
-		}
-	}
-	if _, err := NormalizePublicURL(cfg.PublicURL); err != nil {
-		return err
 	}
 	return nil
 }
@@ -142,25 +132,41 @@ func NormalizeCIDRs(cidrs []string) []string {
 	return out
 }
 
-// ApplyEnvOverrides applies non-empty launcher settings from environment
-// variables. Environment values take precedence over launcher-config.json.
-func ApplyEnvOverrides(cfg Config) (Config, error) {
-	if publicURL := strings.TrimSpace(os.Getenv(EnvLauncherPublicURL)); publicURL != "" {
-		cfg.PublicURL = publicURL
-	}
-	if rawCIDRs := strings.TrimSpace(os.Getenv(EnvLauncherTrustedProxyCIDRs)); rawCIDRs != "" {
-		cfg.TrustedProxyCIDRs = NormalizeCIDRs(strings.Split(rawCIDRs, ","))
+// ExternalAccessConfig controls browser-visible origins and trusted proxy
+// handling. These settings are environment-only so container deployments do
+// not need to coordinate them with launcher-config.json.
+type ExternalAccessConfig struct {
+	PublicURL         string
+	TrustedProxyCIDRs []string
+}
+
+// LoadExternalAccessEnv reads reverse-proxy settings from the environment.
+func LoadExternalAccessEnv() (ExternalAccessConfig, error) {
+	publicURL, err := NormalizePublicURL(os.Getenv(EnvLauncherPublicURL))
+	if err != nil {
+		return ExternalAccessConfig{}, err
 	}
 
-	publicURL, err := NormalizePublicURL(cfg.PublicURL)
-	if err != nil {
-		return Config{}, err
+	cfg := ExternalAccessConfig{
+		PublicURL:         publicURL,
+		TrustedProxyCIDRs: NormalizeCIDRs(strings.Split(os.Getenv(EnvLauncherTrustedProxyCIDRs), ",")),
 	}
-	cfg.PublicURL = publicURL
-	if err := Validate(cfg); err != nil {
-		return Config{}, err
+	if err := cfg.Validate(); err != nil {
+		return ExternalAccessConfig{}, err
 	}
 	return cfg, nil
+}
+
+func (cfg ExternalAccessConfig) Validate() error {
+	if _, err := NormalizePublicURL(cfg.PublicURL); err != nil {
+		return err
+	}
+	for _, cidr := range cfg.TrustedProxyCIDRs {
+		if _, _, err := net.ParseCIDR(cidr); err != nil {
+			return fmt.Errorf("invalid trusted proxy CIDR %q", cidr)
+		}
+	}
+	return nil
 }
 
 // PathForAppConfig returns launcher-config path near the app config file.
@@ -188,12 +194,6 @@ func Load(path string, fallback Config) (Config, error) {
 		return Config{}, err
 	}
 	cfg.AllowedCIDRs = NormalizeCIDRs(cfg.AllowedCIDRs)
-	cfg.TrustedProxyCIDRs = NormalizeCIDRs(cfg.TrustedProxyCIDRs)
-	publicURL, err := NormalizePublicURL(cfg.PublicURL)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.PublicURL = publicURL
 	cfg.DashboardPasswordHash = strings.TrimSpace(cfg.DashboardPasswordHash)
 	cfg.LegacyLauncherToken = strings.TrimSpace(cfg.LegacyLauncherToken)
 	if err := Validate(cfg); err != nil {
@@ -223,12 +223,6 @@ func detectBoolFieldSource(data []byte, field string) BoolFieldSource {
 // Save writes launcher settings to disk.
 func Save(path string, cfg Config) error {
 	cfg.AllowedCIDRs = NormalizeCIDRs(cfg.AllowedCIDRs)
-	cfg.TrustedProxyCIDRs = NormalizeCIDRs(cfg.TrustedProxyCIDRs)
-	publicURL, err := NormalizePublicURL(cfg.PublicURL)
-	if err != nil {
-		return err
-	}
-	cfg.PublicURL = publicURL
 	cfg.DashboardPasswordHash = strings.TrimSpace(cfg.DashboardPasswordHash)
 	cfg.LegacyLauncherToken = ""
 	if err := Validate(cfg); err != nil {
