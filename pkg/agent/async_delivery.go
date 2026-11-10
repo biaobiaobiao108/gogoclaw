@@ -407,7 +407,11 @@ func (al *AgentLoop) publishAsyncUserResult(ts *turnState, delivery asyncDeliver
 	if ts.originAgentID != "" {
 		outMsg.AgentID = ts.originAgentID
 	}
-	return al.bus.PublishOutbound(ctx, outMsg)
+	sessionKey := outMsg.SessionKey
+	if sessionKey == "" {
+		sessionKey = ts.sessionKey
+	}
+	return al.publishTrackedOutbound(ctx, sessionKey, outMsg)
 }
 
 func (al *AgentLoop) reportAsyncUserResultFailure(ts *turnState, delivery asyncDelivery, err error) {

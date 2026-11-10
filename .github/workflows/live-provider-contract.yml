@@ -1,0 +1,44 @@
+name: Live provider contract
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_live_contract:
+        description: "Send one small chat-completions request to the configured provider"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-provider-contract-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    if: ${{ inputs.run_live_contract }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify live contract inputs
+        env:
+          GOGOCLAW_LIVE_LLM_API_BASE: ${{ vars.GOGOCLAW_LIVE_LLM_API_BASE }}
+          GOGOCLAW_LIVE_LLM_API_KEY: ${{ secrets.GOGOCLAW_LIVE_LLM_API_KEY }}
+          GOGOCLAW_LIVE_LLM_MODEL: ${{ vars.GOGOCLAW_LIVE_LLM_MODEL }}
+        run: |
+          test -n "$GOGOCLAW_LIVE_LLM_API_BASE" || { echo "Configure the GOGOCLAW_LIVE_LLM_API_BASE repository variable" >&2; exit 1; }
+          test -n "$GOGOCLAW_LIVE_LLM_API_KEY" || { echo "Configure the GOGOCLAW_LIVE_LLM_API_KEY repository secret" >&2; exit 1; }
+          test -n "$GOGOCLAW_LIVE_LLM_MODEL" || { echo "Configure the GOGOCLAW_LIVE_LLM_MODEL repository variable" >&2; exit 1; }
+      - name: Run one live provider contract request
+        env:
+          GOGOCLAW_LIVE_LLM_API_BASE: ${{ vars.GOGOCLAW_LIVE_LLM_API_BASE }}
+          GOGOCLAW_LIVE_LLM_API_KEY: ${{ secrets.GOGOCLAW_LIVE_LLM_API_KEY }}
+          GOGOCLAW_LIVE_LLM_MODEL: ${{ vars.GOGOCLAW_LIVE_LLM_MODEL }}
+        run: go test -tags goolm,stdjson,integration ./pkg/providers/openai_compat -run '^TestLiveContract_OpenAICompatibleChatCompletion$' -count=1 -v

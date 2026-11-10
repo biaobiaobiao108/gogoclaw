@@ -100,6 +100,26 @@ func TestConsumeAsyncDeliveryReportsUserNotificationFailure(t *testing.T) {
 	if payload.Stage != "async_user_notification" {
 		t.Fatalf("error event stage = %q, want async_user_notification", payload.Stage)
 	}
+
+	checkpointStore, ok := agent.Sessions.(session.TurnCheckpointStore)
+	if !ok {
+		t.Fatal("test session store does not support turn checkpoints")
+	}
+	checkpoint, err := checkpointStore.GetTurnCheckpoint(ts.sessionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint.Delivery == nil || checkpoint.Delivery.Status != deliveryStatusFailed {
+		t.Fatalf("failed async notification was not persisted: %+v", checkpoint.Delivery)
+	}
+
+	al.retryPendingDelivery(context.Background())
+	transport := al.bus.(*deliveryTestBus)
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	if len(transport.outbound) != 1 || transport.outbound[0].Content != "lookup finished" {
+		t.Fatalf("retried async notifications = %+v, want one user-facing result", transport.outbound)
+	}
 }
 
 func TestAsyncFollowUpReportsUserNotificationFailureAndContinues(t *testing.T) {
@@ -153,11 +173,15 @@ func TestAsyncFollowUpReportsUserNotificationFailureAndContinues(t *testing.T) {
 	if !seen[runtimeevents.KindAgentError] || !seen[runtimeevents.KindAgentFollowUpQueued] {
 		t.Fatalf("expected notification failure and follow-up events, got %v", seen)
 	}
+	al.retryPendingDelivery(context.Background())
 
 	transport.mu.Lock()
 	defer transport.mu.Unlock()
 	if len(transport.inbound) != 1 {
 		t.Fatalf("follow-up inbound messages = %d, want 1", len(transport.inbound))
+	}
+	if len(transport.outbound) != 1 || transport.outbound[0].Content != "background task finished" {
+		t.Fatalf("retried async notifications = %+v, want one user-facing result", transport.outbound)
 	}
 }
 

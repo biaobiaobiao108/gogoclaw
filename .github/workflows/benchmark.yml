@@ -1,0 +1,34 @@
+name: Benchmark
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmark-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run Go benchmarks
+        env:
+          GOGOCLAW_BENCH_OUTPUT: build/benchmarks/github-${{ github.sha }}.txt
+          GOGOCLAW_BENCH_TIME: 2s
+          GOGOCLAW_BENCH_COUNT: 3
+        run: bash ./scripts/run-benchmarks.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gogoclaw-benchmarks-${{ github.sha }}
+          path: build/benchmarks/*.txt
+          if-no-files-found: error
+          retention-days: 30

@@ -1,4 +1,4 @@
-.PHONY: all build build-launcher build-launcher-frontend clean help deps update-deps test harness-test integration-test check fmt
+.PHONY: all build build-launcher build-launcher-frontend clean help deps update-deps test harness-test integration-test benchmark check fmt
 
 # Build variables
 BINARY_NAME=gogoclaw
@@ -202,6 +202,10 @@ harness-test:
 ## integration-test: Run Docker-backed integration test suites
 integration-test:
 	@bash ./scripts/run-integration-tests.sh
+
+## benchmark: Run repeatable Go benchmarks and save the environment and results
+benchmark:
+	@bash ./scripts/run-benchmarks.sh
 
 ## deps: Download dependencies
 deps:
