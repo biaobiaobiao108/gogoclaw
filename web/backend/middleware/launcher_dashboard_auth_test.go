@@ -331,6 +331,97 @@ func TestLauncherDashboardAuth_RejectsCrossOriginMutation(t *testing.T) {
 	}
 }
 
+func TestLauncherDashboardAuth_AllowsConfiguredPublicURLForMutationAndWebSocket(t *testing.T) {
+	sessions := NewLauncherDashboardSessions()
+	session := newTestLauncherSession(t, sessions)
+	access := mustExternalAccess(t, "http://gogoclaw.example.test:666", []string{"10.0.0.0/8"})
+	h := LauncherDashboardAuth(LauncherDashboardAuthConfig{
+		Sessions:       sessions,
+		ExternalAccess: access,
+	}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/pico/ws" {
+			w.WriteHeader(http.StatusSwitchingProtocols)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "http://gogoclaw:18800/api/config/reset", nil)
+	req.Host = "gogoclaw"
+	req.RemoteAddr = "10.0.0.8:1234"
+	req.AddCookie(&http.Cookie{Name: LauncherDashboardCookieName, Value: session})
+	req.Header.Set("Origin", "http://gogoclaw.example.test:666")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("mutation status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+
+	ws := httptest.NewRequest(http.MethodGet, "http://gogoclaw:18800/pico/ws", nil)
+	ws.Host = "gogoclaw"
+	ws.RemoteAddr = "10.0.0.8:1234"
+	ws.AddCookie(&http.Cookie{Name: LauncherDashboardCookieName, Value: session})
+	ws.Header.Set("Origin", "http://gogoclaw.example.test:666")
+	wsRec := httptest.NewRecorder()
+	h.ServeHTTP(wsRec, ws)
+	if wsRec.Code != http.StatusSwitchingProtocols {
+		t.Fatalf("websocket status = %d, want %d", wsRec.Code, http.StatusSwitchingProtocols)
+	}
+}
+
+func TestLauncherDashboardAuth_AllowsTrustedForwardedOrigin(t *testing.T) {
+	sessions := NewLauncherDashboardSessions()
+	session := newTestLauncherSession(t, sessions)
+	h := LauncherDashboardAuth(LauncherDashboardAuthConfig{
+		Sessions:       sessions,
+		ExternalAccess: mustExternalAccess(t, "", []string{"10.0.0.0/8"}),
+	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "http://gogoclaw:18800/api/config/reset", nil)
+	req.RemoteAddr = "10.0.0.8:1234"
+	req.AddCookie(&http.Cookie{Name: LauncherDashboardCookieName, Value: session})
+	req.Header.Set("Origin", "https://chat.example.test:8443")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("X-Forwarded-Host", "chat.example.test")
+	req.Header.Set("X-Forwarded-Port", "8443")
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+}
+
+func TestLauncherDashboardAuth_RejectsSpoofedForwardedOrigin(t *testing.T) {
+	sessions := NewLauncherDashboardSessions()
+	session := newTestLauncherSession(t, sessions)
+	h := LauncherDashboardAuth(LauncherDashboardAuthConfig{
+		Sessions:       sessions,
+		ExternalAccess: mustExternalAccess(t, "", []string{"10.0.0.0/8"}),
+	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "http://gogoclaw:18800/api/config/reset", nil)
+	req.RemoteAddr = "203.0.113.8:1234"
+	req.AddCookie(&http.Cookie{Name: LauncherDashboardCookieName, Value: session})
+	req.Header.Set("Origin", "https://chat.example.test:8443")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("X-Forwarded-Host", "chat.example.test")
+	req.Header.Set("X-Forwarded-Port", "8443")
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
 func TestDefaultLauncherDashboardSecureCookieIgnoresSpoofedForwardedProto(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://launcher.local/", nil)
 	req.RemoteAddr = "203.0.113.8:1234"
@@ -342,6 +433,16 @@ func TestDefaultLauncherDashboardSecureCookieIgnoresSpoofedForwardedProto(t *tes
 	req.RemoteAddr = "10.0.0.8:1234"
 	if got := RequestScheme(req, []string{"10.0.0.0/8"}); got != "https" {
 		t.Fatalf("trusted proxy scheme = %q, want https", got)
+	}
+}
+
+func TestExternalAccessUsesHTTPSFromConfiguredPublicURLForSecureCookie(t *testing.T) {
+	access := mustExternalAccess(t, "https://gogoclaw.example.test:8443", []string{"10.0.0.0/8"})
+	req := httptest.NewRequest(http.MethodGet, "http://gogoclaw:18800/", nil)
+	req.RemoteAddr = "10.0.0.8:1234"
+
+	if got := access.Scheme(req); got != "https" {
+		t.Fatalf("scheme = %q, want https from public URL", got)
 	}
 }
 

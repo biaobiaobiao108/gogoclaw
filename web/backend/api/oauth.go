@@ -15,7 +15,6 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
-	"github.com/biaobiaobiao108/gogoclaw/web/backend/middleware"
 )
 
 const (
@@ -602,8 +601,8 @@ func oauthMethodTokenOrOAuth(method string) string {
 }
 
 func (h *Handler) buildOAuthRedirectURI(r *http.Request) string {
-	scheme := middleware.RequestScheme(r, h.serverTrustedProxyCIDRs)
-	return fmt.Sprintf("%s://%s/oauth/callback", scheme, r.Host)
+	origin := h.serverExternalAccess.PreferredOrigin(r)
+	return origin.String() + "/oauth/callback"
 }
 
 func flowToResponse(flow *oauthFlow) oauthFlowResponse {

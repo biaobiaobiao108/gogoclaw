@@ -541,6 +541,10 @@ func main() {
 		logger.ErrorC("web", fmt.Sprintf("Warning: Failed to load %s: %v", launcherPath, err))
 		launcherCfg = launcherconfig.Default()
 	}
+	externalAccess, err := middleware.NewExternalAccess(launcherCfg.PublicURL, launcherCfg.TrustedProxyCIDRs)
+	if err != nil {
+		logger.Fatalf("Invalid launcher reverse proxy configuration: %v", err)
+	}
 
 	effectivePort := *port
 	effectivePublic := *public
@@ -667,10 +671,10 @@ func main() {
 	mux := http.NewServeMux()
 
 	api.RegisterLauncherAuthRoutes(mux, api.LauncherAuthRouteOpts{
-		Sessions:          dashboardSessions,
-		SetupToken:        setupToken,
-		PasswordStore:     passwordStore,
-		TrustedProxyCIDRs: launcherCfg.TrustedProxyCIDRs,
+		Sessions:       dashboardSessions,
+		SetupToken:     setupToken,
+		PasswordStore:  passwordStore,
+		ExternalAccess: externalAccess,
 	})
 
 	// API Routes (e.g. /api/status)
@@ -682,7 +686,7 @@ func main() {
 	apiHandler.SetServerOptions(portNum, effectivePublic, explicitPublic, launcherCfg.AllowedCIDRs)
 	apiHandler.SetServerAccessOptions(
 		launcherCfg.AllowLocalhostBypass,
-		launcherCfg.TrustedProxyCIDRs,
+		externalAccess,
 	)
 	apiHandler.SetServerBindHost(hostInput, hostOverrideActive)
 	apiHandler.RegisterRoutes(mux)
@@ -700,15 +704,16 @@ func main() {
 	}
 
 	dashAuth := middleware.LauncherDashboardAuth(middleware.LauncherDashboardAuthConfig{
-		Sessions:          dashboardSessions,
-		LocalAutoLogin:    localAutoLogin,
-		TrustedProxyCIDRs: launcherCfg.TrustedProxyCIDRs,
+		Sessions:       dashboardSessions,
+		LocalAutoLogin: localAutoLogin,
+		ExternalAccess: externalAccess,
 	}, accessControlledMux)
 
 	// Apply middleware stack
 	handler := middleware.Recoverer(
 		middleware.Logger(
 			middleware.SecurityHeaders(
+				externalAccess,
 				middleware.ReferrerPolicyNoReferrer(
 					middleware.JSONContentType(dashAuth),
 				),

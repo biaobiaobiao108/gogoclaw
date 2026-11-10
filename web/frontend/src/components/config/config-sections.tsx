@@ -1192,6 +1192,21 @@ export function LauncherSection({
       </Field>
 
       <Field
+        label={t("pages.config.public_url")}
+        hint={t("pages.config.public_url_hint")}
+        layout="setting-row"
+        controlClassName="md:max-w-md"
+      >
+        <Input
+          type="url"
+          value={launcherForm.publicURL}
+          disabled={disabled}
+          placeholder={t("pages.config.public_url_placeholder")}
+          onChange={(e) => onFieldChange("publicURL", e.target.value)}
+        />
+      </Field>
+
+      <Field
         label={t("pages.config.allowed_cidrs")}
         hint={t("pages.config.allowed_cidrs_hint")}
         layout="setting-row"

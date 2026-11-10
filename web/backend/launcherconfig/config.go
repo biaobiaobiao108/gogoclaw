@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -26,6 +28,7 @@ type Config struct {
 	AllowLocalhostBypass       bool            `json:"allow_localhost_bypass"`
 	AllowLocalhostBypassSource BoolFieldSource `json:"-"`
 	TrustedProxyCIDRs          []string        `json:"trusted_proxy_cidrs,omitempty"`
+	PublicURL                  string          `json:"public_url,omitempty"`
 	DashboardPasswordHash      string          `json:"dashboard_password_hash,omitempty"`
 	// LegacyLauncherToken is read only for one-time migration from the removed
 	// token login flow. Save always clears it so new configs do not persist it.
@@ -62,7 +65,52 @@ func Validate(cfg Config) error {
 			return fmt.Errorf("invalid trusted proxy CIDR %q", cidr)
 		}
 	}
+	if _, err := NormalizePublicURL(cfg.PublicURL); err != nil {
+		return err
+	}
 	return nil
+}
+
+// NormalizePublicURL validates the browser-visible launcher origin and returns
+// a canonical value without a trailing slash, query, fragment, or credentials.
+func NormalizePublicURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid public_url: %w", err)
+	}
+	u.Scheme = strings.ToLower(u.Scheme)
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("public_url must use http or https")
+	}
+	if u.Host == "" || u.Hostname() == "" {
+		return "", fmt.Errorf("public_url must include a host")
+	}
+	if u.User != nil {
+		return "", fmt.Errorf("public_url must not include credentials")
+	}
+	if u.Path != "" && u.Path != "/" {
+		return "", fmt.Errorf("public_url must not include a path")
+	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return "", fmt.Errorf("public_url must not include a query or fragment")
+	}
+	if port := u.Port(); port != "" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 {
+			return "", fmt.Errorf("public_url has an invalid port")
+		}
+	}
+
+	u.Path = ""
+	u.RawPath = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+	u.ForceQuery = false
+	return u.String(), nil
 }
 
 // NormalizeCIDRs trims entries, removes empty values, and deduplicates CIDRs.
@@ -115,6 +163,11 @@ func Load(path string, fallback Config) (Config, error) {
 	}
 	cfg.AllowedCIDRs = NormalizeCIDRs(cfg.AllowedCIDRs)
 	cfg.TrustedProxyCIDRs = NormalizeCIDRs(cfg.TrustedProxyCIDRs)
+	publicURL, err := NormalizePublicURL(cfg.PublicURL)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.PublicURL = publicURL
 	cfg.DashboardPasswordHash = strings.TrimSpace(cfg.DashboardPasswordHash)
 	cfg.LegacyLauncherToken = strings.TrimSpace(cfg.LegacyLauncherToken)
 	if err := Validate(cfg); err != nil {
@@ -145,6 +198,11 @@ func detectBoolFieldSource(data []byte, field string) BoolFieldSource {
 func Save(path string, cfg Config) error {
 	cfg.AllowedCIDRs = NormalizeCIDRs(cfg.AllowedCIDRs)
 	cfg.TrustedProxyCIDRs = NormalizeCIDRs(cfg.TrustedProxyCIDRs)
+	publicURL, err := NormalizePublicURL(cfg.PublicURL)
+	if err != nil {
+		return err
+	}
+	cfg.PublicURL = publicURL
 	cfg.DashboardPasswordHash = strings.TrimSpace(cfg.DashboardPasswordHash)
 	cfg.LegacyLauncherToken = ""
 	if err := Validate(cfg); err != nil {

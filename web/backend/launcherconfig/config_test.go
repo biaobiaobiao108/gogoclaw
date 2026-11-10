@@ -34,6 +34,7 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 		AllowedCIDRs:          []string{"192.168.1.0/24", "10.0.0.0/8"},
 		AllowLocalhostBypass:  false,
 		TrustedProxyCIDRs:     []string{"172.16.0.0/12"},
+		PublicURL:             "https://gogoclaw.example.test:8443/",
 		DashboardPasswordHash: "$2a$12$saved-dashboard-password-hash",
 		LegacyLauncherToken:   "legacy-token-should-not-persist",
 	}
@@ -53,6 +54,9 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	}
 	if got.DashboardPasswordHash != want.DashboardPasswordHash {
 		t.Fatalf("dashboard_password_hash = %q, want %q", got.DashboardPasswordHash, want.DashboardPasswordHash)
+	}
+	if got.PublicURL != "https://gogoclaw.example.test:8443" {
+		t.Fatalf("public_url = %q, want normalized public URL", got.PublicURL)
 	}
 	if got.LegacyLauncherToken != "" {
 		t.Fatalf("legacy launcher_token = %q, want empty after Save", got.LegacyLauncherToken)
@@ -200,6 +204,53 @@ func TestValidateRejectsInvalidTrustedProxyCIDR(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Validate() expected error for invalid trusted proxy CIDR")
+	}
+}
+
+func TestNormalizePublicURL(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "empty", input: "", want: ""},
+		{name: "http with port", input: " HTTP://gogoclaw.example.test:666/ ", want: "http://gogoclaw.example.test:666"},
+		{name: "https", input: "https://gogoclaw.example.test", want: "https://gogoclaw.example.test"},
+		{name: "ipv6", input: "http://[fd00::1]:666", want: "http://[fd00::1]:666"},
+		{name: "relative", input: "/gogoclaw", wantErr: true},
+		{name: "credentials", input: "https://user:pass@example.test", wantErr: true},
+		{name: "path", input: "https://example.test/gogoclaw", wantErr: true},
+		{name: "query", input: "https://example.test?x=1", wantErr: true},
+		{name: "fragment", input: "https://example.test#x", wantErr: true},
+		{name: "unsupported scheme", input: "ftp://example.test", wantErr: true},
+		{name: "invalid port", input: "https://example.test:70000", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := NormalizePublicURL(tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("NormalizePublicURL(%q) error = nil", tc.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NormalizePublicURL(%q) error = %v", tc.input, err)
+			}
+			if got != tc.want {
+				t.Fatalf("NormalizePublicURL(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsInvalidPublicURL(t *testing.T) {
+	err := Validate(Config{
+		Port:      18800,
+		PublicURL: "https://example.test/path",
+	})
+	if err == nil {
+		t.Fatal("Validate() expected error for invalid public URL")
 	}
 }
 

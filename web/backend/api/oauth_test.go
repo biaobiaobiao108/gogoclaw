@@ -191,7 +191,7 @@ func TestOAuthCallbackPageUsesExternalScript(t *testing.T) {
 
 func TestOAuthRedirectURIOnlyTrustsForwardedProtoFromProxy(t *testing.T) {
 	h := NewHandler(filepath.Join(t.TempDir(), "config.json"))
-	h.SetServerAccessOptions(false, []string{"10.0.0.0/8"})
+	h.SetServerAccessOptions(false, mustExternalAccess(t, "", []string{"10.0.0.0/8"}))
 
 	request := func(remoteAddr string) *http.Request {
 		req := httptest.NewRequest(http.MethodGet, "http://launcher.local/", nil)
@@ -205,6 +205,19 @@ func TestOAuthRedirectURIOnlyTrustsForwardedProtoFromProxy(t *testing.T) {
 	}
 	if got := h.buildOAuthRedirectURI(request("203.0.113.8:1234")); got != "http://launcher.local/oauth/callback" {
 		t.Fatalf("untrusted redirect URI = %q", got)
+	}
+}
+
+func TestOAuthRedirectURIUsesConfiguredPublicURL(t *testing.T) {
+	h := NewHandler(filepath.Join(t.TempDir(), "config.json"))
+	h.SetServerAccessOptions(false, mustExternalAccess(t, "https://gogoclaw.example.test:8443", []string{"10.0.0.0/8"}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://gogoclaw:18800/", nil)
+	req.Host = "gogoclaw:18800"
+	req.RemoteAddr = "10.0.0.8:1234"
+
+	if got := h.buildOAuthRedirectURI(req); got != "https://gogoclaw.example.test:8443/oauth/callback" {
+		t.Fatalf("redirect URI = %q, want configured public URL", got)
 	}
 }
 

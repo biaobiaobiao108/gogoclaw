@@ -156,6 +156,7 @@ export function ConfigPage() {
       trustedProxyCIDRsText: (launcherConfig.trusted_proxy_cidrs ?? []).join(
         "\n",
       ),
+      publicURL: launcherConfig.public_url ?? "",
       dashboardCurrentPassword: "",
       dashboardPassword: "",
       dashboardPasswordConfirm: "",
@@ -172,7 +173,8 @@ export function ConfigPage() {
     launcherForm.allowLocalhostBypass !==
       launcherBaseline.allowLocalhostBypass ||
     launcherForm.trustedProxyCIDRsText !==
-      launcherBaseline.trustedProxyCIDRsText
+      launcherBaseline.trustedProxyCIDRsText ||
+    launcherForm.publicURL !== launcherBaseline.publicURL
   const launcherPasswordDirty =
     launcherForm.dashboardCurrentPassword.trim() !== "" ||
     launcherForm.dashboardPassword.trim() !== "" ||
@@ -609,6 +611,7 @@ export function ConfigPage() {
           allowed_cidrs: allowedCIDRs,
           allow_localhost_bypass: launcherForm.allowLocalhostBypass,
           trusted_proxy_cidrs: trustedProxyCIDRs,
+          public_url: launcherForm.publicURL.trim(),
         })
         const parsedLauncher: LauncherForm = {
           port: String(savedLauncherConfig.port),
@@ -621,6 +624,7 @@ export function ConfigPage() {
           trustedProxyCIDRsText: (
             savedLauncherConfig.trusted_proxy_cidrs ?? []
           ).join("\n"),
+          publicURL: savedLauncherConfig.public_url ?? "",
           dashboardCurrentPassword: "",
           dashboardPassword: "",
           dashboardPasswordConfirm: "",

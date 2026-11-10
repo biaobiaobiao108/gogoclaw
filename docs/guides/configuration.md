@@ -157,6 +157,7 @@ Example clean web policy:
 **gogoclaw-launcher** serves a browser UI that requires password sign-in first. On first run, open `/launcher-setup` to create the dashboard password. Later manual sign-ins use `/launcher-login`.
 
 - **Config file**: Same directory as `config.json` (or the file pointed to by `GOGOCLAW_CONFIG`). The launcher-specific file is `launcher-config.json`.
+- **Reverse proxy**: Set `trusted_proxy_cidrs` for standard forwarding headers and `public_url` when the proxy cannot preserve the browser-visible port or protocol. `public_url` applies to trusted proxy requests while direct LAN/local requests keep their own origin. Both take effect after restart.
 - **Password storage**: On supported platforms, the password is stored as a bcrypt hash in `launcher-auth.db`. On platforms where the SQLite password store is unavailable, the bcrypt hash is stored in `launcher-config.json`.
 - **Legacy migration**: Older `launcher_token` values are migrated once into password login and removed from saved launcher config.
 - **Local auto-login**: When the launcher auto-opens a local browser after startup, it uses a one-shot loopback-only bootstrap endpoint to set the session cookie automatically.

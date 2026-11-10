@@ -43,9 +43,8 @@ type LauncherDashboardAuthConfig struct {
 	Sessions *LauncherDashboardSessions
 	// LocalAutoLogin enables one-shot startup auto-login.
 	LocalAutoLogin *LauncherDashboardLocalAutoLogin
-	// TrustedProxyCIDRs controls whether X-Forwarded-Proto may determine the
-	// external scheme for secure cookies and same-origin checks.
-	TrustedProxyCIDRs []string
+	// ExternalAccess resolves browser-visible origins for proxy deployments.
+	ExternalAccess ExternalAccess
 	// SecureCookie sets the session cookie's Secure flag. If nil, DefaultLauncherDashboardSecureCookie is used.
 	SecureCookie func(*http.Request) bool
 }
@@ -82,14 +81,9 @@ func (a *LauncherDashboardLocalAutoLogin) URLPath() string {
 }
 
 // DefaultLauncherDashboardSecureCookie uses TLS termination in this process.
-// Reverse-proxy deployments should configure trusted_proxy_cidrs and pass a
-// SecureCookie function based on RequestScheme.
+// Reverse-proxy deployments pass a SecureCookie function based on ExternalAccess.
 func DefaultLauncherDashboardSecureCookie(r *http.Request) bool {
 	return RequestScheme(r, nil) == "https"
-}
-
-func launcherRequestScheme(r *http.Request) string {
-	return RequestScheme(r, nil)
 }
 
 // SetLauncherDashboardSessionCookie writes the HttpOnly session cookie after successful dashboard password login.
@@ -135,12 +129,12 @@ func ClearLauncherDashboardSessionCookie(w http.ResponseWriter, r *http.Request,
 func LauncherDashboardAuth(cfg LauncherDashboardAuthConfig, next http.Handler) http.Handler {
 	if cfg.SecureCookie == nil {
 		cfg.SecureCookie = func(r *http.Request) bool {
-			return RequestScheme(r, cfg.TrustedProxyCIDRs) == "https"
+			return cfg.ExternalAccess.Scheme(r) == "https"
 		}
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := canonicalAuthPath(r.URL.Path)
-		if p == "/pico/ws" && !launcherWebSocketOriginAllowed(r, cfg.TrustedProxyCIDRs) {
+		if p == "/pico/ws" && !cfg.ExternalAccess.WebSocketOriginAllowed(r) {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
@@ -153,7 +147,7 @@ func LauncherDashboardAuth(cfg LauncherDashboardAuthConfig, next http.Handler) h
 			return
 		}
 		if validLauncherDashboardAuth(r, cfg) {
-			if launcherDashboardUnsafeMethod(r.Method) && !launcherDashboardRequestOriginAllowed(r, cfg.TrustedProxyCIDRs) {
+			if launcherDashboardUnsafeMethod(r.Method) && !launcherDashboardRequestOriginAllowed(r, cfg.ExternalAccess) {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
@@ -176,42 +170,18 @@ func launcherDashboardUnsafeMethod(method string) bool {
 // launcherDashboardRequestOriginAllowed blocks browser requests initiated by
 // another origin before they can invoke authenticated state-changing APIs.
 // Requests without browser provenance headers remain available to API clients.
-func launcherDashboardRequestOriginAllowed(r *http.Request, trustedProxyCIDRs []string) bool {
+func launcherDashboardRequestOriginAllowed(r *http.Request, externalAccess ExternalAccess) bool {
 	fetchSite := strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")))
 	if fetchSite != "" && fetchSite != "same-origin" {
 		return false
 	}
 	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
-		return launcherOriginMatchesRequest(r, origin, trustedProxyCIDRs)
+		return externalAccess.OriginAllowed(r, origin)
 	}
 	if referer := strings.TrimSpace(r.Header.Get("Referer")); referer != "" {
-		return launcherOriginMatchesRequest(r, referer, trustedProxyCIDRs)
+		return externalAccess.OriginAllowed(r, referer)
 	}
 	return fetchSite == "" || fetchSite == "same-origin"
-}
-
-func launcherOriginMatchesRequest(r *http.Request, raw string, trustedProxyCIDRs []string) bool {
-	if strings.ContainsAny(raw, " \t\r\n") {
-		return false
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return false
-	}
-	wantHost := r.Host
-	if wantHost == "" && r.URL != nil {
-		wantHost = r.URL.Host
-	}
-	return strings.EqualFold(u.Scheme, RequestScheme(r, trustedProxyCIDRs)) && strings.EqualFold(u.Host, wantHost)
-}
-
-func launcherWebSocketOriginAllowed(r *http.Request, trustedProxyCIDRs []string) bool {
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin == "" {
-		return true
-	}
-
-	return launcherOriginMatchesRequest(r, origin, trustedProxyCIDRs)
 }
 
 // canonicalAuthPath matches path cleaning used for routing decisions so

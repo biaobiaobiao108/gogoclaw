@@ -73,6 +73,7 @@ export interface LauncherForm {
   allowedCIDRsText: string
   allowLocalhostBypass: boolean
   trustedProxyCIDRsText: string
+  publicURL: string
   dashboardCurrentPassword: string
   dashboardPassword: string
   dashboardPasswordConfirm: string
@@ -163,6 +164,7 @@ export const EMPTY_LAUNCHER_FORM: LauncherForm = {
   allowedCIDRsText: "",
   allowLocalhostBypass: true,
   trustedProxyCIDRsText: "",
+  publicURL: "",
   dashboardCurrentPassword: "",
   dashboardPassword: "",
   dashboardPasswordConfirm: "",

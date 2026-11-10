@@ -176,6 +176,7 @@ func TestGetGatewayHealthUsesProbeHostForPublicLauncher(t *testing.T) {
 func TestBuildWsURLUsesWSSWhenForwardedProtoIsHTTPS(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	h := NewHandler(configPath)
+	h.SetServerAccessOptions(false, mustExternalAccess(t, "", []string{"10.0.0.0/8"}))
 
 	cfg := config.DefaultConfig()
 	cfg.Gateway.Host = "0.0.0.0"
@@ -183,10 +184,11 @@ func TestBuildWsURLUsesWSSWhenForwardedProtoIsHTTPS(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "http://launcher.local/api/pico/info", nil)
 	req.Host = "chat.example.com"
+	req.RemoteAddr = "10.0.0.8:1234"
 	req.Header.Set("X-Forwarded-Proto", "https")
 
-	if got := h.buildWsURL(req); got != "wss://chat.example.com:443/pico/ws" {
-		t.Fatalf("buildWsURL() = %q, want %q", got, "wss://chat.example.com:443/pico/ws")
+	if got := h.buildWsURL(req); got != "wss://chat.example.com/pico/ws" {
+		t.Fatalf("buildWsURL() = %q, want %q", got, "wss://chat.example.com/pico/ws")
 	}
 }
 
@@ -202,8 +204,8 @@ func TestBuildWsURLUsesWSSWhenRequestIsTLS(t *testing.T) {
 	req.Host = "secure.example.com"
 	req.TLS = &tls.ConnectionState{}
 
-	if got := h.buildWsURL(req); got != "wss://secure.example.com:443/pico/ws" {
-		t.Fatalf("buildWsURL() = %q, want %q", got, "wss://secure.example.com:443/pico/ws")
+	if got := h.buildWsURL(req); got != "wss://secure.example.com/pico/ws" {
+		t.Fatalf("buildWsURL() = %q, want %q", got, "wss://secure.example.com/pico/ws")
 	}
 }
 
@@ -219,6 +221,7 @@ func TestBuildPicoURLsPreferXForwardedHost(t *testing.T) {
 
 	h := NewHandler(configPath)
 	h.SetServerOptions(18800, false, false, nil)
+	h.SetServerAccessOptions(true, mustExternalAccess(t, "", []string{"10.0.0.0/8"}))
 
 	cfg := config.DefaultConfig()
 	cfg.Gateway.Host = "0.0.0.0"
@@ -226,24 +229,26 @@ func TestBuildPicoURLsPreferXForwardedHost(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "http://127.0.0.1:18800/api/pico/info", nil)
 	req.Host = "127.0.0.1:18800"
+	req.RemoteAddr = "10.0.0.8:1234"
 	req.Header.Set("X-Forwarded-Host", "vscode-tunnel.example.com")
 	req.Header.Set("X-Forwarded-Proto", "https")
 	req.Header.Set("X-Forwarded-Port", "443")
 
-	if got := h.buildPicoEventsURL(req); got != "https://vscode-tunnel.example.com:443/pico/events" {
-		t.Fatalf("buildPicoEventsURL() = %q, want %q", got, "https://vscode-tunnel.example.com:443/pico/events")
+	if got := h.buildPicoEventsURL(req); got != "https://vscode-tunnel.example.com/pico/events" {
+		t.Fatalf("buildPicoEventsURL() = %q, want %q", got, "https://vscode-tunnel.example.com/pico/events")
 	}
-	if got := h.buildPicoSendURL(req); got != "https://vscode-tunnel.example.com:443/pico/send" {
-		t.Fatalf("buildPicoSendURL() = %q, want %q", got, "https://vscode-tunnel.example.com:443/pico/send")
+	if got := h.buildPicoSendURL(req); got != "https://vscode-tunnel.example.com/pico/send" {
+		t.Fatalf("buildPicoSendURL() = %q, want %q", got, "https://vscode-tunnel.example.com/pico/send")
 	}
-	if got := h.buildWsURL(req); got != "wss://vscode-tunnel.example.com:443/pico/ws" {
-		t.Fatalf("buildWsURL() = %q, want %q", got, "wss://vscode-tunnel.example.com:443/pico/ws")
+	if got := h.buildWsURL(req); got != "wss://vscode-tunnel.example.com/pico/ws" {
+		t.Fatalf("buildWsURL() = %q, want %q", got, "wss://vscode-tunnel.example.com/pico/ws")
 	}
 }
 
 func TestBuildWsURLPrefersForwardedHTTPOverTLS(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	h := NewHandler(configPath)
+	h.SetServerAccessOptions(false, mustExternalAccess(t, "", []string{"10.0.0.0/8"}))
 
 	cfg := config.DefaultConfig()
 	cfg.Gateway.Host = "0.0.0.0"
@@ -251,11 +256,31 @@ func TestBuildWsURLPrefersForwardedHTTPOverTLS(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "https://launcher.local/api/pico/info", nil)
 	req.Host = "chat.example.com"
+	req.RemoteAddr = "10.0.0.8:1234"
 	req.TLS = &tls.ConnectionState{}
 	req.Header.Set("X-Forwarded-Proto", "http")
 
-	if got := h.buildWsURL(req); got != "ws://chat.example.com:80/pico/ws" {
-		t.Fatalf("buildWsURL() = %q, want %q", got, "ws://chat.example.com:80/pico/ws")
+	if got := h.buildWsURL(req); got != "ws://chat.example.com/pico/ws" {
+		t.Fatalf("buildWsURL() = %q, want %q", got, "ws://chat.example.com/pico/ws")
+	}
+}
+
+func TestBuildPicoURLsUseConfiguredPublicURL(t *testing.T) {
+	h := NewHandler(filepath.Join(t.TempDir(), "config.json"))
+	h.SetServerAccessOptions(false, mustExternalAccess(t, "http://gogoclaw.example.test:666", []string{"10.0.0.0/8"}))
+
+	req := httptest.NewRequest("GET", "http://gogoclaw:18800/api/pico/info", nil)
+	req.Host = "gogoclaw:18800"
+	req.RemoteAddr = "10.0.0.8:1234"
+
+	if got := h.buildWsURL(req); got != "ws://gogoclaw.example.test:666/pico/ws" {
+		t.Fatalf("buildWsURL() = %q", got)
+	}
+	if got := h.buildPicoEventsURL(req); got != "http://gogoclaw.example.test:666/pico/events" {
+		t.Fatalf("buildPicoEventsURL() = %q", got)
+	}
+	if got := h.buildPicoSendURL(req); got != "http://gogoclaw.example.test:666/pico/send" {
+		t.Fatalf("buildPicoSendURL() = %q", got)
 	}
 }
 
@@ -267,12 +292,28 @@ func TestBuildWsURLDoesNotTrustOriginWhenProxyOmitsForwardedProto(t *testing.T) 
 	req.Host = "agent.gogoclaw.example.com"
 	req.Header.Set("Origin", "https://agent.gogoclaw.example.com")
 
-	if got := h.buildWsURL(req); got != "ws://agent.gogoclaw.example.com:80/pico/ws" {
+	if got := h.buildWsURL(req); got != "ws://agent.gogoclaw.example.com/pico/ws" {
 		t.Fatalf(
 			"buildWsURL() = %q, want %q",
 			got,
-			"ws://agent.gogoclaw.example.com:80/pico/ws",
+			"ws://agent.gogoclaw.example.com/pico/ws",
 		)
+	}
+}
+
+func TestBuildPicoURLsIgnoreForwardedHeadersFromUntrustedPeer(t *testing.T) {
+	h := NewHandler(filepath.Join(t.TempDir(), "config.json"))
+	h.SetServerAccessOptions(false, mustExternalAccess(t, "", []string{"10.0.0.0/8"}))
+
+	req := httptest.NewRequest("GET", "http://gogoclaw:18800/api/pico/info", nil)
+	req.Host = "gogoclaw:18800"
+	req.RemoteAddr = "203.0.113.8:1234"
+	req.Header.Set("X-Forwarded-Host", "evil.example.test")
+	req.Header.Set("X-Forwarded-Port", "666")
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	if got := h.buildWsURL(req); got != "ws://gogoclaw:18800/pico/ws" {
+		t.Fatalf("buildWsURL() = %q, want direct request origin", got)
 	}
 }
 

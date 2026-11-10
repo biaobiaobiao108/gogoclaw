@@ -6,6 +6,7 @@ export interface LauncherConfig {
   allowed_cidrs: string[]
   allow_localhost_bypass: boolean
   trusted_proxy_cidrs: string[]
+  public_url: string
 }
 
 export interface SystemVersionInfo {

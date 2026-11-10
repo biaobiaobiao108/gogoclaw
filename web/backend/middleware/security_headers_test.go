@@ -10,7 +10,7 @@ func TestSecurityHeaders(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
-	h := SecurityHeaders(next)
+	h := SecurityHeaders(ExternalAccess{}, next)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
@@ -32,6 +32,22 @@ func TestSecurityHeaders(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "https://launcher.local/", nil)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
+	if got := rec.Header().Get("Strict-Transport-Security"); got != "max-age=31536000" {
+		t.Fatalf("HSTS = %q", got)
+	}
+}
+
+func TestSecurityHeadersAddsHSTSForHTTPSPublicURL(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	h := SecurityHeaders(mustExternalAccess(t, "https://gogoclaw.example.test", []string{"10.0.0.0/8"}), next)
+
+	req := httptest.NewRequest(http.MethodGet, "http://internal:18800/", nil)
+	req.RemoteAddr = "10.0.0.8:1234"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
 	if got := rec.Header().Get("Strict-Transport-Security"); got != "max-age=31536000" {
 		t.Fatalf("HSTS = %q", got)
 	}

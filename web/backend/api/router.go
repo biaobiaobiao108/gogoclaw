@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/web/backend/launcherconfig"
+	"github.com/biaobiaobiao108/gogoclaw/web/backend/middleware"
 )
 
 // Handler serves HTTP API requests.
@@ -19,7 +20,7 @@ type Handler struct {
 	serverHostExplicit         bool
 	serverCIDRs                []string
 	serverAllowLocalhostBypass bool
-	serverTrustedProxyCIDRs    []string
+	serverExternalAccess       middleware.ExternalAccess
 	debug                      bool
 	// Serializes config load-modify-save cycles across API handlers.
 	configMu            sync.Mutex
@@ -63,9 +64,9 @@ func (h *Handler) SetServerOptions(port int, public bool, publicExplicit bool, a
 	h.serverCIDRs = append([]string(nil), allowedCIDRs...)
 }
 
-func (h *Handler) SetServerAccessOptions(allowLocalhostBypass bool, trustedProxyCIDRs []string) {
+func (h *Handler) SetServerAccessOptions(allowLocalhostBypass bool, externalAccess middleware.ExternalAccess) {
 	h.serverAllowLocalhostBypass = allowLocalhostBypass
-	h.serverTrustedProxyCIDRs = append([]string(nil), trustedProxyCIDRs...)
+	h.serverExternalAccess = externalAccess
 }
 
 // SetServerBindHost stores the launcher's effective bind host.

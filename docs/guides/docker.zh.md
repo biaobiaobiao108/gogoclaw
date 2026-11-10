@@ -143,6 +143,19 @@ sudo chown -R 10001:10001 /vol1/1000/docker/gogoclaw
 - 检查 NAS 防火墙和反向代理。
 - 如果前面有反向代理，确认它允许 WebSocket 升级，Pico 对话依赖 WebSocket。
 
+反向代理不能保留外部端口或协议时，在 `launcher-config.json` 中显式配置浏览器访问地址，并把代理来源 IP 加入可信代理网段：
+
+```json
+{
+  "port": 18800,
+  "public": true,
+  "trusted_proxy_cidrs": ["192.168.31.228/32"],
+  "public_url": "http://gogoclaw.example.com:666"
+}
+```
+
+可信代理请求会把 `public_url` 用于同源校验、WebSocket/SSE 地址、登录 Cookie、OAuth 回调和 HSTS；直接通过局域网或本机访问时仍使用当前地址。修改后重启启动器。
+
 ### 页面要求密码但从未设置
 
 控制台密码保存在 `/data` 中，不是环境变量。通常是因为挂载了之前使用过的目录或命名卷。保留旧数据时请使用旧密码；需要全新部署时使用空 `/data`。

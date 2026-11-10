@@ -67,6 +67,6 @@ func (l *loginRateLimiter) allow(ip string) bool {
 	return true
 }
 
-func clientIPForLimiter(r *http.Request, trustedProxyCIDRs []string) string {
-	return middleware.ClientIPFromRequest(r, trustedProxyCIDRs)
+func clientIPForLimiter(r *http.Request, externalAccess middleware.ExternalAccess) string {
+	return externalAccess.ClientIP(r)
 }

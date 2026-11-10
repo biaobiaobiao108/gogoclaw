@@ -126,39 +126,6 @@ func ClientIPFromRequest(r *http.Request, trustedProxyCIDRs []string) string {
 	return ip.String()
 }
 
-// RequestScheme resolves the externally visible request scheme. Forwarded
-// protocol headers are trusted only when the immediate peer is a configured
-// reverse proxy; otherwise a direct client could force secure-cookie or OAuth
-// redirect behavior by spoofing X-Forwarded-Proto.
-func RequestScheme(r *http.Request, trustedProxyCIDRs []string) string {
-	if r == nil {
-		return "http"
-	}
-	if r.TLS != nil {
-		return "https"
-	}
-
-	peerIP := clientIPFromRemoteAddr(r.RemoteAddr)
-	trustedProxyNets, err := parseCIDRNets(trustedProxyCIDRs)
-	if err == nil && peerIP != nil && containsIP(trustedProxyNets, peerIP) {
-		proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
-		if i := strings.IndexByte(proto, ','); i >= 0 {
-			proto = proto[:i]
-		}
-		switch strings.ToLower(strings.TrimSpace(proto)) {
-		case "http":
-			return "http"
-		case "https":
-			return "https"
-		}
-	}
-
-	if r.URL != nil && strings.EqualFold(r.URL.Scheme, "https") {
-		return "https"
-	}
-	return "http"
-}
-
 func parseIPToken(raw string) net.IP {
 	token := strings.Trim(strings.TrimSpace(raw), `"`)
 	if token == "" {

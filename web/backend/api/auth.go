@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/biaobiaobiao108/gogoclaw/web/backend/middleware"
@@ -26,10 +25,10 @@ type PasswordStore interface {
 
 // LauncherAuthRouteOpts configures dashboard auth handlers.
 type LauncherAuthRouteOpts struct {
-	Sessions          *middleware.LauncherDashboardSessions
-	SetupToken        string
-	SecureCookie      func(*http.Request) bool
-	TrustedProxyCIDRs []string
+	Sessions       *middleware.LauncherDashboardSessions
+	SetupToken     string
+	SecureCookie   func(*http.Request) bool
+	ExternalAccess middleware.ExternalAccess
 	// PasswordStore enables password login. It must be non-nil for auth to work.
 	PasswordStore PasswordStore
 }
@@ -54,17 +53,17 @@ func RegisterLauncherAuthRoutes(mux *http.ServeMux, opts LauncherAuthRouteOpts) 
 	secure := opts.SecureCookie
 	if secure == nil {
 		secure = func(r *http.Request) bool {
-			return middleware.RequestScheme(r, opts.TrustedProxyCIDRs) == "https"
+			return opts.ExternalAccess.Scheme(r) == "https"
 		}
 	}
 	h := &launcherAuthHandlers{
-		sessions:          opts.Sessions,
-		setupToken:        opts.SetupToken,
-		secureCookie:      secure,
-		store:             opts.PasswordStore,
-		loginLimit:        newLoginRateLimiter(),
-		setupLimit:        newLoginRateLimiter(),
-		trustedProxyCIDRs: append([]string(nil), opts.TrustedProxyCIDRs...),
+		sessions:       opts.Sessions,
+		setupToken:     opts.SetupToken,
+		secureCookie:   secure,
+		store:          opts.PasswordStore,
+		loginLimit:     newLoginRateLimiter(),
+		setupLimit:     newLoginRateLimiter(),
+		externalAccess: opts.ExternalAccess,
 	}
 	mux.HandleFunc("POST /api/auth/login", h.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", h.handleLogout)
@@ -73,13 +72,13 @@ func RegisterLauncherAuthRoutes(mux *http.ServeMux, opts LauncherAuthRouteOpts) 
 }
 
 type launcherAuthHandlers struct {
-	sessions          *middleware.LauncherDashboardSessions
-	setupToken        string
-	secureCookie      func(*http.Request) bool
-	store             PasswordStore
-	loginLimit        *loginRateLimiter
-	setupLimit        *loginRateLimiter
-	trustedProxyCIDRs []string
+	sessions       *middleware.LauncherDashboardSessions
+	setupToken     string
+	secureCookie   func(*http.Request) bool
+	store          PasswordStore
+	loginLimit     *loginRateLimiter
+	setupLimit     *loginRateLimiter
+	externalAccess middleware.ExternalAccess
 }
 
 // isStoreInitialized safely queries the store.
@@ -99,32 +98,14 @@ func (h *launcherAuthHandlers) launcherSetupCrossSite(r *http.Request) bool {
 	}
 
 	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
-		return !sameLauncherRequestOrigin(r, origin, h.trustedProxyCIDRs)
+		return !h.externalAccess.OriginAllowed(r, origin)
 	}
 
 	if referer := strings.TrimSpace(r.Header.Get("Referer")); referer != "" {
-		return !sameLauncherRequestOrigin(r, referer, h.trustedProxyCIDRs)
+		return !h.externalAccess.OriginAllowed(r, referer)
 	}
 
 	return false
-}
-
-func sameLauncherRequestOrigin(r *http.Request, raw string, trustedProxyCIDRs []string) bool {
-	if strings.ContainsAny(raw, " \t\r\n") {
-		return false
-	}
-
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return false
-	}
-
-	wantScheme := middleware.RequestScheme(r, trustedProxyCIDRs)
-	wantHost := r.Host
-	if wantHost == "" {
-		wantHost = r.URL.Host
-	}
-	return strings.EqualFold(u.Scheme, wantScheme) && strings.EqualFold(u.Host, wantHost)
 }
 
 func (h *launcherAuthHandlers) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -135,7 +116,7 @@ func (h *launcherAuthHandlers) handleLogin(w http.ResponseWriter, r *http.Reques
 		_, _ = w.Write([]byte(`{"error":"invalid JSON"}`))
 		return
 	}
-	ip := clientIPForLimiter(r, h.trustedProxyCIDRs)
+	ip := clientIPForLimiter(r, h.externalAccess)
 	if !h.loginLimit.allow(ip) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte(`{"error":"too many login attempts"}`))
@@ -261,7 +242,7 @@ func (h *launcherAuthHandlers) handleSetup(w http.ResponseWriter, r *http.Reques
 		_, _ = w.Write([]byte(`{"error":"password store not configured"}`))
 		return
 	}
-	if !h.setupLimit.allow(clientIPForLimiter(r, h.trustedProxyCIDRs)) {
+	if !h.setupLimit.allow(clientIPForLimiter(r, h.externalAccess)) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte(`{"error":"too many setup attempts"}`))
 		return

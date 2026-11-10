@@ -172,9 +172,9 @@ func TestLauncherAuthSecureCookieUsesTrustedProxyOnly(t *testing.T) {
 	sessions := middleware.NewLauncherDashboardSessions()
 	mux := http.NewServeMux()
 	RegisterLauncherAuthRoutes(mux, LauncherAuthRouteOpts{
-		Sessions:          sessions,
-		PasswordStore:     store,
-		TrustedProxyCIDRs: []string{"10.0.0.0/8"},
+		Sessions:       sessions,
+		PasswordStore:  store,
+		ExternalAccess: mustExternalAccess(t, "", []string{"10.0.0.0/8"}),
 	})
 
 	for _, tc := range []struct {
@@ -200,6 +200,31 @@ func TestLauncherAuthSecureCookieUsesTrustedProxyOnly(t *testing.T) {
 				t.Fatalf("cookies = %#v, want Secure=%t", cookies, tc.wantSecure)
 			}
 		})
+	}
+}
+
+func TestLauncherAuthSecureCookieUsesHTTPSPublicURL(t *testing.T) {
+	store := &fakePasswordStore{initialized: true, password: "dashboard-test-password"}
+	sessions := middleware.NewLauncherDashboardSessions()
+	mux := http.NewServeMux()
+	RegisterLauncherAuthRoutes(mux, LauncherAuthRouteOpts{
+		Sessions:       sessions,
+		PasswordStore:  store,
+		ExternalAccess: mustExternalAccess(t, "https://gogoclaw.example.test:8443", []string{"10.0.0.0/8"}),
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"password":"dashboard-test-password"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "10.0.0.8:1234"
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 || !cookies[0].Secure {
+		t.Fatalf("cookies = %#v, want Secure=true from public URL", cookies)
 	}
 }
 
