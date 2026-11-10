@@ -30,6 +30,7 @@ type WeixinChannel struct {
 	typingCache       map[string]typingTicketCacheEntry
 	pauseMu           sync.Mutex
 	pauseUntil        time.Time
+	pollWG            sync.WaitGroup
 	syncBufPath       string
 	contextTokensPath string
 }
@@ -95,7 +96,11 @@ func (c *WeixinChannel) Start(ctx context.Context) error {
 	c.ctx, c.cancel = context.WithCancel(ctx)
 	c.SetRunning(true)
 	c.restoreContextTokens()
-	go c.pollLoop(c.ctx)
+	c.pollWG.Add(1)
+	go func() {
+		defer c.pollWG.Done()
+		c.pollLoop(c.ctx)
+	}()
 	logger.InfoC("weixin", "Weixin channel started")
 	return nil
 }
@@ -146,6 +151,18 @@ func (c *WeixinChannel) Stop(ctx context.Context) error {
 	c.SetRunning(false)
 	if c.cancel != nil {
 		c.cancel()
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	done := make(chan struct{})
+	go func() {
+		c.pollWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
 	}
 	return nil
 }

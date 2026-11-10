@@ -127,6 +127,26 @@ func TestStartAll_PartialFailure_StartsSuccessfulWorkers(t *testing.T) {
 	}
 }
 
+func TestStopAllIsIdempotentAfterPartialStartFailure(t *testing.T) {
+	m := newTestManager()
+	m.channels["good"] = &mockChannel{}
+	m.channels["bad"] = &mockChannel{startFn: func(context.Context) error {
+		return errors.New("bad start")
+	}}
+	if err := m.StartAll(t.Context()); err != nil {
+		t.Fatalf("StartAll() error = %v", err)
+	}
+	if err := m.StopAll(t.Context()); err != nil {
+		t.Fatalf("first StopAll() error = %v", err)
+	}
+	if len(m.workers) != 0 {
+		t.Fatalf("workers retained after StopAll: %d", len(m.workers))
+	}
+	if err := m.StopAll(t.Context()); err != nil {
+		t.Fatalf("second StopAll() error = %v", err)
+	}
+}
+
 func TestStartAllPublishesLifecycleRuntimeEvents(t *testing.T) {
 	eventBus := runtimeevents.NewBus()
 	defer func() {

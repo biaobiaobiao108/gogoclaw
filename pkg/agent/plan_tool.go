@@ -58,8 +58,6 @@ func (t *turnPlanTool) Execute(_ context.Context, args map[string]any) *tools.To
 	if inProgress > 1 {
 		return tools.ErrorResult("Only one plan step can be in progress.")
 	}
-	t.turn.mu.Lock()
-	t.turn.plan = steps
-	t.turn.mu.Unlock()
+	t.turn.setPlan(steps)
 	return tools.SilentResult(fmt.Sprintf("Plan updated with %d steps.", len(steps)))
 }

@@ -309,6 +309,64 @@ func TestShutdownGatewayClosesMessageBus(t *testing.T) {
 	}
 }
 
+func TestStartScheduledServicesAndCleanupAreIdempotent(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.Workspace = t.TempDir()
+	cfg.Heartbeat.Enabled = true
+	cfg.Heartbeat.Interval = 5
+	msgBus := bus.NewMessageBus()
+	al := agent.NewAgentLoop(cfg, msgBus, &startupBlockedProvider{reason: "not used"})
+	t.Cleanup(al.Close)
+
+	cronService, heartbeatService, err := startScheduledServices(
+		al,
+		msgBus,
+		cfg.WorkspacePath(),
+		cfg.Agents.Defaults.RestrictToWorkspace,
+		time.Minute,
+		cfg,
+	)
+	if err != nil {
+		t.Fatalf("startScheduledServices() error = %v", err)
+	}
+	if !heartbeatService.IsRunning() {
+		t.Fatal("heartbeat service was not started")
+	}
+	running := &services{CronService: cronService, HeartbeatService: heartbeatService}
+	stopAndCleanupServices(running, time.Second, false)
+	stopAndCleanupServices(running, time.Second, false)
+	if heartbeatService.IsRunning() {
+		t.Fatal("heartbeat service still running after cleanup")
+	}
+}
+
+func TestStartScheduledServicesReturnsNoPartialServices(t *testing.T) {
+	cfg := config.DefaultConfig()
+	workspaceFile := filepath.Join(t.TempDir(), "workspace")
+	if err := os.WriteFile(workspaceFile, []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	cfg.Agents.Defaults.Workspace = workspaceFile
+	msgBus := bus.NewMessageBus()
+	al := agent.NewAgentLoop(cfg, msgBus, &startupBlockedProvider{reason: "not used"})
+	t.Cleanup(al.Close)
+
+	cronService, heartbeatService, err := startScheduledServices(
+		al,
+		msgBus,
+		cfg.WorkspacePath(),
+		cfg.Agents.Defaults.RestrictToWorkspace,
+		time.Minute,
+		cfg,
+	)
+	if err == nil {
+		t.Fatal("startScheduledServices() error = nil, want workspace failure")
+	}
+	if cronService != nil || heartbeatService != nil {
+		t.Fatalf("partial services returned: cron=%v heartbeat=%v", cronService, heartbeatService)
+	}
+}
+
 func receiveGatewayRuntimeEvent(t *testing.T, ch <-chan runtimeevents.Event) runtimeevents.Event {
 	t.Helper()
 

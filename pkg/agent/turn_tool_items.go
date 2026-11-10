@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
@@ -37,35 +36,7 @@ func (ts *turnState) beginToolBatch(iteration int, calls []providers.ToolCall) s
 		policies[i] = ts.toolPolicy(call.Name)
 	}
 
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	ts.toolBatchSeq++
-	batchID := fmt.Sprintf("%s:tools:%d:%d", ts.turnID, iteration, ts.toolBatchSeq)
-	now := time.Now().UTC()
-	for i, call := range calls {
-		policy := policies[i]
-		sideEffect := toolItemSideEffectPossible
-		if policy.ReadOnly {
-			sideEffect = toolItemSideEffectNone
-		}
-		ts.toolItems = append(ts.toolItems, session.TurnToolItem{
-			BatchID:              batchID,
-			Index:                i,
-			CallID:               call.ID,
-			Tool:                 call.Name,
-			ArgumentsFingerprint: toolCallFingerprint(call.Name, call.Arguments),
-			Status:               toolItemStatusPending,
-			SideEffect:           sideEffect,
-			ReadOnly:             policy.ReadOnly,
-			Idempotent:           policy.Idempotent,
-			Destructive:          policy.Destructive,
-			CreatedAt:            now,
-		})
-	}
-	if overflow := len(ts.toolItems) - maxTurnToolItems; overflow > 0 {
-		ts.toolItems = append([]session.TurnToolItem(nil), ts.toolItems[overflow:]...)
-	}
-	return batchID
+	return ts.progress.beginToolBatch(ts.turnID, iteration, calls, policies)
 }
 
 func (ts *turnState) markToolItemAwaitingApproval(batchID string, index int, toolName string, args map[string]any) {
@@ -130,22 +101,12 @@ func (ts *turnState) updateToolItem(batchID string, index int, update func(*sess
 	if ts == nil || batchID == "" || update == nil {
 		return
 	}
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	for i := range ts.toolItems {
-		item := &ts.toolItems[i]
-		if item.BatchID == batchID && item.Index == index {
-			update(item)
-			return
-		}
-	}
+	ts.progress.updateToolItem(batchID, index, update)
 }
 
 func (ts *turnState) toolItemsSnapshot() []session.TurnToolItem {
 	if ts == nil {
 		return nil
 	}
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-	return append([]session.TurnToolItem(nil), ts.toolItems...)
+	return ts.progress.toolItemsSnapshot()
 }

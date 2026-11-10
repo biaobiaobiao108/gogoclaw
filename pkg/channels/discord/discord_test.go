@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +19,12 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 type stubTTSProvider struct{}
 
@@ -112,6 +119,37 @@ func TestApplyDiscordProxy_InvalidProxyURL(t *testing.T) {
 
 	if err = applyDiscordProxy(session, "://bad-proxy"); err == nil {
 		t.Fatal("applyDiscordProxy() expected error for invalid proxy URL, got nil")
+	}
+}
+
+func TestStartCancelsContextWhenBotUserLookupFails(t *testing.T) {
+	session, err := discordgo.New("Bot test-token")
+	if err != nil {
+		t.Fatalf("discordgo.New() error = %v", err)
+	}
+	session.Client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusInternalServerError,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"message":"unavailable"}`)),
+			Request:    req,
+		}, nil
+	})}
+
+	ch := &DiscordChannel{
+		BaseChannel: channels.NewBaseChannel("discord", nil, nil, nil),
+		session:     session,
+		typingStop:  make(map[string]chan struct{}),
+		voiceSSRC:   make(map[string]map[uint32]string),
+	}
+	if err := ch.Start(context.Background()); err == nil {
+		t.Fatal("Start() error = nil, want bot user lookup failure")
+	}
+	if ch.IsRunning() {
+		t.Fatal("failed Start() left channel marked running")
+	}
+	if ch.cancel == nil || ch.ctx.Err() != context.Canceled {
+		t.Fatalf("failed Start() did not cancel context: ctx=%v cancel=%v", ch.ctx, ch.cancel)
 	}
 }
 

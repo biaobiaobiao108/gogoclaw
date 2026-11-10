@@ -3,9 +3,12 @@ package memory
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -980,6 +983,125 @@ func TestPersistence_AcrossInstances(t *testing.T) {
 	}
 	if summary != "a test session" {
 		t.Errorf("summary = %q", summary)
+	}
+}
+
+func TestCrossProcessAppendKeepsEveryMessage(t *testing.T) {
+	dir := t.TempDir()
+	const workers = 4
+	const messagesPerWorker = 12
+
+	commands := make([]*exec.Cmd, 0, workers)
+	for worker := 0; worker < workers; worker++ {
+		cmd := exec.Command(os.Args[0], "-test.run=TestJSONLCrossProcessAppendHelper")
+		cmd.Env = append(os.Environ(),
+			"GOGOCLAW_JSONL_HELPER=1",
+			"GOGOCLAW_JSONL_DIR="+dir,
+			"GOGOCLAW_JSONL_WORKER="+strconv.Itoa(worker),
+			"GOGOCLAW_JSONL_COUNT="+strconv.Itoa(messagesPerWorker),
+		)
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("start helper: %v", err)
+		}
+		commands = append(commands, cmd)
+	}
+	for _, cmd := range commands {
+		if err := cmd.Wait(); err != nil {
+			t.Fatalf("helper failed: %v", err)
+		}
+	}
+
+	store, err := NewJSONLStore(dir)
+	if err != nil {
+		t.Fatalf("NewJSONLStore() error = %v", err)
+	}
+	history, err := store.GetHistory(context.Background(), "shared")
+	if err != nil {
+		t.Fatalf("GetHistory() error = %v", err)
+	}
+	if want := workers * messagesPerWorker; len(history) != want {
+		t.Fatalf("history length = %d, want %d", len(history), want)
+	}
+}
+
+func TestJSONLCrossProcessAppendHelper(t *testing.T) {
+	if os.Getenv("GOGOCLAW_JSONL_HELPER") != "1" {
+		return
+	}
+	dir := os.Getenv("GOGOCLAW_JSONL_DIR")
+	worker := os.Getenv("GOGOCLAW_JSONL_WORKER")
+	count, err := strconv.Atoi(os.Getenv("GOGOCLAW_JSONL_COUNT"))
+	if err != nil || dir == "" || worker == "" {
+		os.Exit(2)
+	}
+	store, err := NewJSONLStore(dir)
+	if err != nil {
+		os.Exit(3)
+	}
+	for i := 0; i < count; i++ {
+		if err := store.AddMessage(context.Background(), "shared", "user", fmt.Sprintf("worker-%s-message-%d", worker, i)); err != nil {
+			os.Exit(4)
+		}
+	}
+	os.Exit(0)
+}
+
+func TestJSONLStoreRecoversAfterProcessExit(t *testing.T) {
+	dir := t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=TestJSONLCrossProcessAppendHelper")
+	cmd.Env = append(os.Environ(),
+		"GOGOCLAW_JSONL_HELPER=1",
+		"GOGOCLAW_JSONL_DIR="+dir,
+		"GOGOCLAW_JSONL_WORKER=crash",
+		"GOGOCLAW_JSONL_COUNT=1",
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("helper failed: %v\n%s", err, output)
+	}
+
+	store, err := NewJSONLStore(dir)
+	if err != nil {
+		t.Fatalf("NewJSONLStore() error = %v", err)
+	}
+	history, err := store.GetHistory(context.Background(), "shared")
+	if err != nil {
+		t.Fatalf("GetHistory() error = %v", err)
+	}
+	if len(history) != 1 || history[0].Content != "worker-crash-message-0" {
+		t.Fatalf("history after process exit = %+v", history)
+	}
+}
+
+func TestJSONLStoreLongRunningChurn(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode")
+	}
+	store := newTestStore(t)
+	ctx := context.Background()
+	for i := 0; i < 200; i++ {
+		if err := store.AddMessage(ctx, "soak", "user", fmt.Sprintf("message-%d", i)); err != nil {
+			t.Fatalf("AddMessage(%d) error = %v", i, err)
+		}
+		if _, err := store.GetHistory(ctx, "soak"); err != nil {
+			t.Fatalf("GetHistory(%d) error = %v", i, err)
+		}
+		if i%25 == 0 {
+			if err := store.SetSummary(ctx, "soak", fmt.Sprintf("summary-%d", i)); err != nil {
+				t.Fatalf("SetSummary(%d) error = %v", i, err)
+			}
+			if err := store.Compact(ctx, "soak"); err != nil {
+				t.Fatalf("Compact(%d) error = %v", i, err)
+			}
+		}
+	}
+	entries, err := os.ReadDir(store.dir)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".tmp-") {
+			t.Fatalf("temporary file left after churn: %s", entry.Name())
+		}
 	}
 }
 

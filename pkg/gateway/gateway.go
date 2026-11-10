@@ -415,10 +415,16 @@ func setupAndStartServices(
 	listenResult netbind.OpenResult,
 ) (*services, error) {
 	runningServices := &services{}
+	success := false
+	defer func() {
+		if !success {
+			stopAndCleanupServices(runningServices, serviceShutdownTimeout, false)
+		}
+	}()
 
 	execTimeout := time.Duration(cfg.Tools.Cron.ExecTimeoutMinutes) * time.Minute
 	var err error
-	runningServices.CronService, err = setupCronTool(
+	runningServices.CronService, runningServices.HeartbeatService, err = startScheduledServices(
 		agentLoop,
 		msgBus,
 		cfg.WorkspacePath(),
@@ -427,23 +433,9 @@ func setupAndStartServices(
 		cfg,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error setting up cron service: %w", err)
-	}
-	if err = runningServices.CronService.Start(); err != nil {
-		return nil, fmt.Errorf("error starting cron service: %w", err)
+		return nil, fmt.Errorf("error starting scheduled services: %w", err)
 	}
 	fmt.Println("✓ Cron service started")
-
-	runningServices.HeartbeatService = heartbeat.NewHeartbeatService(
-		cfg.WorkspacePath(),
-		cfg.Heartbeat.Interval,
-		cfg.Heartbeat.Enabled,
-	)
-	runningServices.HeartbeatService.SetBus(msgBus)
-	runningServices.HeartbeatService.SetHandler(createHeartbeatHandler(agentLoop))
-	if err = runningServices.HeartbeatService.Start(); err != nil {
-		return nil, fmt.Errorf("error starting heartbeat service: %w", err)
-	}
 	fmt.Println("✓ Heartbeat service started")
 
 	runningServices.MediaStore = media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{
@@ -601,7 +593,38 @@ func setupAndStartServices(
 		fmt.Println("✓ Device event service started")
 	}
 
+	success = true
 	return runningServices, nil
+}
+
+func startScheduledServices(
+	agentLoop *agent.AgentLoop,
+	msgBus *bus.MessageBus,
+	workspace string,
+	restrict bool,
+	execTimeout time.Duration,
+	cfg *config.Config,
+) (*cron.CronService, *heartbeat.HeartbeatService, error) {
+	cronService, err := setupCronTool(agentLoop, msgBus, workspace, restrict, execTimeout, cfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error setting up cron service: %w", err)
+	}
+	if err = cronService.Start(); err != nil {
+		return nil, nil, fmt.Errorf("error starting cron service: %w", err)
+	}
+
+	heartbeatService := heartbeat.NewHeartbeatService(
+		workspace,
+		cfg.Heartbeat.Interval,
+		cfg.Heartbeat.Enabled,
+	)
+	heartbeatService.SetBus(msgBus)
+	heartbeatService.SetHandler(createHeartbeatHandler(agentLoop))
+	if err = heartbeatService.Start(); err != nil {
+		cronService.Stop()
+		return nil, nil, fmt.Errorf("error starting heartbeat service: %w", err)
+	}
+	return cronService, heartbeatService, nil
 }
 
 func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Duration, isReload bool) {
@@ -730,7 +753,7 @@ func restartServices(
 
 	execTimeout := time.Duration(cfg.Tools.Cron.ExecTimeoutMinutes) * time.Minute
 	var err error
-	runningServices.CronService, err = setupCronTool(
+	newCronService, newHeartbeatService, err := startScheduledServices(
 		al,
 		msgBus,
 		cfg.WorkspacePath(),
@@ -739,23 +762,18 @@ func restartServices(
 		cfg,
 	)
 	if err != nil {
-		return fmt.Errorf("error restarting cron service: %w", err)
+		return fmt.Errorf("error restarting scheduled services: %w", err)
 	}
-	if err = runningServices.CronService.Start(); err != nil {
-		return fmt.Errorf("error restarting cron service: %w", err)
-	}
+	runningServices.CronService = newCronService
+	runningServices.HeartbeatService = newHeartbeatService
+	restartSuccess := false
+	defer func() {
+		if !restartSuccess {
+			newHeartbeatService.Stop()
+			newCronService.Stop()
+		}
+	}()
 	fmt.Println("  ✓ Cron service restarted")
-
-	runningServices.HeartbeatService = heartbeat.NewHeartbeatService(
-		cfg.WorkspacePath(),
-		cfg.Heartbeat.Interval,
-		cfg.Heartbeat.Enabled,
-	)
-	runningServices.HeartbeatService.SetBus(msgBus)
-	runningServices.HeartbeatService.SetHandler(createHeartbeatHandler(al))
-	if err = runningServices.HeartbeatService.Start(); err != nil {
-		return fmt.Errorf("error restarting heartbeat service: %w", err)
-	}
 	fmt.Println("  ✓ Heartbeat service restarted")
 
 	mediaCleanerConfig := media.MediaCleanerConfig{
@@ -820,6 +838,7 @@ func restartServices(
 	// NOTE: PID file is written once at startup and not updated on reload.
 	// Changing the gateway listen address requires a full restart.
 
+	restartSuccess = true
 	return nil
 }
 

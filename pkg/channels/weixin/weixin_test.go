@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 	"time"
@@ -330,6 +331,45 @@ func TestSessionPauseGuard(t *testing.T) {
 
 	if err := ch.ensureSessionActive(); err != nil {
 		t.Fatalf("ensureSessionActive() after expiry error = %v, want nil", err)
+	}
+}
+
+func TestStopCancelsPollingAfterHTTPFailure(t *testing.T) {
+	t.Setenv("GOGOCLAW_HOME", t.TempDir())
+	received := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		select {
+		case received <- struct{}{}:
+		default:
+		}
+		http.Error(w, "temporary failure", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	settings := &config.WeixinSettings{BaseURL: server.URL + "/"}
+	settings.SetToken("test-token")
+	ch, err := NewWeixinChannel(&config.Channel{Type: config.ChannelWeixin, Enabled: true}, settings, bus.NewMessageBus())
+	if err != nil {
+		t.Fatalf("NewWeixinChannel() error = %v", err)
+	}
+	if err := ch.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	select {
+	case <-received:
+	case <-time.After(time.Second):
+		t.Fatal("poll request was not observed")
+	}
+
+	start := time.Now()
+	if err := ch.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("Stop() took %v, want prompt cancellation", elapsed)
+	}
+	if ch.IsRunning() {
+		t.Fatal("Stop() left channel running")
 	}
 }
 

@@ -68,9 +68,7 @@ func (ts *turnState) recordToolProgress(
 }
 
 func (ts *turnState) currentNoProgressStreak() int {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-	return ts.noProgressStreak
+	return ts.progress.currentNoProgressStreak()
 }
 
 func (ts *turnState) evaluateToolProgress(outcome toolProgressOutcome, retrieval bool) toolProgressDecision {

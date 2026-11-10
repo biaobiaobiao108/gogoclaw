@@ -58,9 +58,11 @@ type SessionMeta struct {
 
 // SetTurn stores the latest durable turn checkpoint alongside session metadata.
 func (s *JSONLStore) SetTurn(_ context.Context, key string, turn json.RawMessage) error {
-	l := s.sessionLock(key)
-	l.Lock()
-	defer l.Unlock()
+	release, lockErr := s.lockSession(key)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer releaseSessionLock(release)
 	meta, err := s.readMeta(key)
 	if err != nil {
 		return err
@@ -103,9 +105,11 @@ func (s *JSONLStore) SetTurn(_ context.Context, key string, turn json.RawMessage
 }
 
 func (s *JSONLStore) ClearTurns(_ context.Context, key string) error {
-	l := s.sessionLock(key)
-	l.Lock()
-	defer l.Unlock()
+	release, lockErr := s.lockSession(key)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer releaseSessionLock(release)
 	meta, err := s.readMeta(key)
 	if err != nil {
 		return err
@@ -116,9 +120,11 @@ func (s *JSONLStore) ClearTurns(_ context.Context, key string) error {
 }
 
 func (s *JSONLStore) UpdateTurnUsage(key, turnID string, usage *bus.ContextUsage) error {
-	l := s.sessionLock(key)
-	l.Lock()
-	defer l.Unlock()
+	release, lockErr := s.lockSession(key)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer releaseSessionLock(release)
 	meta, err := s.readMeta(key)
 	if err != nil {
 		return err
@@ -194,6 +200,31 @@ func (s *JSONLStore) sessionLock(key string) *sync.Mutex {
 	h := fnv.New32a()
 	h.Write([]byte(key))
 	return &s.locks[h.Sum32()%numLockShards]
+}
+
+func (s *JSONLStore) sessionLockPath(key string) string {
+	return filepath.Join(s.dir, sanitizeKey(key)+".session.lock")
+}
+
+func (s *JSONLStore) lockSession(key string) (func() error, error) {
+	l := s.sessionLock(key)
+	l.Lock()
+	fileLock, err := fileutil.AcquireFileLock(s.sessionLockPath(key))
+	if err != nil {
+		l.Unlock()
+		return nil, err
+	}
+	return func() error {
+		unlockErr := fileLock.Unlock()
+		l.Unlock()
+		return unlockErr
+	}, nil
+}
+
+func releaseSessionLock(release func() error) {
+	if err := release(); err != nil {
+		log.Printf("memory: release session lock: %v", err)
+	}
 }
 
 func (s *JSONLStore) jsonlPath(key string) string {
@@ -296,9 +327,11 @@ func (s *JSONLStore) sessionExists(key string) bool {
 
 // GetSessionMeta returns the current metadata snapshot for sessionKey.
 func (s *JSONLStore) GetSessionMeta(_ context.Context, sessionKey string) (SessionMeta, error) {
-	l := s.sessionLock(sessionKey)
-	l.Lock()
-	defer l.Unlock()
+	release, lockErr := s.lockSession(sessionKey)
+	if lockErr != nil {
+		return SessionMeta{}, lockErr
+	}
+	defer releaseSessionLock(release)
 
 	meta, err := s.readMeta(sessionKey)
 	if err != nil {
@@ -320,9 +353,11 @@ func (s *JSONLStore) UpsertSessionMeta(
 	scope json.RawMessage,
 	aliases []string,
 ) error {
-	l := s.sessionLock(sessionKey)
-	l.Lock()
-	defer l.Unlock()
+	release, lockErr := s.lockSession(sessionKey)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer releaseSessionLock(release)
 
 	meta, err := s.readMeta(sessionKey)
 	if err != nil {
@@ -362,9 +397,14 @@ func (s *JSONLStore) PromoteAliasHistory(
 		if isMainSessionAlias(alias) {
 			continue
 		}
-		unlock := s.lockSessionPair(sessionKey, alias)
-		promoted, err := s.promoteAliasHistoryLocked(sessionKey, alias, scope, aliases)
-		unlock()
+		release, err := s.lockSessionPair(sessionKey, alias)
+		if err != nil {
+			return false, err
+		}
+		promoted, err := func() (bool, error) {
+			defer releaseSessionLock(release)
+			return s.promoteAliasHistoryLocked(sessionKey, alias, scope, aliases)
+		}()
 		if err != nil || promoted {
 			return promoted, err
 		}
@@ -472,27 +512,52 @@ func shouldShortCircuitSessionResolve(sessionKey string) bool {
 	return !strings.ContainsAny(sessionKey, ":/\\")
 }
 
-func (s *JSONLStore) lockSessionPair(keyA, keyB string) func() {
+func (s *JSONLStore) lockSessionPair(keyA, keyB string) (func() error, error) {
+	if keyB < keyA {
+		keyA, keyB = keyB, keyA
+	}
 	lockA := s.sessionLock(keyA)
 	lockB := s.sessionLock(keyB)
-	if lockA == lockB {
-		lockA.Lock()
-		return func() { lockA.Unlock() }
-	}
-	if keyA <= keyB {
-		lockA.Lock()
+	lockA.Lock()
+	if lockA != lockB {
 		lockB.Lock()
-		return func() {
+	}
+
+	fileLockA, err := fileutil.AcquireFileLock(s.sessionLockPath(keyA))
+	if err != nil {
+		if lockA != lockB {
 			lockB.Unlock()
+		}
+		lockA.Unlock()
+		return nil, err
+	}
+	var fileLockB *fileutil.FileLock
+	if keyA != keyB {
+		fileLockB, err = fileutil.AcquireFileLock(s.sessionLockPath(keyB))
+		if err != nil {
+			_ = fileLockA.Unlock()
+			if lockA != lockB {
+				lockB.Unlock()
+			}
 			lockA.Unlock()
+			return nil, err
 		}
 	}
-	lockB.Lock()
-	lockA.Lock()
-	return func() {
+
+	return func() error {
+		var unlockErr error
+		if fileLockB != nil {
+			unlockErr = fileLockB.Unlock()
+		}
+		if err := fileLockA.Unlock(); unlockErr == nil {
+			unlockErr = err
+		}
+		if lockA != lockB {
+			lockB.Unlock()
+		}
 		lockA.Unlock()
-		lockB.Unlock()
-	}
+		return unlockErr
+	}, nil
 }
 
 func (s *JSONLStore) promoteAliasHistoryLocked(
@@ -707,9 +772,11 @@ func (s *JSONLStore) addMsg(sessionKey string, msg providers.Message) error {
 		return nil
 	}
 
-	l := s.sessionLock(sessionKey)
-	l.Lock()
-	defer l.Unlock()
+	release, lockErr := s.lockSession(sessionKey)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer releaseSessionLock(release)
 
 	now := time.Now()
 
@@ -769,9 +836,11 @@ func (s *JSONLStore) addMsg(sessionKey string, msg providers.Message) error {
 func (s *JSONLStore) GetHistory(
 	_ context.Context, sessionKey string,
 ) ([]providers.Message, error) {
-	l := s.sessionLock(sessionKey)
-	l.Lock()
-	defer l.Unlock()
+	release, lockErr := s.lockSession(sessionKey)
+	if lockErr != nil {
+		return nil, lockErr
+	}
+	defer releaseSessionLock(release)
 
 	meta, err := s.readMeta(sessionKey)
 	if err != nil {
@@ -790,18 +859,22 @@ func (s *JSONLStore) GetHistory(
 
 // GetTranscript includes summarized messages for history, exports and branches.
 func (s *JSONLStore) GetTranscript(_ context.Context, key string) ([]providers.Message, error) {
-	l := s.sessionLock(key)
-	l.Lock()
-	defer l.Unlock()
+	release, lockErr := s.lockSession(key)
+	if lockErr != nil {
+		return nil, lockErr
+	}
+	defer releaseSessionLock(release)
 	return readMessages(s.jsonlPath(key), 0)
 }
 
 func (s *JSONLStore) GetSummary(
 	_ context.Context, sessionKey string,
 ) (string, error) {
-	l := s.sessionLock(sessionKey)
-	l.Lock()
-	defer l.Unlock()
+	release, lockErr := s.lockSession(sessionKey)
+	if lockErr != nil {
+		return "", lockErr
+	}
+	defer releaseSessionLock(release)
 
 	meta, err := s.readMeta(sessionKey)
 	if err != nil {
@@ -811,9 +884,11 @@ func (s *JSONLStore) GetSummary(
 }
 
 func (s *JSONLStore) CommitSummary(key string, prefix []providers.Message, previous, summary string) (bool, error) {
-	l := s.sessionLock(key)
-	l.Lock()
-	defer l.Unlock()
+	release, lockErr := s.lockSession(key)
+	if lockErr != nil {
+		return false, lockErr
+	}
+	defer releaseSessionLock(release)
 	meta, err := s.readMeta(key)
 	if err != nil {
 		return false, err
@@ -854,9 +929,11 @@ func (s *JSONLStore) CommitSummary(key string, prefix []providers.Message, previ
 func (s *JSONLStore) SetSummary(
 	_ context.Context, sessionKey, summary string,
 ) error {
-	l := s.sessionLock(sessionKey)
-	l.Lock()
-	defer l.Unlock()
+	release, lockErr := s.lockSession(sessionKey)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer releaseSessionLock(release)
 
 	meta, err := s.readMeta(sessionKey)
 	if err != nil {
@@ -875,9 +952,11 @@ func (s *JSONLStore) SetSummary(
 func (s *JSONLStore) TruncateHistory(
 	_ context.Context, sessionKey string, keepLast int,
 ) error {
-	l := s.sessionLock(sessionKey)
-	l.Lock()
-	defer l.Unlock()
+	release, lockErr := s.lockSession(sessionKey)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer releaseSessionLock(release)
 
 	meta, err := s.readMeta(sessionKey)
 	if err != nil {
@@ -917,9 +996,11 @@ func (s *JSONLStore) SetHistory(
 ) error {
 	history = messageutil.FilterInvalidHistoryMessages(history)
 
-	l := s.sessionLock(sessionKey)
-	l.Lock()
-	defer l.Unlock()
+	release, lockErr := s.lockSession(sessionKey)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer releaseSessionLock(release)
 
 	meta, err := s.readMeta(sessionKey)
 	if err != nil {
@@ -960,9 +1041,11 @@ func (s *JSONLStore) SetHistory(
 func (s *JSONLStore) Compact(
 	_ context.Context, sessionKey string,
 ) error {
-	l := s.sessionLock(sessionKey)
-	l.Lock()
-	defer l.Unlock()
+	release, lockErr := s.lockSession(sessionKey)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer releaseSessionLock(release)
 
 	meta, err := s.readMeta(sessionKey)
 	if err != nil {

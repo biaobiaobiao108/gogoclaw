@@ -95,6 +95,9 @@ func TestLauncherDashboardAuth_AllowsPublicPaths(t *testing.T) {
 		{http.MethodGet, "/api/auth/status", http.StatusTeapot},
 		{http.MethodPost, "/api/auth/setup", http.StatusTeapot},
 		{http.MethodPost, "/api/auth/logout", http.StatusTeapot},
+		{http.MethodGet, "/oauth/callback", http.StatusTeapot},
+		{http.MethodGet, "/oauth/callback.js", http.StatusTeapot},
+		{http.MethodPost, "/oauth/callback.js", http.StatusFound},
 		{http.MethodGet, "/api/auth/logout", http.StatusUnauthorized},
 		{http.MethodGet, "/api/config", http.StatusUnauthorized},
 		{http.MethodGet, "/pico/ws", http.StatusUnauthorized},
@@ -285,6 +288,20 @@ func TestLauncherDashboardAuth_CookieOnly(t *testing.T) {
 	h.ServeHTTP(rec2, req2)
 	if rec2.Code != http.StatusUnauthorized {
 		t.Fatalf("bearer auth should not be accepted: status = %d", rec2.Code)
+	}
+}
+
+func TestDefaultLauncherDashboardSecureCookieIgnoresSpoofedForwardedProto(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://launcher.local/", nil)
+	req.RemoteAddr = "203.0.113.8:1234"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	if DefaultLauncherDashboardSecureCookie(req) {
+		t.Fatal("untrusted X-Forwarded-Proto enabled Secure cookie")
+	}
+
+	req.RemoteAddr = "10.0.0.8:1234"
+	if got := RequestScheme(req, []string{"10.0.0.0/8"}); got != "https" {
+		t.Fatalf("trusted proxy scheme = %q, want https", got)
 	}
 }
 

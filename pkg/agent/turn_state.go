@@ -180,29 +180,14 @@ type turnState struct {
 	scope   turnEventScope
 	budget  TurnBudget
 
-	turnID            string
-	agentID           string
-	sessionKey        string
-	originAgentID     string
-	originSessionKey  string
-	activeSkills      []string
-	attemptedSkills   []string
-	skillContextTrace []SkillContextSnapshot
-	toolKinds         []string
-	toolExecutions    []ToolExecutionRecord
-	toolItems         []session.TurnToolItem
-	toolBatchSeq      int
-	readOnlyCalls     map[string]struct{}
-	readOnlyRepeats   map[string]int
-	retrievalStalls   int
-	evidenceSeen      map[string]struct{}
-	noProgressStreak  int
-	activities        []session.TurnActivity
-	activitySeq       int
-	plan              []planStep
-	lastFailedCall    string
-	repeatedFailures  int
-	turnCtx           *TurnContext
+	turnID           string
+	agentID          string
+	sessionKey       string
+	originAgentID    string
+	originSessionKey string
+	activeSkills     []string
+	turnCtx          *TurnContext
+	progress         turnProgress
 
 	channel       string
 	chatID        string
@@ -253,7 +238,6 @@ type turnState struct {
 	// Token budget tracking
 	tokenBudget      *atomic.Int64 // Shared token budget counter
 	lastFinishReason string        // Last LLM finish_reason
-	endReason        TurnEndReason
 	usage            providers.UsageInfo
 	summaryUsage     providers.UsageInfo
 	requestUsage     *bus.ContextUsage
@@ -261,118 +245,6 @@ type turnState struct {
 
 	// Back-reference to the owning AgentLoop (set for SubTurns only, used for hard abort cascade)
 	al *AgentLoop
-}
-
-func (ts *turnState) recordRepeatedFailure(key string, failed bool) int {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	if !failed {
-		ts.lastFailedCall = ""
-		ts.repeatedFailures = 0
-		return 0
-	}
-	if ts.lastFailedCall != key {
-		ts.lastFailedCall = key
-		ts.repeatedFailures = 0
-	}
-	ts.repeatedFailures++
-	return ts.repeatedFailures
-}
-
-func (ts *turnState) readOnlyCallSeen(key string) bool {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-	_, ok := ts.readOnlyCalls[key]
-	return ok
-}
-
-func (ts *turnState) recordReadOnlyCall(key string) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	if ts.readOnlyCalls == nil {
-		ts.readOnlyCalls = make(map[string]struct{})
-	}
-	ts.readOnlyCalls[key] = struct{}{}
-}
-
-func (ts *turnState) recordReadOnlyRepeat(key string) int {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	if ts.readOnlyRepeats == nil {
-		ts.readOnlyRepeats = make(map[string]int)
-	}
-	ts.readOnlyRepeats[key]++
-	return ts.readOnlyRepeats[key]
-}
-
-func (ts *turnState) invalidateReadOnlyCalls() {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	ts.readOnlyCalls = nil
-	ts.readOnlyRepeats = nil
-}
-
-func (ts *turnState) recordToolStateChange() {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	ts.readOnlyCalls = nil
-	ts.readOnlyRepeats = nil
-	ts.noProgressStreak = 0
-}
-
-func (ts *turnState) setEndReason(reason TurnEndReason) {
-	if ts == nil || reason == "" {
-		return
-	}
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	if ts.endReason == "" || ts.endReason == TurnEndReasonCompleted {
-		ts.endReason = reason
-	}
-}
-
-func (ts *turnState) endReasonSnapshot() TurnEndReason {
-	if ts == nil {
-		return TurnEndReasonCompleted
-	}
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-	if ts.endReason == "" {
-		return TurnEndReasonCompleted
-	}
-	return ts.endReason
-}
-
-func (ts *turnState) recordRetrievalOutcome(usable bool) int {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	if usable {
-		ts.retrievalStalls = 0
-		return 0
-	}
-	ts.retrievalStalls++
-	return ts.retrievalStalls
-}
-
-func (ts *turnState) recordNoProgress() int {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	ts.noProgressStreak++
-	return ts.noProgressStreak
-}
-
-func (ts *turnState) recordEvidence(hash string) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	if ts.evidenceSeen == nil {
-		ts.evidenceSeen = make(map[string]struct{})
-	}
-	if _, exists := ts.evidenceSeen[hash]; exists {
-		ts.noProgressStreak++
-		return
-	}
-	ts.evidenceSeen[hash] = struct{}{}
-	ts.noProgressStreak = 0
 }
 
 func (ts *turnState) toolRegistry() *tools.ToolRegistry {
@@ -406,7 +278,6 @@ func newTurnState(agent *AgentInstance, opts processOptions, scope turnEventScop
 		media:            append([]string(nil), opts.Dispatch.Media...),
 		lifecycle:        newTurnLifecycle(),
 		startedAt:        time.Now(),
-		endReason:        TurnEndReasonCompleted,
 		budget:           defaultTurnBudget(agent.MaxIterations),
 		deliveries:       newAsyncDeliveryQueue(defaultAsyncDeliveryCapacity),
 	}
@@ -616,6 +487,7 @@ func (ts *turnState) snapshot() ActiveTurnInfo {
 
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
+	plan, activities := ts.progress.snapshot()
 
 	return ActiveTurnInfo{
 		TurnID:       ts.turnID,
@@ -630,8 +502,8 @@ func (ts *turnState) snapshot() ActiveTurnInfo {
 		Depth:        ts.depth,
 		ParentTurnID: ts.parentTurnID,
 		ChildTurnIDs: append([]string(nil), ts.childTurnIDs...),
-		Plan:         append([]planStep(nil), ts.plan...),
-		Activities:   append([]session.TurnActivity(nil), ts.activities...),
+		Plan:         plan,
+		Activities:   activities,
 		PhaseHistory: phaseHistory,
 	}
 }
@@ -708,224 +580,6 @@ func (ts *turnState) finalContentSnapshot() string {
 	return ts.finalContent
 }
 
-func (ts *turnState) recordToolKind(tool string) {
-	tool = strings.TrimSpace(tool)
-	if tool == "" {
-		return
-	}
-
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-
-	for _, existing := range ts.toolKinds {
-		if existing == tool {
-			return
-		}
-	}
-	ts.toolKinds = append(ts.toolKinds, tool)
-}
-
-func (ts *turnState) toolKindsSnapshot() []string {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-	return append([]string(nil), ts.toolKinds...)
-}
-
-func (ts *turnState) recordToolExecution(tool string, success bool, errorSummary string, skillNames []string) {
-	tool = strings.TrimSpace(tool)
-	if tool == "" {
-		return
-	}
-
-	ts.recordToolKind(tool)
-
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	ts.toolExecutions = append(ts.toolExecutions, ToolExecutionRecord{
-		Name:         tool,
-		Success:      success,
-		ErrorSummary: strings.TrimSpace(errorSummary),
-		SkillNames:   append([]string(nil), skillNames...),
-	})
-}
-
-func (ts *turnState) toolExecutionsSnapshot() []ToolExecutionRecord {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-	if len(ts.toolExecutions) == 0 {
-		return nil
-	}
-
-	out := make([]ToolExecutionRecord, 0, len(ts.toolExecutions))
-	for _, exec := range ts.toolExecutions {
-		out = append(out, ToolExecutionRecord{
-			Name:         exec.Name,
-			Success:      exec.Success,
-			ErrorSummary: exec.ErrorSummary,
-			SkillNames:   append([]string(nil), exec.SkillNames...),
-		})
-	}
-	return out
-}
-
-func (ts *turnState) startTurnActivity(kind, title, toolCallID, tool, detail string) string {
-	if ts == nil {
-		return ""
-	}
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	ts.activitySeq++
-	id := fmt.Sprintf("%s-activity-%d", ts.turnID, ts.activitySeq)
-	ts.activities = append(ts.activities, session.TurnActivity{
-		ID: id, Kind: kind, Status: "running", Title: title,
-		ToolCallID: toolCallID, Tool: tool, Detail: detail, StartedAt: time.Now().UTC(),
-	})
-	return id
-}
-
-func (ts *turnState) finishTurnActivity(id string, update func(*session.TurnActivity)) {
-	if ts == nil || id == "" {
-		return
-	}
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	for i := range ts.activities {
-		if ts.activities[i].ID != id {
-			continue
-		}
-		update(&ts.activities[i])
-		now := time.Now().UTC()
-		if ts.activities[i].CompletedAt == nil {
-			ts.activities[i].CompletedAt = &now
-			ts.activities[i].DurationMS = now.Sub(ts.activities[i].StartedAt).Milliseconds()
-		}
-		return
-	}
-}
-
-func (ts *turnState) finishRunningActivities(status, detail string) {
-	if ts == nil {
-		return
-	}
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	now := time.Now().UTC()
-	for i := range ts.activities {
-		activity := &ts.activities[i]
-		if activity.Status != "running" {
-			continue
-		}
-		activity.Status = status
-		if detail != "" {
-			activity.Detail = strings.TrimSpace(activity.Detail + "\n" + detail)
-		}
-		activity.CompletedAt = &now
-		activity.DurationMS = now.Sub(activity.StartedAt).Milliseconds()
-	}
-}
-
-func (ts *turnState) activitiesSnapshot() []session.TurnActivity {
-	if ts == nil {
-		return nil
-	}
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-	out := make([]session.TurnActivity, 0, len(ts.activities))
-	for _, activity := range ts.activities {
-		activity.Artifacts = append([]string(nil), activity.Artifacts...)
-		out = append(out, activity)
-	}
-	return out
-}
-
-func (ts *turnState) recordAttemptedSkills(skillNames []string) {
-	if len(skillNames) == 0 {
-		return
-	}
-
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-
-	for _, skillName := range skillNames {
-		skillName = strings.TrimSpace(skillName)
-		if skillName == "" {
-			continue
-		}
-		seen := false
-		for _, existing := range ts.attemptedSkills {
-			if existing == skillName {
-				seen = true
-				break
-			}
-		}
-		if seen {
-			continue
-		}
-		ts.attemptedSkills = append(ts.attemptedSkills, skillName)
-	}
-}
-
-func (ts *turnState) attemptedSkillsSnapshot() []string {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-	return append([]string(nil), ts.attemptedSkills...)
-}
-
-func (ts *turnState) recordSkillContextSnapshot(trigger string, skillNames []string) {
-	if len(skillNames) == 0 {
-		return
-	}
-
-	filtered := make([]string, 0, len(skillNames))
-	for _, skillName := range skillNames {
-		skillName = strings.TrimSpace(skillName)
-		if skillName == "" {
-			continue
-		}
-		filtered = append(filtered, skillName)
-	}
-	if len(filtered) == 0 {
-		return
-	}
-
-	ts.recordAttemptedSkills(filtered)
-
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	ts.skillContextTrace = append(ts.skillContextTrace, SkillContextSnapshot{
-		Sequence:   len(ts.skillContextTrace) + 1,
-		Trigger:    trigger,
-		SkillNames: append([]string(nil), filtered...),
-	})
-}
-
-func (ts *turnState) latestSkillContextSnapshot() []string {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-	if len(ts.skillContextTrace) == 0 {
-		return nil
-	}
-	return append([]string(nil), ts.skillContextTrace[len(ts.skillContextTrace)-1].SkillNames...)
-}
-
-func (ts *turnState) skillContextSnapshotsSnapshot() []SkillContextSnapshot {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-	if len(ts.skillContextTrace) == 0 {
-		return nil
-	}
-
-	snapshots := make([]SkillContextSnapshot, 0, len(ts.skillContextTrace))
-	for _, snapshot := range ts.skillContextTrace {
-		snapshots = append(snapshots, SkillContextSnapshot{
-			Sequence:   snapshot.Sequence,
-			Trigger:    snapshot.Trigger,
-			SkillNames: append([]string(nil), snapshot.SkillNames...),
-		})
-	}
-	return snapshots
-}
-
 func (ts *turnState) setTurnCancel(cancel context.CancelFunc) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -974,9 +628,7 @@ func (ts *turnState) requestHardAbort() bool {
 		return false
 	}
 	ts.hardAbort = true
-	if ts.endReason == "" || ts.endReason == TurnEndReasonCompleted {
-		ts.endReason = TurnEndReasonUserInterrupted
-	}
+	ts.progress.setEndReason(TurnEndReasonUserInterrupted)
 	turnCancel := ts.turnCancel
 	providerCancel := ts.providerCancel
 	ts.mu.Unlock()

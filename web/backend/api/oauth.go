@@ -15,6 +15,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/web/backend/middleware"
 )
 
 const (
@@ -318,7 +319,7 @@ func (h *Handler) handleOAuthLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		redirectURI := buildOAuthRedirectURI(r)
+		redirectURI := h.buildOAuthRedirectURI(r)
 		authURL := oauthBuildAuthorizeURL(cfg, pkce, state, redirectURI)
 
 		flowID, err := newOAuthFlowID()
@@ -553,7 +554,7 @@ func renderOAuthCallbackPage(w http.ResponseWriter, flowID, status, title, errMs
 
 	_, _ = fmt.Fprintf(
 		w,
-		"<!doctype html><html><head><meta charset=\"utf-8\"><title>GoGoClaw OAuth</title></head><body><script id=\"oauth-result\" type=\"application/json\">%s</script><script src=\"/oauth-callback.js\" defer></script><div style=\"font-family:Inter,system-ui,sans-serif;padding:24px\"><h2>%s</h2><p>%s</p><p>You can close this window.</p></div></body></html>",
+		"<!doctype html><html><head><meta charset=\"utf-8\"><title>GoGoClaw OAuth</title></head><body><script id=\"oauth-result\" type=\"application/json\">%s</script><script src=\"/oauth/callback.js\" defer></script><div style=\"font-family:Inter,system-ui,sans-serif;padding:24px\"><h2>%s</h2><p>%s</p><p>You can close this window.</p></div></body></html>",
 		string(payloadJSON),
 		html.EscapeString(title),
 		html.EscapeString(message),
@@ -600,14 +601,8 @@ func oauthMethodTokenOrOAuth(method string) string {
 	return "oauth"
 }
 
-func buildOAuthRedirectURI(r *http.Request) string {
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); forwarded != "" {
-		scheme = strings.Split(forwarded, ",")[0]
-	}
+func (h *Handler) buildOAuthRedirectURI(r *http.Request) string {
+	scheme := middleware.RequestScheme(r, h.serverTrustedProxyCIDRs)
 	return fmt.Sprintf("%s://%s/oauth/callback", scheme, r.Host)
 }
 

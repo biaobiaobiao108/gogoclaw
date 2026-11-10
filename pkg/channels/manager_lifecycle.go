@@ -426,6 +426,7 @@ func (m *Manager) StopAll(ctx context.Context) error {
 			<-w.mediaDone
 		}
 	}
+	m.workers = make(map[string]*channelWorker)
 
 	// Stop all channels
 	for name, channel := range m.channels {

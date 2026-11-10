@@ -257,13 +257,7 @@ func (p *Pipeline) ExecuteTools(
 						continue
 					}
 					start := time.Now()
-					ts.mu.Lock()
-					for j := range ts.activities {
-						if ts.activities[j].ID == parallelActivities[i] {
-							ts.activities[j].StartedAt = start.UTC()
-						}
-					}
-					ts.mu.Unlock()
+					ts.progress.markActivityStarted(parallelActivities[i], start)
 					execCtx := tools.WithToolInboundContext(turnCtx, ts.channel, ts.chatID, ts.opts.Dispatch.MessageID(), ts.opts.Dispatch.ReplyToMessageID())
 					execCtx = tools.WithToolSessionContext(execCtx, ts.agent.ID, ts.sessionKey, ts.opts.Dispatch.SessionScope)
 					callID := toolCallIDFromCall(call)

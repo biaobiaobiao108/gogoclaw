@@ -1,9 +1,12 @@
 package fileutil
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 	"testing"
 )
@@ -141,6 +144,31 @@ func TestWriteFileAtomicInvalidPath(t *testing.T) {
 	}
 }
 
+func TestWriteFileAtomicReplaceFailureLeavesNoTempFile(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+
+	if err := WriteFileAtomic(target, []byte("replacement"), 0o644); err == nil {
+		t.Fatal("WriteFileAtomic() error = nil, want replace failure")
+	}
+	info, err := os.Stat(target)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("target changed after failed replace: info=%v err=%v", info, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	for _, entry := range entries {
+		if len(entry.Name()) >= len(".tmp-") && entry.Name()[:len(".tmp-")] == ".tmp-" {
+			t.Fatalf("temporary file left after failed replace: %s", entry.Name())
+		}
+	}
+}
+
 func TestWriteFileAtomicConcurrentWriters(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "config.json")
 	const writers = 32
@@ -169,4 +197,58 @@ func TestWriteFileAtomicConcurrentWriters(t *testing.T) {
 	if len(data) != 1 {
 		t.Fatalf("file length = %d, want 1", len(data))
 	}
+}
+
+func TestWriteFileAtomicCrossProcessWriters(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "shared.txt")
+	const workers = 4
+	commands := make([]*exec.Cmd, 0, workers)
+	for worker := 0; worker < workers; worker++ {
+		cmd := exec.Command(os.Args[0], "-test.run=TestWriteFileAtomicCrossProcessHelper")
+		cmd.Env = append(os.Environ(),
+			"GOGOCLAW_ATOMIC_HELPER=1",
+			"GOGOCLAW_ATOMIC_TARGET="+target,
+			"GOGOCLAW_ATOMIC_WORKER="+strconv.Itoa(worker),
+		)
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("start helper: %v", err)
+		}
+		commands = append(commands, cmd)
+	}
+	for _, cmd := range commands {
+		if err := cmd.Wait(); err != nil {
+			t.Fatalf("helper failed: %v", err)
+		}
+	}
+
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("target is empty")
+	}
+	for _, b := range data[1:] {
+		if b != data[0] {
+			t.Fatal("cross-process atomic write mixed payloads")
+		}
+	}
+}
+
+func TestWriteFileAtomicCrossProcessHelper(t *testing.T) {
+	if os.Getenv("GOGOCLAW_ATOMIC_HELPER") != "1" {
+		return
+	}
+	target := os.Getenv("GOGOCLAW_ATOMIC_TARGET")
+	worker, err := strconv.Atoi(os.Getenv("GOGOCLAW_ATOMIC_WORKER"))
+	if err != nil || target == "" {
+		os.Exit(2)
+	}
+	payload := bytes.Repeat([]byte{byte('A' + worker)}, 64*1024)
+	for i := 0; i < 10; i++ {
+		if err := WriteFileAtomic(target, payload, 0o600); err != nil {
+			os.Exit(3)
+		}
+	}
+	os.Exit(0)
 }

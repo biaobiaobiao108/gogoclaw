@@ -700,8 +700,9 @@ func main() {
 	}
 
 	dashAuth := middleware.LauncherDashboardAuth(middleware.LauncherDashboardAuthConfig{
-		Sessions:       dashboardSessions,
-		LocalAutoLogin: localAutoLogin,
+		Sessions:          dashboardSessions,
+		LocalAutoLogin:    localAutoLogin,
+		TrustedProxyCIDRs: launcherCfg.TrustedProxyCIDRs,
 	}, accessControlledMux)
 
 	// Apply middleware stack

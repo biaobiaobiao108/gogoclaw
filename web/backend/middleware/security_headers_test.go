@@ -29,8 +29,7 @@ func TestSecurityHeaders(t *testing.T) {
 		t.Fatalf("HSTS over HTTP = %q, want empty", got)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("X-Forwarded-Proto", "https, http")
+	req = httptest.NewRequest(http.MethodGet, "https://launcher.local/", nil)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if got := rec.Header().Get("Strict-Transport-Security"); got != "max-age=31536000" {

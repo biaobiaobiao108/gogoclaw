@@ -43,6 +43,9 @@ type LauncherDashboardAuthConfig struct {
 	Sessions *LauncherDashboardSessions
 	// LocalAutoLogin enables one-shot startup auto-login.
 	LocalAutoLogin *LauncherDashboardLocalAutoLogin
+	// TrustedProxyCIDRs controls whether X-Forwarded-Proto may determine the
+	// external scheme for secure cookies and same-origin checks.
+	TrustedProxyCIDRs []string
 	// SecureCookie sets the session cookie's Secure flag. If nil, DefaultLauncherDashboardSecureCookie is used.
 	SecureCookie func(*http.Request) bool
 }
@@ -78,32 +81,15 @@ func (a *LauncherDashboardLocalAutoLogin) URLPath() string {
 	return launcherGrantQueryPath(LauncherDashboardLocalAutoLoginPath, a.grant)
 }
 
-// DefaultLauncherDashboardSecureCookie mirrors typical production HTTPS detection (TLS or X-Forwarded-Proto).
+// DefaultLauncherDashboardSecureCookie uses TLS termination in this process.
+// Reverse-proxy deployments should configure trusted_proxy_cidrs and pass a
+// SecureCookie function based on RequestScheme.
 func DefaultLauncherDashboardSecureCookie(r *http.Request) bool {
-	return launcherRequestScheme(r) == "https"
+	return RequestScheme(r, nil) == "https"
 }
 
 func launcherRequestScheme(r *http.Request) string {
-	if r == nil {
-		return "http"
-	}
-	if r.TLS != nil {
-		return "https"
-	}
-	proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
-	if i := strings.IndexByte(proto, ','); i >= 0 {
-		proto = proto[:i]
-	}
-	switch strings.ToLower(strings.TrimSpace(proto)) {
-	case "http":
-		return "http"
-	case "https":
-		return "https"
-	}
-	if r.URL != nil && strings.EqualFold(r.URL.Scheme, "https") {
-		return "https"
-	}
-	return "http"
+	return RequestScheme(r, nil)
 }
 
 // SetLauncherDashboardSessionCookie writes the HttpOnly session cookie after successful dashboard password login.
@@ -147,9 +133,14 @@ func ClearLauncherDashboardSessionCookie(w http.ResponseWriter, r *http.Request,
 // LauncherDashboardAuth requires a valid session cookie before calling next.
 // Public paths are login/setup pages and /api/auth/* handlers.
 func LauncherDashboardAuth(cfg LauncherDashboardAuthConfig, next http.Handler) http.Handler {
+	if cfg.SecureCookie == nil {
+		cfg.SecureCookie = func(r *http.Request) bool {
+			return RequestScheme(r, cfg.TrustedProxyCIDRs) == "https"
+		}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := canonicalAuthPath(r.URL.Path)
-		if p == "/pico/ws" && !launcherWebSocketOriginAllowed(r) {
+		if p == "/pico/ws" && !launcherWebSocketOriginAllowed(r, cfg.TrustedProxyCIDRs) {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
@@ -169,7 +160,7 @@ func LauncherDashboardAuth(cfg LauncherDashboardAuthConfig, next http.Handler) h
 	})
 }
 
-func launcherWebSocketOriginAllowed(r *http.Request) bool {
+func launcherWebSocketOriginAllowed(r *http.Request, trustedProxyCIDRs []string) bool {
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if origin == "" {
 		return true
@@ -183,7 +174,7 @@ func launcherWebSocketOriginAllowed(r *http.Request) bool {
 	if wantHost == "" && r.URL != nil {
 		wantHost = r.URL.Host
 	}
-	wantScheme := launcherRequestScheme(r)
+	wantScheme := RequestScheme(r, trustedProxyCIDRs)
 	return strings.EqualFold(u.Scheme, wantScheme) && strings.EqualFold(u.Host, wantHost)
 }
 

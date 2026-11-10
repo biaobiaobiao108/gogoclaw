@@ -234,3 +234,33 @@ func TestIPAllowlist_InvalidTrustedProxyCIDR(t *testing.T) {
 		t.Fatal("IPAllowlist() expected error for invalid trusted proxy CIDR")
 	}
 }
+
+func TestRequestSchemeTrustsForwardedProtoOnlyFromTrustedPeer(t *testing.T) {
+	tests := []struct {
+		name       string
+		remoteAddr string
+		forwarded  string
+		want       string
+	}{
+		{name: "trusted proxy https", remoteAddr: "10.0.0.8:1234", forwarded: "https", want: "https"},
+		{name: "untrusted spoofed https", remoteAddr: "203.0.113.8:1234", forwarded: "https", want: "http"},
+		{name: "trusted first protocol", remoteAddr: "10.0.0.8:1234", forwarded: "https, http", want: "https"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "http://launcher.local/", nil)
+			req.RemoteAddr = tt.remoteAddr
+			req.Header.Set("X-Forwarded-Proto", tt.forwarded)
+			if got := RequestScheme(req, []string{"10.0.0.0/8"}); got != tt.want {
+				t.Fatalf("RequestScheme() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRequestSchemeUsesTLSWithoutProxyHeaders(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "https://launcher.local/", nil)
+	if got := RequestScheme(req, nil); got != "https" {
+		t.Fatalf("RequestScheme(TLS) = %q, want https", got)
+	}
+}

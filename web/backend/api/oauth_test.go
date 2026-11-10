@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -165,20 +166,45 @@ func TestOAuthCallbackPageUsesExternalScript(t *testing.T) {
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/oauth/callback?state=unknown", nil))
 	body := rec.Body.String()
-	if !strings.Contains(body, `type="application/json"`) || !strings.Contains(body, `src="/oauth-callback.js"`) {
+	if !strings.Contains(body, `type="application/json"`) {
 		t.Fatalf("callback page does not use external script: %s", body)
 	}
 	if strings.Contains(body, "<script>(function") {
 		t.Fatalf("callback page still contains inline executable script: %s", body)
 	}
 
+	match := regexp.MustCompile(`<script\s+src="([^"]+)"`).FindStringSubmatch(body)
+	if len(match) != 2 {
+		t.Fatalf("callback page has no external script source: %s", body)
+	}
+	scriptPath := match[1]
+
 	scriptRec := httptest.NewRecorder()
-	mux.ServeHTTP(scriptRec, httptest.NewRequest(http.MethodGet, "/oauth/callback.js", nil))
+	mux.ServeHTTP(scriptRec, httptest.NewRequest(http.MethodGet, scriptPath, nil))
 	if scriptRec.Code != http.StatusOK {
-		t.Fatalf("script status = %d, want %d", scriptRec.Code, http.StatusOK)
+		t.Fatalf("script %q status = %d, want %d", scriptPath, scriptRec.Code, http.StatusOK)
 	}
 	if got := scriptRec.Header().Get("Content-Type"); got != "application/javascript; charset=utf-8" {
 		t.Fatalf("script Content-Type = %q", got)
+	}
+}
+
+func TestOAuthRedirectURIOnlyTrustsForwardedProtoFromProxy(t *testing.T) {
+	h := NewHandler(filepath.Join(t.TempDir(), "config.json"))
+	h.SetServerAccessOptions(false, []string{"10.0.0.0/8"})
+
+	request := func(remoteAddr string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "http://launcher.local/", nil)
+		req.Host = "launcher.local"
+		req.RemoteAddr = remoteAddr
+		req.Header.Set("X-Forwarded-Proto", "https")
+		return req
+	}
+	if got := h.buildOAuthRedirectURI(request("10.0.0.8:1234")); got != "https://launcher.local/oauth/callback" {
+		t.Fatalf("trusted redirect URI = %q", got)
+	}
+	if got := h.buildOAuthRedirectURI(request("203.0.113.8:1234")); got != "http://launcher.local/oauth/callback" {
+		t.Fatalf("untrusted redirect URI = %q", got)
 	}
 }
 

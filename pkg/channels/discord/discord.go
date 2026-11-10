@@ -113,17 +113,18 @@ func (c *DiscordChannel) Start(ctx context.Context) error {
 	// Get bot user ID before opening session to avoid race condition
 	botUser, err := c.session.User("@me")
 	if err != nil {
+		c.cancel()
 		return fmt.Errorf("failed to get bot user: %w", err)
 	}
 	c.botUserID = botUser.ID
 
 	c.session.AddHandler(c.handleMessage)
 
-	go c.listenVoiceControl(c.ctx)
-
 	if err := c.session.Open(); err != nil {
+		c.cancel()
 		return fmt.Errorf("failed to open discord session: %w", err)
 	}
+	go c.listenVoiceControl(c.ctx)
 
 	c.SetRunning(true)
 

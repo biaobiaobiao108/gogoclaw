@@ -8,6 +8,7 @@
 package fileutil
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -54,9 +55,19 @@ var atomicWriteMu sync.Mutex
 //
 //	// Public readable file
 //	err := utils.WriteFileAtomic("public.txt", data, 0o644)
-func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
+func WriteFileAtomic(path string, data []byte, perm os.FileMode) (err error) {
 	atomicWriteMu.Lock()
 	defer atomicWriteMu.Unlock()
+
+	lock, err := AcquireFileLock(atomicLockPath(path))
+	if err != nil {
+		return fmt.Errorf("failed to lock target: %w", err)
+	}
+	defer func() {
+		if unlockErr := lock.Unlock(); err == nil && unlockErr != nil {
+			err = unlockErr
+		}
+	}()
 
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -120,6 +131,15 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	// Success: skip cleanup (file was renamed, no temp to remove)
 	cleanup = false
 	return nil
+}
+
+func atomicLockPath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	sum := sha256.Sum256([]byte(abs))
+	return filepath.Join(os.TempDir(), "gogoclaw-atomic-locks", fmt.Sprintf("%x.lock", sum[:16]))
 }
 
 func CopyFile(src, dst string, perm os.FileMode) error {
