@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 )
 
 func outboundMessageChannel(msg bus.OutboundMessage) string {
