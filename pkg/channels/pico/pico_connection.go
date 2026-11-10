@@ -16,7 +16,6 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/approval"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/identity"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
