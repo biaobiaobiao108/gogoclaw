@@ -174,7 +174,7 @@ func (m *seahorseContextManager) Ingest(ctx context.Context, req *IngestRequest)
 	return err
 }
 
-// Clear removes all stored context for a session (seahorse DB + JSONL).
+// Clear removes all stored context for a session from both SQLite indexes.
 func (m *seahorseContextManager) Clear(ctx context.Context, sessionKey string) error {
 	m.bootstrapMu.Lock()
 	delete(m.bootstrapped, sessionKey)
@@ -182,7 +182,7 @@ func (m *seahorseContextManager) Clear(ctx context.Context, sessionKey string) e
 	if err := m.engine.ClearSession(ctx, sessionKey); err != nil {
 		return err
 	}
-	// The session may belong to a routed (non-default) agent whose JSONL
+	// The session may belong to a routed (non-default) agent whose SQLite
 	// store differs from the bootstrap store, so clear the owner's store.
 	sessions := m.sessions
 	if m.al != nil {

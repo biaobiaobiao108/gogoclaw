@@ -139,8 +139,8 @@ const (
 	legacyPicoSessionPrefix = "agent:main:pico:direct:pico:"
 	picoSessionPrefix       = legacyPicoSessionPrefix
 
-	// Keep the session API aligned with the shared JSONL store reader limit in
-	// pkg/memory/jsonl.go so oversized lines fail consistently everywhere.
+	// Upper bound for legacy JSONL compatibility reads. SQLite sessions do not
+	// use line scanning and are not subject to this limit.
 	maxSessionJSONLLineSize = 64 * 1024 * 1024
 	maxSessionTitleRunes    = 60
 
@@ -341,6 +341,11 @@ func (h *Handler) readSessionMessagesPage(
 }
 
 func (h *Handler) readJSONLSessionInfo(dir, sessionKey string) (sessionFile, string, error) {
+	if sess, found, err := h.readSQLiteSessionInfo(dir, sessionKey); err != nil {
+		return sessionFile{}, "", err
+	} else if found {
+		return sess, "", nil
+	}
 	base := filepath.Join(dir, sanitizeSessionKey(sessionKey))
 	jsonlPath := base + ".jsonl"
 	metaPath := base + ".meta.json"
@@ -377,6 +382,11 @@ func (h *Handler) readJSONLSessionInfo(dir, sessionKey string) (sessionFile, str
 }
 
 func (h *Handler) readJSONLSession(dir, sessionKey string) (sessionFile, error) {
+	if sess, found, err := h.readSQLiteSession(dir, sessionKey); err != nil {
+		return sessionFile{}, err
+	} else if found {
+		return sess, nil
+	}
 	sess, jsonlPath, err := h.readJSONLSessionInfo(dir, sessionKey)
 	if err != nil {
 		return sessionFile{}, err
@@ -412,8 +422,9 @@ func decodeTurnCheckpointHistory(raw []json.RawMessage) []session.TurnCheckpoint
 }
 
 type picoJSONLSessionRef struct {
-	ID  string
-	Key string
+	ID      string
+	Key     string
+	Storage string
 }
 
 type picoLegacySessionRef struct {
@@ -503,13 +514,20 @@ func (h *Handler) findPicoJSONLSessions(dir string) ([]picoJSONLSessionRef, erro
 }
 
 func (h *Handler) scanPicoJSONLSessions(dir string) ([]picoJSONLSessionRef, error) {
+	sqliteRefs, err := h.scanSQLiteSessionRefs(dir)
+	if err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
 
-	refs := make([]picoJSONLSessionRef, 0)
-	seen := make(map[string]struct{})
+	refs := append([]picoJSONLSessionRef(nil), sqliteRefs...)
+	seen := make(map[string]struct{}, len(refs))
+	for _, ref := range refs {
+		seen[ref.ID] = struct{}{}
+	}
 	metaBackedBases := make(map[string]struct{})
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".meta.json") {
@@ -717,6 +735,11 @@ func buildSessionListItem(sessionID string, sess sessionFile, toolFeedbackMaxArg
 
 // Build the sidebar index without retaining an entire archived transcript.
 func (h *Handler) readJSONLSessionListItem(dir, key, id string, maxArgs int) (sessionListItem, error) {
+	if item, found, err := h.readSQLiteSessionListItem(dir, key, id, maxArgs); err != nil {
+		return sessionListItem{}, err
+	} else if found {
+		return item, nil
+	}
 	sess, path, err := h.readJSONLSessionInfo(dir, key)
 	if err != nil {
 		return sessionListItem{}, err
@@ -1456,8 +1479,12 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	if refErr == nil {
 		sess, _, err = h.readJSONLSessionInfo(dir, ref.Key)
 		if err == nil {
-			base := filepath.Join(dir, sanitizeSessionKey(ref.Key))
-			page, err = h.readSessionMessagesPage(base+".jsonl", 0, limit, beforeLine)
+			if ref.Storage == "sqlite" {
+				page, err = h.readSQLiteSessionPage(dir, ref.Key, limit, int64(beforeLine))
+			} else {
+				base := filepath.Join(dir, sanitizeSessionKey(ref.Key))
+				page, err = h.readSessionMessagesPage(base+".jsonl", 0, limit, beforeLine)
+			}
 			sess.Messages = page.Messages
 		}
 	}
@@ -1558,16 +1585,29 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to delete session context", http.StatusInternalServerError)
 			return
 		}
-
-		for _, path := range []string{base + ".jsonl", base + ".meta.json"} {
-			if err := os.Remove(path); err != nil {
-				if os.IsNotExist(err) {
-					continue
-				}
+		if ref.Storage == "sqlite" {
+			store, openErr := memory.OpenSQLiteStore(dir)
+			if openErr != nil {
+				http.Error(w, "failed to open session store", http.StatusInternalServerError)
+				return
+			}
+			removed, openErr = store.DeleteSession(r.Context(), ref.Key)
+			closeErr := store.Close()
+			if openErr != nil || closeErr != nil {
 				http.Error(w, "failed to delete session", http.StatusInternalServerError)
 				return
 			}
-			removed = true
+		} else {
+			for _, path := range []string{base + ".jsonl", base + ".meta.json"} {
+				if err := os.Remove(path); err != nil {
+					if os.IsNotExist(err) {
+						continue
+					}
+					http.Error(w, "failed to delete session", http.StatusInternalServerError)
+					return
+				}
+				removed = true
+			}
 		}
 	}
 

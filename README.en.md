@@ -31,7 +31,7 @@ Production deployment is supported through the container image only. The contain
 - **Multi-channel access**: Web, Telegram, personal WeChat, Discord, Feishu / Lark, and QQ.
 - **Modern web console**: manage models, channels, tools, sessions, approvals, logs, and runtime status in one place.
 - **Container-first**: published images support Linux `amd64` and `arm64` and run as a non-root user.
-- **Persistent state**: configuration, credentials, sessions, workspace files, channel cursors, and logs live under `/data`.
+- **Persistent state**: configuration, credentials, the SQLite session store, workspace files, channel cursors, and logs live under `/data`.
 
 ## Quick Start
 

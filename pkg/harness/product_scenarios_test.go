@@ -61,16 +61,16 @@ func TestProductFlowWriteFileProducesExpectedArtifact(t *testing.T) {
 	}
 }
 
-func TestProductFlowJSONLSessionSurvivesAgentLoopRestart(t *testing.T) {
+func TestProductFlowSQLiteSessionSurvivesAgentLoopRestart(t *testing.T) {
 	workspace := t.TempDir()
 	sessionDir := filepath.Join(workspace, "sessions")
 	const sessionKey = "agent:main:product-restart"
 
-	firstStore, err := memory.NewJSONLStore(sessionDir)
+	firstStore, err := memory.NewSQLiteStore(sessionDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstBackend := session.NewJSONLBackend(firstStore)
+	firstBackend := session.NewStoreBackend(firstStore)
 	first, err := Run(context.Background(), Scenario{
 		Name:        "product-session-restart",
 		SessionKey:  sessionKey,
@@ -89,11 +89,11 @@ func TestProductFlowJSONLSessionSurvivesAgentLoopRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	secondStore, err := memory.NewJSONLStore(sessionDir)
+	secondStore, err := memory.NewSQLiteStore(sessionDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondBackend := session.NewJSONLBackend(secondStore)
+	secondBackend := session.NewStoreBackend(secondStore)
 	t.Cleanup(func() { _ = secondBackend.Close() })
 	second, err := Run(context.Background(), Scenario{
 		Name:        "product-session-restart",

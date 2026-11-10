@@ -26,11 +26,11 @@ func TestSummaryCommitPreservesConcurrentAppendAndRejectsReset(t *testing.T) {
 		t.Run(backend, func(t *testing.T) {
 			var store session.SessionStore = session.NewSessionManager(t.TempDir())
 			if backend == "jsonl" {
-				raw, err := memory.NewJSONLStore(t.TempDir())
+				raw, err := memory.NewSQLiteStore(t.TempDir())
 				if err != nil {
 					t.Fatal(err)
 				}
-				store = session.NewJSONLBackend(raw)
+				store = session.NewStoreBackend(raw)
 			}
 			defer store.Close()
 			for i := 0; i < 6; i++ {

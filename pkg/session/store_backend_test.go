@@ -27,24 +27,24 @@ func (s failingReadStore) GetHistory(context.Context, string) ([]providers.Messa
 }
 
 func TestCheckedAppendReturnsStorageError(t *testing.T) {
-	store, err := memory.NewJSONLStore(t.TempDir())
+	store, err := memory.NewSQLiteStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	b := session.NewJSONLBackend(failingWriteStore{Store: store})
+	b := session.NewStoreBackend(failingWriteStore{Store: store})
 	if err := session.AppendChecked(b, "session", providers.Message{Role: "user", Content: "hello"}); err == nil {
 		t.Fatal("expected storage error")
 	}
 }
 
 func TestCheckedHistoryReturnsStorageError(t *testing.T) {
-	store, err := memory.NewJSONLStore(t.TempDir())
+	store, err := memory.NewSQLiteStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	_, err = session.HistoryChecked(session.NewJSONLBackend(failingReadStore{Store: store}), "session")
+	_, err = session.HistoryChecked(session.NewStoreBackend(failingReadStore{Store: store}), "session")
 	if err == nil {
 		t.Fatal("expected read error")
 	}
@@ -53,20 +53,20 @@ func TestCheckedHistoryReturnsStorageError(t *testing.T) {
 // Compile-time interface satisfaction checks.
 var (
 	_ session.SessionStore = (*session.SessionManager)(nil)
-	_ session.SessionStore = (*session.JSONLBackend)(nil)
+	_ session.SessionStore = (*session.StoreBackend)(nil)
 )
 
-func newBackend(t *testing.T) *session.JSONLBackend {
+func newBackend(t *testing.T) *session.StoreBackend {
 	t.Helper()
-	store, err := memory.NewJSONLStore(t.TempDir())
+	store, err := memory.NewSQLiteStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
-	return session.NewJSONLBackend(store)
+	return session.NewStoreBackend(store)
 }
 
-func TestJSONLBackend_AddAndGetHistory(t *testing.T) {
+func TestStoreBackend_AddAndGetHistory(t *testing.T) {
 	b := newBackend(t)
 
 	b.AddMessage("s1", "user", "hello")
@@ -86,11 +86,11 @@ func TestJSONLBackend_AddAndGetHistory(t *testing.T) {
 
 func TestTurnCheckpointPersistsAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b := session.NewJSONLBackend(store)
+	b := session.NewStoreBackend(store)
 	want := session.TurnCheckpoint{TurnID: "turn-1", Status: "running", Iteration: 3, Tool: "send", Events: []session.TurnCheckpointEvent{{Status: "running", Iteration: 3, Tool: "send"}}}
 	if err := b.SetTurnCheckpoint("session", want); err != nil {
 		t.Fatal(err)
@@ -98,23 +98,23 @@ func TestTurnCheckpointPersistsAcrossReopen(t *testing.T) {
 	if err := b.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = memory.NewJSONLStore(dir)
+	store, err = memory.NewSQLiteStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	got, err := session.NewJSONLBackend(store).GetTurnCheckpoint("session")
+	got, err := session.NewStoreBackend(store).GetTurnCheckpoint("session")
 	if err != nil || got.TurnID != want.TurnID || got.Tool != want.Tool || len(got.Events) != 1 {
 		t.Fatalf("checkpoint = %+v, err = %v", got, err)
 	}
-	if err := session.NewJSONLBackend(store).SetTurnCheckpoint("session", session.TurnCheckpoint{TurnID: "turn-2", Status: "running"}); err != nil {
+	if err := session.NewStoreBackend(store).SetTurnCheckpoint("session", session.TurnCheckpoint{TurnID: "turn-2", Status: "running"}); err != nil {
 		t.Fatal(err)
 	}
 	meta, err := store.GetSessionMeta(context.Background(), "session")
 	if err != nil || len(meta.TurnHistory) != 1 {
 		t.Fatalf("turn history = %+v, err = %v", meta.TurnHistory, err)
 	}
-	if err := session.NewJSONLBackend(store).ClearTurnCheckpoints("session"); err != nil {
+	if err := session.NewStoreBackend(store).ClearTurnCheckpoints("session"); err != nil {
 		t.Fatal(err)
 	}
 	meta, err = store.GetSessionMeta(context.Background(), "session")
@@ -125,12 +125,12 @@ func TestTurnCheckpointPersistsAcrossReopen(t *testing.T) {
 
 func TestTurnHistoryIsBounded(t *testing.T) {
 	dir := t.TempDir()
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	backend := session.NewJSONLBackend(store)
+	backend := session.NewStoreBackend(store)
 	const wantHistory = 50
 
 	for i := 0; i < wantHistory+5; i++ {
@@ -159,7 +159,7 @@ func TestTurnHistoryIsBounded(t *testing.T) {
 	}
 }
 
-func TestJSONLBackend_AddFullMessage(t *testing.T) {
+func TestStoreBackend_AddFullMessage(t *testing.T) {
 	b := newBackend(t)
 
 	msg := providers.Message{
@@ -180,7 +180,7 @@ func TestJSONLBackend_AddFullMessage(t *testing.T) {
 	}
 }
 
-func TestJSONLBackend_AddFullMessage_PreservesModelName(t *testing.T) {
+func TestStoreBackend_AddFullMessage_PreservesModelName(t *testing.T) {
 	b := newBackend(t)
 
 	msg := providers.Message{
@@ -199,7 +199,7 @@ func TestJSONLBackend_AddFullMessage_PreservesModelName(t *testing.T) {
 	}
 }
 
-func TestJSONLBackend_Summary(t *testing.T) {
+func TestStoreBackend_Summary(t *testing.T) {
 	b := newBackend(t)
 
 	if got := b.GetSummary("s1"); got != "" {
@@ -212,7 +212,7 @@ func TestJSONLBackend_Summary(t *testing.T) {
 	}
 }
 
-func TestJSONLBackend_TruncateAndSave(t *testing.T) {
+func TestStoreBackend_TruncateAndSave(t *testing.T) {
 	b := newBackend(t)
 
 	for i := 0; i < 10; i++ {
@@ -248,7 +248,7 @@ func TestJSONLBackend_TruncateAndSave(t *testing.T) {
 	}
 }
 
-func TestJSONLBackend_SetHistory(t *testing.T) {
+func TestStoreBackend_SetHistory(t *testing.T) {
 	b := newBackend(t)
 	b.AddMessage("s1", "user", "old")
 
@@ -266,7 +266,7 @@ func TestJSONLBackend_SetHistory(t *testing.T) {
 	}
 }
 
-func TestJSONLBackend_EmptySession(t *testing.T) {
+func TestStoreBackend_EmptySession(t *testing.T) {
 	b := newBackend(t)
 
 	history := b.GetHistory("nonexistent")
@@ -278,7 +278,7 @@ func TestJSONLBackend_EmptySession(t *testing.T) {
 	}
 }
 
-func TestJSONLBackend_SessionIsolation(t *testing.T) {
+func TestStoreBackend_SessionIsolation(t *testing.T) {
 	b := newBackend(t)
 	b.AddMessage("s1", "user", "session1")
 	b.AddMessage("s2", "user", "session2")
@@ -294,7 +294,7 @@ func TestJSONLBackend_SessionIsolation(t *testing.T) {
 	}
 }
 
-func TestJSONLBackend_SummarizeFlow(t *testing.T) {
+func TestStoreBackend_SummarizeFlow(t *testing.T) {
 	// Simulates the real summarization flow in the agent loop:
 	// SetSummary → TruncateHistory → Save
 	b := newBackend(t)
@@ -321,7 +321,7 @@ func TestJSONLBackend_SummarizeFlow(t *testing.T) {
 	}
 }
 
-func TestJSONLBackend_ResolveAliasAndPersistMetadata(t *testing.T) {
+func TestStoreBackend_ResolveAliasAndPersistMetadata(t *testing.T) {
 	b := newBackend(t)
 
 	scope := &session.SessionScope{
@@ -358,7 +358,7 @@ func TestJSONLBackend_ResolveAliasAndPersistMetadata(t *testing.T) {
 	}
 }
 
-func TestJSONLBackend_EnsureSessionMetadata_PromotesLegacyAliasHistory(t *testing.T) {
+func TestStoreBackend_EnsureSessionMetadata_PromotesLegacyAliasHistory(t *testing.T) {
 	b := newBackend(t)
 
 	legacyKey := "agent:main:direct:legacy-user"
@@ -383,7 +383,7 @@ func TestJSONLBackend_EnsureSessionMetadata_PromotesLegacyAliasHistory(t *testin
 	}
 }
 
-func TestJSONLBackend_EnsureSessionMetadata_PromotesLegacyPicoDirectAliasHistory(t *testing.T) {
+func TestStoreBackend_EnsureSessionMetadata_PromotesLegacyPicoDirectAliasHistory(t *testing.T) {
 	b := newBackend(t)
 
 	legacyKey := "agent:main:pico:direct:pico:session-123"
@@ -424,7 +424,7 @@ func TestJSONLBackend_EnsureSessionMetadata_PromotesLegacyPicoDirectAliasHistory
 	}
 }
 
-func TestJSONLBackend_EnsureSessionMetadata_DoesNotOverwriteNonEmptyCanonicalHistory(t *testing.T) {
+func TestStoreBackend_EnsureSessionMetadata_DoesNotOverwriteNonEmptyCanonicalHistory(t *testing.T) {
 	b := newBackend(t)
 
 	canonicalKey := session.BuildOpaqueSessionKey("agent:main:direct:current-user")

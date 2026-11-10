@@ -53,7 +53,7 @@ GoGoClaw 将数据存储在您配置的工作区中（默认：`~/.gogoclaw/work
 
 ```
 ~/.gogoclaw/workspace/
-├── sessions/          # 对话会话和历史
+├── sessions/          # sessions.db、Seahorse 索引与附件
 ├── memory/           # 长期记忆 (MEMORY.md)
 ├── state/            # 持久化状态 (最后一次频道等)
 ├── cron/             # 定时任务数据库

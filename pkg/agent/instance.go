@@ -756,31 +756,16 @@ func closeUnreferencedStatefulProviders(
 	closeUniqueStatefulProviders(removed...)
 }
 
-// initSessionStore creates the session persistence backend.
-// It uses the JSONL store by default and auto-migrates legacy JSON sessions.
-// Falls back to SessionManager if the JSONL store cannot be initialized or
-// if migration fails (which indicates the store cannot write reliably).
+// initSessionStore creates the canonical SQLite session store. The legacy
+// file manager is used only when the database itself cannot open.
 func initSessionStore(dir string) session.SessionStore {
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		logger.WarnCF("agent", "Memory JSONL store init failed; falling back to json sessions",
+		logger.WarnCF("agent", "SQLite session store init failed; falling back to legacy sessions",
 			map[string]any{"error": err.Error()})
 		return session.NewSessionManager(dir)
 	}
-
-	if n, merr := memory.MigrateFromJSON(context.Background(), dir, store); merr != nil {
-		// Migration failure means the store could not write data.
-		// Fall back to SessionManager to avoid a split state where
-		// some sessions are in JSONL and others remain in JSON.
-		logger.WarnCF("agent", "Memory migration failed; falling back to json sessions",
-			map[string]any{"error": merr.Error()})
-		store.Close()
-		return session.NewSessionManager(dir)
-	} else if n > 0 {
-		logger.InfoCF("agent", "Memory migrated to JSONL", map[string]any{"sessions_migrated": n})
-	}
-
-	return session.NewJSONLBackend(store)
+	return session.NewStoreBackend(store)
 }
 
 func expandHome(path string) string {

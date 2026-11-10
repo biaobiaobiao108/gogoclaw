@@ -557,6 +557,12 @@ func (h *Handler) searchJSONLSession(
 	normalizedQuery, rawQuery string,
 	ctx context.Context,
 ) (sessionSearchResult, bool, error) {
+	if sess, found, err := h.readSQLiteSession(dir, sessionKey); err != nil {
+		return sessionSearchResult{}, false, err
+	} else if found {
+		result, ok := searchSessionMessages(item, sess.Messages, normalizedQuery, rawQuery)
+		return result, ok, nil
+	}
 	base := filepath.Join(dir, sanitizeSessionKey(sessionKey))
 	file, err := os.Open(base + ".jsonl")
 	if err != nil {
@@ -967,14 +973,11 @@ func (h *Handler) sessionAttachmentReferences(sessionsDir, sessionID string) (ma
 		}
 	}
 	if ref, err := h.findPicoJSONLSession(sessionsDir, sessionID); err == nil {
-		base := filepath.Join(sessionsDir, sanitizeSessionKey(ref.Key))
-		stored, err := readSessionAttachmentReferences(base + ".jsonl")
+		sess, err := h.readJSONLSession(sessionsDir, ref.Key)
 		if err != nil {
 			return nil, err
 		}
-		for id := range stored {
-			references[id] = struct{}{}
-		}
+		addMessages(sess.Messages)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}

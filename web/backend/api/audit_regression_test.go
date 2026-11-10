@@ -16,7 +16,7 @@ func TestRegressionDeleteClearsSQLiteContext(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

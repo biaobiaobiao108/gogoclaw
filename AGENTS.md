@@ -6,7 +6,7 @@ GoGoClaw 是一个面向单机长期运行与私有化部署的智能 Agent 框�
 
 - **运行形态**：生产环境**仅支持容器化部署**，本地电脑仅作开发与测试。
 - **核心架构**：
-  - **核心后端 (Go)**：提供模型协议适配、Agent 执行引擎、多通道即时通讯接入（飞书、钉钉、Telegram、MQTT 等）及统一 SQLite 持久化。
+  - **核心后端 (Go)**：提供模型协议适配、Agent 执行引擎、多通道即时通讯接入（飞书、钉钉、Telegram、MQTT 等）。会话以 `sessions/sessions.db` 为唯一事实库；Seahorse 的 `seahorse.db` 是可重建的检索与摘要索引。
   - **管理控制台 (Web)**：嵌入式 React 19 单页应用，全链路使用 **Bun (1.4.4+)** 驱动管理，基于 TanStack Router 与 Tailwind CSS v4 构建。
 
 ## 项目结构与模块划分

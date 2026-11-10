@@ -183,9 +183,8 @@ func SummaryChecked(store SessionStore, key string) (string, error) {
 }
 
 // SessionStore defines the persistence operations used by the agent loop.
-// Both SessionManager (legacy JSON backend) and JSONLBackend satisfy this
-// interface, allowing the storage layer to be swapped without touching the
-// agent loop code.
+// StoreBackend is the production adapter; SessionManager remains only as a
+// legacy in-memory/file fallback for initialization failures and benchmarks.
 //
 // Write methods (Add*, Set*, Truncate*) are fire-and-forget: they do not
 // return errors. Implementations should log failures internally. This

@@ -12,14 +12,14 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
-// JSONLBackend adapts a memory.Store into the SessionStore interface.
+// StoreBackend adapts a memory.Store into the SessionStore interface.
 // Write errors are logged rather than returned, matching the fire-and-forget
-// contract of SessionManager that the agent loop relies on.
-type JSONLBackend struct {
+// contract that the agent loop relies on.
+type StoreBackend struct {
 	store memory.Store
 }
 
-func (b *JSONLBackend) UpdateTurnUsage(key, turnID string, usage *bus.ContextUsage) error {
+func (b *StoreBackend) UpdateTurnUsage(key, turnID string, usage *bus.ContextUsage) error {
 	key, err := b.resolveSessionKeyChecked(key)
 	if err != nil {
 		return err
@@ -47,7 +47,7 @@ type turnMetaStore interface {
 	ClearTurns(context.Context, string) error
 }
 
-func (b *JSONLBackend) ClearTurnCheckpoints(key string) error {
+func (b *StoreBackend) ClearTurnCheckpoints(key string) error {
 	store, ok := b.store.(turnMetaStore)
 	if !ok {
 		return fmt.Errorf("session store does not support turn checkpoints")
@@ -59,7 +59,7 @@ func (b *JSONLBackend) ClearTurnCheckpoints(key string) error {
 	return store.ClearTurns(context.Background(), key)
 }
 
-func (b *JSONLBackend) SetTurnCheckpoint(key string, checkpoint TurnCheckpoint) error {
+func (b *StoreBackend) SetTurnCheckpoint(key string, checkpoint TurnCheckpoint) error {
 	store, ok := b.store.(turnMetaStore)
 	if !ok {
 		return fmt.Errorf("session store does not support turn checkpoints")
@@ -75,7 +75,7 @@ func (b *JSONLBackend) SetTurnCheckpoint(key string, checkpoint TurnCheckpoint) 
 	return store.SetTurn(context.Background(), key, data)
 }
 
-func (b *JSONLBackend) GetTurnCheckpoint(key string) (TurnCheckpoint, error) {
+func (b *StoreBackend) GetTurnCheckpoint(key string) (TurnCheckpoint, error) {
 	var checkpoint TurnCheckpoint
 	store, ok := b.store.(turnMetaStore)
 	if !ok {
@@ -103,12 +103,12 @@ type MetadataAwareSessionStore interface {
 	GetSessionScope(sessionKey string) *SessionScope
 }
 
-// NewJSONLBackend wraps a memory.Store for use as a SessionStore.
-func NewJSONLBackend(store memory.Store) *JSONLBackend {
-	return &JSONLBackend{store: store}
+// NewStoreBackend wraps a memory.Store for use as a SessionStore.
+func NewStoreBackend(store memory.Store) *StoreBackend {
+	return &StoreBackend{store: store}
 }
 
-func (b *JSONLBackend) resolveSessionKey(sessionKey string) string {
+func (b *StoreBackend) resolveSessionKey(sessionKey string) string {
 	resolved, err := b.resolveSessionKeyChecked(sessionKey)
 	if err != nil {
 		log.Printf("session: resolve session key: %v", err)
@@ -117,7 +117,7 @@ func (b *JSONLBackend) resolveSessionKey(sessionKey string) string {
 	return resolved
 }
 
-func (b *JSONLBackend) resolveSessionKeyChecked(sessionKey string) (string, error) {
+func (b *StoreBackend) resolveSessionKeyChecked(sessionKey string) (string, error) {
 	metaStore, ok := b.store.(metaAwareStore)
 	if !ok {
 		return sessionKey, nil
@@ -135,12 +135,12 @@ func (b *JSONLBackend) resolveSessionKeyChecked(sessionKey string) (string, erro
 // ResolveSessionKey maps aliases onto their canonical session key when the
 // underlying store supports structured metadata. Unknown aliases fall back to
 // the original input so existing callers remain compatible.
-func (b *JSONLBackend) ResolveSessionKey(sessionKey string) string {
+func (b *StoreBackend) ResolveSessionKey(sessionKey string) string {
 	return b.resolveSessionKey(sessionKey)
 }
 
 // EnsureSessionMetadata persists scope and alias metadata for a session.
-func (b *JSONLBackend) EnsureSessionMetadata(sessionKey string, scope *SessionScope, aliases []string) {
+func (b *StoreBackend) EnsureSessionMetadata(sessionKey string, scope *SessionScope, aliases []string) {
 	metaStore, ok := b.store.(metaAwareStore)
 	if !ok {
 		return
@@ -173,7 +173,7 @@ func (b *JSONLBackend) EnsureSessionMetadata(sessionKey string, scope *SessionSc
 }
 
 // GetSessionScope reads structured scope metadata for a session key or alias.
-func (b *JSONLBackend) GetSessionScope(sessionKey string) *SessionScope {
+func (b *StoreBackend) GetSessionScope(sessionKey string) *SessionScope {
 	metaStore, ok := b.store.(metaAwareStore)
 	if !ok {
 		return nil
@@ -195,20 +195,20 @@ func (b *JSONLBackend) GetSessionScope(sessionKey string) *SessionScope {
 	return CloneScope(&scope)
 }
 
-func (b *JSONLBackend) AddMessage(sessionKey, role, content string) {
+func (b *StoreBackend) AddMessage(sessionKey, role, content string) {
 	sessionKey = b.resolveSessionKey(sessionKey)
 	if err := b.store.AddMessage(context.Background(), sessionKey, role, content); err != nil {
 		log.Printf("session: add message: %v", err)
 	}
 }
 
-func (b *JSONLBackend) AddFullMessage(sessionKey string, msg providers.Message) {
+func (b *StoreBackend) AddFullMessage(sessionKey string, msg providers.Message) {
 	if err := b.AddFullMessageChecked(sessionKey, msg); err != nil {
 		log.Printf("session: add full message: %v", err)
 	}
 }
 
-func (b *JSONLBackend) AddFullMessageChecked(key string, msg providers.Message) error {
+func (b *StoreBackend) AddFullMessageChecked(key string, msg providers.Message) error {
 	key, err := b.resolveSessionKeyChecked(key)
 	if err != nil {
 		return err
@@ -216,7 +216,7 @@ func (b *JSONLBackend) AddFullMessageChecked(key string, msg providers.Message) 
 	return b.store.AddFullMessage(context.Background(), key, msg)
 }
 
-func (b *JSONLBackend) GetHistoryChecked(key string) ([]providers.Message, error) {
+func (b *StoreBackend) GetHistoryChecked(key string) ([]providers.Message, error) {
 	key, err := b.resolveSessionKeyChecked(key)
 	if err != nil {
 		return nil, err
@@ -224,7 +224,7 @@ func (b *JSONLBackend) GetHistoryChecked(key string) ([]providers.Message, error
 	return b.store.GetHistory(context.Background(), key)
 }
 
-func (b *JSONLBackend) GetSummaryChecked(key string) (string, error) {
+func (b *StoreBackend) GetSummaryChecked(key string) (string, error) {
 	key, err := b.resolveSessionKeyChecked(key)
 	if err != nil {
 		return "", err
@@ -232,7 +232,7 @@ func (b *JSONLBackend) GetSummaryChecked(key string) (string, error) {
 	return b.store.GetSummary(context.Background(), key)
 }
 
-func (b *JSONLBackend) SetHistoryChecked(key string, history []providers.Message) error {
+func (b *StoreBackend) SetHistoryChecked(key string, history []providers.Message) error {
 	key, err := b.resolveSessionKeyChecked(key)
 	if err != nil {
 		return err
@@ -240,7 +240,7 @@ func (b *JSONLBackend) SetHistoryChecked(key string, history []providers.Message
 	return b.store.SetHistory(context.Background(), key, history)
 }
 
-func (b *JSONLBackend) SetSummaryChecked(key, summary string) error {
+func (b *StoreBackend) SetSummaryChecked(key, summary string) error {
 	key, err := b.resolveSessionKeyChecked(key)
 	if err != nil {
 		return err
@@ -248,7 +248,7 @@ func (b *JSONLBackend) SetSummaryChecked(key, summary string) error {
 	return b.store.SetSummary(context.Background(), key, summary)
 }
 
-func (b *JSONLBackend) CommitSummary(key string, prefix []providers.Message, previous, summary string) (bool, error) {
+func (b *StoreBackend) CommitSummary(key string, prefix []providers.Message, previous, summary string) (bool, error) {
 	key, err := b.resolveSessionKeyChecked(key)
 	if err != nil {
 		return false, err
@@ -260,7 +260,7 @@ func (b *JSONLBackend) CommitSummary(key string, prefix []providers.Message, pre
 	return store.CommitSummary(key, prefix, previous, summary)
 }
 
-func (b *JSONLBackend) GetHistory(key string) []providers.Message {
+func (b *StoreBackend) GetHistory(key string) []providers.Message {
 	key = b.resolveSessionKey(key)
 	msgs, err := b.store.GetHistory(context.Background(), key)
 	if err != nil {
@@ -270,7 +270,7 @@ func (b *JSONLBackend) GetHistory(key string) []providers.Message {
 	return msgs
 }
 
-func (b *JSONLBackend) GetSummary(key string) string {
+func (b *StoreBackend) GetSummary(key string) string {
 	key = b.resolveSessionKey(key)
 	summary, err := b.store.GetSummary(context.Background(), key)
 	if err != nil {
@@ -280,27 +280,27 @@ func (b *JSONLBackend) GetSummary(key string) string {
 	return summary
 }
 
-func (b *JSONLBackend) SetSummary(key, summary string) {
+func (b *StoreBackend) SetSummary(key, summary string) {
 	key = b.resolveSessionKey(key)
 	if err := b.store.SetSummary(context.Background(), key, summary); err != nil {
 		log.Printf("session: set summary: %v", err)
 	}
 }
 
-func (b *JSONLBackend) SetHistory(key string, history []providers.Message) {
+func (b *StoreBackend) SetHistory(key string, history []providers.Message) {
 	key = b.resolveSessionKey(key)
 	if err := b.store.SetHistory(context.Background(), key, history); err != nil {
 		log.Printf("session: set history: %v", err)
 	}
 }
 
-func (b *JSONLBackend) TruncateHistory(key string, keepLast int) {
+func (b *StoreBackend) TruncateHistory(key string, keepLast int) {
 	if err := b.TruncateHistoryChecked(key, keepLast); err != nil {
 		log.Printf("session: truncate history: %v", err)
 	}
 }
 
-func (b *JSONLBackend) TruncateHistoryChecked(key string, keepLast int) error {
+func (b *StoreBackend) TruncateHistoryChecked(key string, keepLast int) error {
 	key, err := b.resolveSessionKeyChecked(key)
 	if err != nil {
 		return err
@@ -310,12 +310,12 @@ func (b *JSONLBackend) TruncateHistoryChecked(key string, keepLast int) error {
 
 // Save has no pending writes: each mutation is already synced. Keep logically
 // summarized messages in the transcript; Skip only controls model context.
-func (b *JSONLBackend) Save(key string) error {
+func (b *StoreBackend) Save(key string) error {
 	_, err := b.resolveSessionKeyChecked(key)
 	return err
 }
 
-func (b *JSONLBackend) GetTranscriptChecked(key string) ([]providers.Message, error) {
+func (b *StoreBackend) GetTranscriptChecked(key string) ([]providers.Message, error) {
 	key, err := b.resolveSessionKeyChecked(key)
 	if err != nil {
 		return nil, err
@@ -329,11 +329,11 @@ func (b *JSONLBackend) GetTranscriptChecked(key string) ([]providers.Message, er
 }
 
 // Close releases resources held by the underlying store.
-func (b *JSONLBackend) Close() error {
+func (b *StoreBackend) Close() error {
 	return b.store.Close()
 }
 
 // ListSessions returns all known session keys.
-func (b *JSONLBackend) ListSessions() []string {
+func (b *StoreBackend) ListSessions() []string {
 	return b.store.ListSessions()
 }

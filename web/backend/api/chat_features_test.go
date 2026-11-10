@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
@@ -37,7 +38,7 @@ func setupChatFeatureTest(t *testing.T) (*Handler, *http.ServeMux, string) {
 
 func seedChatFeatureSession(t *testing.T, dir, sessionID string) {
 	t.Helper()
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +372,7 @@ func TestCleanupOrphanedAttachmentsStreamsReferences(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -735,7 +736,7 @@ func TestCachedSessionSearchMatchesEscapedContent(t *testing.T) {
 	_, mux, dir := setupChatFeatureTest(t)
 	const sessionID = "escaped-search"
 	seedChatFeatureSession(t, dir, sessionID)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -765,11 +766,11 @@ func TestSummarizationPreservesHistoryPaginationSearchAndAttachments(t *testing.
 	h, mux, dir := setupChatFeatureTest(t)
 	const id = "summarized-transcript"
 	key := legacyPicoSessionPrefix + id
-	raw, err := memory.NewJSONLStore(dir)
+	raw, err := memory.NewSQLiteStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	backend := session.NewJSONLBackend(raw)
+	backend := session.NewStoreBackend(raw)
 	uploaded := uploadChatAttachment(t, mux, id, "original.txt", "text/plain", "original attachment")
 	attachmentPath := filepath.Join(dir, ".attachments", id, uploaded.ID)
 	for i := range 125 {
@@ -908,15 +909,18 @@ func TestDeleteSessionProtectsLiveTurnStates(t *testing.T) {
 					path = filepath.Join(dir, sanitizeSessionKey(key)+".json")
 				} else {
 					seedChatFeatureSession(t, dir, id)
-					store, err := memory.NewJSONLStore(dir)
+					store, err := memory.NewSQLiteStore(dir)
 					if err != nil {
 						t.Fatal(err)
 					}
-					backend := session.NewJSONLBackend(store)
+					backend := session.NewStoreBackend(store)
 					if err := backend.SetTurnCheckpoint(key, checkpoint); err != nil {
+						_ = store.Close()
 						t.Fatal(err)
 					}
-					path = filepath.Join(dir, sanitizeSessionKey(key)+".jsonl")
+					if err := store.Close(); err != nil {
+						t.Fatal(err)
+					}
 				}
 				rec := performJSONRequest(t, mux, http.MethodDelete, "/api/sessions/"+id, nil)
 				want := http.StatusConflict
@@ -927,8 +931,20 @@ func TestDeleteSessionProtectsLiveTurnStates(t *testing.T) {
 					t.Fatalf("status = %d, want %d, body = %s", rec.Code, want, rec.Body.String())
 				}
 				if want == http.StatusConflict {
-					if _, err := os.Stat(path); err != nil {
-						t.Fatalf("active history removed: %v", err)
+					if legacy {
+						if _, err := os.Stat(path); err != nil {
+							t.Fatalf("active history removed: %v", err)
+						}
+					} else {
+						store, err := memory.OpenSQLiteStore(dir)
+						if err != nil {
+							t.Fatal(err)
+						}
+						exists, err := store.SessionExists(context.Background(), key)
+						_ = store.Close()
+						if err != nil || !exists {
+							t.Fatalf("active history removed: exists=%v err=%v", exists, err)
+						}
 					}
 				}
 			})

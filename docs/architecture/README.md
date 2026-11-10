@@ -6,7 +6,7 @@ Internal architecture notes for major runtime mechanisms and subsystem design.
 - [Turn Lifecycle](turn-lifecycle.md): explicit phase transitions and unified async result delivery.
 - [Evaluation Harness](harness.md): trajectory assertions, fault injection, trace replay, product scenarios, and model behavior evaluation.
 - [SubTurn Mechanism](subturn.md): sub-agent coordination, concurrency control, and lifecycle handling.
-- [Session System](session-system.md): session scope allocation, JSONL persistence, alias compatibility, and migration. ([ZH](session-system.zh.md))
+- [Session System](session-system.md): session scope allocation, canonical SQLite persistence, alias compatibility, and legacy reads. ([ZH](session-system.zh.md))
 - [Routing System](routing-system.md): agent dispatch, session policy selection, and light/heavy model routing. ([ZH](routing-system.zh.md))
 - [Runtime Events](runtime-events.md): runtime event envelope, centralized event logging, filters, and examples. ([ZH](runtime-events.zh.md))
 - [Agent Self-Evolution](agent-self-evolution.md): learning records, draft generation, application modes, and state layout.

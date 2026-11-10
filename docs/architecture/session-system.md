@@ -18,16 +18,16 @@ The session system has four jobs:
 1. Decide which messages should share the same conversation context.
 2. Persist that context durably across turns and restarts.
 3. Expose a small `SessionStore` interface to the agent loop.
-4. Keep older session-key formats working during storage and routing migrations.
+4. Keep older session-key formats readable without using them for new writes.
 
 ## Main Components
 
 | Layer | Files | Responsibility |
 | --- | --- | --- |
 | Session contract | `pkg/session/session_store.go` | Defines the `SessionStore` interface used by the agent loop. |
-| Legacy backend | `pkg/session/manager.go` | Stores one JSON file per session. Still used as a fallback. |
-| Session adapter | `pkg/session/jsonl_backend.go` | Adapts `pkg/memory.Store` to `SessionStore`, including alias and scope metadata support. |
-| Durable storage | `pkg/memory/jsonl.go` | Append-only JSONL storage plus `.meta.json` sidecar metadata. |
+| Legacy fallback | `pkg/session/manager.go` | In-memory/file manager used only if the SQLite store cannot initialize. |
+| Session adapter | `pkg/session/store_backend.go` | Adapts `pkg/memory.Store` to `SessionStore`, including alias and scope metadata support. |
+| Durable storage | `pkg/memory/sqlite.go` | Canonical `sessions.db` store for messages, summaries, aliases, and turn checkpoints. |
 | Scope and key building | `pkg/session/scope.go`, `pkg/session/key.go`, `pkg/session/allocator.go` | Builds structured scopes, opaque canonical keys, and legacy aliases from routing results. |
 | Runtime integration | `pkg/agent/instance.go`, `pkg/agent/agent.go`, `pkg/agent/agent_message.go` | Initializes the store, allocates session scope, and persists metadata before turns run. |
 
@@ -83,7 +83,7 @@ agent:main:pico:direct:pico:session-123
 ```
 
 These aliases matter because older sessions, tests, and some tools still refer to the legacy shape.
-The JSONL backend resolves aliases back to the canonical key before reads and writes.
+The storage backend resolves aliases back to the canonical key before reads and writes.
 
 The agent loop also preserves explicit incoming session keys when the caller already supplied one of the recognized explicit formats:
 
@@ -116,7 +116,7 @@ More concretely:
    - `MainSessionKey`: agent-level main session key
    - `MainAliases`: legacy alias for the main session
 4. `runAgentLoop` persists scope metadata and aliases through `ensureSessionMetadata`.
-5. During later reads or writes, `JSONLBackend.ResolveSessionKey` maps aliases back onto the canonical key.
+5. During later reads or writes, `StoreBackend.ResolveSessionKey` maps aliases back onto the canonical key.
 
 The main session key is separate from routed chat sessions.
 It is mainly used for agent-level or system-style flows that need one stable per-agent conversation, for example `processSystemMessage`.
@@ -154,65 +154,60 @@ Both dispatch matching and session allocation use that mapping so that the same 
 
 ## Storage Format
 
-The default runtime backend is `pkg/memory.JSONLStore`, wrapped by `session.JSONLBackend`.
+The canonical runtime store is `pkg/memory.SQLiteStore`, wrapped by
+`session.StoreBackend`. It opens `sessions/sessions.db` in WAL mode with a
+busy timeout and foreign keys enabled.
 
-Each session uses two files:
+The database contains three session tables:
 
-```text
-{sanitized_key}.jsonl
-{sanitized_key}.meta.json
-```
+| Table | Contents |
+| --- | --- |
+| `session_meta` | summary, logical skip offset, timestamps, scope, turn checkpoint and turn history |
+| `session_messages` | stable message id, role, searchable text, and the complete `providers.Message` payload |
+| `session_aliases` | legacy alias to canonical session-key mapping |
 
-The files store:
+Messages are ordered by a database id. UI pagination uses that id as an opaque
+cursor, so edits do not depend on JSONL line numbers. `session_meta.skip_count`
+marks the start of the active model context while the complete transcript stays
+available for the Web history, exports, branches, attachments, and search.
 
-- `.jsonl`: one `providers.Message` per line, append-only
-- `.meta.json`: summary, timestamps, line counts, logical truncation offset, scope, aliases
+`sessions/seahorse.db` remains a derived retrieval and summary index. It can be
+rebuilt from the canonical session transcript; it is not the source of truth for
+chat history.
 
-`SessionMeta` currently includes:
-
-- `Key`
-- `Summary`
-- `Skip`
-- `Count`
-- `CreatedAt`
-- `UpdatedAt`
-- `Scope`
-- `Aliases`
+Legacy `.json` and `.jsonl` files are read-only compatibility input for the Web
+console. New writes always go to `sessions.db`; there is no automatic migration.
 
 ## Write And Crash Semantics
 
-The JSONL store is designed around append-first durability and stale-over-loss recovery:
+Each session mutation runs in a SQLite transaction:
 
-- `AddMessage` and `AddFullMessage` append one JSON line, `fsync`, then update metadata.
-- `TruncateHistory` is logical first: it only advances `meta.Skip`.
-- `Compact` physically rewrites the JSONL file to remove skipped lines.
-- `SetHistory` and `Compact` write metadata before rewriting JSONL so a crash may temporarily expose old data, but should not lose data.
-- Corrupt JSONL lines are skipped during reads instead of failing the entire session.
+- appending a message inserts it and advances the session timestamp atomically;
+- `SetHistory` replaces messages and resets the logical skip offset in one transaction;
+- `CommitSummary` verifies the summary and message prefix before advancing the offset;
+- turn checkpoints and delivery state use the same transactional metadata row.
 
-`JSONLBackend.Save` maps onto `store.Compact(...)`.
-In other words, `Save` is no longer "flush dirty memory to disk"; it is now "reclaim dead lines after logical truncation".
+`TruncateHistory` is logical: it only changes `skip_count`. `Compact` is a no-op
+for SQLite. Deleting a session cascades to its messages and aliases; the freed
+pages remain on SQLite's freelist and are reused by later inserts. GoGoClaw does
+not run `VACUUM` on deletion because repeated whole-database rewrites create
+avoidable disk I/O.
 
 ## Concurrency Model
 
-`pkg/memory.JSONLStore` uses a fixed 64-shard mutex array keyed by session hash.
-That gives per-session serialization without keeping an unbounded mutex map in memory.
+SQLite WAL mode allows concurrent readers and one writer. The store uses a
+bounded connection pool, closes idle handles between operations, and relies on a
+five-second busy timeout for short write contention. Every multi-row mutation is
+transactional, so the agent loop does not need storage-specific locking.
 
 The legacy `SessionManager` uses a single in-memory map guarded by an RW mutex.
+It satisfies the same `SessionStore` contract only as an initialization fallback.
 
-Both backends satisfy the same `SessionStore` interface, which is why the agent loop does not need storage-specific code.
+## Compatibility And Startup
 
-## Compatibility And Migration
-
-`pkg/agent/instance.go:initSessionStore` prefers the JSONL backend.
-
-Startup sequence:
-
-1. Create `memory.NewJSONLStore(dir)`.
-2. Run `memory.MigrateFromJSON(...)` to import legacy `.json` sessions.
-3. Wrap the store with `session.NewJSONLBackend(store)`.
-4. If JSONL initialization or migration fails, fall back to `session.NewSessionManager(dir)`.
-
-This fallback is intentional: a partial migration would be worse than staying on the legacy store for one run.
+`pkg/agent/instance.go:initSessionStore` opens the canonical SQLite store and
+wraps it with `session.NewStoreBackend`. If the database cannot initialize, the
+agent logs the error and falls back to `SessionManager` for that run.
 
 ### Alias promotion
 
@@ -237,7 +232,7 @@ That lets SubTurn reuse the same session-facing APIs without writing child-sessi
 
 The session system is consumed by more than the agent loop:
 
-- `web/backend/api/session.go` reads JSONL metadata and legacy JSON sessions to expose session history in the launcher UI.
+- `web/backend/api/session.go` reads `sessions.db` and retains read-only JSONL/JSON compatibility for the launcher UI.
 - `pkg/agent/steering.go` can recover scope metadata for active steering flows.
 - tooling and tests can still refer to legacy aliases because alias resolution is handled below the agent loop.
 
@@ -245,11 +240,11 @@ The session system is consumed by more than the agent loop:
 
 - `pkg/session/session_store.go`
 - `pkg/session/manager.go`
-- `pkg/session/jsonl_backend.go`
+- `pkg/session/store_backend.go`
 - `pkg/session/scope.go`
 - `pkg/session/key.go`
 - `pkg/session/allocator.go`
-- `pkg/memory/jsonl.go`
+- `pkg/memory/sqlite.go`
 - `pkg/agent/instance.go`
 - `pkg/agent/agent.go`
 - `pkg/agent/agent_message.go`

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -51,14 +52,14 @@ func assertVisibleToolCallMessage(
 	return msg.ToolCalls[0]
 }
 
-func TestHandleListSessions_JSONLStorage(t *testing.T) {
+func TestHandleListSessions_SQLiteStorage(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, storeErr := memory.NewJSONLStore(dir)
+	store, storeErr := memory.NewSQLiteStore(dir)
 	if storeErr != nil {
-		t.Fatalf("NewJSONLStore() error = %v", storeErr)
+		t.Fatalf("NewSQLiteStore() error = %v", storeErr)
 	}
 
 	sessionKey := legacyPicoSessionPrefix + "history-jsonl"
@@ -121,12 +122,77 @@ func TestHandleListSessions_JSONLStorage(t *testing.T) {
 	}
 }
 
-func TestHandleListSessions_PersistentMetadataIndex(t *testing.T) {
+func TestHandleSessions_SQLiteStorageListDetailAndDelete(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	sessionKey := legacyPicoSessionPrefix + "sqlite-main"
+	if err := store.AddMessage(nil, sessionKey, "user", "SQLite session title"); err != nil {
+		t.Fatalf("AddMessage(user) error = %v", err)
+	}
+	if err := store.AddMessage(nil, sessionKey, "assistant", "SQLite session answer"); err != nil {
+		t.Fatalf("AddMessage(assistant) error = %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	listRec := httptest.NewRecorder()
+	mux.ServeHTTP(listRec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body=%s", listRec.Code, listRec.Body.String())
+	}
+	var items []sessionListItem
+	if err := json.Unmarshal(listRec.Body.Bytes(), &items); err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].ID != "sqlite-main" || items[0].MessageCount != 2 {
+		t.Fatalf("items = %+v", items)
+	}
+
+	detailRec := httptest.NewRecorder()
+	mux.ServeHTTP(detailRec, httptest.NewRequest(http.MethodGet, "/api/sessions/sqlite-main", nil))
+	if detailRec.Code != http.StatusOK {
+		t.Fatalf("detail status = %d, body=%s", detailRec.Code, detailRec.Body.String())
+	}
+
+	deleteRec := httptest.NewRecorder()
+	mux.ServeHTTP(deleteRec, httptest.NewRequest(http.MethodDelete, "/api/sessions/sqlite-main", nil))
+	if deleteRec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+	reopened, err := memory.OpenSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	exists, err := reopened.SessionExists(context.Background(), sessionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exists {
+		t.Fatal("session row still exists after delete")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "sessions.db")); err != nil {
+		t.Fatalf("sessions database should remain after delete: %v", err)
+	}
+}
+
+func TestHandleListSessions_SQLiteSurvivesNewHandler(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,30 +223,13 @@ func TestHandleListSessions_PersistentMetadataIndex(t *testing.T) {
 	if items := list(NewHandler(configPath)); len(items) != 1 {
 		t.Fatalf("initial items = %d, want 1", len(items))
 	}
-	if _, err := os.Stat(sessionIndexPath(dir)); err != nil {
-		t.Fatalf("metadata index was not persisted: %v", err)
-	}
-
-	jsonlPath := filepath.Join(dir, sanitizeSessionKey(sessionKey)+".jsonl")
-	info, err := os.Stat(jsonlPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	corrupt := make([]byte, info.Size())
-	for i := range corrupt {
-		corrupt[i] = 'x'
-	}
-	if err := os.WriteFile(jsonlPath, corrupt, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chtimes(jsonlPath, info.ModTime(), info.ModTime()); err != nil {
+	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	// A new process must resolve the unchanged file from the persisted index
-	// instead of reparsing the now-invalid JSONL transcript.
+	// A new handler process must recover the same row directly from SQLite.
 	if items := list(NewHandler(configPath)); len(items) != 1 || items[0].ID != "persistent-index" {
-		t.Fatalf("indexed items = %+v, want persistent-index", items)
+		t.Fatalf("reopened items = %+v, want persistent-index", items)
 	}
 }
 
@@ -247,9 +296,9 @@ func TestHandleListSessions_TitleUsesFirstUserMessage(t *testing.T) {
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, storeErr := memory.NewJSONLStore(dir)
+	store, storeErr := memory.NewSQLiteStore(dir)
 	if storeErr != nil {
-		t.Fatalf("NewJSONLStore() error = %v", storeErr)
+		t.Fatalf("NewSQLiteStore() error = %v", storeErr)
 	}
 
 	sessionKey := legacyPicoSessionPrefix + "summary-title"
@@ -295,14 +344,14 @@ func TestHandleListSessions_TitleUsesFirstUserMessage(t *testing.T) {
 	}
 }
 
-func TestHandleGetSession_JSONLStorage(t *testing.T) {
+func TestHandleGetSession_SQLiteStorage(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := legacyPicoSessionPrefix + "detail-jsonl"
@@ -364,9 +413,9 @@ func TestHandleGetSession_HidesHandledToolAttachmentsBackedByMediaRefs(t *testin
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := legacyPicoSessionPrefix + "attachment-history"
@@ -420,9 +469,9 @@ func TestHandleGetSession_ExposesHandledToolAttachmentsWithDurableURL(t *testing
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := legacyPicoSessionPrefix + "attachment-history-durable"
@@ -489,14 +538,14 @@ func TestHandleGetSession_ExposesHandledToolAttachmentsWithDurableURL(t *testing
 	}
 }
 
-func TestHandleSessions_JSONLScopeDiscovery(t *testing.T) {
+func TestHandleSessions_SQLiteScopeDiscovery(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, storeErr := memory.NewJSONLStore(dir)
+	store, storeErr := memory.NewSQLiteStore(dir)
 	if storeErr != nil {
-		t.Fatalf("NewJSONLStore() error = %v", storeErr)
+		t.Fatalf("NewSQLiteStore() error = %v", storeErr)
 	}
 
 	sessionKey := "sk_v1_scope_discovery"
@@ -569,9 +618,9 @@ func TestHandleGetSession_SkipsTransientThoughtMessages(t *testing.T) {
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := picoSessionPrefix + "detail-transient-thought"
@@ -619,9 +668,9 @@ func TestHandleGetSession_ReconstructsThoughtFromAssistantReasoningContent(t *te
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := picoSessionPrefix + "detail-reasoning-content"
@@ -676,9 +725,9 @@ func TestHandleGetSession_ReconstructsRefreshMatrixForThoughtAndToolSummary(t *t
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := picoSessionPrefix + "detail-refresh-matrix"
@@ -785,9 +834,9 @@ func TestHandleGetSession_ReconstructsVisibleMessageToolOutputWithoutDuplicateSu
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := picoSessionPrefix + "detail-message-tool"
@@ -857,9 +906,9 @@ func TestHandleGetSession_PreservesFinalAssistantReplyAfterMessageToolOutput(t *
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := picoSessionPrefix + "detail-message-tool-final-reply"
@@ -924,9 +973,9 @@ func TestHandleListSessions_MessageCountUsesVisibleTranscript(t *testing.T) {
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := picoSessionPrefix + "list-visible-count"
@@ -982,9 +1031,9 @@ func TestHandleListSessions_DeduplicatesAssistantToolCallContentFromVisibleTrans
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := picoSessionPrefix + "list-deduped-tool-content"
@@ -1043,9 +1092,9 @@ func TestHandleGetSession_DoesNotDuplicateAssistantToolCallContent(t *testing.T)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := picoSessionPrefix + "detail-tool-summary-and-content"
@@ -1111,9 +1160,9 @@ func TestHandleGetSession_PreservesDistinctAssistantToolCallContent(t *testing.T
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := picoSessionPrefix + "detail-tool-summary-distinct-content"
@@ -1175,9 +1224,9 @@ func TestHandleGetSession_PreservesMediaWhenAssistantToolCallContentDuplicatesSu
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := picoSessionPrefix + "detail-tool-summary-duplicate-content-with-media"
@@ -1245,9 +1294,9 @@ func TestHandleGetSession_PreservesAttachmentsWhenAssistantToolCallContentDuplic
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := picoSessionPrefix + "detail-tool-summary-duplicate-content-with-attachments"
@@ -1337,9 +1386,9 @@ func TestHandleGetSession_UsesConfiguredToolFeedbackMaxArgsLength(t *testing.T) 
 	}
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	argsJSON := `{"path":"README.md","start_line":1,"end_line":10,"extra":"abcdefghijklmnopqrstuvwxyz"}`
@@ -1417,9 +1466,9 @@ func TestHandleGetSession_FallsBackToLegacyToolArgumentsWhenExplanationMissing(t
 	}
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	argsJSON := `{"path":"README.md","start_line":1,"end_line":10,"extra":"abcdefghijklmnopqrstuvwxyz"}`
@@ -1481,9 +1530,9 @@ func TestHandleGetSession_IncludesMediaOnlyMessages(t *testing.T) {
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := picoSessionPrefix + "detail-media-only"
@@ -1524,14 +1573,14 @@ func TestHandleGetSession_IncludesMediaOnlyMessages(t *testing.T) {
 	}
 }
 
-func TestHandleSessions_SupportsJSONLMessagesUpToStoreCap(t *testing.T) {
+func TestHandleSessions_SupportsLargeMessages(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := picoSessionPrefix + "detail-large-jsonl"
@@ -1601,9 +1650,9 @@ func TestHandleListSessions_UsesImagePreviewForMediaOnlyMessage(t *testing.T) {
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := picoSessionPrefix + "preview-media-only"
@@ -1641,14 +1690,14 @@ func TestHandleListSessions_UsesImagePreviewForMediaOnlyMessage(t *testing.T) {
 	}
 }
 
-func TestHandleDeleteSession_JSONLStorage(t *testing.T) {
+func TestHandleDeleteSession_SQLiteStorage(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	store, err := memory.NewJSONLStore(dir)
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("NewJSONLStore() error = %v", err)
+		t.Fatalf("NewSQLiteStore() error = %v", err)
 	}
 
 	sessionKey := legacyPicoSessionPrefix + "delete-jsonl"

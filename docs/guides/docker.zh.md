@@ -242,7 +242,7 @@ sudo tar czf gogoclaw-data-$(date +%F).tar.gz \
 
 Compose 默认容器内存上限为 `2g`，每个 Go 进程的 `GOMEMLIMIT` 为 `512MiB`，Docker 日志按 `10m × 3` 轮转。可通过 `GOGOCLAW_MEMORY_LIMIT` 和 `GOGOCLAW_GO_MEMORY_LIMIT` 调整。Launcher 和它启动的网关共享容器上限，但各自有 Go 内存预算；MCP、模型 CLI、Python、Bun 子进程以及 `/tmp` 还需要额外空间。Go 的软限制不是整个容器的硬限制。较重的工具任务应提高容器上限，依据实际峰值留出余量。
 
-默认 JSONL 保留完整聊天记录，摘要只移动模型上下文的起点，网页历史和搜索仍可访问原消息。显式清空、删除会话或编辑/切换分支仍会替换当前记录。过去版本已经物理删除的历史无法自动恢复。完整历史、分支和附件会占用磁盘，应定期备份，并主动删除不再需要的会话。
+默认 `sessions.db` 保留完整聊天记录，摘要只移动模型上下文的起点，网页历史和搜索仍可访问原消息。删除会话会把页归还给 SQLite freelist 供后续写入复用，但数据库文件不会立即缩小；GoGoClaw 刻意避免反复执行 `VACUUM`。备份时必须包含 SQLite 的 WAL 文件集合；不再需要的历史可通过删除会话清理。
 
 长期记忆注入默认限制为约 `2048` 个估算 token，且最多使用当前模型可用上下文的八分之一。可用 `agents.defaults.memory_context_tokens` 或 `GOGOCLAW_AGENTS_DEFAULTS_MEMORY_CONTEXT_TOKENS` 配置；`MEMORY.md` 和最近三天日记的原文件不受截取影响，Agent 可用文件工具读取完整内容。Seahorse 在首次使用会话时核对历史，不再启动时全量加载。
 

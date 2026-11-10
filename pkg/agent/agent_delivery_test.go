@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1495,40 +1494,13 @@ func TestProcessMessage_PersistsReasoningToolResponseAsSingleAssistantRecord(t *
 		t.Fatalf("assistant tool calls = %+v, want single read_file tool", assistantWithToolCall.ToolCalls)
 	}
 
-	sessionDir := filepath.Join(tmpDir, "sessions")
-	entries, err := os.ReadDir(sessionDir)
-	if err != nil {
-		t.Fatalf("ReadDir(%q) error = %v", sessionDir, err)
-	}
-
-	var jsonlPath string
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
-			continue
-		}
-		jsonlPath = filepath.Join(sessionDir, entry.Name())
-		break
-	}
-	if jsonlPath == "" {
-		t.Fatal("expected session jsonl file to be created")
-	}
-
-	data, err := os.ReadFile(jsonlPath)
-	if err != nil {
-		t.Fatalf("ReadFile(%q) error = %v", jsonlPath, err)
-	}
-
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(lines) < 3 {
-		t.Fatalf("jsonl lines = %d, want at least 3", len(lines))
+	transcript := history
+	if len(transcript) < 3 {
+		t.Fatalf("transcript length = %d, want at least 3", len(transcript))
 	}
 
 	matchingRecords := 0
-	for _, line := range lines {
-		var msg providers.Message
-		if err := json.Unmarshal([]byte(line), &msg); err != nil {
-			t.Fatalf("Unmarshal(jsonl line) error = %v", err)
-		}
+	for _, msg := range transcript {
 		if msg.Role != "assistant" {
 			continue
 		}
@@ -1542,12 +1514,12 @@ func TestProcessMessage_PersistsReasoningToolResponseAsSingleAssistantRecord(t *
 				msg.ReasoningContent != "Read the file before answering." ||
 				len(msg.ToolCalls) != 1 ||
 				toolName != "read_file" {
-				t.Fatalf("assistant jsonl record = %+v, want content+reasoning+tool_calls in one line", msg)
+				t.Fatalf("assistant record = %+v, want content+reasoning+tool_calls in one record", msg)
 			}
 		}
 	}
 	if matchingRecords != 1 {
-		t.Fatalf("matching assistant jsonl records = %d, want exactly 1 canonical assistant record", matchingRecords)
+		t.Fatalf("matching assistant records = %d, want exactly 1 canonical assistant record", matchingRecords)
 	}
 }
 

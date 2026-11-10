@@ -75,11 +75,11 @@ func TestBranchRollbackPreservesTranscriptAndSummarizedContext(t *testing.T) {
 	al, _, _, _, cleanup := newTestAgentLoop(t)
 	defer cleanup()
 	agent := al.registry.GetDefaultAgent()
-	raw, err := memory.NewJSONLStore(t.TempDir())
+	raw, err := memory.NewSQLiteStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent.Sessions = session.NewJSONLBackend(raw)
+	agent.Sessions = session.NewStoreBackend(raw)
 	const key = "agent:main:pico:direct:pico:archive-rollback"
 	history := []providers.Message{
 		{ID: "old-user", Role: "user", Content: "old question"},

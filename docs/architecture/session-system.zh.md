@@ -18,16 +18,16 @@ Session 系统承担四件事：
 1. 决定哪些消息应该共享同一段上下文。
 2. 让这段上下文能跨 turn、跨进程重启持久存在。
 3. 向 agent loop 暴露一个足够小的 `SessionStore` 抽象。
-4. 在存储层和路由层迁移期间继续兼容旧 session key。
+4. 让旧 session key 仍可读取，但不再用于新的持久化写入。
 
 ## 主要组件
 
 | 层次 | 文件 | 作用 |
 | --- | --- | --- |
 | Session 抽象 | `pkg/session/session_store.go` | 定义 agent loop 依赖的 `SessionStore` 接口。 |
-| 旧后端 | `pkg/session/manager.go` | 每个 session 一个 JSON 文件的旧实现，仍作为回退方案保留。 |
-| Session 适配层 | `pkg/session/jsonl_backend.go` | 把 `pkg/memory.Store` 适配成 `SessionStore`，并支持 alias 与 scope metadata。 |
-| 持久化存储 | `pkg/memory/jsonl.go` | Append-only JSONL 存储与 `.meta.json` 元数据侧文件。 |
+| 旧回退 | `pkg/session/manager.go` | 仅当 SQLite 无法初始化时使用的内存/文件回退实现。 |
+| Session 适配层 | `pkg/session/store_backend.go` | 把 `pkg/memory.Store` 适配成 `SessionStore`，并支持 alias 与 scope metadata。 |
+| 持久化存储 | `pkg/memory/sqlite.go` | 用 `sessions.db` 统一保存消息、摘要、alias 和 turn checkpoint。 |
 | Scope / Key 构建 | `pkg/session/scope.go`、`pkg/session/key.go`、`pkg/session/allocator.go` | 从路由结果生成结构化 scope、不透明 canonical key 和 legacy alias。 |
 | 运行时集成 | `pkg/agent/instance.go`、`pkg/agent/loop.go`、`pkg/agent/loop_message.go` | 初始化存储、分配 session scope，并在 turn 执行前落 metadata。 |
 
@@ -83,7 +83,7 @@ agent:main:pico:direct:pico:session-123
 ```
 
 这些 alias 很重要，因为旧 session、部分测试以及某些工具仍然会引用这种格式。
-JSONL backend 会在读写前先把 alias 解析回 canonical key。
+存储 backend 会在读写前先把 alias 解析回 canonical key。
 
 此外，如果调用方已经显式传入了受支持的 session key，agent loop 会保留它，不强行改成新分配的 routed key。
 这条逻辑在 `pkg/agent/loop_utils.go:resolveScopeKey` 中：
@@ -117,7 +117,7 @@ InboundMessage
    - `MainSessionKey`：agent 级主会话 key
    - `MainAliases`：主会话对应的 legacy alias
 4. `runAgentLoop` 通过 `ensureSessionMetadata` 持久化 scope metadata 和 alias。
-5. 后续读写时，`JSONLBackend.ResolveSessionKey` 会先把 alias 映射回 canonical key。
+5. 后续读写时，`StoreBackend.ResolveSessionKey` 会先把 alias 映射回 canonical key。
 
 `MainSessionKey` 和普通聊天会话是分开的。
 它主要服务于 agent 级、系统级的上下文场景，比如 `processSystemMessage`。
@@ -155,65 +155,52 @@ dispatch 匹配和 session 分配都会使用这套映射，因此同一个人�
 
 ## 存储格式
 
-默认运行时后端是 `pkg/memory.JSONLStore`，外面包了一层 `session.JSONLBackend`。
+运行时唯一事实库是 `pkg/memory.SQLiteStore`，由 `session.StoreBackend` 包装。
+它使用 WAL、busy timeout 和外键打开 `sessions/sessions.db`。
 
-每个 session 使用两类文件：
+库内有三张会话表：
 
-```text
-{sanitized_key}.jsonl
-{sanitized_key}.meta.json
-```
+| 表 | 内容 |
+| --- | --- |
+| `session_meta` | 摘要、逻辑截断偏移、时间戳、scope、turn checkpoint 与历史 |
+| `session_messages` | 稳定消息 ID、角色、可搜索文本和完整 `providers.Message` 载荷 |
+| `session_aliases` | legacy alias 到 canonical session key 的映射 |
 
-各自保存：
+消息按数据库 ID 排序，Web 分页把这个 ID 当作不透明游标，不再依赖 JSONL 行号。
+`session_meta.skip_count` 只标记模型活动上下文的起点，完整 transcript 仍供 Web
+历史、导出、分支、附件和搜索使用。
 
-- `.jsonl`：一行一个 `providers.Message`，append-only
-- `.meta.json`：摘要、时间戳、行数、逻辑截断偏移、scope、aliases
+`sessions/seahorse.db` 保留为可重建的检索与摘要索引，不再是聊天记录的事实来源。
 
-`SessionMeta` 当前包含：
-
-- `Key`
-- `Summary`
-- `Skip`
-- `Count`
-- `CreatedAt`
-- `UpdatedAt`
-- `Scope`
-- `Aliases`
+旧 `.json` / `.jsonl` 文件只作为 Web 控制台的只读兼容输入；新写入全部进入
+`sessions.db`，启动时不会自动迁移旧数据。
 
 ## 写入与崩溃语义
 
-JSONL store 的设计核心是“追加优先、宁可暂时读到旧数据也不要丢数据”：
+每次会话变更都在 SQLite 事务内完成：
 
-- `AddMessage` / `AddFullMessage` 先追加一行 JSON，再 `fsync`，最后更新 metadata。
-- `TruncateHistory` 先做逻辑截断，本质上只是推进 `meta.Skip`。
-- `Compact` 才会真正重写 JSONL 文件，把被跳过的旧行物理移除。
-- `SetHistory` 和 `Compact` 都会先写 metadata 再改写 JSONL；如果中途崩溃，最多短时间暴露旧数据，不应丢数据。
-- 读取 JSONL 时如果碰到损坏行，会跳过该行，而不是让整个 session 读取失败。
+- 追加消息与更新时间戳原子提交；
+- `SetHistory` 在同一事务里替换消息并把逻辑偏移归零；
+- `CommitSummary` 先校验摘要和消息前缀，再推进偏移；
+- turn checkpoint 与 delivery 状态写入同一行元数据。
 
-`JSONLBackend.Save` 对应到底层的 `store.Compact(...)`。
-也就是说，`Save` 在新实现里不再是“把内存脏数据刷盘”，而是“在逻辑截断后回收无效行占用的磁盘空间”。
+`TruncateHistory` 只推进 `skip_count`。SQLite 后端的 `Compact` 是空操作。
+删除会话会级联删除消息和 alias；释放的页留在 SQLite freelist 中供后续写入复用。
+GoGoClaw 不会在删除时执行 `VACUUM`，避免反复重写整个数据库造成不必要的磁盘压力。
 
 ## 并发模型
 
-`pkg/memory.JSONLStore` 使用固定 64 分片 mutex，按 session key 的 hash 做串行化。
-这样既能做到“按 session 串行”，又不会因为 session 数量增长而把 mutex map 做成无界结构。
+SQLite WAL 允许多个读者和一个写者。存储层使用有界连接池、在操作之间关闭空闲句柄，
+并用 5 秒 busy timeout 处理短暂写竞争。所有多行变更都在事务中完成，agent loop
+不需要存储后端特化锁。
 
-旧的 `SessionManager` 则是一个内存 map 加 RW mutex。
+旧 `SessionManager` 只是一个内存 map 加 RW mutex，仅作为初始化失败时的回退。
 
-这两个实现都满足同一个 `SessionStore` 接口，所以 agent loop 不需要写任何存储后端特化逻辑。
+## 兼容与启动
 
-## 兼容与迁移
-
-`pkg/agent/instance.go:initSessionStore` 会优先初始化 JSONL 后端。
-
-启动过程如下：
-
-1. 创建 `memory.NewJSONLStore(dir)`。
-2. 执行 `memory.MigrateFromJSON(...)`，把旧 `.json` session 迁入新格式。
-3. 用 `session.NewJSONLBackend(store)` 包装。
-4. 如果 JSONL 初始化或迁移失败，则回退到 `session.NewSessionManager(dir)`。
-
-这个回退是刻意设计的：做一半的迁移，比整轮继续使用旧后端更危险。
+`pkg/agent/instance.go:initSessionStore` 打开唯一 SQLite 会话库，并用
+`session.NewStoreBackend` 包装。只有数据库无法初始化时，才会记录错误并在该轮
+运行中回退到 `SessionManager`。
 
 ### Alias 提升
 
@@ -236,7 +223,7 @@ JSONL store 的设计核心是“追加优先、宁可暂时读到旧数据也�
 
 Session 系统不只被 agent loop 使用：
 
-- `web/backend/api/session.go` 会读取 JSONL metadata 和旧 JSON session，并把历史暴露给 launcher UI。
+- `web/backend/api/session.go` 读取 `sessions.db`，并保留 JSONL/JSON 旧格式的只读兼容。
 - `pkg/agent/steering.go` 可以在 steering 场景下恢复 scope metadata。
 - 因为 alias 解析发生在 agent loop 之下，测试和工具仍然可以继续使用 legacy alias。
 
@@ -244,11 +231,11 @@ Session 系统不只被 agent loop 使用：
 
 - `pkg/session/session_store.go`
 - `pkg/session/manager.go`
-- `pkg/session/jsonl_backend.go`
+- `pkg/session/store_backend.go`
 - `pkg/session/scope.go`
 - `pkg/session/key.go`
 - `pkg/session/allocator.go`
-- `pkg/memory/jsonl.go`
+- `pkg/memory/sqlite.go`
 - `pkg/agent/instance.go`
 - `pkg/agent/loop.go`
 - `pkg/agent/loop_message.go`

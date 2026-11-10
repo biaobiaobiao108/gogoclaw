@@ -51,11 +51,11 @@ func TestSeahorseCMRegistration(t *testing.T) {
 
 func TestSeahorseReconcilesOnlyRequestedSessionIncludingSummarizedMessages(t *testing.T) {
 	root := t.TempDir()
-	raw, err := memory.NewJSONLStore(filepath.Join(root, "sessions"))
+	raw, err := memory.NewSQLiteStore(filepath.Join(root, "sessions"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	sessions := session.NewJSONLBackend(raw)
+	sessions := session.NewStoreBackend(raw)
 	for _, key := range []string{"one", "unused"} {
 		sessions.AddMessage(key, "user", "old history")
 		sessions.AddMessage(key, "assistant", "recent answer")
@@ -1001,7 +1001,7 @@ func TestSeahorseAssembleSummaryNotInMessages(t *testing.T) {
 }
 
 // TestSeahorseSteeringMessageIngested verifies that steering messages are ingested
-// into seahorse SQLite, not just session JSONL.
+// into seahorse SQLite, not just the canonical session store.
 func TestSeahorseSteeringMessageIngested(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
