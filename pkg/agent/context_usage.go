@@ -1,15 +1,74 @@
 package agent
 
 import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
+	usagepkg "github.com/biaobiaobiao108/gogoclaw/pkg/usage"
 )
 
+type usageCall struct {
+	Provider  string
+	Model     string
+	ModelID   string
+	Channel   string
+	CostRates usagepkg.CostRates
+}
+
+func (ts *turnState) usageSessionKeyOrDefault() string {
+	if ts == nil {
+		return ""
+	}
+	if key := strings.TrimSpace(ts.usageSessionKey); key != "" {
+		return key
+	}
+	return ts.sessionKey
+}
+
+func (ts *turnState) usageStore() usagepkg.Store {
+	if ts == nil || ts.agent == nil {
+		return nil
+	}
+	if ts.agent.usageStore != nil {
+		return ts.agent.usageStore
+	}
+	store, _ := ts.agent.Sessions.(usagepkg.Store)
+	return store
+}
+
+func (ts *turnState) usageLedger() usagepkg.Store {
+	if ts == nil || ts.agent == nil {
+		return nil
+	}
+	if ts.agent.usageLedger != nil {
+		return ts.agent.usageLedger
+	}
+	return ts.usageStore()
+}
+
+func (ts *turnState) usageGuard() *usagepkg.Guard {
+	if ts == nil || ts.agent == nil {
+		return nil
+	}
+	return ts.agent.usageGuard
+}
+
+// recordUsage keeps compatibility with callers that only need in-memory task
+// totals. Production LLM call sites use recordUsageCall so the durable ledger
+// receives provider, model, channel, and cost dimensions.
 func (ts *turnState) recordUsage(usage *providers.UsageInfo, summary bool) {
+	_ = ts.recordUsageCall(usage, summary, usageCall{})
+}
+
+func (ts *turnState) recordUsageCall(usage *providers.UsageInfo, summary bool, call usageCall) error {
 	if usage == nil {
-		return
+		return nil
 	}
 	ts.mu.Lock()
 	ts.usage.PromptTokens += usage.PromptTokens
@@ -27,6 +86,54 @@ func (ts *turnState) recordUsage(usage *providers.UsageInfo, summary bool) {
 		}
 	}
 	ts.mu.Unlock()
+
+	baseRecord := usagepkg.Record{
+		Day:          time.Now().Format("2006-01-02"),
+		AgentID:      ts.agentID,
+		Channel:      strings.TrimSpace(call.Channel),
+		Provider:     call.Provider,
+		Model:        call.Model,
+		ModelID:      call.ModelID,
+		InputTokens:  int64(max(0, usage.PromptTokens)),
+		OutputTokens: int64(max(0, usage.CompletionTokens)),
+		TotalTokens:  int64(max(0, usage.TotalTokens)),
+	}
+	if baseRecord.Channel == "" {
+		baseRecord.Channel = ts.channel
+	}
+	rates := call.CostRates
+	if ts.agent != nil && rates.InputUSDPerMillion == 0 && rates.OutputUSDPerMillion == 0 {
+		rates = ts.agent.usageRates(call.Provider, call.Model, call.ModelID)
+	}
+	baseRecord.CostNanos = usagepkg.CostNanos(int64(usage.PromptTokens), int64(usage.CompletionTokens), rates)
+	store := ts.usageStore()
+	ledger := ts.usageLedger()
+	sessionKey := ts.usageSessionKeyOrDefault()
+	if ledger != nil {
+		record := baseRecord
+		if store == ledger {
+			record.SessionKeys = []string{sessionKey}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		err := ledger.RecordUsage(ctx, record)
+		cancel()
+		if err != nil {
+			return err
+		}
+	}
+	if store != nil && store != ledger {
+		record := baseRecord
+		record.SessionOnly = true
+		record.SessionKeys = []string{sessionKey}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		err := store.RecordUsage(ctx, record)
+		cancel()
+		if err != nil {
+			return err
+		}
+	} else if store == nil && ts.agent != nil && ts.agent.UsageGovernance.Enabled() {
+		return usageAccountingUnavailableError()
+	}
 	// A spawned turn contributes to its parent's task cost, but must not
 	// replace the parent's current-request occupancy or last response usage.
 	for parent := ts.parentTurnState; parent != nil; parent = parent.parentTurnState {
@@ -40,6 +147,21 @@ func (ts *turnState) recordUsage(usage *providers.UsageInfo, summary bool) {
 		}
 		parent.mu.Unlock()
 		if parent.agent != nil {
+			if parent.usageSessionKeyOrDefault() != sessionKey {
+				if parentStore := parent.usageStore(); parentStore != nil {
+					record := baseRecord
+					record.SessionOnly = true
+					record.SessionKeys = []string{parent.usageSessionKeyOrDefault()}
+					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+					err := parentStore.RecordUsage(ctx, record)
+					cancel()
+					if err != nil {
+						return fmt.Errorf("record parent usage: %w", err)
+					}
+				} else if parent.agent.UsageGovernance.Enabled() {
+					return usageAccountingUnavailableError()
+				}
+			}
 			if store, ok := parent.agent.Sessions.(session.TurnUsageStore); ok {
 				if err := store.UpdateTurnUsage(parent.sessionKey, parent.turnID, parent.contextUsageSnapshot()); err != nil {
 					logger.WarnCF("agent", "Failed to persist child turn usage", map[string]any{"error": err.Error(), "turn_id": parent.turnID})
@@ -47,6 +169,7 @@ func (ts *turnState) recordUsage(usage *providers.UsageInfo, summary bool) {
 			}
 		}
 	}
+	return nil
 }
 
 func (ts *turnState) totalTokenUsage() *providers.UsageInfo {

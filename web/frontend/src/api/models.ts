@@ -18,6 +18,8 @@ export interface ModelInfo {
   rpm?: number
   max_tokens_field?: string
   request_timeout?: number
+  input_cost_per_million_usd?: number
+  output_cost_per_million_usd?: number
   thinking_level?: string
   tool_schema_transform?: string
   streaming?: {

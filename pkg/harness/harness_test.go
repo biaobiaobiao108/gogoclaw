@@ -63,10 +63,11 @@ func TestToolPanicFaultIsRecovered(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := result.Verify(Expect{
-		Final:      "recovered",
-		Tools:      []string{"explode"},
-		ModelCalls: 2,
-		TurnStatus: agent.TurnEndStatusCompleted,
+		FinalContains: []string{"recovered", "Action verification notice"},
+		Tools:         []string{"explode"},
+		ModelCalls:    2,
+		TurnStatus:    agent.TurnEndStatusCompleted,
+		TurnReason:    agent.TurnEndReasonToolFailure,
 	}); err != nil {
 		t.Fatal(err)
 	}

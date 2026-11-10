@@ -49,16 +49,18 @@ type modelResponse struct {
 	Proxy      string `json:"proxy,omitempty"`
 	AuthMethod string `json:"auth_method,omitempty"`
 	// Advanced fields
-	ConnectMode         string                      `json:"connect_mode,omitempty"`
-	Workspace           string                      `json:"workspace,omitempty"`
-	RPM                 int                         `json:"rpm,omitempty"`
-	MaxTokensField      string                      `json:"max_tokens_field,omitempty"`
-	RequestTimeout      int                         `json:"request_timeout,omitempty"`
-	ThinkingLevel       string                      `json:"thinking_level,omitempty"`
-	ToolSchemaTransform string                      `json:"tool_schema_transform,omitempty"`
-	Streaming           config.ModelStreamingConfig `json:"streaming,omitempty"`
-	ExtraBody           map[string]any              `json:"extra_body,omitempty"`
-	CustomHeaders       map[string]string           `json:"custom_headers,omitempty"`
+	ConnectMode             string                      `json:"connect_mode,omitempty"`
+	Workspace               string                      `json:"workspace,omitempty"`
+	RPM                     int                         `json:"rpm,omitempty"`
+	MaxTokensField          string                      `json:"max_tokens_field,omitempty"`
+	RequestTimeout          int                         `json:"request_timeout,omitempty"`
+	InputCostPerMillionUSD  float64                     `json:"input_cost_per_million_usd,omitempty"`
+	OutputCostPerMillionUSD float64                     `json:"output_cost_per_million_usd,omitempty"`
+	ThinkingLevel           string                      `json:"thinking_level,omitempty"`
+	ToolSchemaTransform     string                      `json:"tool_schema_transform,omitempty"`
+	Streaming               config.ModelStreamingConfig `json:"streaming,omitempty"`
+	ExtraBody               map[string]any              `json:"extra_body,omitempty"`
+	CustomHeaders           map[string]string           `json:"custom_headers,omitempty"`
 	// Meta
 	Enabled             bool   `json:"enabled"`
 	Available           bool   `json:"available"`
@@ -621,30 +623,32 @@ func (h *Handler) handleListModels(w http.ResponseWriter, r *http.Request) {
 	for i, m := range cfg.ModelList {
 		provider, modelID := providers.ExtractProtocol(m)
 		models = append(models, modelResponse{
-			Index:               i,
-			ModelName:           m.ModelName,
-			Provider:            provider,
-			Model:               modelID,
-			APIBase:             m.APIBase,
-			APIKey:              maskAPIKey(m.APIKey()),
-			Proxy:               m.Proxy,
-			AuthMethod:          m.AuthMethod,
-			ConnectMode:         m.ConnectMode,
-			Workspace:           m.Workspace,
-			RPM:                 m.RPM,
-			MaxTokensField:      m.MaxTokensField,
-			RequestTimeout:      m.RequestTimeout,
-			ThinkingLevel:       m.ThinkingLevel,
-			ToolSchemaTransform: m.ToolSchemaTransform,
-			Streaming:           m.Streaming,
-			ExtraBody:           m.ExtraBody,
-			CustomHeaders:       m.CustomHeaders,
-			Enabled:             m.IsEnabled(),
-			Available:           modelStatuses[i].Available,
-			Status:              modelStatuses[i].Status,
-			IsDefault:           m.ModelName == defaultModel,
-			IsVirtual:           m.IsVirtual(),
-			DefaultModelAllowed: defaultModelAllowedForModelConfig(m, defaultChainProvider(cfg)),
+			Index:                   i,
+			ModelName:               m.ModelName,
+			Provider:                provider,
+			Model:                   modelID,
+			APIBase:                 m.APIBase,
+			APIKey:                  maskAPIKey(m.APIKey()),
+			Proxy:                   m.Proxy,
+			AuthMethod:              m.AuthMethod,
+			ConnectMode:             m.ConnectMode,
+			Workspace:               m.Workspace,
+			RPM:                     m.RPM,
+			MaxTokensField:          m.MaxTokensField,
+			RequestTimeout:          m.RequestTimeout,
+			InputCostPerMillionUSD:  m.InputCostPerMillionUSD,
+			OutputCostPerMillionUSD: m.OutputCostPerMillionUSD,
+			ThinkingLevel:           m.ThinkingLevel,
+			ToolSchemaTransform:     m.ToolSchemaTransform,
+			Streaming:               m.Streaming,
+			ExtraBody:               m.ExtraBody,
+			CustomHeaders:           m.CustomHeaders,
+			Enabled:                 m.IsEnabled(),
+			Available:               modelStatuses[i].Available,
+			Status:                  modelStatuses[i].Status,
+			IsDefault:               m.ModelName == defaultModel,
+			IsVirtual:               m.IsVirtual(),
+			DefaultModelAllowed:     defaultModelAllowedForModelConfig(m, defaultChainProvider(cfg)),
 		})
 	}
 
@@ -830,6 +834,12 @@ func (h *Handler) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := rawFields["streaming"]; !ok {
 		mc.Streaming = cfg.ModelList[idx].Streaming
+	}
+	if _, ok := rawFields["input_cost_per_million_usd"]; !ok {
+		mc.InputCostPerMillionUSD = cfg.ModelList[idx].InputCostPerMillionUSD
+	}
+	if _, ok := rawFields["output_cost_per_million_usd"]; !ok {
+		mc.OutputCostPerMillionUSD = cfg.ModelList[idx].OutputCostPerMillionUSD
 	}
 	if _, ok := rawFields["enabled"]; !ok {
 		mc.ModelConfig.SetEnabled(cfg.ModelList[idx].IsEnabled())

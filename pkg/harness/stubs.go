@@ -122,6 +122,7 @@ func (p *ScriptedProvider) finishCall(index int, response *providers.LLMResponse
 		return
 	}
 	p.calls[index].Response = response
+	p.calls[index].Duration = time.Since(p.calls[index].At)
 	if err != nil {
 		p.calls[index].Error = err.Error()
 	}

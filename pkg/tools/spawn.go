@@ -41,6 +41,14 @@ func (t *SpawnTool) SetSpawner(spawner SubTurnSpawner) {
 	t.spawner = spawner
 }
 
+// Wait blocks until subagent callbacks from the current manager have run.
+func (t *SpawnTool) Wait(ctx context.Context) error {
+	if t == nil || t.manager == nil {
+		return nil
+	}
+	return t.manager.Wait(ctx)
+}
+
 func (t *SpawnTool) Name() string {
 	return "spawn"
 }
@@ -155,13 +163,12 @@ Task: %s`,
 			if err != nil {
 				result = ErrorResult(fmt.Sprintf("Spawn failed: %v", err)).WithError(err)
 			}
-			if trackedTask != nil {
-				t.manager.finishTask(trackedTask.ID, result, err)
-			}
-
 			// Call callback if provided
 			if cb != nil {
 				cb(ctx, result)
+			}
+			if trackedTask != nil {
+				t.manager.finishTask(trackedTask.ID, result, err)
 			}
 		}
 		if runner, ok := t.spawner.(BackgroundRunner); ok {

@@ -84,6 +84,28 @@ func TestNewAgentRegistry_ExplicitAgents(t *testing.T) {
 	}
 }
 
+func TestNewAgentRegistrySharesUsageLedgerAndGuard(t *testing.T) {
+	root := t.TempDir()
+	cfg := testCfg([]config.AgentConfig{
+		{ID: "main", Default: true, Workspace: root},
+		{ID: "research", Workspace: root + "-research"},
+	})
+	registry := NewAgentRegistry(cfg, &mockRegistryProvider{})
+	t.Cleanup(registry.Close)
+
+	mainAgent, _ := registry.GetAgent("main")
+	researchAgent, _ := registry.GetAgent("research")
+	if mainAgent == nil || researchAgent == nil {
+		t.Fatal("expected both agents")
+	}
+	if mainAgent.usageLedger == nil || researchAgent.usageLedger != mainAgent.usageLedger {
+		t.Fatalf("usage ledgers not shared: main=%p research=%p", mainAgent.usageLedger, researchAgent.usageLedger)
+	}
+	if mainAgent.usageGuard == nil || researchAgent.usageGuard != mainAgent.usageGuard {
+		t.Fatalf("usage guards not shared: main=%p research=%p", mainAgent.usageGuard, researchAgent.usageGuard)
+	}
+}
+
 func TestAgentRegistry_GetAgent_Normalize(t *testing.T) {
 	cfg := testCfg([]config.AgentConfig{
 		{ID: "my-agent", Default: true},

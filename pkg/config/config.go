@@ -421,33 +421,68 @@ type ToolFeedbackConfig struct {
 }
 
 type AgentDefaults struct {
-	Workspace                 string             `json:"workspace"                        env:"GOGOCLAW_AGENTS_DEFAULTS_WORKSPACE"`
-	RestrictToWorkspace       bool               `json:"restrict_to_workspace"            env:"GOGOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
-	AllowReadOutsideWorkspace bool               `json:"allow_read_outside_workspace"     env:"GOGOCLAW_AGENTS_DEFAULTS_ALLOW_READ_OUTSIDE_WORKSPACE"`
-	Provider                  string             `json:"provider"                         env:"GOGOCLAW_AGENTS_DEFAULTS_PROVIDER"`
-	ModelName                 string             `json:"model_name"                       env:"GOGOCLAW_AGENTS_DEFAULTS_MODEL_NAME"`
-	ModelFallbacks            []string           `json:"model_fallbacks,omitempty"`
-	ImageModel                string             `json:"image_model,omitempty"            env:"GOGOCLAW_AGENTS_DEFAULTS_IMAGE_MODEL"`
-	ImageModelFallbacks       []string           `json:"image_model_fallbacks,omitempty"`
-	MaxTokens                 int                `json:"max_tokens"                       env:"GOGOCLAW_AGENTS_DEFAULTS_MAX_TOKENS"`
-	ContextWindow             int                `json:"context_window,omitempty"         env:"GOGOCLAW_AGENTS_DEFAULTS_CONTEXT_WINDOW"`
-	Temperature               *float64           `json:"temperature,omitempty"            env:"GOGOCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
-	MaxToolIterations         int                `json:"max_tool_iterations"              env:"GOGOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
-	SummarizeMessageThreshold int                `json:"summarize_message_threshold"      env:"GOGOCLAW_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
-	SummarizeTokenPercent     int                `json:"summarize_token_percent"          env:"GOGOCLAW_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
-	MaxMediaSize              int                `json:"max_media_size,omitempty"         env:"GOGOCLAW_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
-	MemoryContextTokens       int                `json:"memory_context_tokens,omitempty" env:"GOGOCLAW_AGENTS_DEFAULTS_MEMORY_CONTEXT_TOKENS"`
-	Routing                   *RoutingConfig     `json:"routing,omitempty"`
-	SteeringMode              string             `json:"steering_mode,omitempty"          env:"GOGOCLAW_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
-	MaxParallelTurns          int                `json:"max_parallel_turns,omitempty"     env:"GOGOCLAW_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
-	SubTurn                   SubTurnConfig      `json:"subturn"                                                                                      envPrefix:"GOGOCLAW_AGENTS_DEFAULTS_SUBTURN_"`
-	ToolFeedback              ToolFeedbackConfig `json:"tool_feedback,omitempty"`
-	SplitOnMarker             bool               `json:"split_on_marker"                  env:"GOGOCLAW_AGENTS_DEFAULTS_SPLIT_ON_MARKER"` // split messages on <|[SPLIT]|> marker
-	ContextManager            string             `json:"context_manager,omitempty"        env:"GOGOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER"`
-	ContextManagerConfig      json.RawMessage    `json:"context_manager_config,omitempty" env:"GOGOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER_CONFIG"`
-	TurnProfile               TurnProfileConfig  `json:"turn_profile,omitempty"`
-	MaxLLMRetries             int                `json:"max_llm_retries,omitempty"        env:"GOGOCLAW_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
-	LLMRetryBackoffSecs       int                `json:"llm_retry_backoff_secs,omitempty" env:"GOGOCLAW_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
+	Workspace                 string                `json:"workspace"                        env:"GOGOCLAW_AGENTS_DEFAULTS_WORKSPACE"`
+	RestrictToWorkspace       bool                  `json:"restrict_to_workspace"            env:"GOGOCLAW_AGENTS_DEFAULTS_RESTRICT_TO_WORKSPACE"`
+	AllowReadOutsideWorkspace bool                  `json:"allow_read_outside_workspace"     env:"GOGOCLAW_AGENTS_DEFAULTS_ALLOW_READ_OUTSIDE_WORKSPACE"`
+	Provider                  string                `json:"provider"                         env:"GOGOCLAW_AGENTS_DEFAULTS_PROVIDER"`
+	ModelName                 string                `json:"model_name"                       env:"GOGOCLAW_AGENTS_DEFAULTS_MODEL_NAME"`
+	ModelFallbacks            []string              `json:"model_fallbacks,omitempty"`
+	ImageModel                string                `json:"image_model,omitempty"            env:"GOGOCLAW_AGENTS_DEFAULTS_IMAGE_MODEL"`
+	ImageModelFallbacks       []string              `json:"image_model_fallbacks,omitempty"`
+	MaxTokens                 int                   `json:"max_tokens"                       env:"GOGOCLAW_AGENTS_DEFAULTS_MAX_TOKENS"`
+	ContextWindow             int                   `json:"context_window,omitempty"         env:"GOGOCLAW_AGENTS_DEFAULTS_CONTEXT_WINDOW"`
+	Temperature               *float64              `json:"temperature,omitempty"            env:"GOGOCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
+	MaxToolIterations         int                   `json:"max_tool_iterations"              env:"GOGOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
+	SummarizeMessageThreshold int                   `json:"summarize_message_threshold"      env:"GOGOCLAW_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
+	SummarizeTokenPercent     int                   `json:"summarize_token_percent"          env:"GOGOCLAW_AGENTS_DEFAULTS_SUMMARIZE_TOKEN_PERCENT"`
+	MaxMediaSize              int                   `json:"max_media_size,omitempty"         env:"GOGOCLAW_AGENTS_DEFAULTS_MAX_MEDIA_SIZE"`
+	MemoryContextTokens       int                   `json:"memory_context_tokens,omitempty" env:"GOGOCLAW_AGENTS_DEFAULTS_MEMORY_CONTEXT_TOKENS"`
+	Routing                   *RoutingConfig        `json:"routing,omitempty"`
+	SteeringMode              string                `json:"steering_mode,omitempty"          env:"GOGOCLAW_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
+	MaxParallelTurns          int                   `json:"max_parallel_turns,omitempty"     env:"GOGOCLAW_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
+	SubTurn                   SubTurnConfig         `json:"subturn"                                                                                      envPrefix:"GOGOCLAW_AGENTS_DEFAULTS_SUBTURN_"`
+	ToolFeedback              ToolFeedbackConfig    `json:"tool_feedback,omitempty"`
+	SplitOnMarker             bool                  `json:"split_on_marker"                  env:"GOGOCLAW_AGENTS_DEFAULTS_SPLIT_ON_MARKER"` // split messages on <|[SPLIT]|> marker
+	ContextManager            string                `json:"context_manager,omitempty"        env:"GOGOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER"`
+	ContextManagerConfig      json.RawMessage       `json:"context_manager_config,omitempty" env:"GOGOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER_CONFIG"`
+	TurnProfile               TurnProfileConfig     `json:"turn_profile,omitempty"`
+	MaxLLMRetries             int                   `json:"max_llm_retries,omitempty"        env:"GOGOCLAW_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
+	LLMRetryBackoffSecs       int                   `json:"llm_retry_backoff_secs,omitempty" env:"GOGOCLAW_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
+	UsageGovernance           UsageGovernanceConfig `json:"usage_governance,omitempty"`
+}
+
+// UsageGovernanceConfig controls preflight token budgets. Zero disables the
+// corresponding budget. The default response to an exceeded budget is to stop
+// before the next model call; warn only exists for explicitly relaxed installs.
+type UsageGovernanceConfig struct {
+	SessionTokenBudget int    `json:"session_token_budget,omitempty" env:"GOGOCLAW_AGENTS_DEFAULTS_USAGE_GOVERNANCE_SESSION_TOKEN_BUDGET"`
+	DailyTokenBudget   int    `json:"daily_token_budget,omitempty" env:"GOGOCLAW_AGENTS_DEFAULTS_USAGE_GOVERNANCE_DAILY_TOKEN_BUDGET"`
+	OnBudgetExceeded   string `json:"on_budget_exceeded,omitempty" env:"GOGOCLAW_AGENTS_DEFAULTS_USAGE_GOVERNANCE_ON_BUDGET_EXCEEDED"`
+}
+
+func (c UsageGovernanceConfig) EffectiveOnBudgetExceeded() string {
+	switch strings.ToLower(strings.TrimSpace(c.OnBudgetExceeded)) {
+	case "warn":
+		return "warn"
+	default:
+		return "stop"
+	}
+}
+
+func (c UsageGovernanceConfig) Enabled() bool {
+	return c.SessionTokenBudget > 0 || c.DailyTokenBudget > 0
+}
+
+func (c UsageGovernanceConfig) Validate() error {
+	if c.SessionTokenBudget < 0 || c.DailyTokenBudget < 0 {
+		return fmt.Errorf("usage governance token budgets must be non-negative")
+	}
+	switch strings.ToLower(strings.TrimSpace(c.OnBudgetExceeded)) {
+	case "", "stop", "warn":
+		return nil
+	default:
+		return fmt.Errorf("usage_governance.on_budget_exceeded must be stop or warn")
+	}
 }
 
 const DefaultMaxMediaSize = 20 * 1024 * 1024 // 20 MB
@@ -669,6 +704,10 @@ type ModelConfig struct {
 	Streaming           ModelStreamingConfig `json:"streaming"`                       // Provider streaming defaults on; an explicit false disables it
 	ExtraBody           map[string]any       `json:"extra_body,omitempty"`            // Additional fields to inject into request body
 	CustomHeaders       map[string]string    `json:"custom_headers,omitempty"`        // Additional headers to inject into every HTTP request
+	// Optional accounting prices in USD per one million tokens. They are used
+	// only for local usage reporting and are never sent to providers.
+	InputCostPerMillionUSD  float64 `json:"input_cost_per_million_usd,omitempty"`
+	OutputCostPerMillionUSD float64 `json:"output_cost_per_million_usd,omitempty"`
 
 	APIKeys SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty"` // API authentication keys (multiple keys for failover)
 
@@ -740,6 +779,9 @@ func (c *ModelConfig) Validate() error {
 	// Reject consecutive slashes
 	if strings.Contains(c.Model, "//") {
 		return fmt.Errorf("model identifier must not contain //")
+	}
+	if c.InputCostPerMillionUSD < 0 || c.OutputCostPerMillionUSD < 0 {
+		return fmt.Errorf("model token prices must be non-negative")
 	}
 	return nil
 }
@@ -1416,6 +1458,9 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 	if err = cfg.ValidateTurnProfile(); err != nil {
+		return nil, err
+	}
+	if err = cfg.Agents.Defaults.UsageGovernance.Validate(); err != nil {
 		return nil, err
 	}
 	if cfg.Agents.Defaults.ContextWindow > 0 &&

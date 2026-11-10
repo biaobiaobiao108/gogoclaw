@@ -75,6 +75,51 @@ func TestHandleUpdateModel_CustomHeadersPreserveAndClear(t *testing.T) {
 	}
 }
 
+func TestHandleUpdateModel_TokenPricesPreserveWhenOmitted(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.ModelList = []*config.ModelConfig{{
+		ModelName:               "priced",
+		Model:                   "openai/gpt-4o-mini",
+		APIKeys:                 config.SimpleSecureStrings("sk-existing"),
+		InputCostPerMillionUSD:  0.15,
+		OutputCostPerMillionUSD: 0.6,
+	}}
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/models/0", bytes.NewBufferString(`{
+		"model_name":"priced",
+		"model":"openai/gpt-4o-mini"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	updated, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if updated.ModelList[0].InputCostPerMillionUSD != 0.15 || updated.ModelList[0].OutputCostPerMillionUSD != 0.6 {
+		t.Fatalf("prices = %v/%v, want 0.15/0.6",
+			updated.ModelList[0].InputCostPerMillionUSD,
+			updated.ModelList[0].OutputCostPerMillionUSD,
+		)
+	}
+}
+
 func TestHandleUpdateModel_ToolSchemaTransformPreserveAndClear(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

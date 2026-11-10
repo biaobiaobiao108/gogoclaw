@@ -10,6 +10,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/usage"
 )
 
 // StoreBackend adapts a memory.Store into the SessionStore interface.
@@ -17,6 +18,51 @@ import (
 // contract that the agent loop relies on.
 type StoreBackend struct {
 	store memory.Store
+}
+
+var _ usage.Store = (*StoreBackend)(nil)
+
+func (b *StoreBackend) RecordUsage(ctx context.Context, record usage.Record) error {
+	store, ok := b.store.(usage.Store)
+	if !ok {
+		return fmt.Errorf("session store does not support usage accounting")
+	}
+	for i, key := range record.SessionKeys {
+		resolved, err := b.resolveSessionKeyChecked(key)
+		if err != nil {
+			return err
+		}
+		record.SessionKeys[i] = resolved
+	}
+	return store.RecordUsage(ctx, record)
+}
+
+func (b *StoreBackend) SessionUsage(ctx context.Context, key string) (usage.Totals, error) {
+	store, ok := b.store.(usage.Store)
+	if !ok {
+		return usage.Totals{}, fmt.Errorf("session store does not support usage accounting")
+	}
+	resolved, err := b.resolveSessionKeyChecked(key)
+	if err != nil {
+		return usage.Totals{}, err
+	}
+	return store.SessionUsage(ctx, resolved)
+}
+
+func (b *StoreBackend) DailyUsage(ctx context.Context, day string) (usage.Totals, error) {
+	store, ok := b.store.(usage.Store)
+	if !ok {
+		return usage.Totals{}, fmt.Errorf("session store does not support usage accounting")
+	}
+	return store.DailyUsage(ctx, day)
+}
+
+func (b *StoreBackend) UsageBreakdown(ctx context.Context, fromDay, toDay string) ([]usage.Breakdown, error) {
+	store, ok := b.store.(usage.Store)
+	if !ok {
+		return nil, fmt.Errorf("session store does not support usage accounting")
+	}
+	return store.UsageBreakdown(ctx, fromDay, toDay)
 }
 
 func (b *StoreBackend) UpdateTurnUsage(key, turnID string, usage *bus.ContextUsage) error {

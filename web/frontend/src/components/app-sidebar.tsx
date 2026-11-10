@@ -1,5 +1,6 @@
 import {
   IconAtom,
+  IconChartBar,
   IconChevronRight,
   IconChevronsDown,
   IconChevronsUp,
@@ -164,6 +165,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             title: "navigation.logs",
             url: "/logs",
             icon: IconListDetails,
+            translateTitle: true,
+          },
+          {
+            title: "navigation.usage",
+            url: "/usage",
+            icon: IconChartBar,
             translateTitle: true,
           },
         ],

@@ -26,6 +26,16 @@ func (p *Pipeline) Finalize(
 	finalContent string,
 ) (turnResult, error) {
 	al := p.al
+	if turnStatus == TurnEndStatusCompleted && ts.endReasonSnapshot() == TurnEndReasonCompleted {
+		if notice := ts.sideEffectFailureNotice(finalContent); notice != "" {
+			if strings.TrimSpace(finalContent) == "" {
+				finalContent = notice
+			} else {
+				finalContent = strings.TrimSpace(finalContent) + "\n\n" + notice
+			}
+			ts.setEndReason(TurnEndReasonToolFailure)
+		}
+	}
 
 	// When allResponsesHandled=true, ExecuteTools already finalized
 	// (added handledToolResponseSummary, saved session, set phase to Completed).

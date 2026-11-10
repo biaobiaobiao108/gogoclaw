@@ -134,7 +134,14 @@ func summarizeTaskTranscript(ctx context.Context, provider providers.LLMProvider
 		}
 		response, err := provider.Chat(ctx, prompt, nil, model, map[string]any{"max_tokens": reserve, "temperature": 0})
 		if ts := turnStateFromContext(ctx); ts != nil && response != nil {
-			ts.recordUsage(response.Usage, true)
+			if err := ts.recordUsageCall(response.Usage, true, usageCall{
+				Provider:  resolvedCandidateProvider(ts.agent.Candidates, ""),
+				Model:     resolvedCandidateModelName(ts.agent.Candidates, ""),
+				ModelID:   model,
+				CostRates: ts.agent.usageRates(resolvedCandidateProvider(ts.agent.Candidates, ""), model, model),
+			}); err != nil {
+				return "", fmt.Errorf("record summary usage: %w", err)
+			}
 		}
 		if err != nil {
 			return "", err

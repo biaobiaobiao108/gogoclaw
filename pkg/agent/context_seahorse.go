@@ -84,7 +84,14 @@ func providerToCompleteFn(provider providers.LLMProvider, model string) seahorse
 			},
 		)
 		if ts := turnStateFromContext(ctx); ts != nil && resp != nil {
-			ts.recordUsage(resp.Usage, true)
+			if err := ts.recordUsageCall(resp.Usage, true, usageCall{
+				Provider:  resolvedCandidateProvider(ts.agent.Candidates, ""),
+				Model:     resolvedCandidateModelName(ts.agent.Candidates, ""),
+				ModelID:   model,
+				CostRates: ts.agent.usageRates(resolvedCandidateProvider(ts.agent.Candidates, ""), model, model),
+			}); err != nil {
+				return "", fmt.Errorf("record summary usage: %w", err)
+			}
 			if ts.agent != nil {
 				if store, ok := ts.agent.Sessions.(session.TurnUsageStore); ok {
 					if err := store.UpdateTurnUsage(ts.sessionKey, ts.turnID, ts.contextUsageSnapshot()); err != nil {

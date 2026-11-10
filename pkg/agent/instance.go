@@ -18,6 +18,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/routing"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/usage"
 )
 
 // AgentInstance represents a fully configured agent with its own workspace,
@@ -62,6 +63,11 @@ type AgentInstance struct {
 	// instances. Config-index keys preserve duplicate model_list entries while
 	// provider/model keys remain available for callers without a config identity.
 	CandidateProviders map[string]providers.LLMProvider
+	UsageGovernance    config.UsageGovernanceConfig
+	UsagePricing       map[string]usage.CostRates
+	usageStore         usage.Store
+	usageLedger        usage.Store
+	usageGuard         *usage.Guard
 }
 
 var fallbackAgentModelMu sync.RWMutex
@@ -318,7 +324,7 @@ func NewAgentInstance(
 		}
 	}
 
-	return &AgentInstance{
+	instance := &AgentInstance{
 		modelMu:                   &sync.RWMutex{},
 		ID:                        agentID,
 		Name:                      agentName,
@@ -347,7 +353,56 @@ func NewAgentInstance(
 		LightCandidates:           lightCandidates,
 		LightProvider:             lightProvider,
 		CandidateProviders:        candidateProviders,
+		UsageGovernance:           defaults.UsageGovernance,
+		UsagePricing:              buildUsagePricing(cfg),
 	}
+	if store, ok := sessions.(usage.Store); ok {
+		instance.usageStore = store
+		instance.usageLedger = store
+	}
+	instance.usageGuard = usage.NewGuard()
+	return instance
+}
+
+func buildUsagePricing(cfg *config.Config) map[string]usage.CostRates {
+	if cfg == nil {
+		return nil
+	}
+	defaultProvider := effectiveDefaultProvider(cfg.Agents.Defaults.Provider)
+	pricing := make(map[string]usage.CostRates)
+	for _, modelCfg := range cfg.ModelList {
+		if modelCfg == nil {
+			continue
+		}
+		provider, modelID := modelProviderAndIDForResolution(defaultProvider, modelCfg)
+		rates := usage.CostRates{
+			InputUSDPerMillion:  modelCfg.InputCostPerMillionUSD,
+			OutputUSDPerMillion: modelCfg.OutputCostPerMillionUSD,
+		}
+		if modelID != "" {
+			pricing[providers.ModelKey(provider, modelID)] = rates
+		}
+		if name := strings.TrimSpace(modelCfg.ModelName); name != "" {
+			pricing[name] = rates
+		}
+	}
+	return pricing
+}
+
+func (agent *AgentInstance) usageRates(provider, model, modelID string) usage.CostRates {
+	if agent == nil || len(agent.UsagePricing) == 0 {
+		return usage.CostRates{}
+	}
+	if rates, ok := agent.UsagePricing[providers.ModelKey(provider, modelID)]; ok {
+		return rates
+	}
+	if rates, ok := agent.UsagePricing[providers.ModelKey(provider, model)]; ok {
+		return rates
+	}
+	if rates, ok := agent.UsagePricing[strings.TrimSpace(model)]; ok {
+		return rates
+	}
+	return usage.CostRates{}
 }
 
 // populateCandidateProvidersFromNames resolves each model name (alias or

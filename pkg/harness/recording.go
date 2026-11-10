@@ -38,6 +38,7 @@ func (p *RecordingProvider) Chat(
 	model string,
 	options map[string]any,
 ) (*providers.LLMResponse, error) {
+	started := time.Now().UTC()
 	response, err := p.inner.Chat(ctx, messages, toolDefs, model, options)
 	p.mu.Lock()
 	call := ModelCall{
@@ -46,7 +47,8 @@ func (p *RecordingProvider) Chat(
 		Messages:  cloneMessages(messages),
 		ToolNames: toolNames(toolDefs),
 		Response:  cloneLLMResponse(response),
-		At:        time.Now().UTC(),
+		At:        started,
+		Duration:  time.Since(started),
 	}
 	if err != nil {
 		call.Error = err.Error()

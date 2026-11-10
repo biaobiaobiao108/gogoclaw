@@ -376,6 +376,11 @@ func spawnSubTurn(
 	ephemeralStore := newEphemeralSession(nil)
 	agent := *baseAgent // shallow copy
 	agent.Sessions = ephemeralStore
+	if parentTS.agent != nil {
+		agent.usageStore = parentTS.usageStore()
+		agent.usageLedger = parentTS.usageLedger()
+		agent.usageGuard = parentTS.usageGuard()
+	}
 	if strings.TrimSpace(cfg.Model) != "" {
 		agent.Model = strings.TrimSpace(cfg.Model)
 		agent.Router = nil
@@ -452,6 +457,7 @@ func spawnSubTurn(
 	childTS.concurrencySem = make(chan struct{}, rtCfg.maxConcurrent)
 	childTS.al = al                  // back-ref for hard abort cascade
 	childTS.session = ephemeralStore // same store as agent.Sessions
+	childTS.usageSessionKey = parentTS.usageSessionKeyOrDefault()
 	childTS.maxContextRunes = cfg.MaxContextRunes
 	if childTS.maxContextRunes == 0 && agent.ContextWindow > 0 {
 		childTS.maxContextRunes = int(float64(agent.ContextWindow) * 0.75)

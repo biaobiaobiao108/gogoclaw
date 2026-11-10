@@ -20,6 +20,9 @@ export interface CoreConfigForm {
   maxToolIterations: string
   summarizeMessageThreshold: string
   summarizeTokenPercent: string
+  sessionTokenBudget: string
+  dailyTokenBudget: string
+  budgetExceededMode: "stop" | "warn"
   turnProfile: TurnProfileForm
   dmScope: string
   heartbeatEnabled: boolean
@@ -126,6 +129,9 @@ export const EMPTY_FORM: CoreConfigForm = {
   maxToolIterations: "50",
   summarizeMessageThreshold: "20",
   summarizeTokenPercent: "75",
+  sessionTokenBudget: "0",
+  dailyTokenBudget: "0",
+  budgetExceededMode: "stop",
   turnProfile: {
     enabled: false,
     historyMode: "default",
@@ -361,6 +367,19 @@ export function buildFormFromConfig(config: unknown): CoreConfigForm {
       defaults.summarize_token_percent,
       EMPTY_FORM.summarizeTokenPercent,
     ),
+    sessionTokenBudget: asNumberString(
+      asRecord(defaults.usage_governance).session_token_budget,
+      EMPTY_FORM.sessionTokenBudget,
+    ),
+    dailyTokenBudget: asNumberString(
+      asRecord(defaults.usage_governance).daily_token_budget,
+      EMPTY_FORM.dailyTokenBudget,
+    ),
+    budgetExceededMode:
+      asString(asRecord(defaults.usage_governance).on_budget_exceeded) ===
+      "warn"
+        ? "warn"
+        : "stop",
     turnProfile: mapTurnProfile(defaults.turn_profile),
     dmScope: asString(session.dm_scope) || EMPTY_FORM.dmScope,
     heartbeatEnabled:

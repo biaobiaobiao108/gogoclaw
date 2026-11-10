@@ -113,7 +113,9 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 	}
 	logConfiguredStreamingSummary(ts, exec, chunkCount, firstChunkAt, lastChunkAt, streamErr)
 	if response != nil {
-		ts.recordUsage(response.Usage, false)
+		if err := ts.recordUsageCall(response.Usage, false, executionUsageCall(exec)); err != nil {
+			return nil, true, fmt.Errorf("record streaming usage: %w", err)
+		}
 	}
 	if streamErr == nil {
 		if updateErr := publisher.Err(); updateErr != nil {
@@ -145,7 +147,9 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 				exec.llmOpts,
 			)
 			if fallbackResponse != nil {
-				ts.recordUsage(fallbackResponse.Usage, false)
+				if recordErr := ts.recordUsageCall(fallbackResponse.Usage, false, executionUsageCall(exec)); recordErr != nil {
+					return nil, true, fmt.Errorf("record streaming fallback usage: %w", recordErr)
+				}
 			}
 			if err == nil && fallbackResponse != nil {
 				exec.streamingFallback = true
@@ -176,7 +180,9 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 				exec.llmOpts,
 			)
 			if fallbackResponse != nil {
-				ts.recordUsage(fallbackResponse.Usage, false)
+				if recordErr := ts.recordUsageCall(fallbackResponse.Usage, false, executionUsageCall(exec)); recordErr != nil {
+					return nil, true, fmt.Errorf("record streaming fallback usage: %w", recordErr)
+				}
 			}
 			if err == nil && fallbackResponse != nil {
 				exec.streamingFallback = true

@@ -172,6 +172,18 @@ func (p *Pipeline) CallLLM(
 	} else {
 		delete(exec.llmOpts, "native_search")
 	}
+	budgetBlocked, budgetMessage, budgetReservation, budgetErr := ts.enforceUsageBudget(turnCtx, exec.callMessages, exec.providerToolDefs)
+	if budgetErr != nil {
+		return ControlBreak, budgetErr
+	}
+	if budgetReservation != nil {
+		defer budgetReservation.Release()
+	}
+	if budgetBlocked {
+		ts.setEndReason(TurnEndReasonTokenBudget)
+		exec.finalContent = budgetMessage
+		return ControlBreak, nil
+	}
 
 	al.emitEvent(
 		runtimeevents.KindAgentLLMRequest,
@@ -281,7 +293,14 @@ func (p *Pipeline) CallLLM(
 			ts.recordRequestContext(messagesForCall, candidateTools)
 			response, err := candidateProvider.Chat(ctx, messagesForCall, candidateTools, candidate.Model, callOpts)
 			if response != nil {
-				ts.recordUsage(response.Usage, false)
+				if recordErr := ts.recordUsageCall(response.Usage, false, usageCall{
+					Provider:  candidate.Provider,
+					Model:     resolvedCandidateModelName([]providers.FallbackCandidate{candidate}, candidate.Model),
+					ModelID:   candidate.Model,
+					CostRates: costRatesFromModelConfig(candidateCfg),
+				}); recordErr != nil {
+					return nil, recordErr
+				}
 			}
 			return response, err
 		}
@@ -331,7 +350,9 @@ func (p *Pipeline) CallLLM(
 		}
 		response, err := exec.activeProvider.Chat(providerCtx, messagesForCall, toolDefsForCall, exec.llmModel, exec.llmOpts)
 		if response != nil {
-			ts.recordUsage(response.Usage, false)
+			if recordErr := ts.recordUsageCall(response.Usage, false, executionUsageCall(exec)); recordErr != nil {
+				return nil, recordErr
+			}
 		}
 		return response, err
 	}

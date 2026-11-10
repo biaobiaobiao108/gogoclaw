@@ -259,6 +259,57 @@ export function AgentDefaultsSection({
       </Field>
 
       <Field
+        label={t("pages.config.session_token_budget")}
+        hint={t("pages.config.session_token_budget_hint")}
+        layout="setting-row"
+      >
+        <Input
+          type="number"
+          min={0}
+          value={form.sessionTokenBudget}
+          onChange={(e) => onFieldChange("sessionTokenBudget", e.target.value)}
+        />
+      </Field>
+
+      <Field
+        label={t("pages.config.daily_token_budget")}
+        hint={t("pages.config.daily_token_budget_hint")}
+        layout="setting-row"
+      >
+        <Input
+          type="number"
+          min={0}
+          value={form.dailyTokenBudget}
+          onChange={(e) => onFieldChange("dailyTokenBudget", e.target.value)}
+        />
+      </Field>
+
+      <Field
+        label={t("pages.config.budget_exceeded_mode")}
+        hint={t("pages.config.budget_exceeded_mode_hint")}
+        layout="setting-row"
+      >
+        <Select
+          value={form.budgetExceededMode}
+          onValueChange={(value) =>
+            onFieldChange("budgetExceededMode", value as "stop" | "warn")
+          }
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="stop">
+              {t("pages.config.budget_exceeded_stop")}
+            </SelectItem>
+            <SelectItem value="warn">
+              {t("pages.config.budget_exceeded_warn")}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+
+      <Field
         label={t("pages.config.turn_profile")}
         hint={t("pages.config.turn_profile_hint")}
         layout="setting-row"

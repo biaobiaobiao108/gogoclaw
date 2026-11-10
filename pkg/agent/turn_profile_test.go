@@ -1105,8 +1105,8 @@ func TestTurnProfile_ToolExecutionRejectsDisallowedToolCalls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runAgentLoop() error = %v", err)
 	}
-	if response != "done" {
-		t.Fatalf("response = %q, want done", response)
+	if !strings.HasPrefix(response, "done") || !strings.Contains(response, "Action verification notice") {
+		t.Fatalf("response = %q, want done plus denied-action notice", response)
 	}
 	if provider.calls != 2 {
 		t.Fatalf("provider calls = %d, want 2", provider.calls)

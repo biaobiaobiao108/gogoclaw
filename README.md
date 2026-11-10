@@ -32,6 +32,7 @@ GoGoClaw 以单个可信实例为运行边界，不提供多租户、RBAC 或横
 - **现代 Web 控制台**：模型、频道、工具、会话、审批、日志和运行状态都在同一处管理。
 - **容器优先**：发布镜像同时支持 Linux `amd64` 与 `arm64`，以非 root 用户运行。
 - **可持久化**：配置、凭据、SQLite 会话库、工作区、频道同步状态和日志统一存放在 `/data`。
+- **用量治理**：支持按会话和按日 Token 预算、模型单价配置，以及按模型、Provider 和频道统计真实调用量。
 
 ## 快速部署
 
@@ -314,6 +315,7 @@ make fmt
 - [模型与 Provider](docs/guides/providers.zh.md)
 - [配置参考](docs/guides/configuration.zh.md)
 - [工具与 MCP](docs/reference/tools_configuration.zh.md)
+- [Agent 用量、预算与发布门槛](docs/operations/agent-governance.zh.md)
 - [疑难排查](docs/operations/troubleshooting.zh.md)
 - [贡献指南](docs/project/CONTRIBUTING.zh.md)
 

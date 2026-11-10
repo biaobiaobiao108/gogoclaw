@@ -10,6 +10,7 @@ import (
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/usage"
 )
 
 func newSQLiteTestStore(t *testing.T) *SQLiteStore {
@@ -246,6 +247,87 @@ func TestSQLiteStoreDeletesSessionAndReusesFreePages(t *testing.T) {
 	}
 	if got := sqlitePragmaInt(t, store, "page_count"); got > pageCount+8 {
 		t.Fatalf("replacement grew page count beyond reuse headroom: before=%d after=%d", pageCount, got)
+	}
+}
+
+func TestSQLiteStoreUsageAggregatesDimensionsAndSessionInheritance(t *testing.T) {
+	ctx := context.Background()
+	store := newSQLiteTestStore(t)
+	if err := store.AddMessage(ctx, "child", "user", "child task"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddMessage(ctx, "parent", "user", "parent task"); err != nil {
+		t.Fatal(err)
+	}
+	day := time.Now().Format("2006-01-02")
+	record := usage.Record{
+		Day:          day,
+		SessionKeys:  []string{"child", "parent"},
+		AgentID:      "main",
+		Channel:      "pico",
+		Provider:     "openai",
+		Model:        "fast-model",
+		ModelID:      "gpt-test",
+		InputTokens:  120,
+		OutputTokens: 30,
+		TotalTokens:  150,
+		CostNanos:    45,
+	}
+	if err := store.RecordUsage(ctx, record); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordUsage(ctx, record); err != nil {
+		t.Fatal(err)
+	}
+
+	daily, err := store.DailyUsage(ctx, day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if daily.Calls != 2 || daily.TotalTokens != 300 || daily.CostNanos != 90 {
+		t.Fatalf("daily usage = %+v", daily)
+	}
+	for _, key := range []string{"child", "parent"} {
+		totals, err := store.SessionUsage(ctx, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if totals.Calls != 2 || totals.InputTokens != 240 || totals.OutputTokens != 60 {
+			t.Fatalf("session %s usage = %+v", key, totals)
+		}
+	}
+	breakdown, err := store.UsageBreakdown(ctx, day, day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(breakdown) != 1 || breakdown[0].Provider != "openai" || breakdown[0].Model != "fast-model" || breakdown[0].Channel != "pico" {
+		t.Fatalf("breakdown = %+v", breakdown)
+	}
+	days, err := store.UsageDays(ctx, day, day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(days) != 1 || days[0].Day != day || days[0].TotalTokens != 300 {
+		t.Fatalf("usage days = %+v", days)
+	}
+
+	removed, err := store.DeleteSession(ctx, "child")
+	if err != nil || !removed {
+		t.Fatalf("DeleteSession child = %v, %v", removed, err)
+	}
+	childUsage, err := store.SessionUsage(ctx, "child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if childUsage.TotalTokens != 0 {
+		t.Fatalf("deleted session usage retained: %+v", childUsage)
+	}
+	daily, err = store.DailyUsage(ctx, day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if daily.TotalTokens != 300 {
+		t.Fatalf("daily aggregate should survive session deletion: %+v", daily)
 	}
 }
 

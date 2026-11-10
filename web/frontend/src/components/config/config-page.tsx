@@ -323,6 +323,16 @@ export function ConfigPage() {
           "Summarize token percent",
           { min: 1, max: 100 },
         )
+        const sessionTokenBudget = form.sessionTokenBudget.trim()
+          ? parseIntField(form.sessionTokenBudget, "Session token budget", {
+              min: 0,
+            })
+          : 0
+        const dailyTokenBudget = form.dailyTokenBudget.trim()
+          ? parseIntField(form.dailyTokenBudget, "Daily token budget", {
+              min: 0,
+            })
+          : 0
         const turnProfile = buildTurnProfilePatch(form.turnProfile)
         const heartbeatInterval = parseIntField(
           form.heartbeatInterval,
@@ -533,6 +543,11 @@ export function ConfigPage() {
               max_tool_iterations: maxToolIterations,
               summarize_message_threshold: summarizeMessageThreshold,
               summarize_token_percent: summarizeTokenPercent,
+              usage_governance: {
+                session_token_budget: sessionTokenBudget,
+                daily_token_budget: dailyTokenBudget,
+                on_budget_exceeded: form.budgetExceededMode,
+              },
               turn_profile: turnProfile,
             },
           },

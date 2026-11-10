@@ -60,6 +60,12 @@ func NewAgentRegistry(
 			instance.ContextBuilder.WithAgentDiscovery(instance.ID, registry.ListSpawnableAgents)
 		}
 	}
+	if ledgerAgent := registry.GetDefaultAgent(); ledgerAgent != nil {
+		for _, instance := range registry.agents {
+			instance.usageLedger = ledgerAgent.usageLedger
+			instance.usageGuard = ledgerAgent.usageGuard
+		}
+	}
 
 	return registry
 }

@@ -26,6 +26,8 @@ const (
 	TurnEndReasonRetrievalStalled TurnEndReason = "retrieval_stalled"
 	TurnEndReasonReadOnlyReplay   TurnEndReason = "read_only_replay"
 	TurnEndReasonRepeatedFailure  TurnEndReason = "repeated_failure"
+	TurnEndReasonTokenBudget      TurnEndReason = "token_budget"
+	TurnEndReasonToolFailure      TurnEndReason = "tool_failure"
 	TurnEndReasonTruncated        TurnEndReason = "truncated"
 	TurnEndReasonContentFiltered  TurnEndReason = "content_filtered"
 	TurnEndReasonEmptyResponse    TurnEndReason = "empty_response"

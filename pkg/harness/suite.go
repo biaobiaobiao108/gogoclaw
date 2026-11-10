@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -17,20 +18,29 @@ const reportVersion = 1
 
 // Report is the stable machine-readable output of a scenario suite.
 type Report struct {
-	Version    int              `json:"version"`
-	Passed     bool             `json:"passed"`
-	Error      string           `json:"error,omitempty"`
-	DurationMS int64            `json:"duration_ms"`
-	Scenarios  []ScenarioReport `json:"scenarios"`
+	Version      int              `json:"version"`
+	Passed       bool             `json:"passed"`
+	Error        string           `json:"error,omitempty"`
+	DurationMS   int64            `json:"duration_ms"`
+	ModelLatency *LatencySummary  `json:"model_latency_ms,omitempty"`
+	TurnLatency  *LatencySummary  `json:"turn_latency_ms,omitempty"`
+	Scenarios    []ScenarioReport `json:"scenarios"`
+}
+
+type LatencySummary struct {
+	P50MS int64 `json:"p50"`
+	P95MS int64 `json:"p95"`
 }
 
 type ScenarioReport struct {
-	Name       string     `json:"name"`
-	Passed     bool       `json:"passed"`
-	Error      string     `json:"error,omitempty"`
-	DurationMS int64      `json:"duration_ms"`
-	Trace      Trace      `json:"trace"`
-	Usage      TokenUsage `json:"usage"`
+	Name             string     `json:"name"`
+	Passed           bool       `json:"passed"`
+	Error            string     `json:"error,omitempty"`
+	DurationMS       int64      `json:"duration_ms"`
+	Trace            Trace      `json:"trace"`
+	Usage            TokenUsage `json:"usage"`
+	modelDurationsMS []int64
+	turnDurationsMS  []int64
 }
 
 // TokenUsage aggregates provider-reported usage across a scenario.
@@ -137,6 +147,14 @@ func RunSuiteWithOptions(ctx context.Context, scenarios []Scenario, opts SuiteOp
 		}
 	}
 	report.DurationMS = time.Since(started).Milliseconds()
+	var modelDurations []int64
+	var turnDurations []int64
+	for _, scReport := range report.Scenarios {
+		modelDurations = append(modelDurations, scReport.modelDurationsMS...)
+		turnDurations = append(turnDurations, scReport.turnDurationsMS...)
+	}
+	report.ModelLatency = summarizeLatency(modelDurations)
+	report.TurnLatency = summarizeLatency(turnDurations)
 	return report
 }
 
@@ -159,9 +177,45 @@ func runOneScenario(ctx context.Context, scenario Scenario) ScenarioReport {
 	if result != nil {
 		scenarioReport.Trace = result.Snapshot()
 		scenarioReport.Usage = result.TokenUsage()
+		for _, call := range result.ModelCalls {
+			if call.Duration > 0 {
+				scenarioReport.modelDurationsMS = append(scenarioReport.modelDurationsMS, call.Duration.Milliseconds())
+			}
+		}
+		for _, turn := range result.Turns {
+			if turn.Duration > 0 {
+				scenarioReport.turnDurationsMS = append(scenarioReport.turnDurationsMS, turn.Duration.Milliseconds())
+			}
+		}
 	}
 	scenarioReport.Passed = scenarioReport.Error == ""
 	return scenarioReport
+}
+
+func summarizeLatency(values []int64) *LatencySummary {
+	if len(values) == 0 {
+		return nil
+	}
+	sorted := append([]int64(nil), values...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	return &LatencySummary{
+		P50MS: sorted[percentileIndex(len(sorted), 50)],
+		P95MS: sorted[percentileIndex(len(sorted), 95)],
+	}
+}
+
+func percentileIndex(length, percentile int) int {
+	if length <= 1 {
+		return 0
+	}
+	index := (percentile*length + 99) / 100
+	if index < 1 {
+		index = 1
+	}
+	if index > length {
+		index = length
+	}
+	return index - 1
 }
 
 func (r *Result) TokenUsage() TokenUsage {

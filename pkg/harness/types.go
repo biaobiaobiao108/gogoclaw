@@ -125,6 +125,7 @@ type ModelCall struct {
 	Response  *providers.LLMResponse
 	Error     string
 	At        time.Time
+	Duration  time.Duration
 }
 
 // ToolCallRecord is one observed tool execution.

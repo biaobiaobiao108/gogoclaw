@@ -242,6 +242,7 @@ type turnState struct {
 	summaryUsage     providers.UsageInfo
 	requestUsage     *bus.ContextUsage
 	lastUsage        *providers.UsageInfo // Last LLM usage info
+	usageSessionKey  string               // Session bucket that owns this turn's budget
 
 	// Back-reference to the owning AgentLoop (set for SubTurns only, used for hard abort cascade)
 	al *AgentLoop

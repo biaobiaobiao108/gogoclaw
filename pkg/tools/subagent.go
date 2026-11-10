@@ -44,6 +44,12 @@ type SubagentTask struct {
 	Status        string
 	Result        string
 	Created       int64
+	completion    *subagentCompletion
+}
+
+type subagentCompletion struct {
+	done chan struct{}
+	once sync.Once
 }
 
 type SpawnSubTurnFunc func(
@@ -167,6 +173,7 @@ func (sm *SubagentManager) beginTask(
 		OriginChatID:  originChatID,
 		Status:        "running",
 		Created:       time.Now().UnixMilli(),
+		completion:    &subagentCompletion{done: make(chan struct{})},
 	}
 	sm.tasks[taskID] = subagentTask
 	return subagentTask
@@ -194,6 +201,38 @@ func (sm *SubagentManager) finishTask(taskID string, result *ToolResult, err err
 	case result != nil:
 		task.Result = result.ForLLM
 	}
+	task.signalDone()
+}
+
+func (task *SubagentTask) signalDone() {
+	if task == nil || task.completion == nil {
+		return
+	}
+	task.completion.once.Do(func() { close(task.completion.done) })
+}
+
+// Wait blocks until the tasks currently known to the manager have delivered
+// their callbacks and reached a terminal state.
+func (sm *SubagentManager) Wait(ctx context.Context) error {
+	if sm == nil {
+		return nil
+	}
+	sm.mu.RLock()
+	doneChannels := make([]<-chan struct{}, 0, len(sm.tasks))
+	for _, task := range sm.tasks {
+		if task != nil && task.completion != nil {
+			doneChannels = append(doneChannels, task.completion.done)
+		}
+	}
+	sm.mu.RUnlock()
+	for _, done := range doneChannels {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
 }
 
 func (sm *SubagentManager) runTask(
@@ -297,6 +336,7 @@ After completing the task, provide a clear summary of what was done.`
 		if callback != nil && result != nil {
 			callback(ctx, result)
 		}
+		task.signalDone()
 	}()
 
 	if err != nil {

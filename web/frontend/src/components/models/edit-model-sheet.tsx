@@ -68,6 +68,8 @@ interface EditForm {
   rpm: string
   maxTokensField: string
   requestTimeout: string
+  inputCostPerMillionUSD: string
+  outputCostPerMillionUSD: string
   thinkingLevel: string
   toolSchemaTransform: string
   streamingEnabled: boolean
@@ -99,6 +101,12 @@ function buildInitialEditForm(model: ModelInfo): EditForm {
     rpm: model.rpm ? String(model.rpm) : "",
     maxTokensField: model.max_tokens_field ?? "",
     requestTimeout: model.request_timeout ? String(model.request_timeout) : "",
+    inputCostPerMillionUSD: model.input_cost_per_million_usd
+      ? String(model.input_cost_per_million_usd)
+      : "",
+    outputCostPerMillionUSD: model.output_cost_per_million_usd
+      ? String(model.output_cost_per_million_usd)
+      : "",
     thinkingLevel: model.thinking_level ?? "",
     toolSchemaTransform: model.tool_schema_transform ?? "",
     streamingEnabled: model.streaming?.enabled !== false,
@@ -134,6 +142,8 @@ export function EditModelSheet({
     rpm: "",
     maxTokensField: "",
     requestTimeout: "",
+    inputCostPerMillionUSD: "",
+    outputCostPerMillionUSD: "",
     thinkingLevel: "",
     toolSchemaTransform: "",
     streamingEnabled: true,
@@ -386,6 +396,12 @@ export function EditModelSheet({
         max_tokens_field: form.maxTokensField.trim() || undefined,
         request_timeout: form.requestTimeout
           ? Number(form.requestTimeout)
+          : undefined,
+        input_cost_per_million_usd: form.inputCostPerMillionUSD
+          ? Number(form.inputCostPerMillionUSD)
+          : undefined,
+        output_cost_per_million_usd: form.outputCostPerMillionUSD
+          ? Number(form.outputCostPerMillionUSD)
           : undefined,
         thinking_level: form.thinkingLevel.trim() || undefined,
         tool_schema_transform: form.toolSchemaTransform.trim() || undefined,
@@ -674,6 +690,34 @@ export function EditModelSheet({
                     placeholder="60"
                     type="number"
                     min={0}
+                  />
+                </Field>
+
+                <Field
+                  label={t("models.field.inputCost")}
+                  hint={t("models.field.inputCostHint")}
+                >
+                  <Input
+                    value={form.inputCostPerMillionUSD}
+                    onChange={setField("inputCostPerMillionUSD")}
+                    placeholder="0"
+                    type="number"
+                    min={0}
+                    step="0.000001"
+                  />
+                </Field>
+
+                <Field
+                  label={t("models.field.outputCost")}
+                  hint={t("models.field.outputCostHint")}
+                >
+                  <Input
+                    value={form.outputCostPerMillionUSD}
+                    onChange={setField("outputCostPerMillionUSD")}
+                    placeholder="0"
+                    type="number"
+                    min={0}
+                    step="0.000001"
                   />
                 </Field>
 

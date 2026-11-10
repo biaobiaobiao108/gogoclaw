@@ -17,6 +17,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/messageutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/usage"
 )
 
 const sqliteSessionFilename = "sessions.db"
@@ -52,7 +53,35 @@ CREATE TABLE IF NOT EXISTS session_aliases (
 CREATE INDEX IF NOT EXISTS session_aliases_session_key
 	ON session_aliases(session_key);
 
-PRAGMA user_version = 1;
+CREATE TABLE IF NOT EXISTS usage_daily (
+	day TEXT NOT NULL,
+	agent_id TEXT NOT NULL DEFAULT '',
+	channel TEXT NOT NULL DEFAULT '',
+	provider TEXT NOT NULL DEFAULT '',
+	model TEXT NOT NULL DEFAULT '',
+	model_id TEXT NOT NULL DEFAULT '',
+	calls INTEGER NOT NULL DEFAULT 0,
+	input_tokens INTEGER NOT NULL DEFAULT 0,
+	output_tokens INTEGER NOT NULL DEFAULT 0,
+	total_tokens INTEGER NOT NULL DEFAULT 0,
+	cost_nanos INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY(day, agent_id, channel, provider, model, model_id)
+);
+
+CREATE INDEX IF NOT EXISTS usage_daily_day
+	ON usage_daily(day);
+
+CREATE TABLE IF NOT EXISTS usage_session (
+	session_key TEXT PRIMARY KEY,
+	updated_at INTEGER NOT NULL,
+	calls INTEGER NOT NULL DEFAULT 0,
+	input_tokens INTEGER NOT NULL DEFAULT 0,
+	output_tokens INTEGER NOT NULL DEFAULT 0,
+	total_tokens INTEGER NOT NULL DEFAULT 0,
+	cost_nanos INTEGER NOT NULL DEFAULT 0
+);
+
+PRAGMA user_version = 2;
 `
 
 // SQLiteStore persists session state in a single SQLite database. Logical
@@ -65,6 +94,7 @@ type SQLiteStore struct {
 }
 
 var _ Store = (*SQLiteStore)(nil)
+var _ usage.Store = (*SQLiteStore)(nil)
 
 func sqliteContext(ctx context.Context) context.Context {
 	if ctx == nil {
@@ -899,17 +929,215 @@ func (s *SQLiteStore) UpdateTurnUsage(key, turnID string, usage *bus.ContextUsag
 	return tx.Commit()
 }
 
+// RecordUsage atomically updates daily dimensional totals and every session
+// budget bucket that inherits this model call.
+func (s *SQLiteStore) RecordUsage(ctx context.Context, record usage.Record) error {
+	ctx = sqliteContext(ctx)
+	day := strings.TrimSpace(record.Day)
+	if day == "" {
+		day = time.Now().Format("2006-01-02")
+	}
+	inputTokens := maxInt64(0, record.InputTokens)
+	outputTokens := maxInt64(0, record.OutputTokens)
+	totalTokens := maxInt64(0, record.TotalTokens)
+	if totalTokens == 0 {
+		totalTokens = inputTokens + outputTokens
+	}
+	if totalTokens == 0 {
+		return nil
+	}
+	costNanos := maxInt64(0, record.CostNanos)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("memory: begin usage record: %w", err)
+	}
+	defer tx.Rollback()
+	if !record.SessionOnly {
+		if _, err := tx.ExecContext(ctx, `
+		INSERT INTO usage_daily(
+			day, agent_id, channel, provider, model, model_id,
+			calls, input_tokens, output_tokens, total_tokens, cost_nanos
+		) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+		ON CONFLICT(day, agent_id, channel, provider, model, model_id) DO UPDATE SET
+			calls = calls + 1,
+			input_tokens = input_tokens + excluded.input_tokens,
+			output_tokens = output_tokens + excluded.output_tokens,
+			total_tokens = total_tokens + excluded.total_tokens,
+			cost_nanos = cost_nanos + excluded.cost_nanos`,
+			day,
+			strings.TrimSpace(record.AgentID),
+			strings.TrimSpace(record.Channel),
+			strings.TrimSpace(record.Provider),
+			strings.TrimSpace(record.Model),
+			strings.TrimSpace(record.ModelID),
+			inputTokens,
+			outputTokens,
+			totalTokens,
+			costNanos,
+		); err != nil {
+			return fmt.Errorf("memory: record daily usage: %w", err)
+		}
+	}
+
+	now := time.Now().UnixNano()
+	seen := make(map[string]struct{}, len(record.SessionKeys))
+	for _, sessionKey := range record.SessionKeys {
+		sessionKey = strings.TrimSpace(sessionKey)
+		if sessionKey == "" {
+			continue
+		}
+		if _, ok := seen[sessionKey]; ok {
+			continue
+		}
+		seen[sessionKey] = struct{}{}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO usage_session(
+				session_key, updated_at, calls, input_tokens, output_tokens, total_tokens, cost_nanos
+			) VALUES (?, ?, 1, ?, ?, ?, ?)
+			ON CONFLICT(session_key) DO UPDATE SET
+				updated_at = excluded.updated_at,
+				calls = calls + 1,
+				input_tokens = input_tokens + excluded.input_tokens,
+				output_tokens = output_tokens + excluded.output_tokens,
+				total_tokens = total_tokens + excluded.total_tokens,
+				cost_nanos = cost_nanos + excluded.cost_nanos`,
+			sessionKey, now, inputTokens, outputTokens, totalTokens, costNanos,
+		); err != nil {
+			return fmt.Errorf("memory: record session usage: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("memory: commit usage record: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) SessionUsage(ctx context.Context, sessionKey string) (usage.Totals, error) {
+	ctx = sqliteContext(ctx)
+	var total usage.Totals
+	err := s.db.QueryRowContext(ctx, `
+		SELECT calls, input_tokens, output_tokens, total_tokens, cost_nanos
+		FROM usage_session WHERE session_key = ?`, strings.TrimSpace(sessionKey),
+	).Scan(&total.Calls, &total.InputTokens, &total.OutputTokens, &total.TotalTokens, &total.CostNanos)
+	if errors.Is(err, sql.ErrNoRows) {
+		return usage.Totals{}, nil
+	}
+	if err != nil {
+		return usage.Totals{}, fmt.Errorf("memory: read session usage: %w", err)
+	}
+	return total, nil
+}
+
+func (s *SQLiteStore) DailyUsage(ctx context.Context, day string) (usage.Totals, error) {
+	ctx = sqliteContext(ctx)
+	var total usage.Totals
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(calls), 0), COALESCE(SUM(input_tokens), 0),
+			COALESCE(SUM(output_tokens), 0), COALESCE(SUM(total_tokens), 0),
+			COALESCE(SUM(cost_nanos), 0)
+		FROM usage_daily WHERE day = ?`, strings.TrimSpace(day),
+	).Scan(&total.Calls, &total.InputTokens, &total.OutputTokens, &total.TotalTokens, &total.CostNanos)
+	if err != nil {
+		return usage.Totals{}, fmt.Errorf("memory: read daily usage: %w", err)
+	}
+	return total, nil
+}
+
+// UsageDays returns one row per day with usage, ordered from oldest to newest.
+func (s *SQLiteStore) UsageDays(ctx context.Context, fromDay, toDay string) ([]usage.DayTotal, error) {
+	ctx = sqliteContext(ctx)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT day, SUM(calls), SUM(input_tokens), SUM(output_tokens),
+			SUM(total_tokens), SUM(cost_nanos)
+		FROM usage_daily
+		WHERE day >= ? AND day <= ?
+		GROUP BY day
+		ORDER BY day`,
+		strings.TrimSpace(fromDay), strings.TrimSpace(toDay),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("memory: query daily usage: %w", err)
+	}
+	defer rows.Close()
+	result := make([]usage.DayTotal, 0)
+	for rows.Next() {
+		var item usage.DayTotal
+		if err := rows.Scan(
+			&item.Day, &item.Calls, &item.InputTokens, &item.OutputTokens,
+			&item.TotalTokens, &item.CostNanos,
+		); err != nil {
+			return nil, fmt.Errorf("memory: scan daily usage: %w", err)
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("memory: iterate daily usage: %w", err)
+	}
+	return result, nil
+}
+
+func (s *SQLiteStore) UsageBreakdown(ctx context.Context, fromDay, toDay string) ([]usage.Breakdown, error) {
+	ctx = sqliteContext(ctx)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT agent_id, channel, provider, model, model_id,
+			SUM(calls), SUM(input_tokens), SUM(output_tokens), SUM(total_tokens), SUM(cost_nanos)
+		FROM usage_daily
+		WHERE day >= ? AND day <= ?
+		GROUP BY agent_id, channel, provider, model, model_id
+		ORDER BY SUM(total_tokens) DESC, provider, model, channel`,
+		strings.TrimSpace(fromDay), strings.TrimSpace(toDay),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("memory: query usage breakdown: %w", err)
+	}
+	defer rows.Close()
+	result := make([]usage.Breakdown, 0)
+	for rows.Next() {
+		var item usage.Breakdown
+		if err := rows.Scan(
+			&item.AgentID, &item.Channel, &item.Provider, &item.Model, &item.ModelID,
+			&item.Calls, &item.InputTokens, &item.OutputTokens, &item.TotalTokens, &item.CostNanos,
+		); err != nil {
+			return nil, fmt.Errorf("memory: scan usage breakdown: %w", err)
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("memory: iterate usage breakdown: %w", err)
+	}
+	return result, nil
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 // DeleteSession removes the session and cascades to messages and aliases. It
 // intentionally does not VACUUM; the freed pages remain available for reuse.
 func (s *SQLiteStore) DeleteSession(ctx context.Context, sessionKey string) (bool, error) {
 	ctx = sqliteContext(ctx)
-	result, err := s.db.ExecContext(ctx, `DELETE FROM session_meta WHERE session_key = ?`, sessionKey)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("memory: begin delete session: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM usage_session WHERE session_key = ?`, sessionKey); err != nil {
+		return false, fmt.Errorf("memory: delete session usage: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM session_meta WHERE session_key = ?`, sessionKey)
 	if err != nil {
 		return false, fmt.Errorf("memory: delete session: %w", err)
 	}
 	rows, err := result.RowsAffected()
 	if err != nil {
 		return false, fmt.Errorf("memory: delete session rows: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("memory: commit session deletion: %w", err)
 	}
 	return rows > 0, nil
 }
