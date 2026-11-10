@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,6 +11,46 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	usagepkg "github.com/biaobiaobiao108/gogoclaw/pkg/usage"
 )
+
+type usageBudgetExceeded struct{ message string }
+
+func (e *usageBudgetExceeded) Error() string { return e.message }
+
+func isUsageBudgetExceeded(err error) (*usageBudgetExceeded, bool) {
+	var exceeded *usageBudgetExceeded
+	ok := errors.As(err, &exceeded)
+	return exceeded, ok
+}
+
+// runBudgetedModelCall reserves capacity for one actual provider request and
+// keeps the reservation until usage has been durably recorded.
+func (ts *turnState) runBudgetedModelCall(
+	ctx context.Context,
+	messages []providers.Message,
+	defs []providers.ToolDefinition,
+	outputTokens int,
+	call func() (*providers.LLMResponse, error),
+	record func(*providers.LLMResponse) error,
+) (*providers.LLMResponse, error) {
+	blocked, message, reservation, err := ts.enforceUsageBudgetWithOutputLimit(ctx, messages, defs, outputTokens)
+	if err != nil {
+		return nil, err
+	}
+	if blocked {
+		ts.setEndReason(TurnEndReasonTokenBudget)
+		return nil, &usageBudgetExceeded{message: message}
+	}
+	if reservation != nil {
+		defer reservation.Release()
+	}
+	response, err := call()
+	if response != nil && record != nil {
+		if recordErr := record(response); recordErr != nil {
+			return nil, recordErr
+		}
+	}
+	return response, err
+}
 
 func costRatesFromModelConfig(modelCfg *config.ModelConfig) usagepkg.CostRates {
 	if modelCfg == nil {
@@ -42,6 +83,24 @@ func usageAccountingUnavailableError() error {
 	return fmt.Errorf("usage budget is configured but the session store cannot account for token usage")
 }
 
+func llmOptionTokenLimit(options map[string]any, fallback int) int {
+	switch value := options["max_tokens"].(type) {
+	case int:
+		if value > 0 {
+			return value
+		}
+	case int64:
+		if value > 0 {
+			return int(value)
+		}
+	case float64:
+		if value > 0 {
+			return int(value)
+		}
+	}
+	return fallback
+}
+
 // enforceUsageBudget checks the worst-case size of the next model call. This is
 // deliberately a preflight check: stopping only after a provider response would
 // allow the call that exceeded the budget to be billed.
@@ -49,6 +108,18 @@ func (ts *turnState) enforceUsageBudget(
 	ctx context.Context,
 	messages []providers.Message,
 	defs []providers.ToolDefinition,
+) (blocked bool, message string, reservation *usagepkg.Reservation, err error) {
+	if ts == nil || ts.agent == nil {
+		return false, "", nil, nil
+	}
+	return ts.enforceUsageBudgetWithOutputLimit(ctx, messages, defs, ts.agent.MaxTokens)
+}
+
+func (ts *turnState) enforceUsageBudgetWithOutputLimit(
+	ctx context.Context,
+	messages []providers.Message,
+	defs []providers.ToolDefinition,
+	outputTokens int,
 ) (blocked bool, message string, reservation *usagepkg.Reservation, err error) {
 	if ts == nil || ts.agent == nil || !ts.agent.UsageGovernance.Enabled() {
 		return false, "", nil, nil
@@ -58,7 +129,10 @@ func (ts *turnState) enforceUsageBudget(
 	if store == nil || ledger == nil {
 		return false, "", nil, usageAccountingUnavailableError()
 	}
-	projected := int64(max(0, ts.agent.MaxTokens))
+	if outputTokens <= 0 {
+		outputTokens = ts.agent.MaxTokens
+	}
+	projected := int64(max(0, outputTokens))
 	for _, msg := range messages {
 		projected += int64(max(0, EstimateMessageTokens(msg)))
 	}

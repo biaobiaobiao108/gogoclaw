@@ -291,6 +291,46 @@ func TestLauncherDashboardAuth_CookieOnly(t *testing.T) {
 	}
 }
 
+func TestLauncherDashboardAuth_RejectsCrossOriginMutation(t *testing.T) {
+	sessions := NewLauncherDashboardSessions()
+	session := newTestLauncherSession(t, sessions)
+	nextCalls := 0
+	h := LauncherDashboardAuth(LauncherDashboardAuthConfig{Sessions: sessions}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		nextCalls++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	for _, tc := range []struct {
+		name       string
+		origin     string
+		fetchSite  string
+		wantStatus int
+	}{
+		{name: "cross-origin sibling", origin: "https://other.example.test", fetchSite: "same-site", wantStatus: http.StatusForbidden},
+		{name: "same-origin", origin: "http://launcher.local", fetchSite: "same-origin", wantStatus: http.StatusNoContent},
+		{name: "non-browser client", wantStatus: http.StatusNoContent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "http://launcher.local/api/config/reset", nil)
+			req.AddCookie(&http.Cookie{Name: LauncherDashboardCookieName, Value: session})
+			if tc.origin != "" {
+				req.Header.Set("Origin", tc.origin)
+			}
+			if tc.fetchSite != "" {
+				req.Header.Set("Sec-Fetch-Site", tc.fetchSite)
+			}
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, req)
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", rr.Code, tc.wantStatus)
+			}
+		})
+	}
+	if nextCalls != 2 {
+		t.Fatalf("next handler called %d times, want 2", nextCalls)
+	}
+}
+
 func TestDefaultLauncherDashboardSecureCookieIgnoresSpoofedForwardedProto(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://launcher.local/", nil)
 	req.RemoteAddr = "203.0.113.8:1234"

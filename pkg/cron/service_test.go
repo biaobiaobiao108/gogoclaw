@@ -290,6 +290,96 @@ func TestCronService_ExecutionFlow(t *testing.T) {
 	}
 }
 
+func TestCronService_NotifyRetainsWakeWithoutReceiver(t *testing.T) {
+	cs, path := setupService(nil)
+	defer os.Remove(path)
+
+	// A wake may arrive after the scheduler has read its next deadline but
+	// before it starts waiting. Keep one pending wake so that race cannot lose
+	// a newly added or updated job.
+	cs.notify()
+	select {
+	case <-cs.wakeChan:
+	default:
+		t.Fatal("notify dropped a wake while the scheduler was not receiving")
+	}
+}
+
+func TestCronService_SkipsQueuedJobDisabledBeforeExecution(t *testing.T) {
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	secondRan := make(chan struct{}, 1)
+	cs, path := setupService(func(job *CronJob) (string, error) {
+		if job.Name == "first" {
+			close(firstStarted)
+			<-releaseFirst
+		} else {
+			secondRan <- struct{}{}
+		}
+		return "ok", nil
+	})
+	defer os.Remove(path)
+
+	every := int64(time.Minute / time.Millisecond)
+	_, err := cs.AddJob("first", CronSchedule{Kind: "every", EveryMS: &every}, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := cs.AddJob("second", CronSchedule{Kind: "every", EveryMS: &every}, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dueAt := time.Now().Add(-time.Second).UnixMilli()
+	cs.mu.Lock()
+	cs.running = true
+	for i := range cs.store.Jobs {
+		cs.store.Jobs[i].State.NextRunAtMS = int64Ptr(dueAt)
+	}
+	if err := cs.saveStoreUnsafe(); err != nil {
+		cs.mu.Unlock()
+		t.Fatal(err)
+	}
+	cs.mu.Unlock()
+	defer func() {
+		cs.mu.Lock()
+		cs.running = false
+		cs.mu.Unlock()
+	}()
+
+	checkDone := make(chan struct{})
+	go func() {
+		cs.checkJobs()
+		close(checkDone)
+	}()
+	select {
+	case <-firstStarted:
+	case <-time.After(time.Second):
+		close(releaseFirst)
+		t.Fatal("first due job did not start")
+	}
+
+	if job := cs.EnableJob(second.ID, false); job == nil {
+		close(releaseFirst)
+		t.Fatal("failed to disable queued job")
+	}
+	close(releaseFirst)
+	select {
+	case <-checkDone:
+	case <-time.After(time.Second):
+		t.Fatal("due job check did not finish")
+	}
+	select {
+	case <-secondRan:
+		t.Fatalf("queued job %q ran after being disabled", second.ID)
+	default:
+	}
+
+	got, ok := cs.GetJob(second.ID)
+	if !ok || got.Enabled || got.State.LastRunAtMS != nil {
+		t.Fatalf("disabled queued job state = %+v, want disabled and not run", got)
+	}
+}
+
 func TestCronService_PersistenceIntegrity(t *testing.T) {
 	tmpFile := "persist_test.json"
 	defer os.Remove(tmpFile)

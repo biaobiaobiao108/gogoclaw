@@ -187,22 +187,29 @@ func TestExpandMultiKeyModels_Deduplication(t *testing.T) {
 
 func TestExpandMultiKeyModels_PreservesOtherFields(t *testing.T) {
 	modelCfg := &ModelConfig{
-		ModelName:           "gpt-4",
-		Provider:            "openrouter",
-		Model:               "openai/gpt-4o",
-		APIBase:             "https://api.example.com",
-		Proxy:               "http://proxy:8080",
-		RPM:                 60,
-		MaxTokensField:      "max_completion_tokens",
-		RequestTimeout:      30,
-		ThinkingLevel:       "high",
-		ToolSchemaTransform: "simple",
-		Streaming:           ModelStreamingConfig{Enabled: true},
+		ModelName:               "gpt-4",
+		Provider:                "openrouter",
+		Model:                   "openai/gpt-4o",
+		APIBase:                 "https://api.example.com",
+		Proxy:                   "http://proxy:8080",
+		RPM:                     60,
+		MaxTokensField:          "max_completion_tokens",
+		RequestTimeout:          30,
+		ThinkingLevel:           "high",
+		ToolSchemaTransform:     "simple",
+		Streaming:               ModelStreamingConfig{Enabled: true},
+		InputCostPerMillionUSD:  1.25,
+		OutputCostPerMillionUSD: 4.5,
 	}
 	modelCfg.APIKeys = SimpleSecureStrings("key0", "key1") // Use internal field for multi-key testing
 	models := []*ModelConfig{modelCfg}
 
 	result := expandMultiKeyModels(models)
+	for _, entry := range result {
+		if entry.InputCostPerMillionUSD != 1.25 || entry.OutputCostPerMillionUSD != 4.5 {
+			t.Errorf("model %q lost pricing: input %v, output %v", entry.ModelName, entry.InputCostPerMillionUSD, entry.OutputCostPerMillionUSD)
+		}
+	}
 
 	// Check primary entry preserves all fields
 	primary := result[1]

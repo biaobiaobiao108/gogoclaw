@@ -99,6 +99,36 @@ func TestSQLiteStoreLogicalTruncationKeepsTranscript(t *testing.T) {
 	}
 }
 
+func TestPromoteAliasHistoryPreservesTruncatedHistory(t *testing.T) {
+	ctx := context.Background()
+	store := newSQLiteTestStore(t)
+	for _, content := range []string{"summarized", "active"} {
+		if err := store.AddMessage(ctx, "legacy", "user", content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.SetSummary(ctx, "legacy", "earlier summary"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.TruncateHistory(ctx, "legacy", 1); err != nil {
+		t.Fatal(err)
+	}
+	if promoted, err := store.PromoteAliasHistory(ctx, "canonical", nil, []string{"legacy"}); err != nil || !promoted {
+		t.Fatalf("PromoteAliasHistory = %v, %v", promoted, err)
+	}
+	history, err := store.GetHistory(ctx, "canonical")
+	if err != nil || len(history) != 1 || history[0].Content != "active" {
+		t.Fatalf("history = %+v, %v", history, err)
+	}
+	transcript, err := store.GetTranscript(ctx, "canonical")
+	if err != nil || len(transcript) != 2 || transcript[0].Content != "summarized" {
+		t.Fatalf("transcript = %+v, %v", transcript, err)
+	}
+	if summary, err := store.GetSummary(ctx, "canonical"); err != nil || summary != "earlier summary" {
+		t.Fatalf("summary = %q, %v", summary, err)
+	}
+}
+
 func TestSQLiteStoreCommitSummaryRejectsChangedPrefix(t *testing.T) {
 	ctx := context.Background()
 	store := newSQLiteTestStore(t)

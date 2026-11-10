@@ -21,7 +21,7 @@ Budgets live under `agents.defaults.usage_governance`:
 ```
 
 - `0` disables that budget, so upgrades never impose an unexpected limit.
-- Before each primary agent model call, GoGoClaw checks recorded provider usage, in-flight reservations in the same process, the next request's input estimate, and the `max_tokens` output reserve. An over-budget call is not sent.
+- Before each model request in an agent turn, including retries, fallback requests and summaries, GoGoClaw checks recorded provider usage, in-flight reservations in the same process, the request's input estimate, and its `max_tokens` output reserve. An over-budget request is not sent.
 - `stop` is the default policy. `warn` is only for installations that explicitly accept further spend.
 - Session budgets include usage reported by child tasks to their parent session. Daily budgets use natural days in the GoGoClaw process timezone and cover every agent in the instance.
 - Daily aggregates are written to the default workspace `sessions.db` as the instance ledger. Other agent workspaces retain only their own session budget buckets.

@@ -407,6 +407,33 @@ func TestConfiguredStreamingPreChunkFailureFallsBackToChat(t *testing.T) {
 	}
 }
 
+func TestConfiguredStreamingBudgetStopDoesNotEnterFallback(t *testing.T) {
+	cfg := newConfiguredStreamingTestConfig(t, true, true, []string{"fallback-model"})
+	cfg.Agents.Defaults.UsageGovernance.SessionTokenBudget = 1
+	msgBus := bus.NewMessageBus()
+	msgBus.SetStreamDelegate(configuredStreamingDelegate{streamer: &recordingStreamer{}})
+	provider := &configuredStreamingProvider{}
+	al := NewAgentLoop(cfg, msgBus, provider)
+	defer al.Close()
+	agent := al.GetRegistry().GetDefaultAgent()
+	opts := configuredStreamingProcessOptions("pico")
+	normalizeProcessOptionsInPlace(&opts)
+	ts := newTurnState(agent, opts, turnEventScope{turnID: "budget", context: newTurnContext(nil, nil, nil)})
+	exec := &turnExecution{
+		activeProvider:    provider,
+		activeModelConfig: cfg.ModelList[0],
+		activeCandidates:  []providers.FallbackCandidate{{Model: "test-model"}, {Model: "fallback-model"}},
+	}
+	pipeline := NewPipeline(al)
+	_, handled, err := pipeline.tryConfiguredStreamingLLM(context.Background(), ts, exec, []providers.Message{{Role: "user", Content: "hello"}}, nil)
+	if _, blocked := isUsageBudgetExceeded(err); !handled || !blocked || exec.streamingFallback {
+		t.Fatalf("handled=%v, fallback=%v, error=%v; want a budget stop", handled, exec.streamingFallback, err)
+	}
+	if provider.streamCalls != 0 || provider.chatCalls != 0 {
+		t.Fatalf("provider calls = stream:%d chat:%d, want none", provider.streamCalls, provider.chatCalls)
+	}
+}
+
 func TestConfiguredStreamingDisabledForInternalTurnWithoutUserVisibleOutput(t *testing.T) {
 	cfg := newConfiguredStreamingTestConfig(t, true, true, nil)
 	streamer := &recordingStreamer{}

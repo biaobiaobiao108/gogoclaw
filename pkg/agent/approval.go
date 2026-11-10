@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,8 +27,9 @@ var (
 )
 
 type pendingHumanApproval struct {
-	request  approval.Request
-	decision chan approval.Decision
+	request     approval.Request
+	fingerprint string
+	decision    chan approval.Decision
 }
 
 type humanApprovalManager struct {
@@ -64,6 +67,7 @@ func (m *humanApprovalManager) setNotifier(notifier func(context.Context, approv
 func (m *humanApprovalManager) request(
 	ctx context.Context,
 	req approval.Request,
+	fingerprint string,
 	persist func(approval.Request) error,
 ) (approval.Decision, error) {
 	if m == nil {
@@ -79,7 +83,6 @@ func (m *humanApprovalManager) request(
 		req.ExpiresAt = now.Add(m.timeout)
 	}
 
-	fingerprint := approvalFingerprint(req.SessionKey, req.Tool, req.Arguments)
 	m.mu.Lock()
 	if m.grants[req.SessionKey] != nil {
 		if _, ok := m.grants[req.SessionKey][fingerprint]; ok {
@@ -88,7 +91,7 @@ func (m *humanApprovalManager) request(
 		}
 	}
 	notifier := m.notifier
-	pending := &pendingHumanApproval{request: req, decision: make(chan approval.Decision, 1)}
+	pending := &pendingHumanApproval{request: req, fingerprint: fingerprint, decision: make(chan approval.Decision, 1)}
 	m.pending[req.ID] = pending
 	m.mu.Unlock()
 
@@ -189,9 +192,7 @@ func (m *humanApprovalManager) respond(_ context.Context, response approval.Resp
 		if m.grants[pending.request.SessionKey] == nil {
 			m.grants[pending.request.SessionKey] = make(map[string]approval.Scope)
 		}
-		m.grants[pending.request.SessionKey][approvalFingerprint(
-			pending.request.SessionKey, pending.request.Tool, pending.request.Arguments,
-		)] = approval.ScopeSession
+		m.grants[pending.request.SessionKey][pending.fingerprint] = approval.ScopeSession
 	}
 	m.resolved[response.ID] = resolvedApproval{decision: decision, resolvedAt: time.Now()}
 	pending.decision <- decision
@@ -271,7 +272,8 @@ func persistApprovalStatus(
 
 func approvalFingerprint(sessionKey, tool string, arguments map[string]any) string {
 	encoded, _ := json.Marshal(arguments)
-	return sessionKey + "\x00" + tool + "\x00" + string(encoded)
+	digest := sha256.Sum256(encoded)
+	return sessionKey + "\x00" + tool + "\x00" + hex.EncodeToString(digest[:])
 }
 
 func filterApprovalValue(cfg *config.Config, value any) any {
@@ -521,7 +523,8 @@ func (al *AgentLoop) requestHumanApproval(
 	persist := func(updated approval.Request) error {
 		return ts.saveApprovalCheckpoint(updated)
 	}
-	decision, err := al.humanApprovals.request(ctx, req, persist)
+	fingerprint := approvalFingerprint(ts.sessionKey, toolName, arguments)
+	decision, err := al.humanApprovals.request(ctx, req, fingerprint, persist)
 	status := approval.StatusDenied
 	if decision.Approved {
 		status = approval.StatusApproved

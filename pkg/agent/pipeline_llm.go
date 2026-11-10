@@ -52,6 +52,10 @@ func (p *Pipeline) CallLLM(
 			exec.providerToolDefs,
 		)
 		if fitErr != nil {
+			if exceeded, ok := isUsageBudgetExceeded(fitErr); ok {
+				exec.finalContent = exceeded.message
+				return ControlBreak, nil
+			}
 			return ControlBreak, fitErr
 		}
 	}
@@ -147,6 +151,10 @@ func (p *Pipeline) CallLLM(
 		exec.providerToolDefs,
 	)
 	if contextErr != nil {
+		if exceeded, ok := isUsageBudgetExceeded(contextErr); ok {
+			exec.finalContent = exceeded.message
+			return ControlBreak, nil
+		}
 		return ControlBreak, contextErr
 	}
 	exec.useNativeSearch = webSearchEnabled && al.cfg.Tools.Web.PreferNative &&
@@ -172,19 +180,6 @@ func (p *Pipeline) CallLLM(
 	} else {
 		delete(exec.llmOpts, "native_search")
 	}
-	budgetBlocked, budgetMessage, budgetReservation, budgetErr := ts.enforceUsageBudget(turnCtx, exec.callMessages, exec.providerToolDefs)
-	if budgetErr != nil {
-		return ControlBreak, budgetErr
-	}
-	if budgetReservation != nil {
-		defer budgetReservation.Release()
-	}
-	if budgetBlocked {
-		ts.setEndReason(TurnEndReasonTokenBudget)
-		exec.finalContent = budgetMessage
-		return ControlBreak, nil
-	}
-
 	al.emitEvent(
 		runtimeevents.KindAgentLLMRequest,
 		ts.eventMeta("runTurn", "turn.llm.request"),
@@ -291,17 +286,19 @@ func (p *Pipeline) CallLLM(
 			applyThinkingOption(callOpts, candidateProvider, candidateThinking, true, ts.agent.ID)
 			exec.suppressReasoning = shouldSuppressReasoningFor(candidateThinking)
 			ts.recordRequestContext(messagesForCall, candidateTools)
-			response, err := candidateProvider.Chat(ctx, messagesForCall, candidateTools, candidate.Model, callOpts)
-			if response != nil {
-				if recordErr := ts.recordUsageCall(response.Usage, false, usageCall{
-					Provider:  candidate.Provider,
-					Model:     resolvedCandidateModelName([]providers.FallbackCandidate{candidate}, candidate.Model),
-					ModelID:   candidate.Model,
-					CostRates: costRatesFromModelConfig(candidateCfg),
-				}); recordErr != nil {
-					return nil, recordErr
-				}
-			}
+			response, err := ts.runBudgetedModelCall(ctx, messagesForCall, candidateTools, llmOptionTokenLimit(callOpts, ts.agent.MaxTokens),
+				func() (*providers.LLMResponse, error) {
+					return candidateProvider.Chat(ctx, messagesForCall, candidateTools, candidate.Model, callOpts)
+				},
+				func(response *providers.LLMResponse) error {
+					return ts.recordUsageCall(response.Usage, false, usageCall{
+						Provider:  candidate.Provider,
+						Model:     resolvedCandidateModelName([]providers.FallbackCandidate{candidate}, candidate.Model),
+						ModelID:   candidate.Model,
+						CostRates: costRatesFromModelConfig(candidateCfg),
+					})
+				},
+			)
 			return response, err
 		}
 
@@ -348,13 +345,14 @@ func (p *Pipeline) CallLLM(
 			}
 			return fbResult.Response, nil
 		}
-		response, err := exec.activeProvider.Chat(providerCtx, messagesForCall, toolDefsForCall, exec.llmModel, exec.llmOpts)
-		if response != nil {
-			if recordErr := ts.recordUsageCall(response.Usage, false, executionUsageCall(exec)); recordErr != nil {
-				return nil, recordErr
-			}
-		}
-		return response, err
+		return ts.runBudgetedModelCall(providerCtx, messagesForCall, toolDefsForCall, llmOptionTokenLimit(exec.llmOpts, ts.agent.MaxTokens),
+			func() (*providers.LLMResponse, error) {
+				return exec.activeProvider.Chat(providerCtx, messagesForCall, toolDefsForCall, exec.llmModel, exec.llmOpts)
+			},
+			func(response *providers.LLMResponse) error {
+				return ts.recordUsageCall(response.Usage, false, executionUsageCall(exec))
+			},
+		)
 	}
 
 	// Retry loop
@@ -369,6 +367,10 @@ func (p *Pipeline) CallLLM(
 	}
 	for retry := 0; retry <= maxRetries; retry++ {
 		exec.response, err = callLLM(exec.callMessages, exec.providerToolDefs)
+		if exceeded, ok := isUsageBudgetExceeded(err); ok {
+			exec.finalContent = exceeded.message
+			return ControlBreak, nil
+		}
 		if err == nil {
 			break
 		}
@@ -463,19 +465,27 @@ func (p *Pipeline) CallLLM(
 				))
 			}
 
-			if compactErr := p.ContextManager.Compact(ctx, &CompactRequest{
+			if compactErr := p.ContextManager.Compact(turnCtx, &CompactRequest{
 				SessionKey: ts.sessionKey,
 				Reason:     ContextCompressReasonRetry,
 				Budget:     ts.agent.ContextWindow,
 			}); compactErr != nil {
+				if exceeded, ok := isUsageBudgetExceeded(compactErr); ok {
+					exec.finalContent = exceeded.message
+					return ControlBreak, nil
+				}
 				return ControlBreak, fmt.Errorf("compact session context: %w", compactErr)
 			}
-			asmResp, asmErr := p.ContextManager.Assemble(ctx, &AssembleRequest{
+			asmResp, asmErr := p.ContextManager.Assemble(turnCtx, &AssembleRequest{
 				SessionKey: ts.sessionKey,
 				Budget:     ts.agent.ContextWindow,
 				MaxTokens:  ts.agent.MaxTokens,
 			})
 			if asmErr != nil {
+				if exceeded, ok := isUsageBudgetExceeded(asmErr); ok {
+					exec.finalContent = exceeded.message
+					return ControlBreak, nil
+				}
 				return ControlBreak, fmt.Errorf("reassemble session context: %w", asmErr)
 			}
 			if asmResp == nil {

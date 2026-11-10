@@ -1751,52 +1751,18 @@ func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 			expandedName := originalName + suffix
 
 			// Create a copy for the additional key
-			additionalEntry := &ModelConfig{
-				ModelName:           expandedName,
-				Provider:            m.Provider,
-				Model:               m.Model,
-				APIBase:             m.APIBase,
-				APIKeys:             SimpleSecureStrings(keys[i]),
-				Proxy:               m.Proxy,
-				AuthMethod:          m.AuthMethod,
-				ConnectMode:         m.ConnectMode,
-				Workspace:           m.Workspace,
-				RPM:                 m.RPM,
-				MaxTokensField:      m.MaxTokensField,
-				RequestTimeout:      m.RequestTimeout,
-				ThinkingLevel:       m.ThinkingLevel,
-				ToolSchemaTransform: m.ToolSchemaTransform,
-				Streaming:           m.Streaming,
-				ExtraBody:           m.ExtraBody,
-				CustomHeaders:       m.CustomHeaders,
-				UserAgent:           m.UserAgent,
-				isVirtual:           true,
-			}
-			expanded = append(expanded, additionalEntry)
+			additionalEntry := *m
+			additionalEntry.ModelName = expandedName
+			additionalEntry.APIKeys = SimpleSecureStrings(keys[i])
+			additionalEntry.Fallbacks = nil
+			additionalEntry.isVirtual = true
+			expanded = append(expanded, &additionalEntry)
 			fallbackNames = append(fallbackNames, expandedName)
 		}
 
 		// Create the primary entry with first key and fallbacks
-		primaryEntry := &ModelConfig{
-			ModelName:           originalName,
-			Provider:            m.Provider,
-			Model:               m.Model,
-			APIBase:             m.APIBase,
-			Proxy:               m.Proxy,
-			AuthMethod:          m.AuthMethod,
-			ConnectMode:         m.ConnectMode,
-			Workspace:           m.Workspace,
-			RPM:                 m.RPM,
-			MaxTokensField:      m.MaxTokensField,
-			RequestTimeout:      m.RequestTimeout,
-			ThinkingLevel:       m.ThinkingLevel,
-			ToolSchemaTransform: m.ToolSchemaTransform,
-			Streaming:           m.Streaming,
-			ExtraBody:           m.ExtraBody,
-			CustomHeaders:       m.CustomHeaders,
-			UserAgent:           m.UserAgent,
-			APIKeys:             SimpleSecureStrings(keys[0]),
-		}
+		primaryEntry := *m
+		primaryEntry.APIKeys = SimpleSecureStrings(keys[0])
 
 		// Prepend new fallbacks to existing ones
 		if len(fallbackNames) > 0 {
@@ -1805,7 +1771,7 @@ func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 			primaryEntry.Fallbacks = m.Fallbacks
 		}
 
-		expanded = append(expanded, primaryEntry)
+		expanded = append(expanded, &primaryEntry)
 	}
 
 	return expanded

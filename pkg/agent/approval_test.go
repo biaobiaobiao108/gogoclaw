@@ -32,7 +32,7 @@ func TestHumanApprovalManagerApproveOnceAndSessionGrant(t *testing.T) {
 	result := make(chan approval.Decision, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		decision, err := manager.request(context.Background(), first, persist)
+		decision, err := manager.request(context.Background(), first, approvalFingerprint(first.SessionKey, first.Tool, first.Arguments), persist)
 		if err != nil {
 			errCh <- err
 			return
@@ -60,7 +60,7 @@ func TestHumanApprovalManagerApproveOnceAndSessionGrant(t *testing.T) {
 
 	second := first
 	second.ID = "second"
-	decision, err := manager.request(context.Background(), second, persist)
+	decision, err := manager.request(context.Background(), second, approvalFingerprint(second.SessionKey, second.Tool, second.Arguments), persist)
 	if err != nil {
 		t.Fatalf("session-granted request error = %v", err)
 	}
@@ -85,9 +85,10 @@ func TestHumanApprovalManagerExpiresWithoutBlockingForever(t *testing.T) {
 	manager.setNotifier(func(context.Context, approval.Request) error { return nil })
 
 	var persisted approval.Request
-	decision, err := manager.request(context.Background(), approval.Request{
+	req := approval.Request{
 		SessionKey: "session", Tool: "exec",
-	}, func(req approval.Request) error {
+	}
+	decision, err := manager.request(context.Background(), req, approvalFingerprint(req.SessionKey, req.Tool, req.Arguments), func(req approval.Request) error {
 		persisted = req
 		return nil
 	})
@@ -108,14 +109,61 @@ func TestHumanApprovalManagerFailsWhenRequestCannotBeDelivered(t *testing.T) {
 		return errors.New("channel unavailable")
 	})
 
-	decision, err := manager.request(context.Background(), approval.Request{
+	req := approval.Request{
 		SessionKey: "session", Tool: "exec",
-	}, func(approval.Request) error { return nil })
+	}
+	decision, err := manager.request(context.Background(), req, approvalFingerprint(req.SessionKey, req.Tool, req.Arguments), func(approval.Request) error { return nil })
 	if err == nil {
 		t.Fatal("expected delivery error")
 	}
 	if decision.Approved || decision.Reason != "failed to deliver approval request" {
 		t.Fatalf("decision = %+v, want delivery denial", decision)
+	}
+}
+
+func TestHumanApprovalSessionGrantDoesNotMatchDifferentRedactedArguments(t *testing.T) {
+	manager := newHumanApprovalManager(time.Hour)
+	notified := make(chan approval.Request, 2)
+	manager.setNotifier(func(_ context.Context, req approval.Request) error {
+		notified <- req
+		return nil
+	})
+
+	firstSafe := approval.Request{SessionKey: "session", Tool: "exec", Arguments: map[string]any{"command": "use [FILTERED]"}}
+	firstFingerprint := approvalFingerprint(firstSafe.SessionKey, firstSafe.Tool, map[string]any{"command": "use secret-value-one"})
+	firstResult := make(chan error, 1)
+	go func() {
+		_, err := manager.request(context.Background(), firstSafe, firstFingerprint, nil)
+		firstResult <- err
+	}()
+	firstPending := <-notified
+	if err := manager.respond(context.Background(), approval.Response{ID: firstPending.ID, Approve: true, Scope: approval.ScopeSession}); err != nil {
+		t.Fatalf("approve first request: %v", err)
+	}
+	if err := <-firstResult; err != nil {
+		t.Fatalf("first request: %v", err)
+	}
+
+	secondSafe := approval.Request{SessionKey: "session", Tool: "exec", Arguments: map[string]any{"command": "use [FILTERED]"}}
+	secondFingerprint := approvalFingerprint(secondSafe.SessionKey, secondSafe.Tool, map[string]any{"command": "use secret-value-two"})
+	ctx, cancel := context.WithCancel(context.Background())
+	secondResult := make(chan error, 1)
+	go func() {
+		_, err := manager.request(ctx, secondSafe, secondFingerprint, nil)
+		secondResult <- err
+	}()
+	select {
+	case pending := <-notified:
+		if pending.Arguments["command"] != "use [FILTERED]" {
+			t.Fatalf("pending arguments exposed secret: %v", pending.Arguments)
+		}
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("different raw arguments incorrectly received the session grant")
+	}
+	cancel()
+	if err := <-secondResult; !errors.Is(err, context.Canceled) {
+		t.Fatalf("second request error = %v, want context canceled while pending", err)
 	}
 }
 

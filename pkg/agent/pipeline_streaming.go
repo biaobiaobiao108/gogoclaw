@@ -82,40 +82,45 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 	var response *providers.LLMResponse
 	var streamErr error
 	if eventProvider, ok := exec.activeProvider.(providers.StreamingEventProvider); ok {
-		response, streamErr = eventProvider.ChatStreamEvents(
-			ctx,
-			messagesForCall,
-			toolDefsForCall,
-			exec.llmModel,
-			exec.llmOpts,
-			func(chunk providers.StreamChunk) {
-				recordChunk()
-				if !exec.suppressReasoning && strings.TrimSpace(chunk.ReasoningContent) != "" {
-					publisher.UpdateReasoning(ctx, chunk.ReasoningContent)
-				}
-				if strings.TrimSpace(chunk.Content) != "" {
-					publisher.Update(ctx, chunk.Content)
-				}
+		response, streamErr = ts.runBudgetedModelCall(ctx, messagesForCall, toolDefsForCall, llmOptionTokenLimit(exec.llmOpts, ts.agent.MaxTokens),
+			func() (*providers.LLMResponse, error) {
+				return eventProvider.ChatStreamEvents(ctx, messagesForCall, toolDefsForCall, exec.llmModel, exec.llmOpts,
+					func(chunk providers.StreamChunk) {
+						recordChunk()
+						if !exec.suppressReasoning && strings.TrimSpace(chunk.ReasoningContent) != "" {
+							publisher.UpdateReasoning(ctx, chunk.ReasoningContent)
+						}
+						if strings.TrimSpace(chunk.Content) != "" {
+							publisher.Update(ctx, chunk.Content)
+						}
+					},
+				)
+			},
+			func(response *providers.LLMResponse) error {
+				return ts.recordUsageCall(response.Usage, false, executionUsageCall(exec))
 			},
 		)
 	} else {
-		response, streamErr = streamProvider.ChatStream(
-			ctx,
-			messagesForCall,
-			toolDefsForCall,
-			exec.llmModel,
-			exec.llmOpts,
-			func(accumulated string) {
-				recordChunk()
-				publisher.Update(ctx, accumulated)
+		response, streamErr = ts.runBudgetedModelCall(ctx, messagesForCall, toolDefsForCall, llmOptionTokenLimit(exec.llmOpts, ts.agent.MaxTokens),
+			func() (*providers.LLMResponse, error) {
+				return streamProvider.ChatStream(ctx, messagesForCall, toolDefsForCall, exec.llmModel, exec.llmOpts,
+					func(accumulated string) {
+						recordChunk()
+						publisher.Update(ctx, accumulated)
+					},
+				)
+			},
+			func(response *providers.LLMResponse) error {
+				return ts.recordUsageCall(response.Usage, false, executionUsageCall(exec))
 			},
 		)
 	}
 	logConfiguredStreamingSummary(ts, exec, chunkCount, firstChunkAt, lastChunkAt, streamErr)
-	if response != nil {
-		if err := ts.recordUsageCall(response.Usage, false, executionUsageCall(exec)); err != nil {
-			return nil, true, fmt.Errorf("record streaming usage: %w", err)
-		}
+	if _, blocked := isUsageBudgetExceeded(streamErr); blocked {
+		publisher.Cancel(ctx)
+		p.al.discardDelivery(ts.sessionKey, delivery.ID)
+		exec.streamingDelivery = nil
+		return nil, true, streamErr
 	}
 	if streamErr == nil {
 		if updateErr := publisher.Err(); updateErr != nil {
@@ -139,17 +144,16 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 				exec.streamingFallback = true
 				return nil, false, nil
 			}
-			fallbackResponse, err := exec.activeProvider.Chat(
-				ctx,
-				messagesForCall,
-				toolDefsForCall,
-				exec.llmModel,
-				exec.llmOpts,
+			fallbackResponse, err := ts.runBudgetedModelCall(ctx, messagesForCall, toolDefsForCall, llmOptionTokenLimit(exec.llmOpts, ts.agent.MaxTokens),
+				func() (*providers.LLMResponse, error) {
+					return exec.activeProvider.Chat(ctx, messagesForCall, toolDefsForCall, exec.llmModel, exec.llmOpts)
+				},
+				func(response *providers.LLMResponse) error {
+					return ts.recordUsageCall(response.Usage, false, executionUsageCall(exec))
+				},
 			)
-			if fallbackResponse != nil {
-				if recordErr := ts.recordUsageCall(fallbackResponse.Usage, false, executionUsageCall(exec)); recordErr != nil {
-					return nil, true, fmt.Errorf("record streaming fallback usage: %w", recordErr)
-				}
+			if err != nil {
+				return nil, true, fmt.Errorf("stream fallback: %w", err)
 			}
 			if err == nil && fallbackResponse != nil {
 				exec.streamingFallback = true
@@ -172,17 +176,16 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 				exec.streamingFallback = true
 				return nil, false, nil
 			}
-			fallbackResponse, err := exec.activeProvider.Chat(
-				ctx,
-				messagesForCall,
-				toolDefsForCall,
-				exec.llmModel,
-				exec.llmOpts,
+			fallbackResponse, err := ts.runBudgetedModelCall(ctx, messagesForCall, toolDefsForCall, llmOptionTokenLimit(exec.llmOpts, ts.agent.MaxTokens),
+				func() (*providers.LLMResponse, error) {
+					return exec.activeProvider.Chat(ctx, messagesForCall, toolDefsForCall, exec.llmModel, exec.llmOpts)
+				},
+				func(response *providers.LLMResponse) error {
+					return ts.recordUsageCall(response.Usage, false, executionUsageCall(exec))
+				},
 			)
-			if fallbackResponse != nil {
-				if recordErr := ts.recordUsageCall(fallbackResponse.Usage, false, executionUsageCall(exec)); recordErr != nil {
-					return nil, true, fmt.Errorf("record streaming fallback usage: %w", recordErr)
-				}
+			if err != nil {
+				return nil, true, fmt.Errorf("stream fallback: %w", err)
 			}
 			if err == nil && fallbackResponse != nil {
 				exec.streamingFallback = true

@@ -72,33 +72,39 @@ func newSeahorseContextManager(_ json.RawMessage, al *AgentLoop) (ContextManager
 // providerToCompleteFn wraps providers.LLMProvider as a seahorse.CompleteFn.
 func providerToCompleteFn(provider providers.LLMProvider, model string) seahorse.CompleteFn {
 	return func(ctx context.Context, prompt string, opts seahorse.CompleteOptions) (string, error) {
-		resp, err := provider.Chat(
-			ctx,
-			[]providers.Message{{Role: "user", Content: prompt}},
-			nil, // no tools for summarization
-			model,
-			map[string]any{
-				"max_tokens":       opts.MaxTokens,
-				"temperature":      opts.Temperature,
-				"prompt_cache_key": "seahorse",
-			},
-		)
-		if ts := turnStateFromContext(ctx); ts != nil && resp != nil {
-			if err := ts.recordUsageCall(resp.Usage, true, usageCall{
-				Provider:  resolvedCandidateProvider(ts.agent.Candidates, ""),
-				Model:     resolvedCandidateModelName(ts.agent.Candidates, ""),
-				ModelID:   model,
-				CostRates: ts.agent.usageRates(resolvedCandidateProvider(ts.agent.Candidates, ""), model, model),
-			}); err != nil {
-				return "", fmt.Errorf("record summary usage: %w", err)
-			}
-			if ts.agent != nil {
-				if store, ok := ts.agent.Sessions.(session.TurnUsageStore); ok {
-					if err := store.UpdateTurnUsage(ts.sessionKey, ts.turnID, ts.contextUsageSnapshot()); err != nil {
-						return "", fmt.Errorf("persist summary usage: %w", err)
+		messages := []providers.Message{{Role: "user", Content: prompt}}
+		options := map[string]any{
+			"max_tokens":       opts.MaxTokens,
+			"temperature":      opts.Temperature,
+			"prompt_cache_key": "seahorse",
+		}
+		ts := turnStateFromContext(ctx)
+		var resp *providers.LLMResponse
+		var err error
+		if ts != nil {
+			resp, err = ts.runBudgetedModelCall(ctx, messages, nil, opts.MaxTokens,
+				func() (*providers.LLMResponse, error) {
+					return provider.Chat(ctx, messages, nil, model, options)
+				},
+				func(resp *providers.LLMResponse) error {
+					if err := ts.recordUsageCall(resp.Usage, true, usageCall{
+						Provider:  resolvedCandidateProvider(ts.agent.Candidates, ""),
+						Model:     resolvedCandidateModelName(ts.agent.Candidates, ""),
+						ModelID:   model,
+						CostRates: ts.agent.usageRates(resolvedCandidateProvider(ts.agent.Candidates, ""), model, model),
+					}); err != nil {
+						return fmt.Errorf("record summary usage: %w", err)
 					}
-				}
-			}
+					if store, ok := ts.agent.Sessions.(session.TurnUsageStore); ok {
+						if err := store.UpdateTurnUsage(ts.sessionKey, ts.turnID, ts.contextUsageSnapshot()); err != nil {
+							return fmt.Errorf("persist summary usage: %w", err)
+						}
+					}
+					return nil
+				},
+			)
+		} else {
+			resp, err = provider.Chat(ctx, messages, nil, model, options)
 		}
 		if err != nil {
 			return "", err

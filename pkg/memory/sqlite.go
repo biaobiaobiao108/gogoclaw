@@ -782,9 +782,9 @@ func (s *SQLiteStore) PromoteAliasHistory(ctx context.Context, sessionKey string
 		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE session_meta
-			SET summary = ?, skip_count = 0, scope_json = ?, updated_at = ?
+			SET summary = ?, skip_count = ?, scope_json = ?, updated_at = ?
 			WHERE session_key = ?`,
-			aliasMeta.Summary, nilIfEmpty(scope), now.UnixNano(), sessionKey,
+			aliasMeta.Summary, aliasMeta.Skip, nilIfEmpty(scope), now.UnixNano(), sessionKey,
 		); err != nil {
 			return false, fmt.Errorf("memory: update promoted metadata: %w", err)
 		}

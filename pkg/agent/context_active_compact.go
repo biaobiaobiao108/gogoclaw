@@ -132,16 +132,26 @@ func summarizeTaskTranscript(ctx context.Context, provider providers.LLMProvider
 		if isOverContextBudget(window, prompt, nil, reserve) {
 			return "", fmt.Errorf("summary cannot fit in context window")
 		}
-		response, err := provider.Chat(ctx, prompt, nil, model, map[string]any{"max_tokens": reserve, "temperature": 0})
-		if ts := turnStateFromContext(ctx); ts != nil && response != nil {
-			if err := ts.recordUsageCall(response.Usage, true, usageCall{
-				Provider:  resolvedCandidateProvider(ts.agent.Candidates, ""),
-				Model:     resolvedCandidateModelName(ts.agent.Candidates, ""),
-				ModelID:   model,
-				CostRates: ts.agent.usageRates(resolvedCandidateProvider(ts.agent.Candidates, ""), model, model),
-			}); err != nil {
-				return "", fmt.Errorf("record summary usage: %w", err)
-			}
+		options := map[string]any{"max_tokens": reserve, "temperature": 0}
+		ts := turnStateFromContext(ctx)
+		var response *providers.LLMResponse
+		var err error
+		if ts != nil {
+			response, err = ts.runBudgetedModelCall(ctx, prompt, nil, reserve,
+				func() (*providers.LLMResponse, error) {
+					return provider.Chat(ctx, prompt, nil, model, options)
+				},
+				func(response *providers.LLMResponse) error {
+					return ts.recordUsageCall(response.Usage, true, usageCall{
+						Provider:  resolvedCandidateProvider(ts.agent.Candidates, ""),
+						Model:     resolvedCandidateModelName(ts.agent.Candidates, ""),
+						ModelID:   model,
+						CostRates: ts.agent.usageRates(resolvedCandidateProvider(ts.agent.Candidates, ""), model, model),
+					})
+				},
+			)
+		} else {
+			response, err = provider.Chat(ctx, prompt, nil, model, options)
 		}
 		if err != nil {
 			return "", err

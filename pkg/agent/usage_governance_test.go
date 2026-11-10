@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,18 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/usage"
 )
+
+type billedRetryProvider struct{ calls int }
+
+func (p *billedRetryProvider) Chat(context.Context, []providers.Message, []providers.ToolDefinition, string, map[string]any) (*providers.LLMResponse, error) {
+	p.calls++
+	if p.calls == 1 {
+		return &providers.LLMResponse{Usage: &providers.UsageInfo{PromptTokens: 999999, TotalTokens: 999999}}, errors.New("timeout")
+	}
+	return &providers.LLMResponse{Content: "retried"}, nil
+}
+
+func (*billedRetryProvider) GetDefaultModel() string { return "test-model" }
 
 func TestUsageBudgetStopsBeforeReservedCall(t *testing.T) {
 	store, backend := newUsageTestBackend(t)
@@ -42,6 +55,106 @@ func TestUsageBudgetStopsBeforeReservedCall(t *testing.T) {
 	}
 	if !blocked || !strings.Contains(message, "session") || !strings.Contains(message, "stopped") {
 		t.Fatalf("blocked=%v message=%q", blocked, message)
+	}
+}
+
+func TestBudgetReservationIsScopedToEachProviderCall(t *testing.T) {
+	_, backend := newUsageTestBackend(t)
+	ts := &turnState{
+		agentID:    "main",
+		sessionKey: "session",
+		agent: &AgentInstance{
+			MaxTokens: 1000,
+			Sessions:  backend,
+			UsageGovernance: config.UsageGovernanceConfig{
+				SessionTokenBudget: 65,
+			},
+		},
+	}
+	messages := []providers.Message{{Role: "user", Content: "continue"}}
+	providerCalls := 0
+	call := func() (*providers.LLMResponse, error) {
+		providerCalls++
+		return &providers.LLMResponse{Usage: &providers.UsageInfo{PromptTokens: 60, TotalTokens: 60}}, nil
+	}
+	record := func(response *providers.LLMResponse) error {
+		return ts.recordUsageCall(response.Usage, false, usageCall{})
+	}
+	if _, err := ts.runBudgetedModelCall(context.Background(), messages, nil, 10, call, record); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ts.runBudgetedModelCall(context.Background(), messages, nil, 10, call, record); err == nil {
+		t.Fatal("second provider call should be blocked after the first call records usage")
+	} else if _, ok := isUsageBudgetExceeded(err); !ok {
+		t.Fatalf("expected budget stop, got %v", err)
+	}
+	if providerCalls != 1 {
+		t.Fatalf("provider calls = %d, want 1", providerCalls)
+	}
+}
+
+func TestPipelineRetryRechecksBudgetAfterBilledFailure(t *testing.T) {
+	provider := &billedRetryProvider{}
+	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+	_, backend := newUsageTestBackend(t)
+	agent.MaxTokens = 10
+	agent.Sessions = backend
+	agent.UsageGovernance.SessionTokenBudget = 1000000
+	agent.usageStore = backend
+	agent.usageLedger = backend
+	agent.usageGuard = usage.NewGuard()
+	opts := makeTestProcessOpts("retry-budget")
+	opts.Dispatch.SessionKey = "retry-budget"
+	ts := newTurnState(agent, opts, turnEventScope{
+		turnID: "retry-budget", context: newTurnContext(nil, nil, nil),
+	})
+	pipeline := NewPipeline(al)
+	exec, err := pipeline.SetupTurn(context.Background(), ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctrl, err := pipeline.CallLLM(context.Background(), context.Background(), ts, exec, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ctrl != ControlBreak || exec.finalContent == "" {
+		t.Fatalf("expected a user-facing budget stop, control=%v content=%q", ctrl, exec.finalContent)
+	}
+	if provider.calls != 1 {
+		used, usageErr := backend.SessionUsage(context.Background(), ts.usageSessionKeyOrDefault())
+		t.Fatalf("provider calls = %d, want one billed attempt (session=%q usage=%+v err=%v)", provider.calls, ts.usageSessionKeyOrDefault(), used, usageErr)
+	}
+}
+
+func TestActiveSummaryChecksBudgetBeforeProviderCall(t *testing.T) {
+	store, backend := newUsageTestBackend(t)
+	if err := store.RecordUsage(context.Background(), usage.Record{
+		Day:         time.Now().Format("2006-01-02"),
+		SessionKeys: []string{"summary-budget"},
+		TotalTokens: 100,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &billedRetryProvider{}
+	agent := &AgentInstance{
+		MaxTokens: 1000,
+		Sessions:  backend,
+		UsageGovernance: config.UsageGovernanceConfig{
+			SessionTokenBudget: 100,
+		},
+		usageStore:  backend,
+		usageLedger: backend,
+		usageGuard:  usage.NewGuard(),
+	}
+	ts := &turnState{agent: agent, agentID: "main", sessionKey: "summary-budget"}
+	ctx := withTurnState(context.Background(), ts)
+	_, err := summarizeTaskTranscript(ctx, provider, "test-model", []providers.Message{{Role: "user", Content: "summarize this"}}, "", 4096)
+	if _, ok := isUsageBudgetExceeded(err); !ok {
+		t.Fatalf("expected summary budget stop, got %v", err)
+	}
+	if provider.calls != 0 {
+		t.Fatalf("summary provider calls = %d, want 0", provider.calls)
 	}
 }
 
