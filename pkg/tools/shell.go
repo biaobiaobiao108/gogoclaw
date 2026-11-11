@@ -1193,6 +1193,12 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 		}
 	}
 
+	// This is a heuristic guard, not a sandbox. It scans the command text for
+	// absolute paths and literal ".." traversal, with a few shell-specific
+	// exemptions. It cannot reliably see paths produced by variable expansion,
+	// command substitution, aliases, scripts, or subprocesses. The real security
+	// boundary is the container/VM runtime that hosts GoGoClaw; do not treat this
+	// workspace check as complete isolation.
 	if t.restrictToWorkspace {
 		// Block path traversal patterns including .../.../ variants
 		if regexp.MustCompile(`\.\.(?:[\\/]\.\.)*[\\/]`).MatchString(cmd) {
