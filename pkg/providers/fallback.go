@@ -117,7 +117,7 @@ func ResolveCandidatesWithLookup(
 //
 // Behavior:
 //   - Candidates in cooldown are skipped (logged as skipped attempt).
-//   - context.Canceled aborts immediately (user abort, no fallback).
+//   - Context cancellation or deadline aborts immediately (no fallback).
 //   - Non-retriable errors (format) abort immediately.
 //   - Retriable errors trigger fallback to next candidate.
 //   - Success marks provider as good (resets cooldown).
@@ -153,8 +153,8 @@ func (fc *FallbackChain) ExecuteCandidate(
 
 	for i, candidate := range candidates {
 		// Check context before each attempt.
-		if ctx.Err() == context.Canceled {
-			return nil, context.Canceled
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
 		}
 
 		// Check cooldown per stable candidate identity, not just provider/model.
@@ -218,15 +218,15 @@ func (fc *FallbackChain) ExecuteCandidate(
 			return result, nil
 		}
 
-		// Context cancellation: abort immediately, no fallback.
-		if ctx.Err() == context.Canceled {
+		// Context termination: abort immediately and do not penalize the candidate.
+		if ctxErr := ctx.Err(); ctxErr != nil {
 			result.Attempts = append(result.Attempts, FallbackAttempt{
 				Provider: candidate.Provider,
 				Model:    candidate.Model,
-				Error:    err,
+				Error:    ctxErr,
 				Duration: elapsed,
 			})
-			return nil, context.Canceled
+			return nil, ctxErr
 		}
 
 		// Classify the error.
@@ -309,8 +309,8 @@ func (fc *FallbackChain) ExecuteImageCandidate(
 	}
 
 	for i, candidate := range candidates {
-		if ctx.Err() == context.Canceled {
-			return nil, context.Canceled
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
 		}
 
 		// Enforce per-candidate rate limit before calling the provider.
@@ -353,14 +353,14 @@ func (fc *FallbackChain) ExecuteImageCandidate(
 			return result, nil
 		}
 
-		if ctx.Err() == context.Canceled {
+		if ctxErr := ctx.Err(); ctxErr != nil {
 			result.Attempts = append(result.Attempts, FallbackAttempt{
 				Provider: candidate.Provider,
 				Model:    candidate.Model,
-				Error:    err,
+				Error:    ctxErr,
 				Duration: elapsed,
 			})
-			return nil, context.Canceled
+			return nil, ctxErr
 		}
 
 		// Image dimension/size errors are non-retriable.

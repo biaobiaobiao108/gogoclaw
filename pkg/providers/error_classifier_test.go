@@ -36,11 +36,8 @@ func TestClassifyError_ContextCanceled(t *testing.T) {
 
 func TestClassifyError_ContextDeadlineExceeded(t *testing.T) {
 	result := ClassifyError(context.DeadlineExceeded, "openai", "gpt-4")
-	if result == nil {
-		t.Fatal("expected non-nil for deadline exceeded")
-	}
-	if result.Reason != FailoverTimeout {
-		t.Errorf("reason = %q, want timeout", result.Reason)
+	if result != nil {
+		t.Errorf("expected nil for context deadline exceeded, got %+v", result)
 	}
 }
 

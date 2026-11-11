@@ -154,8 +154,9 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 		return nil
 	}
 
-	// Context cancellation: user abort, never fallback.
-	if err == context.Canceled {
+	// Context cancellation or deadline: the caller's context is authoritative,
+	// so a provider error must not trigger fallback.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return nil
 	}
 	var classified *FailoverError
@@ -167,16 +168,6 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 			classified.Model = model
 		}
 		return classified
-	}
-
-	// Context deadline exceeded: treat as timeout, always fallback.
-	if err == context.DeadlineExceeded {
-		return &FailoverError{
-			Reason:   FailoverTimeout,
-			Provider: provider,
-			Model:    model,
-			Wrapped:  err,
-		}
 	}
 
 	msg := strings.ToLower(err.Error())

@@ -121,6 +121,37 @@ func TestFallback_ContextCanceled(t *testing.T) {
 	}
 }
 
+func TestFallback_ContextDeadlineStopsAndDoesNotMarkFailure(t *testing.T) {
+	ct := NewCooldownTracker()
+	fc := NewFallbackChain(ct, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	candidates := []FallbackCandidate{
+		makeCandidate("openai", "gpt-4"),
+		makeCandidate("anthropic", "claude"),
+	}
+
+	attempts := 0
+	run := func(ctx context.Context, provider, model string) (*LLMResponse, error) {
+		attempts++
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
+	_, err := fc.Execute(ctx, candidates, run)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", attempts)
+	}
+	key := candidates[0].StableKey()
+	if !ct.IsAvailable(key) || ct.ErrorCount(key) != 0 {
+		t.Fatalf("deadline polluted cooldown state: available=%v errors=%d", ct.IsAvailable(key), ct.ErrorCount(key))
+	}
+}
+
 func TestFallback_NonRetriableError(t *testing.T) {
 	ct := NewCooldownTracker()
 	fc := NewFallbackChain(ct, nil)
@@ -517,6 +548,33 @@ func TestImageFallback_RetryOnOtherErrors(t *testing.T) {
 	}
 	if result.Provider != "anthropic" {
 		t.Errorf("provider = %q, want anthropic", result.Provider)
+	}
+}
+
+func TestImageFallback_ContextDeadlineStops(t *testing.T) {
+	ct := NewCooldownTracker()
+	fc := NewFallbackChain(ct, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	candidates := []FallbackCandidate{
+		makeCandidate("openai", "gpt-4o"),
+		makeCandidate("anthropic", "claude-sonnet"),
+	}
+
+	attempts := 0
+	run := func(ctx context.Context, provider, model string) (*LLMResponse, error) {
+		attempts++
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
+	_, err := fc.ExecuteImage(ctx, candidates, run)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", attempts)
 	}
 }
 
