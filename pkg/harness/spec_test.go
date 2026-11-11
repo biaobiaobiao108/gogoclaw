@@ -70,6 +70,47 @@ func TestRunSpecSuiteAndDirectory(t *testing.T) {
 	}
 }
 
+func TestRunSpecDirectoryAppliesPerFileSuiteOptions(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"a.json": `{
+  "name": "file-a",
+  "filter": "^keep-a$",
+  "scenarios": [
+    {"name": "keep-a", "user_message": "a", "steps": [{"content": "a"}], "expect": {"final": "a"}},
+    {"name": "drop-a", "user_message": "drop", "steps": [{"content": "drop"}], "expect": {"final": "drop"}}
+  ]
+}`,
+		"b.json": `{
+  "name": "file-b",
+  "filter": "^keep-b$",
+  "scenarios": [
+    {"name": "keep-b", "user_message": "b", "steps": [{"content": "b"}], "expect": {"final": "b"}},
+    {"name": "drop-b", "user_message": "drop", "steps": [{"content": "drop"}], "expect": {"final": "drop"}}
+  ]
+}`,
+	}
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	report, err := RunSpecPath(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Passed {
+		t.Fatalf("directory report failed: %+v", report)
+	}
+	if len(report.Scenarios) != 2 {
+		t.Fatalf("scenario count = %d, want 2", len(report.Scenarios))
+	}
+	if report.Scenarios[0].Name != "keep-a" || report.Scenarios[1].Name != "keep-b" {
+		t.Fatalf("scenario names = %q, %q; want keep-a, keep-b", report.Scenarios[0].Name, report.Scenarios[1].Name)
+	}
+}
+
 func TestRunSpecWithSessionFault(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "fault.json")
 	data := `{

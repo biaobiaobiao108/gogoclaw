@@ -112,14 +112,40 @@ func LoadScenarios(path string) ([]Scenario, error) {
 
 // LoadScenariosWithOptions loads scenarios and suite execution options.
 func LoadScenariosWithOptions(path string) ([]Scenario, SuiteOptions, error) {
+	groups, err := loadScenarioGroups(path)
+	if err != nil {
+		return nil, SuiteOptions{}, err
+	}
+	if len(groups) == 1 {
+		return groups[0].scenarios, groups[0].options, nil
+	}
+
+	var all []Scenario
+	for _, group := range groups {
+		filtered, err := filterScenarios(group.scenarios, group.options.Filter)
+		if err != nil {
+			return nil, SuiteOptions{}, err
+		}
+		all = append(all, filtered...)
+	}
+	return all, SuiteOptions{}, nil
+}
+
+type scenarioGroup struct {
+	path      string
+	scenarios []Scenario
+	options   SuiteOptions
+}
+
+func loadScenarioGroups(path string) ([]scenarioGroup, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return nil, SuiteOptions{}, fmt.Errorf("harness: stat %s: %w", path, err)
+		return nil, fmt.Errorf("harness: stat %s: %w", path, err)
 	}
 	if info.IsDir() {
 		entries, err := os.ReadDir(path)
 		if err != nil {
-			return nil, SuiteOptions{}, fmt.Errorf("harness: read dir %s: %w", path, err)
+			return nil, fmt.Errorf("harness: read dir %s: %w", path, err)
 		}
 		var files []string
 		for _, entry := range entries {
@@ -130,19 +156,23 @@ func LoadScenariosWithOptions(path string) ([]Scenario, SuiteOptions, error) {
 		}
 		sort.Strings(files)
 		if len(files) == 0 {
-			return nil, SuiteOptions{}, fmt.Errorf("harness: no JSON scenario files found in %s", path)
+			return nil, fmt.Errorf("harness: no JSON scenario files found in %s", path)
 		}
-		var all []Scenario
+		groups := make([]scenarioGroup, 0, len(files))
 		for _, file := range files {
-			scenarios, _, err := loadScenarioFile(file)
+			scenarios, opts, err := loadScenarioFile(file)
 			if err != nil {
-				return nil, SuiteOptions{}, err
+				return nil, err
 			}
-			all = append(all, scenarios...)
+			groups = append(groups, scenarioGroup{path: file, scenarios: scenarios, options: opts})
 		}
-		return all, SuiteOptions{}, nil
+		return groups, nil
 	}
-	return loadScenarioFile(path)
+	scenarios, opts, err := loadScenarioFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return []scenarioGroup{{path: path, scenarios: scenarios, options: opts}}, nil
 }
 
 func loadScenarioFile(path string) ([]Scenario, SuiteOptions, error) {
@@ -359,19 +389,9 @@ func RunSpecPath(ctx context.Context, path string) (Report, error) {
 
 // RunSpecPathWithOptions runs scenarios with additional execution options.
 func RunSpecPathWithOptions(ctx context.Context, path string, opts SuiteOptions) (Report, error) {
-	scenarios, fileOpts, err := LoadScenariosWithOptions(path)
+	groups, err := loadScenarioGroups(path)
 	if err != nil {
 		return Report{}, err
 	}
-	mergedOpts := opts
-	if !mergedOpts.Parallel && fileOpts.Parallel {
-		mergedOpts.Parallel = true
-		if mergedOpts.Concurrency <= 0 {
-			mergedOpts.Concurrency = fileOpts.Concurrency
-		}
-	}
-	if mergedOpts.Filter == "" && fileOpts.Filter != "" {
-		mergedOpts.Filter = fileOpts.Filter
-	}
-	return RunSuiteWithOptions(ctx, scenarios, mergedOpts), nil
+	return runScenarioGroups(ctx, groups, opts), nil
 }

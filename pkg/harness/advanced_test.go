@@ -349,6 +349,44 @@ func TestProviderRecordAndReplay(t *testing.T) {
 	}
 }
 
+func TestRecordingProviderPersistsToolDefinitionsAndOptions(t *testing.T) {
+	recorder := NewRecordingProvider(NewScriptedProvider("harness-model", Text("ok")))
+	toolDefs := []providers.ToolDefinition{{
+		Type: "function",
+		Function: providers.ToolFunctionDefinition{
+			Name: "lookup",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{"type": "string"},
+				},
+			},
+		},
+	}}
+	options := map[string]any{"mode": "fast"}
+	if _, err := recorder.Chat(context.Background(), []providers.Message{{Role: "user", Content: "hello"}}, toolDefs, "harness-model", options); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(t.TempDir(), "recording.json")
+	if err := recorder.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	trace, err := LoadTrace(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trace.ModelCalls) != 1 || len(trace.ModelCalls[0].Tools) != 1 {
+		t.Fatalf("recorded tools = %+v", trace.ModelCalls)
+	}
+	if trace.ModelCalls[0].Tools[0].Function.Name != "lookup" {
+		t.Fatalf("recorded tool name = %q", trace.ModelCalls[0].Tools[0].Function.Name)
+	}
+	if trace.ModelCalls[0].Options["mode"] != "fast" {
+		t.Fatalf("recorded options = %+v", trace.ModelCalls[0].Options)
+	}
+}
+
 func TestReplayRejectsChangedConversationInput(t *testing.T) {
 	replay := NewReplayProvider("harness-model", Trace{Version: traceVersion, ModelCalls: []TraceModelCall{{
 		Model: "harness-model", Messages: []TraceMessage{{Role: "user", Content: "original"}},
@@ -357,6 +395,51 @@ func TestReplayRejectsChangedConversationInput(t *testing.T) {
 	_, err := replay.Chat(context.Background(), []providers.Message{{Role: "user", Content: "changed"}}, nil, "harness-model", nil)
 	if err == nil || !strings.Contains(err.Error(), "input messages differ") {
 		t.Fatalf("changed prompt accepted by replay: %v", err)
+	}
+}
+
+func TestReplayRejectsChangedToolDefinitionsAndOptions(t *testing.T) {
+	tool := providers.ToolDefinition{
+		Type: "function",
+		Function: providers.ToolFunctionDefinition{
+			Name:        "lookup",
+			Description: "look up a value",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{"type": "string"},
+				},
+			},
+		},
+	}
+	record := TraceModelCall{
+		Model:    "harness-model",
+		Messages: []TraceMessage{{Role: "user", Content: "find it"}},
+		Tools:    []providers.ToolDefinition{tool},
+		Options:  map[string]any{"temperature": 0.1},
+		Response: &TraceModelResponse{Content: "answer"},
+	}
+	messages := []providers.Message{{Role: "user", Content: "find it"}}
+
+	changedSchema := cloneToolDefinitions([]providers.ToolDefinition{tool})
+	changedSchema[0].Function.Parameters["required"] = []any{"query"}
+	replay := NewReplayProvider("harness-model", Trace{Version: traceVersion, ModelCalls: []TraceModelCall{record}})
+	if _, err := replay.Chat(context.Background(), messages, changedSchema, "harness-model", record.Options); err == nil || !strings.Contains(err.Error(), "tool definitions") {
+		t.Fatalf("changed tool schema accepted by replay: %v", err)
+	}
+
+	replay = NewReplayProvider("harness-model", Trace{Version: traceVersion, ModelCalls: []TraceModelCall{record}})
+	if _, err := replay.Chat(context.Background(), messages, []providers.ToolDefinition{tool}, "harness-model", map[string]any{"temperature": 0.5}); err == nil || !strings.Contains(err.Error(), "tool options") {
+		t.Fatalf("changed tool options accepted by replay: %v", err)
+	}
+
+	replay = NewReplayProvider("harness-model", Trace{Version: traceVersion, ModelCalls: []TraceModelCall{record}})
+	response, err := replay.Chat(context.Background(), messages, []providers.ToolDefinition{tool}, "harness-model", record.Options)
+	if err != nil {
+		t.Fatalf("matching replay failed: %v", err)
+	}
+	if response.Content != "answer" {
+		t.Fatalf("replay content = %q, want answer", response.Content)
 	}
 }
 

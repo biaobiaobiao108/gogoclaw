@@ -128,6 +128,46 @@ func cloneMessages(messages []providers.Message) []providers.Message {
 	return out
 }
 
+func cloneToolDefinitions(defs []providers.ToolDefinition) []providers.ToolDefinition {
+	if len(defs) == 0 {
+		return nil
+	}
+	out := make([]providers.ToolDefinition, len(defs))
+	for i, def := range defs {
+		out[i] = def
+		out[i].Function.Parameters = cloneStringAnyMap(def.Function.Parameters)
+	}
+	return out
+}
+
+func cloneStringAnyMap(values map[string]any) map[string]any {
+	if values == nil {
+		return nil
+	}
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		out[key] = cloneStringAnyValue(value)
+	}
+	return out
+}
+
+func cloneStringAnyValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneStringAnyMap(typed)
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = cloneStringAnyValue(item)
+		}
+		return out
+	case []string:
+		return append([]string(nil), typed...)
+	default:
+		return typed
+	}
+}
+
 type faultFreeHistory interface {
 	FaultFreeHistory(string) []providers.Message
 }

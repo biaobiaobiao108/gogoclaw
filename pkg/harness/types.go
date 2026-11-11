@@ -122,6 +122,8 @@ type ModelCall struct {
 	Model     string
 	Messages  []providers.Message
 	ToolNames []string
+	Tools     []providers.ToolDefinition
+	Options   map[string]any
 	Response  *providers.LLMResponse
 	Error     string
 	At        time.Time

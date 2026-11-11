@@ -69,23 +69,15 @@ func RunSuite(ctx context.Context, scenarios []Scenario) Report {
 // RunSuiteWithOptions executes scenarios with concurrency, filtering, and
 // optional progress callbacks.
 func RunSuiteWithOptions(ctx context.Context, scenarios []Scenario, opts SuiteOptions) Report {
-	if strings.TrimSpace(opts.Filter) != "" {
-		re, err := regexp.Compile(opts.Filter)
-		if err != nil {
-			return Report{
-				Version: reportVersion,
-				Passed:  false,
-				Error:   fmt.Sprintf("harness: invalid filter regexp %q: %v", opts.Filter, err),
-			}
+	filtered, err := filterScenarios(scenarios, opts.Filter)
+	if err != nil {
+		return Report{
+			Version: reportVersion,
+			Passed:  false,
+			Error:   err.Error(),
 		}
-		filtered := make([]Scenario, 0, len(scenarios))
-		for _, s := range scenarios {
-			if re.MatchString(s.Name) {
-				filtered = append(filtered, s)
-			}
-		}
-		scenarios = filtered
 	}
+	scenarios = filtered
 
 	started := time.Now()
 	report := Report{Version: reportVersion, Passed: len(scenarios) > 0}
@@ -153,6 +145,68 @@ func RunSuiteWithOptions(ctx context.Context, scenarios []Scenario, opts SuiteOp
 		modelDurations = append(modelDurations, scReport.modelDurationsMS...)
 		turnDurations = append(turnDurations, scReport.turnDurationsMS...)
 	}
+	report.ModelLatency = summarizeLatency(modelDurations)
+	report.TurnLatency = summarizeLatency(turnDurations)
+	return report
+}
+
+func filterScenarios(scenarios []Scenario, filter string) ([]Scenario, error) {
+	if strings.TrimSpace(filter) == "" {
+		return scenarios, nil
+	}
+	re, err := regexp.Compile(filter)
+	if err != nil {
+		return nil, fmt.Errorf("harness: invalid filter regexp %q: %v", filter, err)
+	}
+	filtered := make([]Scenario, 0, len(scenarios))
+	for _, scenario := range scenarios {
+		if re.MatchString(scenario.Name) {
+			filtered = append(filtered, scenario)
+		}
+	}
+	return filtered, nil
+}
+
+func mergeSuiteOptions(base, file SuiteOptions) SuiteOptions {
+	merged := base
+	if !merged.Parallel && file.Parallel {
+		merged.Parallel = true
+		if merged.Concurrency <= 0 {
+			merged.Concurrency = file.Concurrency
+		}
+	}
+	if merged.Filter == "" {
+		merged.Filter = file.Filter
+	}
+	return merged
+}
+
+func runScenarioGroups(ctx context.Context, groups []scenarioGroup, opts SuiteOptions) Report {
+	if len(groups) == 1 {
+		return RunSuiteWithOptions(ctx, groups[0].scenarios, mergeSuiteOptions(opts, groups[0].options))
+	}
+
+	started := time.Now()
+	report := Report{Version: reportVersion, Passed: len(groups) > 0}
+	var errors []string
+	var modelDurations []int64
+	var turnDurations []int64
+	for _, group := range groups {
+		groupReport := RunSuiteWithOptions(ctx, group.scenarios, mergeSuiteOptions(opts, group.options))
+		if !groupReport.Passed {
+			report.Passed = false
+		}
+		if groupReport.Error != "" {
+			errors = append(errors, fmt.Sprintf("%s: %s", group.path, groupReport.Error))
+		}
+		report.Scenarios = append(report.Scenarios, groupReport.Scenarios...)
+		for _, scenarioReport := range groupReport.Scenarios {
+			modelDurations = append(modelDurations, scenarioReport.modelDurationsMS...)
+			turnDurations = append(turnDurations, scenarioReport.turnDurationsMS...)
+		}
+	}
+	report.DurationMS = time.Since(started).Milliseconds()
+	report.Error = strings.Join(errors, "; ")
 	report.ModelLatency = summarizeLatency(modelDurations)
 	report.TurnLatency = summarizeLatency(turnDurations)
 	return report

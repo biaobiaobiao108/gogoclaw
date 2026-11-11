@@ -43,12 +43,14 @@ type TraceTurn struct {
 }
 
 type TraceModelCall struct {
-	Index     int                 `json:"index"`
-	Model     string              `json:"model"`
-	Messages  []TraceMessage      `json:"messages"`
-	ToolNames []string            `json:"tool_names,omitempty"`
-	Response  *TraceModelResponse `json:"response,omitempty"`
-	Error     string              `json:"error,omitempty"`
+	Index     int                        `json:"index"`
+	Model     string                     `json:"model"`
+	Messages  []TraceMessage             `json:"messages"`
+	ToolNames []string                   `json:"tool_names,omitempty"`
+	Tools     []providers.ToolDefinition `json:"tools,omitempty"`
+	Options   map[string]any             `json:"options,omitempty"`
+	Response  *TraceModelResponse        `json:"response,omitempty"`
+	Error     string                     `json:"error,omitempty"`
 }
 
 type TraceModelResponse struct {
@@ -268,6 +270,8 @@ func snapshotModelCalls(calls []ModelCall) []TraceModelCall {
 			Model:     call.Model,
 			Messages:  snapshotMessages(call.Messages),
 			ToolNames: append([]string(nil), call.ToolNames...),
+			Tools:     cloneToolDefinitions(call.Tools),
+			Options:   cloneStringAnyMap(call.Options),
 			Response:  snapshotResponse(call.Response),
 			Error:     call.Error,
 		})

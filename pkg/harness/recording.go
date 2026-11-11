@@ -46,6 +46,8 @@ func (p *RecordingProvider) Chat(
 		Model:     model,
 		Messages:  cloneMessages(messages),
 		ToolNames: toolNames(toolDefs),
+		Tools:     cloneToolDefinitions(toolDefs),
+		Options:   cloneStringAnyMap(options),
 		Response:  cloneLLMResponse(response),
 		At:        started,
 		Duration:  time.Since(started),
@@ -68,6 +70,8 @@ func (p *RecordingProvider) Calls() []ModelCall {
 	for i, call := range p.calls {
 		call.Messages = cloneMessages(call.Messages)
 		call.ToolNames = append([]string(nil), call.ToolNames...)
+		call.Tools = cloneToolDefinitions(call.Tools)
+		call.Options = cloneStringAnyMap(call.Options)
 		call.Response = cloneLLMResponse(call.Response)
 		out[i] = call
 	}
@@ -106,7 +110,7 @@ func (p *ReplayProvider) Chat(
 	messages []providers.Message,
 	toolDefs []providers.ToolDefinition,
 	model string,
-	_ map[string]any,
+	toolOptions map[string]any,
 ) (*providers.LLMResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -132,10 +136,37 @@ func (p *ReplayProvider) Chat(
 	if !bytes.Equal(gotInput, wantInput) {
 		return nil, fmt.Errorf("harness: replay input messages differ at call %d", p.next)
 	}
-	wantTools, _ := json.Marshal(record.ToolNames)
-	gotTools, _ := json.Marshal(toolNames(toolDefs))
-	if !bytes.Equal(gotTools, wantTools) {
-		return nil, fmt.Errorf("harness: replay tools at call %d differ", p.next)
+	if record.Tools != nil {
+		wantTools, err := json.Marshal(record.Tools)
+		if err != nil {
+			return nil, fmt.Errorf("harness: encode recorded tools: %w", err)
+		}
+		gotTools, err := json.Marshal(cloneToolDefinitions(toolDefs))
+		if err != nil {
+			return nil, fmt.Errorf("harness: encode current tools: %w", err)
+		}
+		if !bytes.Equal(gotTools, wantTools) {
+			return nil, fmt.Errorf("harness: replay tool definitions at call %d differ", p.next)
+		}
+	} else {
+		wantTools, _ := json.Marshal(record.ToolNames)
+		gotTools, _ := json.Marshal(toolNames(toolDefs))
+		if !bytes.Equal(gotTools, wantTools) {
+			return nil, fmt.Errorf("harness: replay tools at call %d differ", p.next)
+		}
+	}
+	if record.Options != nil {
+		wantOptions, err := json.Marshal(record.Options)
+		if err != nil {
+			return nil, fmt.Errorf("harness: encode recorded options: %w", err)
+		}
+		gotOptions, err := json.Marshal(cloneStringAnyMap(toolOptions))
+		if err != nil {
+			return nil, fmt.Errorf("harness: encode current options: %w", err)
+		}
+		if !bytes.Equal(gotOptions, wantOptions) {
+			return nil, fmt.Errorf("harness: replay tool options at call %d differ", p.next)
+		}
 	}
 	if record.Error != "" {
 		return nil, errors.New(record.Error)
