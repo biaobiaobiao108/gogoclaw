@@ -18,10 +18,7 @@ import { ActiveWorkIndicator } from "@/components/chat/active-work-indicator"
 import { ActivityTimeline } from "@/components/chat/activity-timeline"
 import { ApprovalPanel } from "@/components/chat/approval-panel"
 import { AssistantMessage } from "@/components/chat/assistant-message"
-import {
-  ChatComposer,
-  type ChatInputDisabledReason,
-} from "@/components/chat/chat-composer"
+import { ChatComposer } from "@/components/chat/chat-composer"
 import { ChatEmptyState } from "@/components/chat/chat-empty-state"
 import { ModelSelector } from "@/components/chat/model-selector"
 import { ProcessMessage } from "@/components/chat/process-message"
@@ -49,117 +46,14 @@ import { useIsHistorySheet } from "@/hooks/use-mobile"
 import { usePicoChat } from "@/hooks/use-pico-chat"
 import { useSessionHistory } from "@/hooks/use-session-history"
 import { chatDraftsAtom, getChatState } from "@/store/chat"
-import type {
-  ChatActivity,
-  ChatAttachment,
-  ChatMessage,
-  ChatPlanStep,
-  ChatTurnHistory,
-  ConnectionState,
-} from "@/store/chat"
-import type { GatewayState } from "@/store/gateway"
+import type { ChatAttachment, ChatMessage } from "@/store/chat"
 
-function resolveChatInputDisabledReason({
-  hasDefaultModel,
-  connectionState,
-  gatewayState,
-}: {
-  hasDefaultModel: boolean
-  connectionState: ConnectionState
-  gatewayState: GatewayState
-}): ChatInputDisabledReason | null {
-  if (gatewayState === "unknown") {
-    return "gatewayUnknown"
-  }
-  if (gatewayState === "starting") {
-    return "gatewayStarting"
-  }
-  if (gatewayState === "restarting") {
-    return "gatewayRestarting"
-  }
-  if (gatewayState === "stopping") {
-    return "gatewayStopping"
-  }
-  if (gatewayState === "stopped") {
-    return "gatewayStopped"
-  }
-  if (gatewayState === "error") {
-    return "gatewayError"
-  }
-  if (connectionState === "connecting") {
-    return "websocketConnecting"
-  }
-  if (connectionState === "error") {
-    return "websocketError"
-  }
-  if (connectionState === "disconnected") {
-    return "websocketDisconnected"
-  }
-  if (!hasDefaultModel) {
-    return "noDefaultModel"
-  }
-  return null
-}
-
-type ChatStreamRow =
-  | { kind: "loadOlder" }
-  | { kind: "historyLoading" }
-  | { kind: "historyError" }
-  | { kind: "empty" }
-  | { kind: "message"; message: ChatMessage }
-  | { kind: "process"; messages: ChatMessage[]; active?: boolean }
-  | { kind: "working" }
-  | {
-      kind: "activity"
-      plan?: ChatPlanStep[]
-      activities?: ChatActivity[]
-      history?: ChatTurnHistory[]
-    }
-
-function chatStreamRowKey(row: ChatStreamRow): string {
-  return row.kind === "message"
-    ? `message:${row.message.id}`
-    : row.kind === "process"
-      ? `process:${row.messages[0].id}`
-      : row.kind
-}
-
-function estimateChatStreamRow(row: ChatStreamRow): number {
-  switch (row.kind) {
-    case "loadOlder":
-      return 56
-    case "historyLoading":
-    case "historyError":
-      return 104
-    case "empty":
-      return 420
-    case "working":
-      return 56
-    case "activity":
-      return 180
-    case "process": {
-      const count = row.messages.length
-      const totalChars = row.messages.reduce(
-        (acc, m) => acc + (m.content?.length || 0),
-        0,
-      )
-      return Math.max(
-        64,
-        Math.min(600, 48 + count * 24 + Math.floor(totalChars / 8)),
-      )
-    }
-    case "message": {
-      const chars = row.message.content?.length || 0
-      if (row.message.role === "user") {
-        return Math.max(56, Math.min(300, 48 + Math.floor(chars / 5)))
-      }
-      return Math.max(80, Math.min(1200, 64 + Math.floor(chars / 3)))
-    }
-    default:
-      return 112
-  }
-}
-
+import {
+  type ChatStreamRow,
+  chatStreamRowKey,
+  estimateChatStreamRow,
+  resolveChatInputDisabledReason,
+} from "./chat-page-logic"
 export function ChatPage() {
   const { t } = useTranslation()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -996,7 +890,7 @@ export function ChatPage() {
           {!isAtBottom && (
             <button
               type="button"
-              className="bg-card text-foreground hover:bg-muted border-border/80 absolute right-6 bottom-36 z-30 flex size-9 cursor-pointer items-center justify-center rounded-full border shadow-md transition-all active:scale-95"
+              className="bg-card text-foreground hover:bg-muted border-border/80 absolute right-6 bottom-36 z-30 flex size-9 cursor-pointer items-center justify-center rounded-full border shadow-xs transition-[color,background-color,border-color,box-shadow,transform] duration-[var(--motion-state)] ease-out active:scale-95 motion-reduce:transition-none"
               aria-label={t("chat.scrollToBottom")}
               onClick={() => scrollToBottom("smooth")}
             >
