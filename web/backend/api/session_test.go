@@ -344,6 +344,112 @@ func TestHandleListSessions_TitleUsesFirstUserMessage(t *testing.T) {
 	}
 }
 
+func TestHandleListSessions_SQLiteCacheRefreshesTitle(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	sessionKey := legacyPicoSessionPrefix + "sqlite-title-cache"
+	base := filepath.Join(dir, sanitizeSessionKey(sessionKey))
+	if err := os.WriteFile(base+".jsonl", []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(base+".meta.json", []byte(`{"key":"`+sessionKey+`"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := memory.NewSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddMessage(nil, sessionKey, "user", "first question"); err != nil {
+		t.Fatal(err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	list := func() []sessionListItem {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+		}
+		var items []sessionListItem
+		if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil {
+			t.Fatal(err)
+		}
+		return items
+	}
+	first := list()
+	if len(first) != 1 || first[0].Title != "first question" {
+		t.Fatalf("initial items = %+v", first)
+	}
+	uiMeta := h.readChatUIMeta(dir).Sessions["sqlite-title-cache"]
+	if uiMeta.Title != "first question" || uiMeta.TitleSource != "auto" {
+		t.Fatalf("session title metadata = %+v", uiMeta)
+	}
+
+	if err := store.AddMessage(nil, sessionKey, "assistant", "answer"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	second := list()
+	if len(second) != 1 || second[0].MessageCount != 2 {
+		t.Fatalf("updated items = %+v", second)
+	}
+}
+
+func TestEnsureSessionTitlePersistsWithoutOverwritingManualTitle(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	h := NewHandler(configPath)
+	item := sessionListItem{Title: "auto title", Preview: "auto title"}
+	h.ensureSessionTitle(dir, "auto-session", &item, h.readChatUIMeta(dir))
+	meta := h.readChatUIMeta(dir).Sessions["auto-session"]
+	if meta.Title != "auto title" || meta.TitleSource != "auto" {
+		t.Fatalf("auto title metadata = %+v", meta)
+	}
+
+	if err := h.updateChatUISessionMeta(dir, "auto-session", func(meta *chatUISessionMeta) error {
+		meta.Title = "manual title"
+		meta.TitleSource = "manual"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	item.Title = "changed title"
+	h.ensureSessionTitle(dir, "auto-session", &item, h.readChatUIMeta(dir))
+	meta = h.readChatUIMeta(dir).Sessions["auto-session"]
+	if meta.Title != "manual title" || meta.TitleSource != "manual" {
+		t.Fatalf("manual title metadata = %+v", meta)
+	}
+}
+
+func TestApplySessionMetaKeepsDerivedTitleWhenStoredTitleIsAutomatic(t *testing.T) {
+	item := sessionListItem{Title: "edited first question"}
+	applySessionMeta(&item, chatUISessionMeta{
+		Title:       "old automatic title",
+		TitleSource: "auto",
+	})
+	if item.Title != "edited first question" {
+		t.Fatalf("title = %q, want derived title", item.Title)
+	}
+
+	applySessionMeta(&item, chatUISessionMeta{
+		Title:       "manual title",
+		TitleSource: "manual",
+	})
+	if item.Title != "manual title" {
+		t.Fatalf("title = %q, want manual title", item.Title)
+	}
+}
+
 func TestHandleGetSession_SQLiteStorage(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

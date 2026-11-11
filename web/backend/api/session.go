@@ -91,7 +91,7 @@ type cachedSessionRefs struct {
 }
 
 const (
-	sessionIndexVersion  = 1
+	sessionIndexVersion  = 2
 	sessionIndexDir      = ".gogoclaw"
 	sessionIndexFilename = "session-index.json"
 )
@@ -1284,11 +1284,12 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 
 	if refs, findErr := h.findPicoJSONLSessions(dir); findErr == nil {
 		for _, ref := range refs {
-			base := filepath.Join(dir, sanitizeSessionKey(ref.Key))
 			cacheKey := "jsonl:" + filepath.Clean(dir) + ":" + ref.ID
+			cachePaths := sessionCachePaths(dir, ref)
 			validCacheKeys[cacheKey] = struct{}{}
-			if item, ok := h.cachedSessionListItem(cacheKey, base+".jsonl", base+".meta.json"); ok {
+			if item, ok := h.cachedSessionListItem(cacheKey, cachePaths...); ok {
 				applySessionMeta(&item, uiMeta.Sessions[ref.ID])
+				h.ensureSessionTitle(dir, ref.ID, &item, uiMeta)
 				seen[ref.ID] = struct{}{}
 				if item.Archived == archivedOnly {
 					items = append(items, item)
@@ -1300,8 +1301,9 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			seen[ref.ID] = struct{}{}
-			h.storeCachedSessionListItem(cacheKey, item, base+".jsonl", base+".meta.json")
+			h.storeCachedSessionListItem(cacheKey, item, cachePaths...)
 			applySessionMeta(&item, uiMeta.Sessions[ref.ID])
+			h.ensureSessionTitle(dir, ref.ID, &item, uiMeta)
 			if item.Archived == archivedOnly {
 				items = append(items, item)
 			}
@@ -1646,11 +1648,23 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func sessionCachePaths(dir string, ref picoJSONLSessionRef) []string {
+	if ref.Storage == "sqlite" {
+		dbPath := filepath.Join(dir, "sessions.db")
+		return []string{dbPath, dbPath + "-wal"}
+	}
+	base := filepath.Join(dir, sanitizeSessionKey(ref.Key))
+	return []string{base + ".jsonl", base + ".meta.json"}
+}
+
 func sessionFilesStamp(paths ...string) (string, bool) {
 	var builder strings.Builder
 	for _, path := range paths {
 		info, err := os.Stat(path)
 		if err != nil {
+			if strings.HasSuffix(path, "-wal") && errors.Is(err, os.ErrNotExist) {
+				continue
+			}
 			return "", false
 		}
 		fmt.Fprintf(&builder, "%s:%d:%d;", path, info.Size(), info.ModTime().UnixNano())

@@ -63,6 +63,7 @@ export function ModelsPage() {
   )
   const [defaultProvider, setDefaultProvider] = useState("openai")
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [fetchError, setFetchError] = useState("")
 
   const [editingModel, setEditingModel] = useState<ModelInfo | null>(null)
@@ -81,6 +82,7 @@ export function ModelsPage() {
   const refreshRequestSequence = useRef(0)
   const savingChainRef = useRef(false)
   const refreshQueuedDuringSave = useRef(false)
+  const hasModelsRef = useRef(false)
   const modelUpdateInFlight = useRef(0)
   const modelReconcileInFlight = useRef(false)
   const modelReconcileSequence = useRef(0)
@@ -107,6 +109,7 @@ export function ModelsPage() {
     chainDirty,
   })
   useLayoutEffect(() => {
+    hasModelsRef.current = models.length > 0
     latestEditorState.current = {
       defaultModelDraft,
       defaultModelBaseline,
@@ -129,15 +132,11 @@ export function ModelsPage() {
   ])
 
   const fetchModels = useCallback(async () => {
-    if (modelReconcileInFlight.current) {
-      return
-    }
-    if (savingChainRef.current || modelUpdateInFlight.current > 0) {
-      refreshQueuedDuringSave.current = true
+    if (savingChainRef.current || modelReconcileInFlight.current) {
       return
     }
     const requestSequence = ++refreshRequestSequence.current
-    setLoading(true)
+    setLoading((current) => !hasModelsRef.current || current)
     try {
       const data = await getModels()
       if (requestSequence !== refreshRequestSequence.current) return
@@ -203,7 +202,7 @@ export function ModelsPage() {
       return
     }
     const requestSequence = ++refreshRequestSequence.current
-    setLoading(true)
+    setRefreshing(true)
     try {
       const data = await getModels()
       if (requestSequence !== refreshRequestSequence.current) return
@@ -254,7 +253,7 @@ export function ModelsPage() {
       setFetchError(e instanceof Error ? e.message : t("models.loadError"))
     } finally {
       if (requestSequence === refreshRequestSequence.current) {
-        setLoading(false)
+        setRefreshing(false)
       }
     }
   }, [t])
@@ -270,14 +269,14 @@ export function ModelsPage() {
   const finishModelMutation = useCallback(() => {
     modelUpdateInFlight.current = Math.max(0, modelUpdateInFlight.current - 1)
     if (modelUpdateInFlight.current !== 0) return
-
     refreshQueuedDuringSave.current = false
     modelReconcileInFlight.current = true
-    const reconcileSequence = ++modelReconcileSequence.current
-    void refreshAfterModelChange().finally(() => {
-      if (reconcileSequence !== modelReconcileSequence.current) return
-      modelReconcileInFlight.current = false
-      if (modelUpdateInFlight.current === 0) {
+    ++modelReconcileSequence.current
+    const reconcileSequence = modelReconcileSequence.current
+    const refreshPromise = refreshAfterModelChange()
+    void refreshPromise.finally(() => {
+      if (reconcileSequence === modelReconcileSequence.current) {
+        modelReconcileInFlight.current = false
         setModelUpdatePending(false)
       }
     })
@@ -377,11 +376,11 @@ export function ModelsPage() {
   }
 
   const handleSaveChain = async () => {
-    if (modelUpdateInFlight.current > 0 || modelReconcileInFlight.current) {
+    if (modelUpdateInFlight.current > 0) {
       return
     }
-    // Invalidate refreshes that captured the pre-save chain. Refreshes requested
-    // while saving are queued and restarted after the saved draft is reconciled.
+    // Invalidate refreshes that captured the pre-save chain; the saved draft is
+    // reconciled in place once the request settles.
     savingChainRef.current = true
     refreshQueuedDuringSave.current = true
     ++refreshRequestSequence.current
@@ -640,7 +639,7 @@ export function ModelsPage() {
           )}
         </div>
 
-        {(loading || savingChain || modelUpdatePending) && (
+        {loading && models.length === 0 && (
           <div className="flex items-center justify-center py-20">
             <IconLoader2 className="text-muted-foreground size-6 animate-spin" />
           </div>
@@ -663,69 +662,64 @@ export function ModelsPage() {
           </div>
         )}
 
-        {!loading &&
-          !savingChain &&
-          !modelUpdatePending &&
-          !fetchError &&
-          providerGroups.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="border-border/70 bg-muted/40 text-muted-foreground mb-4 flex size-12 items-center justify-center rounded-lg border">
-                <IconDatabase className="size-6 opacity-70" />
-              </div>
-              <h2 className="text-foreground text-sm font-semibold tracking-tight">
-                {t("models.empty.title")}
-              </h2>
-              <p className="text-muted-foreground mt-1 max-w-sm text-xs leading-relaxed">
-                {t("models.empty.description")}
-              </p>
-              <div className="mt-4 flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setCatalogOpen(true)}
-                  className="h-8 gap-1.5 px-3 text-xs"
-                >
-                  <IconDatabase className="size-3.5" />
-                  {t("models.catalog.button")}
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => setAddOpen(true)}
-                  className="h-8 gap-1.5 px-3 text-xs"
-                >
-                  <IconPlus className="size-3.5" />
-                  {t("models.add.button")}
-                </Button>
-              </div>
+        {!loading && !fetchError && providerGroups.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="border-border/70 bg-muted/40 text-muted-foreground mb-4 flex size-12 items-center justify-center rounded-lg border">
+              <IconDatabase className="size-6 opacity-70" />
             </div>
-          )}
+            <h2 className="text-foreground text-sm font-semibold tracking-tight">
+              {t("models.empty.title")}
+            </h2>
+            <p className="text-muted-foreground mt-1 max-w-sm text-xs leading-relaxed">
+              {t("models.empty.description")}
+            </p>
+            <div className="mt-4 flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setCatalogOpen(true)}
+                className="h-8 gap-1.5 px-3 text-xs"
+              >
+                <IconDatabase className="size-3.5" />
+                {t("models.catalog.button")}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => setAddOpen(true)}
+                className="h-8 gap-1.5 px-3 text-xs"
+              >
+                <IconPlus className="size-3.5" />
+                {t("models.add.button")}
+              </Button>
+            </div>
+          </div>
+        )}
 
-        {!loading &&
-          !savingChain &&
-          !modelUpdatePending &&
-          !fetchError &&
-          providerGroups.length > 0 && (
-            <div className="space-y-6 pb-8">
-              {providerGroups.map((providerGroup) => (
-                <ProviderSection
-                  key={providerGroup.key}
-                  provider={providerGroup.provider}
-                  models={providerGroup.models}
-                  onEdit={setEditingModel}
-                  onSetDefault={handleSetDefault}
-                  onToggleFallback={handleToggleFallback}
-                  onDelete={setDeletingModel}
-                  fallbackChain={fallbackChainDraft}
-                  defaultModelName={defaultModelDraft}
-                  defaultModelEntryCount={defaultModelEntryCount}
-                  defaultChainAllowedModelNames={defaultChainAllowedModelNames}
-                  fallbackDefaultConflictModelNames={
-                    fallbackDefaultConflictModelNames
-                  }
-                />
-              ))}
-            </div>
-          )}
+        {!loading && !fetchError && providerGroups.length > 0 && (
+          <div
+            aria-busy={refreshing || savingChain || modelUpdatePending}
+            className="space-y-6 pb-8"
+          >
+            {providerGroups.map((providerGroup) => (
+              <ProviderSection
+                key={providerGroup.key}
+                provider={providerGroup.provider}
+                models={providerGroup.models}
+                onEdit={setEditingModel}
+                onSetDefault={handleSetDefault}
+                onToggleFallback={handleToggleFallback}
+                onDelete={setDeletingModel}
+                fallbackChain={fallbackChainDraft}
+                defaultModelName={defaultModelDraft}
+                defaultModelEntryCount={defaultModelEntryCount}
+                defaultChainAllowedModelNames={defaultChainAllowedModelNames}
+                fallbackDefaultConflictModelNames={
+                  fallbackDefaultConflictModelNames
+                }
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <EditModelSheet

@@ -44,10 +44,11 @@ type chatUIMetaFile struct {
 }
 
 type chatUISessionMeta struct {
-	Title    string            `json:"title,omitempty"`
-	Pinned   bool              `json:"pinned,omitempty"`
-	Archived bool              `json:"archived,omitempty"`
-	Feedback map[string]string `json:"feedback,omitempty"`
+	Title       string            `json:"title,omitempty"`
+	TitleSource string            `json:"title_source,omitempty"`
+	Pinned      bool              `json:"pinned,omitempty"`
+	Archived    bool              `json:"archived,omitempty"`
+	Feedback    map[string]string `json:"feedback,omitempty"`
 }
 
 type sessionChatSource struct {
@@ -164,7 +165,7 @@ func (h *Handler) migrateLegacyChatUIMeta(dir string) error {
 }
 
 func writeChatUISessionMeta(path, sessionID string, meta chatUISessionMeta) error {
-	if strings.TrimSpace(meta.Title) == "" && !meta.Pinned && !meta.Archived && len(meta.Feedback) == 0 {
+	if strings.TrimSpace(meta.Title) == "" && meta.TitleSource == "" && !meta.Pinned && !meta.Archived && len(meta.Feedback) == 0 {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -275,11 +276,38 @@ func applySessionMeta(item *sessionListItem, meta chatUISessionMeta) {
 	if item == nil {
 		return
 	}
-	if custom := strings.TrimSpace(meta.Title); custom != "" {
+	if custom := strings.TrimSpace(meta.Title); custom != "" && meta.TitleSource != "auto" {
 		item.Title = custom
 	}
 	item.Pinned = meta.Pinned
 	item.Archived = meta.Archived
+}
+
+func (h *Handler) ensureSessionTitle(
+	dir, sessionID string,
+	item *sessionListItem,
+	uiMeta chatUIMetaFile,
+) {
+	if item == nil || item.Title == "" || item.Title == "(empty)" {
+		return
+	}
+	meta := uiMeta.Sessions[sessionID]
+	if meta.TitleSource != "auto" && strings.TrimSpace(meta.Title) != "" {
+		return
+	}
+	if meta.Title == item.Title && meta.TitleSource == "auto" {
+		return
+	}
+	if err := h.updateChatUISessionMeta(dir, sessionID, func(current *chatUISessionMeta) error {
+		if current.TitleSource != "auto" && strings.TrimSpace(current.Title) != "" {
+			return nil
+		}
+		current.Title = item.Title
+		current.TitleSource = "auto"
+		return nil
+	}); err != nil {
+		logger.Warnf("failed to save session title %s: %v", sessionID, err)
+	}
 }
 
 func (h *Handler) sessionExists(dir, sessionID string) bool {
@@ -351,6 +379,7 @@ func (h *Handler) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 	if err := h.updateChatUISessionMeta(dir, sessionID, func(item *chatUISessionMeta) error {
 		if body.Title != nil {
 			item.Title = strings.TrimSpace(*body.Title)
+			item.TitleSource = "manual"
 		}
 		if body.Pinned != nil {
 			item.Pinned = *body.Pinned
@@ -442,16 +471,16 @@ func (h *Handler) handleSearchSessions(w http.ResponseWriter, r *http.Request) {
 		if r.Context().Err() != nil {
 			return
 		}
-		base := filepath.Join(dir, sanitizeSessionKey(ref.Key))
 		cacheKey := "jsonl:" + filepath.Clean(dir) + ":" + ref.ID
-		item, cached := h.cachedSessionListItem(cacheKey, base+".jsonl", base+".meta.json")
+		cachePaths := sessionCachePaths(dir, ref)
+		item, cached := h.cachedSessionListItem(cacheKey, cachePaths...)
 		if !cached {
 			var loadErr error
 			item, loadErr = h.readJSONLSessionListItem(dir, ref.Key, ref.ID, toolFeedbackMaxArgsLength)
 			if loadErr != nil {
 				continue
 			}
-			h.storeCachedSessionListItem(cacheKey, item, base+".jsonl", base+".meta.json")
+			h.storeCachedSessionListItem(cacheKey, item, cachePaths...)
 		}
 		applySessionMeta(&item, uiMeta.Sessions[ref.ID])
 		if item.Archived != archivedOnly {
