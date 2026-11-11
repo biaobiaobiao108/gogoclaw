@@ -189,7 +189,7 @@ export function TourGuide() {
 
       <div
         className={cn(
-          "bg-background fixed z-[102] w-80 rounded-xl border p-4 shadow-2xl",
+          "bg-background fixed z-[102] w-80 rounded-xl border p-4 shadow-xs",
           isCentered && "max-w-md",
         )}
         style={position}

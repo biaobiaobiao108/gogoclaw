@@ -73,7 +73,7 @@ export function DetailSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="flex w-full flex-col gap-0 p-0 shadow-2xl data-[side=right]:!w-full data-[side=right]:sm:!w-[720px] data-[side=right]:sm:!max-w-[720px]"
+        className="flex w-full flex-col gap-0 p-0 shadow-xs data-[side=right]:!w-full data-[side=right]:sm:!w-[720px] data-[side=right]:sm:!max-w-[720px]"
       >
         <SheetHeader className="bg-muted/10 border-b px-6 py-6">
           <div className="flex items-center gap-3">

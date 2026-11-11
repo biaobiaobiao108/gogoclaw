@@ -83,7 +83,7 @@ export function ToolLibraryTab({
                 placeholder={t("pages.agent.tools.filter.all", "All Status")}
               />
             </SelectTrigger>
-            <SelectContent className="border-border/40 rounded-lg shadow-lg">
+            <SelectContent className="border-border/40 rounded-lg shadow-xs">
               <SelectItem value="all">
                 {t("pages.agent.tools.filter.all", "All Status")}
               </SelectItem>
