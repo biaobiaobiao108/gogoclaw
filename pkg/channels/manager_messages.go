@@ -144,10 +144,11 @@ func prepareToolFeedbackMessageContent(ch Channel, content string) string {
 }
 
 func (m *Manager) toolFeedbackSeparateMessagesEnabled() bool {
-	if m == nil || m.config == nil {
+	cfg := m.currentConfig()
+	if cfg == nil {
 		return false
 	}
-	return m.config.Agents.Defaults.IsToolFeedbackSeparateMessagesEnabled()
+	return cfg.Agents.Defaults.IsToolFeedbackSeparateMessagesEnabled()
 }
 
 // RecordPlaceholder registers a placeholder message for later editing.

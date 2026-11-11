@@ -201,6 +201,50 @@ func TestReloadPreservesDispatcherTask(t *testing.T) {
 	}
 }
 
+func TestReloadConcurrentConfigReads(t *testing.T) {
+	m := newTestManager()
+	m.config = &config.Config{Channels: config.ChannelsConfig{}}
+	m.channelHashes = map[string]string{}
+
+	cfgA := &config.Config{
+		Channels: config.ChannelsConfig{},
+		Agents: config.AgentsConfig{Defaults: config.AgentDefaults{
+			ToolFeedback: config.ToolFeedbackConfig{SeparateMessages: false},
+		}},
+	}
+	cfgB := &config.Config{
+		Channels: config.ChannelsConfig{},
+		Agents: config.AgentsConfig{Defaults: config.AgentDefaults{
+			SplitOnMarker: true,
+			ToolFeedback:  config.ToolFeedbackConfig{SeparateMessages: true},
+		}},
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			_ = m.toolFeedbackSeparateMessagesEnabled()
+			_ = channelTypeForEvent(m, "missing")
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			cfg := cfgA
+			if i%2 == 0 {
+				cfg = cfgB
+			}
+			if err := m.Reload(t.Context(), cfg); err != nil {
+				t.Errorf("Reload() error = %v", err)
+				return
+			}
+		}
+	}()
+	wg.Wait()
+}
+
 func TestDispatcherMediaExitsOnCancel(t *testing.T) {
 	mb := bus.NewMessageBus()
 	defer mb.Close()

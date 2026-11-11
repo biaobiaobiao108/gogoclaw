@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
@@ -32,7 +33,7 @@ func (m *Manager) initChannel(typeName, channelName string) {
 		"channel": channelName,
 		"type":    typeName,
 	})
-	ch, err := f(channelName, typeName, m.config, m.bus)
+	ch, err := f(channelName, typeName, m.currentConfig(), m.bus)
 	if err != nil {
 		logger.ErrorCF("channels", "Failed to initialize channel", map[string]any{
 			"channel": channelName,
@@ -70,7 +71,11 @@ func (m *Manager) initChannel(typeName, channelName string) {
 }
 
 func (m *Manager) getChannelConfigAndEnabled(channelName string) (*config.Channel, bool) {
-	bc, ok := m.config.Channels[channelName]
+	cfg := m.currentConfig()
+	if cfg == nil {
+		return nil, false
+	}
+	bc, ok := cfg.Channels[channelName]
 	if !ok || bc == nil {
 		return nil, false
 	}
@@ -265,8 +270,8 @@ func (m *Manager) StartAll(ctx context.Context) error {
 		}
 		// Lazily create worker only after channel starts successfully
 		channelType := name
-		if m.config != nil {
-			if bc := m.config.Channels.Get(name); bc != nil && bc.Type != "" {
+		if cfg := m.currentConfig(); cfg != nil {
+			if bc := cfg.Channels.Get(name); bc != nil && bc.Type != "" {
 				channelType = bc.Type
 			}
 		}
@@ -387,6 +392,9 @@ func (m *Manager) StopAll(ctx context.Context) error {
 	defer m.mu.Unlock()
 
 	logger.InfoC("channels", "Stopping all channels")
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	// Shutdown shared HTTP server first
 	if m.httpServer != nil {
@@ -416,14 +424,33 @@ func (m *Manager) StopAll(ctx context.Context) error {
 			}
 		}
 	}
-	for _, w := range m.workers {
-		if w != nil {
-			<-w.done
+	waitCtx, cancelWait := context.WithTimeout(ctx, workerShutdownTimeout)
+	timedOut := waitForWorkers(waitCtx, m.workers)
+	cancelWait()
+
+	var stopErr error
+	if len(timedOut) > 0 {
+		logger.ErrorCF("channels", "Channel workers did not stop before shutdown timeout", map[string]any{
+			"channels": timedOut,
+		})
+		for _, name := range timedOut {
+			if w := m.workers[name]; w != nil && w.cancel != nil {
+				w.cancel()
+			}
 		}
-	}
-	for _, w := range m.workers {
-		if w != nil {
-			<-w.mediaDone
+
+		fallbackCtx, cancelFallback := context.WithTimeout(context.Background(), workerShutdownFallback)
+		stillRunning := waitForWorkers(fallbackCtx, selectedWorkers(m.workers, timedOut))
+		cancelFallback()
+		if len(stillRunning) > 0 {
+			stopErr = fmt.Errorf("channel workers did not stop after cancellation: %s", strings.Join(stillRunning, ", "))
+			logger.ErrorCF("channels", "Channel workers still running after cancellation", map[string]any{
+				"channels": stillRunning,
+			})
+		} else {
+			logger.InfoCF("channels", "Channel workers stopped after cancellation", map[string]any{
+				"channels": timedOut,
+			})
 		}
 	}
 	m.workers = make(map[string]*channelWorker)
@@ -450,5 +477,47 @@ func (m *Manager) StopAll(ctx context.Context) error {
 	}
 
 	logger.InfoC("channels", "All channels stopped")
-	return nil
+	return stopErr
+}
+
+func waitForWorkers(ctx context.Context, workers map[string]*channelWorker) []string {
+	timedOut := make([]string, 0)
+	for name, w := range workers {
+		if w == nil {
+			continue
+		}
+		if !waitForWorker(ctx, w) {
+			timedOut = append(timedOut, name)
+		}
+	}
+	sort.Strings(timedOut)
+	return timedOut
+}
+
+func waitForWorker(ctx context.Context, w *channelWorker) bool {
+	if w.done != nil {
+		select {
+		case <-w.done:
+		case <-ctx.Done():
+			return false
+		}
+	}
+	if w.mediaDone != nil {
+		select {
+		case <-w.mediaDone:
+		case <-ctx.Done():
+			return false
+		}
+	}
+	return true
+}
+
+func selectedWorkers(workers map[string]*channelWorker, names []string) map[string]*channelWorker {
+	selected := make(map[string]*channelWorker, len(names))
+	for _, name := range names {
+		if w := workers[name]; w != nil {
+			selected[name] = w
+		}
+	}
+	return selected
 }

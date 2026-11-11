@@ -94,6 +94,69 @@ func TestApprovalSessionMappingExpires(t *testing.T) {
 	t.Fatal("expired approval session mapping was not removed")
 }
 
+func TestTurnStatusRestoresPersistedApprovalForResponse(t *testing.T) {
+	ch := newTestPicoChannel(t)
+	conn, received, cleanup := newTestPicoWebSocket(t)
+	defer cleanup()
+	pc := &picoConn{id: "reconnect-conn", conn: conn, sessionID: "reconnect-session"}
+	ch.addConnForTest(pc)
+
+	ch.SetTurnStatusProvider(func(chatID string, _ bool) map[string]any {
+		return map[string]any{
+			"active": true,
+			"approval": &approval.Request{
+				ID:        "approval-reconnect",
+				ChatID:    chatID,
+				Tool:      "exec",
+				Status:    approval.StatusPending,
+				ExpiresAt: time.Now().Add(time.Hour),
+			},
+		}
+	})
+	responded := make(chan approval.Response, 1)
+	ch.SetApprovalHandler(func(_ context.Context, response approval.Response) error {
+		responded <- response
+		return nil
+	})
+
+	ch.handleMessage(pc, PicoMessage{
+		Type:      TypeTurnStatusGet,
+		ID:        "status-request",
+		SessionID: pc.sessionID,
+	})
+	status := mustReceivePicoMessage(t, received)
+	if status.Type != TypeTurnStatus {
+		t.Fatalf("status type = %q", status.Type)
+	}
+
+	ch.approvalMu.Lock()
+	_, restored := ch.approvalSessions["approval-reconnect"]
+	ch.approvalMu.Unlock()
+	if !restored {
+		t.Fatal("turn status did not restore persisted approval route")
+	}
+
+	ch.handleApprovalRespond(pc, PicoMessage{
+		Type: TypeApprovalRespond,
+		Payload: map[string]any{
+			"approval_id": "approval-reconnect",
+			"approve":     true,
+			"scope":       "once",
+		},
+	})
+	select {
+	case response := <-responded:
+		if !response.Approve || response.ChatID != "pico:"+pc.sessionID {
+			t.Fatalf("approval response = %+v", response)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("approval handler was not called")
+	}
+	if ack := mustReceivePicoMessage(t, received); ack.Type != TypeApprovalAck {
+		t.Fatalf("approval ack type = %q", ack.Type)
+	}
+}
+
 func newTestPicoChannel(t *testing.T) *PicoChannel {
 	t.Helper()
 

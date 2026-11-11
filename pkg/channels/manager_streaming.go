@@ -84,7 +84,7 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID, sessionK
 		m.streamAuxiliaryTombstones.Store(streamKey, time.Now())
 	}
 
-	if m.config != nil && m.config.Agents.Defaults.SplitOnMarker {
+	if cfg := m.currentConfig(); cfg != nil && cfg.Agents.Defaults.SplitOnMarker {
 		return &splitMarkerStreamer{
 			current:     streamer,
 			reasoning:   reasoningStreamerFrom(streamer),

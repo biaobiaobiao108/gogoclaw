@@ -110,16 +110,7 @@ func (c *PicoChannel) SendApprovalRequest(ctx context.Context, req approval.Requ
 	if strings.TrimSpace(req.ID) == "" || strings.TrimSpace(req.ChatID) == "" {
 		return fmt.Errorf("approval request is missing id or chat id")
 	}
-	sessionID := strings.TrimPrefix(req.ChatID, "pico:")
-	c.approvalMu.Lock()
-	if c.approvalSessions == nil {
-		c.approvalSessions = make(map[string]string)
-	}
-	c.approvalSessions[req.ID] = sessionID
-	c.approvalMu.Unlock()
-	if !req.ExpiresAt.IsZero() {
-		c.forgetApprovalSession(req.ID, sessionID, time.Until(req.ExpiresAt))
-	}
+	c.rememberApprovalSession(req.ID, req.ChatID, req.ExpiresAt)
 
 	payload := map[string]any{
 		"approval_id": req.ID,
@@ -136,6 +127,42 @@ func (c *PicoChannel) SendApprovalRequest(ctx context.Context, req approval.Requ
 		return err
 	}
 	return ctx.Err()
+}
+
+func (c *PicoChannel) rememberApprovalSession(approvalID, chatID string, expiresAt time.Time) {
+	sessionID := strings.TrimPrefix(chatID, "pico:")
+	c.approvalMu.Lock()
+	if c.approvalSessions == nil {
+		c.approvalSessions = make(map[string]string)
+	}
+	c.approvalSessions[approvalID] = sessionID
+	c.approvalMu.Unlock()
+	if !expiresAt.IsZero() {
+		c.forgetApprovalSession(approvalID, sessionID, time.Until(expiresAt))
+	}
+}
+
+// backfillApprovalSessions restores the runtime approval route from the
+// persisted turn snapshot after a client reconnects to a new WebSocket.
+func (c *PicoChannel) backfillApprovalSessions(sessionID string) {
+	if c == nil || c.turnStatus == nil || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	c.rememberApprovalFromTurnStatus(sessionID, c.turnStatus("pico:"+sessionID, false))
+}
+
+func (c *PicoChannel) rememberApprovalFromTurnStatus(sessionID string, payload map[string]any) {
+	req, ok := payload["approval"].(*approval.Request)
+	if !ok || req == nil || req.Status != approval.StatusPending || req.ID == "" || req.ChatID == "" {
+		return
+	}
+	if strings.TrimPrefix(req.ChatID, "pico:") != sessionID {
+		return
+	}
+	if !req.ExpiresAt.IsZero() && time.Now().After(req.ExpiresAt) {
+		return
+	}
+	c.rememberApprovalSession(req.ID, req.ChatID, req.ExpiresAt)
 }
 
 // NewPicoChannel creates a new Pico Protocol channel.

@@ -50,10 +50,10 @@ func (m *Manager) Reload(ctx context.Context, cfg *config.Config) error {
 	defer m.mu.Unlock()
 
 	// Save old config so we can revert on error.
-	oldConfig := m.config
+	oldConfig := m.currentConfig()
 
-	// Update config early: initChannel uses m.config via factory(m.config, m.bus).
-	m.config = cfg
+	// Update config early: initChannel reads the snapshot via currentConfig.
+	m.setConfig(cfg)
 
 	list := toChannelHashes(cfg)
 	added, removed := compareChannels(m.channelHashes, list)
@@ -78,13 +78,13 @@ func (m *Manager) Reload(ctx context.Context, cfg *config.Config) error {
 	cc, err := toChannelConfig(cfg, added)
 	if err != nil {
 		logger.ErrorC("channels", fmt.Sprintf("toChannelConfig error: %v", err))
-		m.config = oldConfig
+		m.setConfig(oldConfig)
 		return err
 	}
 	err = m.initChannels(cc)
 	if err != nil {
 		logger.ErrorC("channels", fmt.Sprintf("initChannels error: %v", err))
-		m.config = oldConfig
+		m.setConfig(oldConfig)
 		return err
 	}
 	for _, name := range added {
@@ -108,8 +108,8 @@ func (m *Manager) Reload(ctx context.Context, cfg *config.Config) error {
 		}
 		// Lazily create worker only after channel starts successfully
 		channelType := name
-		if m.config != nil {
-			if bc := m.config.Channels.Get(name); bc != nil && bc.Type != "" {
+		if cfg := m.currentConfig(); cfg != nil {
+			if bc := cfg.Channels.Get(name); bc != nil && bc.Type != "" {
 				channelType = bc.Type
 			}
 		}

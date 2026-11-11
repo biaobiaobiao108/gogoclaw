@@ -34,6 +34,9 @@ const (
 	placeholderTTL  = 10 * time.Minute
 
 	streamAuxiliaryTombstoneTTL = 30 * time.Second
+
+	workerShutdownTimeout  = 5 * time.Second
+	workerShutdownFallback = 250 * time.Millisecond
 )
 
 // typingEntry wraps a typing stop function with a creation timestamp for TTL eviction.
@@ -91,12 +94,28 @@ type Manager struct {
 	httpServer                *http.Server
 	httpListeners             []net.Listener
 	mu                        sync.RWMutex
+	configMu                  sync.RWMutex
 	placeholders              sync.Map          // "channel:chatID" → placeholderID (string)
 	typingStops               sync.Map          // "channel:chatID" → func()
 	reactionUndos             sync.Map          // "channel:chatID" → reactionEntry
 	streamActive              sync.Map          // streamSuppressionKey → true (set when streamer.Finalize sent the message)
 	streamAuxiliaryTombstones sync.Map          // streamSuppressionKey → time.Time (drops late auxiliary messages after stream final)
 	channelHashes             map[string]string // channel name → config hash
+}
+
+func (m *Manager) currentConfig() *config.Config {
+	if m == nil {
+		return nil
+	}
+	m.configMu.RLock()
+	defer m.configMu.RUnlock()
+	return m.config
+}
+
+func (m *Manager) setConfig(cfg *config.Config) {
+	m.configMu.Lock()
+	defer m.configMu.Unlock()
+	m.config = cfg
 }
 
 type mediaStoreSetter interface {

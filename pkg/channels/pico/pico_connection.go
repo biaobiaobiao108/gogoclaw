@@ -282,6 +282,7 @@ func (c *PicoChannel) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		"session_id": sessionID,
 	})
 
+	c.backfillApprovalSessions(sessionID)
 	go c.readLoop(pc)
 }
 
@@ -428,6 +429,7 @@ func (c *PicoChannel) handleMessage(pc *picoConn, msg PicoMessage) {
 			includeRecovery, _ := msg.Payload["include_recovery"].(bool)
 			payload = c.turnStatus("pico:"+pc.sessionID, includeRecovery)
 		}
+		c.rememberApprovalFromTurnStatus(pc.sessionID, payload)
 		status := newMessage(TypeTurnStatus, payload)
 		status.SessionID = pc.sessionID
 		status.ID = msg.ID

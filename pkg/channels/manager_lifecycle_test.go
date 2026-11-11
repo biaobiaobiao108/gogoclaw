@@ -147,6 +147,39 @@ func TestStopAllIsIdempotentAfterPartialStartFailure(t *testing.T) {
 	}
 }
 
+func TestStopAllReturnsAfterWorkerTimeout(t *testing.T) {
+	m := newTestManager()
+	channel := &mockChannel{}
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	worker := newChannelWorker("stuck", channel, "stuck")
+	worker.ctx = workerCtx
+	cancelCalled := make(chan struct{}, 1)
+	worker.cancel = func() {
+		workerCancel()
+		select {
+		case cancelCalled <- struct{}{}:
+		default:
+		}
+	}
+	m.channels["stuck"] = channel
+	m.workers["stuck"] = worker
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if err := m.StopAll(ctx); err == nil {
+		t.Fatal("expected StopAll to report a worker that did not stop")
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("StopAll() elapsed = %v, want a bounded wait", elapsed)
+	}
+	select {
+	case <-cancelCalled:
+	default:
+		t.Fatal("expected StopAll to cancel the worker")
+	}
+}
+
 func TestStartAllPublishesLifecycleRuntimeEvents(t *testing.T) {
 	eventBus := runtimeevents.NewBus()
 	defer func() {
