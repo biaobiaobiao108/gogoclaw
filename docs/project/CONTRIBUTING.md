@@ -56,7 +56,7 @@ For larger new features, please submit an Issue to discuss the design before wri
 
 ### Prerequisites
 
-- Go 1.27.3 or later
+- Go 1.27.4 or later
 - Bun 1.4.4 or later for Web console development
 - `make`
 

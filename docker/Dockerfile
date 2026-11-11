@@ -8,7 +8,7 @@ RUN bun install --frozen-lockfile
 COPY web/frontend/ ./
 RUN bun run build:backend
 
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.24 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine3.24 AS builder
 
 ARG TARGETOS
 ARG TARGETARCH

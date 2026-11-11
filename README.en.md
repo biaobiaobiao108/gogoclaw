@@ -6,7 +6,7 @@
 <p>A lightweight general-purpose agent harness and web console written in Go</p>
 
 <p>
-  <img src="https://img.shields.io/badge/Go-1.27.3+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
+  <img src="https://img.shields.io/badge/Go-1.27.4+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/Arch-amd64%20%7C%20arm64-blue" alt="amd64 / arm64">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
 </p>
@@ -289,7 +289,7 @@ Explicit user instructions take precedence over conversation summaries. Workspac
 
 ## Development
 
-Requirements: Go 1.27.3+ and Bun 1.4.4+.
+Requirements: Go 1.27.4+ and Bun 1.4.4+.
 
 ```bash
 make deps

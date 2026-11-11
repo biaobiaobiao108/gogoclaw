@@ -81,6 +81,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: docker build --file docker/Dockerfile --tag gogoclaw:ci .
       - run: docker run --rm --entrypoint /usr/local/bin/gogoclaw gogoclaw:ci --help
+      - run: bash scripts/test-container-port-refresh.sh
+      - run: bash scripts/test-container-restart-script.sh
       - run: bash scripts/test-container-restart.sh
 
   browser:

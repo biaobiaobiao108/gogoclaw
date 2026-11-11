@@ -177,7 +177,7 @@ environment:
 
 ### Prerequisites
 
-- Go `1.27.3+`
+- Go `1.27.4+`
 - Bun `1.4.4+`
 
 If you want to prepare the frontend workspace manually, you can still install dependencies yourself:

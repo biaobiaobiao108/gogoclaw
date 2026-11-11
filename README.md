@@ -6,7 +6,7 @@
 <p>用 Go 构建的轻量级通用 Agent Harness 与 Web 控制台</p>
 
 <p>
-  <img src="https://img.shields.io/badge/Go-1.27.3+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
+  <img src="https://img.shields.io/badge/Go-1.27.4+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/Arch-amd64%20%7C%20arm64-blue" alt="amd64 / arm64">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
 </p>
@@ -290,7 +290,7 @@ GoGoClaw 自带一份紧凑的基础提示词。通用工作原则包括：先�
 
 ## 开发
 
-依赖 Go 1.27.3+ 和 Bun 1.4.4+。
+依赖 Go 1.27.4+ 和 Bun 1.4.4+。
 
 ```bash
 make deps
