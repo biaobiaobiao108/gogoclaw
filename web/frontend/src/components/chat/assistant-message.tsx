@@ -413,6 +413,11 @@ export const AssistantMessage = memo(function AssistantMessage({
   )
 })
 
+const REMARK_PLUGINS = [remarkGfm]
+const REHYPE_PLUGINS_HIGHLIGHT = [rehypeRaw, rehypeSanitize, rehypeHighlight]
+const REHYPE_PLUGINS_PLAIN = [rehypeRaw, rehypeSanitize]
+const MARKDOWN_COMPONENTS = { pre: MarkdownCodeBlock }
+
 const MarkdownBlock = memo(function MarkdownBlock({
   content,
   highlight,
@@ -422,13 +427,11 @@ const MarkdownBlock = memo(function MarkdownBlock({
 }) {
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={REMARK_PLUGINS}
       rehypePlugins={
-        highlight
-          ? [rehypeRaw, rehypeSanitize, rehypeHighlight]
-          : [rehypeRaw, rehypeSanitize]
+        highlight ? REHYPE_PLUGINS_HIGHLIGHT : REHYPE_PLUGINS_PLAIN
       }
-      components={{ pre: MarkdownCodeBlock }}
+      components={MARKDOWN_COMPONENTS}
     >
       {content}
     </ReactMarkdown>

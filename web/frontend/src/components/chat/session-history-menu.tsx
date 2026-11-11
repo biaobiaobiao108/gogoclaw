@@ -175,7 +175,8 @@ export function SessionHistoryMenu({
   ])
   useEffect(() => {
     virtualizer.scrollToOffset(0)
-  }, [normalizedQuery, archived, virtualizer])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [normalizedQuery, archived])
 
   const openRename = (session: SessionSummary) => {
     setRenameTarget(session)
@@ -279,6 +280,7 @@ export function SessionHistoryMenu({
                   className="focus-visible:ring-ring flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left focus-visible:ring-2 focus-visible:outline-none"
                   onClick={() => {
                     onSwitchSession(session.id)
+                    if (normalizedQuery) setQuery("")
                     onOpenChange(false)
                   }}
                 >

@@ -51,7 +51,7 @@ import { useGateway } from "@/hooks/use-gateway"
 import { useIsHistorySheet } from "@/hooks/use-mobile"
 import { usePicoChat } from "@/hooks/use-pico-chat"
 import { useSessionHistory } from "@/hooks/use-session-history"
-import { chatDraftsAtom, getChatState } from "@/store/chat"
+import { type ChatDraft, chatDraftsAtom, getChatState } from "@/store/chat"
 import type { ChatAttachment, ChatMessage } from "@/store/chat"
 
 import {
@@ -144,16 +144,15 @@ export function ChatPage() {
   )
   const [drafts, setDrafts] = useAtom(chatDraftsAtom)
   const [isDragActive, setIsDragActive] = useState(false)
-  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [maxAttachmentSize, setMaxAttachmentSize] = useState(
     () => cachedUploadLimit ?? 20 * 1024 * 1024,
   )
-  const [thinkingLevel, setThinkingLevel] = useState("")
   const autoScrollEnabledRef = useRef(
     initialViewport?.autoScrollEnabled ?? true,
   )
   const prevSessionIdRef = useRef(activeSessionId)
   const isInitialMountRef = useRef(true)
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   const toggleHistoryCollapsed = useCallback(() => {
     setHistoryCollapsed((prev) => {
@@ -173,21 +172,30 @@ export function ChatPage() {
     if (!isHistorySheet) setHistoryOpen(false)
   }, [isHistorySheet])
 
-  const { input = "", attachments = [] } = drafts[activeSessionId] ?? {}
+  const currentDraft = drafts[activeSessionId]
+  const input = currentDraft?.input ?? ""
+  const attachments = currentDraft?.attachments ?? []
+  const thinkingLevel = currentDraft?.thinkingLevel ?? ""
+  const editingMessageId = currentDraft?.editingMessageId ?? null
+
   const updateDraft = (
     sessionId: string,
-    update: (draft: { input: string; attachments: ChatAttachment[] }) => {
-      input: string
-      attachments: ChatAttachment[]
-    },
+    update: (draft: ChatDraft) => ChatDraft,
   ) => {
     setDrafts((previous) => {
       const next = { ...previous }
-      const draft = update(
-        previous[sessionId] ?? { input: "", attachments: [] },
-      )
-      if (!draft.input && draft.attachments.length === 0) delete next[sessionId]
-      else next[sessionId] = draft
+      const current = previous[sessionId] ?? { input: "", attachments: [] }
+      const draft = update(current)
+      if (
+        !draft.input &&
+        draft.attachments.length === 0 &&
+        !draft.thinkingLevel &&
+        !draft.editingMessageId
+      ) {
+        delete next[sessionId]
+      } else {
+        next[sessionId] = draft
+      }
       return next
     })
   }
@@ -202,6 +210,10 @@ export function ChatPage() {
       attachments:
         typeof update === "function" ? update(draft.attachments) : update,
     }))
+  const setThinkingLevel = (thinkingLevel: string) =>
+    updateDraft(activeSessionId, (draft) => ({ ...draft, thinkingLevel }))
+  const setEditingMessageId = (editingMessageId: string | null) =>
+    updateDraft(activeSessionId, (draft) => ({ ...draft, editingMessageId }))
 
   useEffect(() => {
     let cancelled = false
@@ -212,10 +224,6 @@ export function ChatPage() {
       cancelled = true
     }
   }, [])
-
-  useEffect(() => {
-    setEditingMessageId(null)
-  }, [activeSessionId])
 
   const { state: gwState } = useGateway()
   const isGatewayRunning = gwState === "running"
@@ -260,8 +268,15 @@ export function ChatPage() {
     handleUpdateSession,
   } = useSessionHistory({
     activeSessionId,
-    onDeletedActiveSession: newChat,
+    onDeletedActiveSession: () => handleNewChat(),
   })
+
+  const handleNewChat = useCallback(() => {
+    void newChat()
+    requestAnimationFrame(() => {
+      composerTextareaRef.current?.focus()
+    })
+  }, [newChat])
 
   useEffect(() => {
     void loadSessions(true)
@@ -797,7 +812,7 @@ export function ChatPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={newChat}
+          onClick={handleNewChat}
           className="h-8 gap-2 px-3 text-sm font-medium"
           aria-label={t("chat.newChat")}
         >
@@ -1104,6 +1119,7 @@ export function ChatPage() {
             />
           )}
           <ChatComposer
+            textareaRef={composerTextareaRef}
             input={input}
             attachments={attachments}
             onInputChange={setInput}

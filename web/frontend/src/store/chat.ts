@@ -50,9 +50,14 @@ export interface ChatBranchGroup {
   versions: ChatBranchVersion[]
 }
 
-export const chatDraftsAtom = atom<
-  Record<string, { input: string; attachments: ChatAttachment[] }>
->({})
+export interface ChatDraft {
+  input: string
+  attachments: ChatAttachment[]
+  thinkingLevel?: string
+  editingMessageId?: string | null
+}
+
+export const chatDraftsAtom = atom<Record<string, ChatDraft>>({})
 
 export interface ChatToolCallFunction {
   name?: string

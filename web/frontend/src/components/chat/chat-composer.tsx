@@ -37,6 +37,7 @@ export type ChatInputDisabledReason =
   | "modelsError"
 
 interface ChatComposerProps {
+  textareaRef?: React.Ref<HTMLTextAreaElement>
   input: string
   attachments: ChatAttachment[]
   onInputChange: (value: string) => void
@@ -63,6 +64,7 @@ interface ChatComposerProps {
 }
 
 export function ChatComposer({
+  textareaRef,
   input,
   attachments,
   onInputChange,
@@ -217,6 +219,7 @@ export function ChatComposer({
 
           {/* Input text area */}
           <TextareaAutosize
+            ref={textareaRef}
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
             onCompositionStart={() => {
@@ -286,22 +289,42 @@ export function ChatComposer({
                   onDetailClick={onContextDetail}
                 />
               )}
-              {isRunning && canInput && (
+              {!canInput ? (
                 <button
                   type="button"
-                  onClick={onStop}
-                  className={cn(
-                    "flex size-8 items-center justify-center rounded-full transition-[color,background-color,transform] duration-150 ease-out active:scale-95",
-                    canSend
-                      ? "bg-muted hover:bg-muted/80 text-foreground cursor-pointer shadow-xs"
-                      : "bg-foreground text-background hover:bg-foreground/90 shadow-xs",
-                  )}
-                  aria-label={t("chat.stopTask")}
+                  disabled
+                  aria-label={t("chat.sendMessage")}
+                  className="bg-muted text-muted-foreground/35 flex size-8 cursor-not-allowed items-center justify-center rounded-full"
                 >
-                  <IconPlayerStopFilled className="size-3.5" />
+                  <IconArrowUp className="size-4 stroke-[2.5]" />
                 </button>
-              )}
-              {canInput && (!isRunning || canSend) && (
+              ) : isRunning ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={onStop}
+                    className={cn(
+                      "flex size-8 items-center justify-center rounded-full transition-[color,background-color,transform] duration-150 ease-out active:scale-95",
+                      canSend
+                        ? "bg-muted hover:bg-muted/80 text-foreground cursor-pointer shadow-xs"
+                        : "bg-foreground text-background hover:bg-foreground/90 shadow-xs",
+                    )}
+                    aria-label={t("chat.stopTask")}
+                  >
+                    <IconPlayerStopFilled className="size-3.5" />
+                  </button>
+                  {canSend && (
+                    <button
+                      type="button"
+                      onClick={onSend}
+                      aria-label={t("chat.sendMessage")}
+                      className="bg-foreground text-background hover:bg-foreground/90 flex size-8 cursor-pointer items-center justify-center rounded-full shadow-xs transition-[color,background-color,transform] duration-150 ease-out active:scale-95"
+                    >
+                      <IconArrowUp className="size-4 stroke-[2.5]" />
+                    </button>
+                  )}
+                </>
+              ) : (
                 <button
                   type="button"
                   onClick={onSend}
