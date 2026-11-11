@@ -9,7 +9,6 @@ import {
   IconTrash,
 } from "@tabler/icons-react"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import dayjs from "dayjs"
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
@@ -209,9 +208,6 @@ export function SessionHistoryMenu({
           aria-label={
             archived ? t("chat.showActiveChats") : t("chat.showArchivedChats")
           }
-          title={
-            archived ? t("chat.showActiveChats") : t("chat.showArchivedChats")
-          }
         >
           {archived ? (
             <IconArchiveOff className="size-3.5" />
@@ -281,7 +277,6 @@ export function SessionHistoryMenu({
                     session.id === activeSessionId ? "page" : undefined
                   }
                   className="focus-visible:ring-ring flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left focus-visible:ring-2 focus-visible:outline-none"
-                  title={session.title}
                   onClick={() => {
                     onSwitchSession(session.id)
                     onOpenChange(false)
@@ -300,11 +295,6 @@ export function SessionHistoryMenu({
                       </span>
                     )}
                   </span>
-                  {!normalizedQuery && (
-                    <span className="text-muted-foreground shrink-0 text-[11px] font-normal">
-                      {dayjs(session.updated).format("MM-DD")}
-                    </span>
-                  )}
                 </button>
                 {!normalizedQuery && (
                   <DropdownMenu>
@@ -312,9 +302,8 @@ export function SessionHistoryMenu({
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        className="text-muted-foreground mr-1 size-8 shrink-0 md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100"
+                        className="text-muted-foreground size-8 shrink-0 md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100"
                         aria-label={t("chat.sessionActions")}
-                        title={t("chat.sessionActions")}
                       >
                         <IconDotsVertical className="size-4" />
                       </Button>

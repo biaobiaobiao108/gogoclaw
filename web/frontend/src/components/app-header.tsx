@@ -36,11 +36,6 @@ import {
 } from "@/components/ui/dropdown-menu.tsx"
 import { Separator } from "@/components/ui/separator.tsx"
 import { SidebarTrigger } from "@/components/ui/sidebar"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { useGateway } from "@/hooks/use-gateway.ts"
 import { useTheme } from "@/hooks/use-theme.ts"
 
@@ -66,7 +61,10 @@ export function AppHeader() {
   const isRestarting = gwState === "restarting"
   const isStopping = gwState === "stopping"
   const isStopped = gwState === "stopped" || gwState === "unknown"
+  const startBlockedReason = !canStart ? startReason : undefined
+  const gatewayStatusReason = gwError ?? startBlockedReason
   const showNotConnectedHint =
+    !gatewayStatusReason &&
     !isRestarting &&
     !isStopping &&
     canStart &&
@@ -126,6 +124,25 @@ export function AppHeader() {
 
       {/* Precision status indicator */}
       <div className="pointer-events-none absolute left-1/2 hidden h-full -translate-x-1/2 items-center justify-center lg:flex">
+        {gatewayStatusReason && (
+          <div
+            role="status"
+            className="bg-card/80 border-border/80 flex max-w-96 items-center gap-2 rounded-full border px-3 py-1 text-xs shadow-xs"
+          >
+            <span
+              className={
+                gwError
+                  ? "bg-destructive size-1.5 shrink-0 rounded-full"
+                  : "bg-warning size-1.5 shrink-0 rounded-full"
+              }
+            />
+            <span
+              className={`truncate text-[11px] tracking-tight ${gwError ? "text-destructive" : "text-warning"}`}
+            >
+              {gatewayStatusReason}
+            </span>
+          </div>
+        )}
         {showNotConnectedHint && (
           <div className="bg-card/80 text-muted-foreground border-border/80 flex items-center gap-2 rounded-full border px-3 py-1 text-xs shadow-xs">
             <span className="bg-destructive size-1.5 shrink-0 rounded-full" />
@@ -134,7 +151,7 @@ export function AppHeader() {
             </span>
           </div>
         )}
-        {isRunning && (
+        {!gatewayStatusReason && isRunning && (
           <div className="text-muted-foreground flex items-center gap-2 text-xs">
             <span className="bg-success size-1.5 shrink-0 rounded-full" />
             <span className="text-foreground/80 text-[11px] font-medium tracking-tight">
@@ -185,97 +202,77 @@ export function AppHeader() {
 
       <div className="text-muted-foreground flex items-center gap-1 text-sm md:gap-1.5">
         {restartRequired && (
-          <Tooltip delayDuration={300}>
-            <TooltipTrigger asChild>
-              <Button
-                variant="secondary"
-                size="icon-sm"
-                className="text-warning hover:bg-warning/10 h-8 w-8"
-                onClick={handleGatewayRestart}
-                disabled={gwLoading || isRestarting || isStopping || !canStart}
-                aria-label={t("header.gateway.action.restart")}
-              >
-                <IconRefresh className="size-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {t("header.gateway.restartRequired")}
-            </TooltipContent>
-          </Tooltip>
+          <Button
+            variant="secondary"
+            size="icon-sm"
+            className="text-warning hover:bg-warning/10 h-8 w-8"
+            onClick={handleGatewayRestart}
+            disabled={gwLoading || isRestarting || isStopping || !canStart}
+            aria-label={`${t("header.gateway.action.restart")}: ${t("header.gateway.restartRequired")}`}
+          >
+            <IconRefresh className="size-3.5" />
+          </Button>
         )}
 
         {/* Gateway Start/Stop Button */}
         {isRunning ? (
-          <Tooltip delayDuration={300}>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon-sm"
-                className="border-success/30 text-success hover:bg-success/10 h-8 w-8"
-                data-tour="gateway-button"
-                onClick={handleGatewayToggle}
-                disabled={gwLoading}
-                aria-label={t("header.gateway.action.stop")}
-              >
-                <IconPower className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {gwError ?? t("header.gateway.action.stop")}
-            </TooltipContent>
-          </Tooltip>
-        ) : (
-          <Tooltip
-            delayDuration={gwError || (!canStart && startReason) ? 0 : 300}
+          <Button
+            variant="outline"
+            size="icon-sm"
+            className="border-success/30 text-success hover:bg-success/10 h-8 w-8"
+            data-tour="gateway-button"
+            onClick={handleGatewayToggle}
+            disabled={gwLoading}
+            aria-label={t("header.gateway.action.stop")}
+            aria-describedby={gwError ? "gateway-error" : undefined}
           >
-            <TooltipTrigger asChild>
-              <span tabIndex={!canStart && startReason ? 0 : undefined}>
-                <Button
-                  variant={
-                    isStarting || isRestarting || isStopping
-                      ? "secondary"
-                      : !canStart
-                        ? "outline"
-                        : "default"
-                  }
-                  size="sm"
-                  aria-label={
-                    !canStart && startReason
-                      ? `${t("header.gateway.action.start")}: ${startReason}`
-                      : t("header.gateway.action.start")
-                  }
-                  data-tour="gateway-button"
-                  className={`h-8 gap-1.5 px-2.5 text-xs font-medium ${
-                    isStopped
-                      ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                      : ""
-                  } ${!canStart ? "border-warning/50 bg-warning/5 text-warning hover:bg-warning/10" : ""}`}
-                  onClick={handleGatewayToggle}
-                  disabled={
-                    gwLoading || isStarting || isRestarting || isStopping
-                  }
-                >
-                  {gwLoading || isStarting || isRestarting || isStopping ? (
-                    <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <IconPlayerPlay className="h-3.5 w-3.5" />
-                  )}
-                  <span className="hidden sm:inline">
-                    {isStopping
-                      ? t("header.gateway.status.stopping")
-                      : isRestarting
-                        ? t("header.gateway.status.restarting")
-                        : isStarting
-                          ? t("header.gateway.status.starting")
-                          : t("header.gateway.action.start")}
-                  </span>
-                </Button>
-              </span>
-            </TooltipTrigger>
-            {gwError || (!canStart && startReason) ? (
-              <TooltipContent>{gwError ?? startReason}</TooltipContent>
-            ) : null}
-          </Tooltip>
+            <IconPower className="h-3.5 w-3.5" />
+          </Button>
+        ) : (
+          <Button
+            variant={
+              isStarting || isRestarting || isStopping
+                ? "secondary"
+                : !canStart
+                  ? "outline"
+                  : "default"
+            }
+            size="sm"
+            aria-label={
+              !canStart && startReason
+                ? `${t("header.gateway.action.start")}: ${startReason}`
+                : t("header.gateway.action.start")
+            }
+            aria-describedby={gwError ? "gateway-error" : undefined}
+            data-tour="gateway-button"
+            className={`h-8 gap-1.5 px-2.5 text-xs font-medium ${
+              isStopped
+                ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                : ""
+            } ${!canStart ? "border-warning/50 bg-warning/5 text-warning hover:bg-warning/10" : ""}`}
+            onClick={handleGatewayToggle}
+            disabled={gwLoading || isStarting || isRestarting || isStopping}
+          >
+            {gwLoading || isStarting || isRestarting || isStopping ? (
+              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <IconPlayerPlay className="h-3.5 w-3.5" />
+            )}
+            <span className="hidden sm:inline">
+              {isStopping
+                ? t("header.gateway.status.stopping")
+                : isRestarting
+                  ? t("header.gateway.status.restarting")
+                  : isStarting
+                    ? t("header.gateway.status.starting")
+                    : t("header.gateway.action.start")}
+            </span>
+          </Button>
+        )}
+        {gwError && (
+          <span id="gateway-error" role="status" className="sr-only">
+            {gwError}
+          </span>
         )}
 
         <Separator
@@ -387,20 +384,15 @@ export function AppHeader() {
 
         {/* Logout */}
         <div className="hidden sm:block">
-          <Tooltip delayDuration={300}>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-muted-foreground hover:text-destructive size-8 rounded-md"
-                onClick={() => setShowLogoutDialog(true)}
-                aria-label={t("header.logout.tooltip")}
-              >
-                <IconLogout className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("header.logout.tooltip")}</TooltipContent>
-          </Tooltip>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-destructive size-8 rounded-md"
+            onClick={() => setShowLogoutDialog(true)}
+            aria-label={t("header.logout.tooltip")}
+          >
+            <IconLogout className="size-4" />
+          </Button>
         </div>
       </div>
     </header>

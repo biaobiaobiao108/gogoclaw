@@ -56,7 +56,6 @@ export function ImportDialog({
             onClick={() => onOpenChange(false)}
             disabled={isImportPending}
             aria-label={t("common.cancel")}
-            title={t("common.cancel")}
           >
             <IconX className="size-4" />
           </Button>

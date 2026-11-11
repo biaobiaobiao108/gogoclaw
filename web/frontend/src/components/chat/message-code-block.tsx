@@ -128,7 +128,6 @@ export function MessageCodeBlock({
             className="text-muted-foreground hover:text-foreground h-6 gap-1 px-1.5 text-xs"
             onClick={() => void copy(code)}
             aria-label={copyLabel}
-            title={copyLabel}
           >
             {isCopied ? (
               <IconCheck className="text-success size-3.5" />
@@ -148,7 +147,6 @@ export function MessageCodeBlock({
             onClick={() => setWrapLongLines((current) => !current)}
             aria-pressed={wrapLongLines}
             aria-label={wrapLabel}
-            title={wrapLabel}
           >
             <IconTextWrap className="size-3.5" />
           </Button>
@@ -160,7 +158,6 @@ export function MessageCodeBlock({
             onClick={() => setIsExpanded((expanded) => !expanded)}
             aria-expanded={isExpanded}
             aria-label={expandLabel}
-            title={expandLabel}
           >
             <IconChevronDown
               className={cn(

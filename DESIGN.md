@@ -73,6 +73,7 @@ Do not use all-caps eyebrow labels or decorative letter spacing. Acronyms and ma
 
 - Use the existing shadcn/Radix components and Tabler icon set. One icon family only.
 - Icon-only controls require an accessible name and at least a 24x24px target; touch interfaces prefer 44x44px.
+- Hover and focus tooltips are not used. Icon-only controls keep accessible names; disabled reasons and actionable errors are visible in the page or associated with the control, never hover-only.
 - Buttons retain stable geometry while pending. Disabled controls expose the reason outside hover-only content.
 - Settings use a 220px label column, a 24px gap, and a left-aligned control column capped at 448px from tablet widths; mobile stacks labels and inputs, while switches stay beside their labels.
 - Settings use persistent labels. Hints appear only when they add limits, consequences, formats, or recovery information.
@@ -102,7 +103,7 @@ Chat follows the requested ChatGPT direction: white / #212121 canvas, #f4f4f4 / 
 
 Assistant answers expose copy, feedback, regenerate and recorded answer-version controls in one compact row. Source citations render as a numbered list below the answer. Attachments support images and other files through upload, drag/drop and paste, with pending and failed states kept in the composer.
 
-History navigation inherits the console background, 6px control radius, 40px single-line rows and muted date metadata. A 240px history pane sits below the page header; its named toggle stays on the left of that header in both open and closed states. App navigation and conversation history remain distinct controls. History search queries server-side across all sessions; pin, rename and archive are available from each row, while archived sessions use the same pane with a named filter toggle.
+History navigation inherits the console background, 6px control radius, and 40px single-line rows without date metadata, leaving the full row width for the title and its right-aligned action. A 240px history pane sits below the page header; its named toggle stays on the left of that header in both open and closed states. App navigation and conversation history remain distinct controls. History search queries server-side across all sessions; pin, rename and archive are available from each row, while archived sessions use the same pane with a named filter toggle.
 
 The desktop app menu is always expanded; page headers and the app menu edge have no collapse controls. Mobile keeps its menu drawer trigger. Conversation history retains its own left-aligned toggle.
 

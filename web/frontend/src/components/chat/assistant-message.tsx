@@ -267,7 +267,6 @@ export const AssistantMessage = memo(function AssistantMessage({
                   target="_blank"
                   rel="noreferrer"
                   className="text-accent flex min-w-0 items-center gap-1 break-all hover:underline"
-                  title={source.snippet || source.url}
                 >
                   <span className="min-w-0">{source.title || source.url}</span>
                   <IconExternalLink className="size-3 shrink-0" />
@@ -287,7 +286,6 @@ export const AssistantMessage = memo(function AssistantMessage({
             className="text-muted-foreground hover:text-foreground h-7 w-7 rounded-md opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
             onClick={() => void copy(content)}
             aria-label={copyMessageLabel}
-            title={copyMessageLabel}
           >
             {isCopied ? (
               <IconCheck className="text-success h-3.5 w-3.5" />
@@ -308,7 +306,6 @@ export const AssistantMessage = memo(function AssistantMessage({
                 onClick={() => onFeedback("up")}
                 aria-label={t("chat.feedbackUp")}
                 aria-pressed={feedback === "up"}
-                title={t("chat.feedbackUp")}
               >
                 <IconThumbUp className="h-3.5 w-3.5" />
               </Button>
@@ -322,7 +319,6 @@ export const AssistantMessage = memo(function AssistantMessage({
                 onClick={() => onFeedback("down")}
                 aria-label={t("chat.feedbackDown")}
                 aria-pressed={feedback === "down"}
-                title={t("chat.feedbackDown")}
               >
                 <IconThumbDown className="h-3.5 w-3.5" />
               </Button>
@@ -336,7 +332,6 @@ export const AssistantMessage = memo(function AssistantMessage({
               onClick={onRegenerate}
               disabled={actionsDisabled}
               aria-label={t("chat.regenerate")}
-              title={t("chat.regenerate")}
             >
               <IconRefresh className="h-3.5 w-3.5" />
             </Button>
@@ -364,7 +359,6 @@ export const AssistantMessage = memo(function AssistantMessage({
                   if (previous) onSelectBranch?.(previous.id)
                 }}
                 aria-label={t("chat.previousBranch")}
-                title={t("chat.previousBranch")}
               >
                 <IconChevronLeft className="h-3.5 w-3.5" />
               </Button>
@@ -396,7 +390,6 @@ export const AssistantMessage = memo(function AssistantMessage({
                   if (next) onSelectBranch?.(next.id)
                 }}
                 aria-label={t("chat.nextBranch")}
-                title={t("chat.nextBranch")}
               >
                 <IconChevronRight className="h-3.5 w-3.5" />
               </Button>

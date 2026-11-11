@@ -264,7 +264,7 @@ export function CatalogDialog({
                           e.stopPropagation()
                           handleDelete(entry.id)
                         }}
-                        title={t("models.catalog.delete")}
+                        aria-label={t("models.catalog.delete")}
                       >
                         <IconTrash className="size-3.5" />
                       </Button>

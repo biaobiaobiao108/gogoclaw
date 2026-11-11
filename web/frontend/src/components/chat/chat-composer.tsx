@@ -198,7 +198,6 @@ export function ChatComposer({
                       onClick={() => onRetryAttachment(index)}
                       className="text-muted-foreground hover:text-foreground inline-flex size-6 shrink-0 items-center justify-center rounded-full"
                       aria-label={t("chat.retryAttachment")}
-                      title={t("chat.retryAttachment")}
                     >
                       <IconRefresh className="size-3" />
                     </button>
@@ -230,7 +229,6 @@ export function ChatComposer({
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             disabled={!canInput}
-            title={disabledMessage || undefined}
             className={cn(
               "placeholder:text-muted-foreground max-h-[220px] min-h-[48px] resize-none border-0 bg-transparent px-5 pt-3.5 pb-2 text-base leading-relaxed shadow-none focus-visible:outline-none dark:bg-transparent",
               !canInput && "text-muted-foreground cursor-not-allowed",
@@ -250,7 +248,6 @@ export function ChatComposer({
                 onClick={onAddAttachments}
                 disabled={!canInput}
                 aria-label={t("chat.attachFile")}
-                title={t("chat.attachFile")}
               >
                 <IconPaperclip className="size-4" />
               </Button>
@@ -267,7 +264,6 @@ export function ChatComposer({
                   disabled={!canInput}
                   className="bg-transparent text-xs outline-none disabled:opacity-50"
                   aria-label={t("chat.thinkingLevel")}
-                  title={t("chat.thinkingLevel")}
                 >
                   <option value="">{t("chat.thinkingLevels.default")}</option>
                   <option value="adaptive">
@@ -301,7 +297,6 @@ export function ChatComposer({
                       : "bg-foreground text-background hover:bg-foreground/90 shadow-xs",
                   )}
                   aria-label={t("chat.stopTask")}
-                  title={t("chat.stopTask")}
                 >
                   <IconPlayerStopFilled className="size-3.5" />
                 </button>

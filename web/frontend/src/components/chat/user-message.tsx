@@ -117,7 +117,6 @@ export function UserMessage({
               onClick={onEdit}
               disabled={interactionsDisabled}
               aria-label={t("chat.editMessage")}
-              title={t("chat.editMessage")}
             >
               <IconPencil className="h-3.5 w-3.5" />
             </Button>
@@ -130,7 +129,6 @@ export function UserMessage({
               className="text-muted-foreground hover:text-foreground h-6 w-6 rounded-md opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
               onClick={() => void copy(content)}
               aria-label={copyMessageLabel}
-              title={copyMessageLabel}
             >
               {isCopied ? (
                 <IconCheck className="text-success h-3.5 w-3.5" />

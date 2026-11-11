@@ -48,7 +48,7 @@ export function SkillCard({ skill, onView, onDelete }: SkillCardProps) {
               size="icon-sm"
               className="text-muted-foreground hover:bg-muted hover:text-foreground"
               onClick={onView}
-              title={t("pages.agent.skills.view")}
+              aria-label={t("pages.agent.skills.view")}
             >
               <IconFileInfo className="size-4" />
             </Button>
@@ -58,7 +58,7 @@ export function SkillCard({ skill, onView, onDelete }: SkillCardProps) {
                 size="icon-sm"
                 className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 onClick={onDelete}
-                title={t("pages.agent.skills.delete")}
+                aria-label={t("pages.agent.skills.delete")}
               >
                 <IconTrash className="size-4" />
               </Button>

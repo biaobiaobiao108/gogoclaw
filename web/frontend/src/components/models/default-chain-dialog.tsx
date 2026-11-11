@@ -136,7 +136,6 @@ export function DefaultChainDialog({
                           onClick={() => onMoveTop(modelName)}
                           disabled={isFirst}
                           aria-label={t("models.defaultChain.moveTop")}
-                          title={t("models.defaultChain.moveTop")}
                         >
                           <IconArrowBarToUp className="size-3.5" />
                         </Button>
@@ -146,7 +145,6 @@ export function DefaultChainDialog({
                           onClick={() => onMoveUp(modelName)}
                           disabled={isFirst}
                           aria-label={t("models.defaultChain.moveUp")}
-                          title={t("models.defaultChain.moveUp")}
                         >
                           <IconArrowUp className="size-3.5" />
                         </Button>
@@ -156,7 +154,6 @@ export function DefaultChainDialog({
                           onClick={() => onMoveDown(modelName)}
                           disabled={isLast}
                           aria-label={t("models.defaultChain.moveDown")}
-                          title={t("models.defaultChain.moveDown")}
                         >
                           <IconArrowDown className="size-3.5" />
                         </Button>
@@ -166,7 +163,6 @@ export function DefaultChainDialog({
                           onClick={() => onMoveBottom(modelName)}
                           disabled={isLast}
                           aria-label={t("models.defaultChain.moveBottom")}
-                          title={t("models.defaultChain.moveBottom")}
                         >
                           <IconArrowBarDown className="size-3.5" />
                         </Button>
@@ -175,7 +171,6 @@ export function DefaultChainDialog({
                           size="icon-sm"
                           onClick={() => onRemove(modelName)}
                           aria-label={t("models.defaultChain.remove")}
-                          title={t("models.defaultChain.remove")}
                           className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                         >
                           <IconTrash className="size-3.5" />

@@ -77,7 +77,6 @@ export function AnthropicCredentialCard({
                   variant="ghost"
                   onClick={onStopLoading}
                   aria-label={stopLabel}
-                  title={stopLabel}
                   className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                 >
                   <IconPlayerStopFilled className="size-4" />

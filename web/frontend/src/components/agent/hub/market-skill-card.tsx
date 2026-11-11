@@ -18,11 +18,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 
 export function MarketSkillCard({
   result,
@@ -99,34 +94,42 @@ export function MarketSkillCard({
             ) : null}
           </div>
           <div className="flex shrink-0 flex-col items-end gap-2">
-            <Tooltip delayDuration={installDisabled ? 0 : 700}>
-              <TooltipTrigger asChild>
-                <span
-                  className={installDisabled ? "cursor-not-allowed" : undefined}
-                  tabIndex={installDisabled ? 0 : undefined}
+            <div
+              className={installDisabled ? "cursor-not-allowed" : undefined}
+              tabIndex={installDisabled ? 0 : undefined}
+              aria-describedby={
+                installDisabled
+                  ? `skill-install-reason-${result.slug}`
+                  : undefined
+              }
+            >
+              <Button
+                size="sm"
+                variant={result.installed ? "secondary" : "default"}
+                className="shadow-sm transition-[color,background-color,border-color,opacity,box-shadow,transform]"
+                disabled={installDisabled}
+                onClick={onInstall}
+              >
+                {installPending ? (
+                  <IconLoader2 className="size-4 animate-spin" />
+                ) : result.installed ? (
+                  <IconCheck className="size-4" />
+                ) : (
+                  <IconPlus className="size-4" />
+                )}
+                {result.installed
+                  ? t("pages.agent.skills.marketplace_installed")
+                  : t("pages.agent.skills.marketplace_install_action")}
+              </Button>
+              {installDisabled && !result.installed && (
+                <p
+                  id={`skill-install-reason-${result.slug}`}
+                  className="text-muted-foreground mt-1 max-w-40 text-right text-xs"
                 >
-                  <Button
-                    size="sm"
-                    variant={result.installed ? "secondary" : "default"}
-                    className="shadow-sm transition-[color,background-color,border-color,opacity,box-shadow,transform]"
-                    disabled={installDisabled}
-                    onClick={onInstall}
-                  >
-                    {installPending ? (
-                      <IconLoader2 className="size-4 animate-spin" />
-                    ) : result.installed ? (
-                      <IconCheck className="size-4" />
-                    ) : (
-                      <IconPlus className="size-4" />
-                    )}
-                    {result.installed
-                      ? t("pages.agent.skills.marketplace_installed")
-                      : t("pages.agent.skills.marketplace_install_action")}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{installDisabledReason}</TooltipContent>
-            </Tooltip>
+                  {installDisabledReason}
+                </p>
+              )}
+            </div>
             {result.installed && installedSkill ? (
               <Button
                 variant="outline"
