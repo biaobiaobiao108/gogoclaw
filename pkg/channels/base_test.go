@@ -24,7 +24,7 @@ func TestInboundMediaIsProtectedWhileQueued(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch := NewBaseChannel("test", nil, msgBus, nil)
+	ch := NewBaseChannel("test", nil, msgBus, []string{"*"})
 	ch.SetMediaStore(store)
 	ctx := bus.InboundContext{ChatID: "chat", SenderID: "sender", MessageID: "message"}
 	if err := ch.HandleInboundContext(context.Background(), "chat", "hello", []string{ref}, ctx); err != nil {
@@ -45,10 +45,10 @@ func TestBaseChannelIsAllowed(t *testing.T) {
 		want      bool
 	}{
 		{
-			name:      "empty allowlist allows all",
+			name:      "empty allowlist denies all",
 			allowList: nil,
 			senderID:  "anyone",
-			want:      true,
+			want:      false,
 		},
 		{
 			name:      "compound sender matches numeric allowlist",
@@ -66,6 +66,12 @@ func TestBaseChannelIsAllowed(t *testing.T) {
 			name:      "numeric sender matches legacy compound allowlist",
 			allowList: []string{"123456|alice"},
 			senderID:  "123456",
+			want:      true,
+		},
+		{
+			name:      "wildcard explicitly allows everyone",
+			allowList: []string{"*"},
+			senderID:  "anyone",
 			want:      true,
 		},
 		{
@@ -215,8 +221,14 @@ func TestIsAllowedSender(t *testing.T) {
 		want      bool
 	}{
 		{
-			name:      "empty allowlist allows all",
+			name:      "empty allowlist denies all",
 			allowList: nil,
+			sender:    bus.SenderInfo{PlatformID: "anyone"},
+			want:      false,
+		},
+		{
+			name:      "wildcard explicitly allows everyone",
+			allowList: []string{"*"},
 			sender:    bus.SenderInfo{PlatformID: "anyone"},
 			want:      true,
 		},
@@ -332,7 +344,7 @@ func TestHandleInboundContext_PublishesNormalizedContext(t *testing.T) {
 			msgBus := bus.NewMessageBus()
 			defer msgBus.Close()
 
-			ch := NewBaseChannel("test", nil, msgBus, nil)
+			ch := NewBaseChannel("test", nil, msgBus, []string{"*"})
 			ch.HandleInboundContext(context.Background(), tt.inbound.ChatID, "hello", nil, tt.inbound)
 
 			msg := <-msgBus.InboundChan()
@@ -353,7 +365,7 @@ func TestHandleInboundContext_DeduplicatesPlatformMessage(t *testing.T) {
 	msgBus := bus.NewMessageBus()
 	defer msgBus.Close()
 
-	ch := NewBaseChannel("test", nil, msgBus, nil)
+	ch := NewBaseChannel("test", nil, msgBus, []string{"*"})
 	inbound := bus.InboundContext{
 		Channel:   "test",
 		Account:   "bot-1",
@@ -389,7 +401,7 @@ func TestHandleInboundContext_MessageIDIsScopedByChatAndAccount(t *testing.T) {
 	msgBus := bus.NewMessageBus()
 	defer msgBus.Close()
 
-	ch := NewBaseChannel("test", nil, msgBus, nil)
+	ch := NewBaseChannel("test", nil, msgBus, []string{"*"})
 	base := bus.InboundContext{
 		Channel:   "test",
 		Account:   "bot-1",

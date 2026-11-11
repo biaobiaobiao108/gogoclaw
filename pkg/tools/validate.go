@@ -282,7 +282,7 @@ func checkEnum(key string, val any, propSchema map[string]any) error {
 	switch ev := enumRaw.(type) {
 	case []any:
 		for _, allowed := range ev {
-			if val == allowed {
+			if reflect.DeepEqual(val, allowed) {
 				return nil
 			}
 		}

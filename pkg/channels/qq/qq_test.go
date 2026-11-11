@@ -24,7 +24,7 @@ import (
 func TestHandleC2CMessage_IncludesAccountIDMetadata(t *testing.T) {
 	messageBus := bus.NewMessageBus()
 	ch := &QQChannel{
-		BaseChannel: channels.NewBaseChannel("qq", nil, messageBus, nil),
+		BaseChannel: channels.NewBaseChannel("qq", nil, messageBus, []string{"7750283E123456"}),
 		dedup:       make(map[string]time.Time),
 		done:        make(chan struct{}),
 		ctx:         context.Background(),
@@ -67,7 +67,7 @@ func TestHandleC2CMessage_AttachmentOnlyPublishesMedia(t *testing.T) {
 	localPath := writeTempFile(t, t.TempDir(), "image.png", []byte("fake-image"))
 
 	ch := &QQChannel{
-		BaseChannel: channels.NewBaseChannel("qq", nil, messageBus, nil),
+		BaseChannel: channels.NewBaseChannel("qq", nil, messageBus, []string{"7750283E123456"}),
 		dedup:       make(map[string]time.Time),
 		done:        make(chan struct{}),
 		ctx:         context.Background(),
@@ -124,7 +124,7 @@ func TestHandleGroupATMessage_AttachmentOnlyPublishesMedia(t *testing.T) {
 	localPath := writeTempFile(t, t.TempDir(), "report.pdf", []byte("fake-pdf"))
 
 	ch := &QQChannel{
-		BaseChannel: channels.NewBaseChannel("qq", nil, messageBus, nil),
+		BaseChannel: channels.NewBaseChannel("qq", nil, messageBus, []string{"7750283E123456"}),
 		dedup:       make(map[string]time.Time),
 		done:        make(chan struct{}),
 		ctx:         context.Background(),

@@ -33,6 +33,7 @@ import (
 	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/health"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/heartbeat"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/instance"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/netbind"
@@ -106,6 +107,16 @@ func (p *startupBlockedProvider) GetDefaultModel() string {
 
 // Run starts the gateway runtime using the configuration loaded from configPath.
 func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runErr error) {
+	instanceLock, err := instance.AcquireDataDirLock(homePath)
+	if err != nil {
+		return fmt.Errorf("another GoGoClaw runtime may already be using this data directory: %w", err)
+	}
+	defer func() {
+		if err := instanceLock.Release(); err != nil {
+			logger.Warnf("release data directory lock failed: %v", err)
+		}
+	}()
+
 	startedAt := time.Now()
 	panicPath := filepath.Join(homePath, logPath, panicFile)
 	panicFunc, err := logger.InitPanic(panicPath)
@@ -118,12 +129,6 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 		logger.Fatal(fmt.Sprintf("error enabling file logging: %v", err))
 	}
 	defer logger.DisableFileLogging()
-
-	if debug {
-		logger.SetLevel(logger.DEBUG)
-	} else {
-		logger.SetLevelFromString(config.ResolveGatewayLogLevel(configPath))
-	}
 	defer func() {
 		if runErr != nil {
 			logger.ErrorCF("gateway", "Gateway startup failed", map[string]any{
@@ -141,6 +146,11 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 		return fmt.Errorf("error loading config: %w", err)
 	}
 
+	if debug {
+		logger.SetLevel(logger.DEBUG)
+	} else {
+		logger.SetLevelFromString(config.ResolveGatewayLogLevel(configPath))
+	}
 	if err = preCheckConfig(cfg); err != nil {
 		return fmt.Errorf("config pre-check failed: %w", err)
 	}

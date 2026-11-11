@@ -36,6 +36,19 @@ bash ./scripts/run-integration-tests.sh
 
 The runner auto-discovers every suite under `integration/suites/`, so adding a suite does not require editing workflow files.
 
+The separate CI browser job runs `web/frontend/scripts/browser-smoke.cjs` in Chromium.
+It exercises login, chat and OAuth message origin handling with deterministic HTTP
+and WebSocket fixtures; it does not verify a real gateway, model, or channel. To
+run it locally, start `bun run dev --host 127.0.0.1` in `web/frontend`, then set
+`PLAYWRIGHT_MODULE` to the globally installed Playwright module path and run
+`bun ./scripts/browser-smoke.cjs` from that directory. CI installs Playwright
+globally, leaving the frontend dependency lockfile unchanged.
+
+The container job also runs `scripts/test-container-restart.sh` against the
+just-built image. It creates a disposable container and volume, sets a dashboard
+password, restarts the container, and verifies login using the persisted data.
+Run it locally after `docker build -f docker/Dockerfile -t gogoclaw:ci .`.
+
 ## How the Runner Works
 
 - The shared runner is defined in [`integration/docker-compose.runner.yml`](docker-compose.runner.yml).

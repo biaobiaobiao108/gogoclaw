@@ -40,6 +40,9 @@ func TestNewPicoClientChannel_OK(t *testing.T) {
 	if ch.Name() != "pico_client" {
 		t.Fatalf("name = %q, want pico_client", ch.Name())
 	}
+	if ch.IsAllowed("pico-remote") {
+		t.Fatal("empty allow_from should deny pico_client senders")
+	}
 }
 
 func TestSend_NotRunning(t *testing.T) {
@@ -226,7 +229,7 @@ func TestClientChannel_ReceivesServerMessage(t *testing.T) {
 
 	mb := bus.NewMessageBus()
 
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"pico-remote"}}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL:         wsURL(srv.URL),
 		SessionID:   "sess-echo",
@@ -409,7 +412,7 @@ func newTestPicoClientChannel(t *testing.T) (*PicoClientChannel, *bus.MessageBus
 	t.Helper()
 
 	mb := bus.NewMessageBus()
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"pico-remote"}}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:8080/ws",
 	}, mb)
@@ -504,7 +507,7 @@ func TestPicoClientChannel_HandleInbound_ForwardsMediaCreate(t *testing.T) {
 
 func TestPicoClientChannel_HandleServerMessage_ForwardsTextWithDownloadAttachment(t *testing.T) {
 	mb := bus.NewMessageBus()
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"pico-remote"}}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:8080/ws",
 	}, mb)
@@ -545,7 +548,7 @@ func TestPicoClientChannel_HandleServerMessage_ForwardsTextWithDownloadAttachmen
 
 func TestPicoClientChannel_HandleServerMessage_ForwardsTextWithInvalidMediaPayload(t *testing.T) {
 	mb := bus.NewMessageBus()
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"pico-remote"}}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:8080/ws",
 	}, mb)

@@ -142,6 +142,9 @@ export function useCredentialsPage() {
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) {
+        return
+      }
       const data = event.data as
         { type?: string; flowId?: string; status?: string } | undefined
       if (!data || data.type !== "gogoclaw-oauth-result" || !data.flowId) {

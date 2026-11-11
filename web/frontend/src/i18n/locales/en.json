@@ -640,7 +640,7 @@
     },
     "form": {
       "desc": {
-        "allowFrom": "Restrict which senders can trigger this channel. Leave empty for no restriction.",
+        "allowFrom": "External chat channels allow only listed senders. Empty denies everyone; use * for public access. Pico console connections use token authentication.",
         "allowOrigins": "Restrict browser origins allowed to connect over WebSocket.",
         "allowTokenQuery": "Allow the access token to be passed as a query parameter.",
         "appId": "App ID from the platform application credentials.",

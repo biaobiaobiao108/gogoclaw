@@ -40,6 +40,17 @@ var allowedInlineImageMIMETypes = map[string]struct{}{
 // base64 expansion, plus the surrounding message and JSON overhead.
 const maxPicoMessageBytes = 32 << 20
 
+// picoAllowList trusts the authenticated Pico transport when no sender list is
+// configured. External chat channels use deny-all for an empty allow_from.
+func picoAllowList(allowFrom []string) []string {
+	for _, sender := range allowFrom {
+		if strings.TrimSpace(sender) != "" {
+			return allowFrom
+		}
+	}
+	return []string{"*"}
+}
+
 // PicoChannel implements the native Pico Protocol WebSocket channel.
 // It serves as the reference implementation for all optional capability interfaces.
 type PicoChannel struct {
@@ -175,7 +186,7 @@ func NewPicoChannel(
 		return nil, fmt.Errorf("pico token is required")
 	}
 
-	base := channels.NewBaseChannel("pico", cfg, messageBus, bc.AllowFrom)
+	base := channels.NewBaseChannel("pico", cfg, messageBus, picoAllowList(bc.AllowFrom))
 
 	allowOrigins := cfg.AllowOrigins
 	checkOrigin := func(r *http.Request) bool {

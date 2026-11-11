@@ -640,7 +640,7 @@
     },
     "form": {
       "desc": {
-        "allowFrom": "限制可触发该频道的发送者；留空表示不限制。",
+        "allowFrom": "外部聊天频道只允许列出的发送者；留空时拒绝所有人，使用 * 可公开。Pico 控制台由令牌认证。",
         "allowOrigins": "限制允许连接 WebSocket 的浏览器来源。",
         "allowTokenQuery": "允许通过查询参数传递访问令牌。",
         "appId": "平台应用凭据中的应用 ID。",

@@ -16,7 +16,7 @@
       "app_secret": "xxx",
       "encrypt_key": "",
       "verification_token": "",
-      "allow_from": [],
+      "allow_from": ["YOUR_USER_ID"],
       "is_lark": false
     }
   }
@@ -30,7 +30,7 @@
 | app_secret            | string | 是   | 飞书应用的 App Secret                                                                            |
 | encrypt_key           | string | 否   | 事件回调加密密钥                                                                                 |
 | verification_token    | string | 否   | 用于Webhook事件验证的Token                                                                       |
-| allow_from            | array  | 否   | 用户ID白名单，空表示所有用户                                                                     |
+| allow_from            | array  | 否   | 用户 ID 白名单；留空时拒绝所有人；使用 `*` 可允许所有人 |
 | random_reaction_emoji | array  | 否   | 随机添加的表情列表，空则使用默认 "Pin"                                                           |
 | is_lark               | bool   | 否   | 是否使用 Lark 国际版域名（`open.larksuite.com`），默认为 `false`（使用飞书域名 `open.feishu.cn`） |
 

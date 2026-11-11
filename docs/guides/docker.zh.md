@@ -54,6 +54,14 @@ GOGOCLAW_LAUNCHER_BIND=0.0.0.0 \
 
 Compose 使用命名卷 `gogoclaw-data`，推荐作为首次部署方式。
 
+## 同一数据目录只运行一个实例
+
+Launcher 会启动并管理自己的 gateway。对同一个数据卷，只选择 `launcher` 或独立的 `gateway` profile，不要同时启动两者。`agent` profile 用于一次性任务；如果它使用同一数据卷，也不能与上述服务同时运行。
+
+GoGoClaw 会在 home 目录获取操作系统级锁。Launcher 本身不持有此锁，由它管理的 gateway 持有，因此推荐的 Launcher 加 gateway 部署只使用一把锁。已经有进程持锁时，再启动共用 home 的独立 gateway 或 CLI Agent，会立即报“另一个 GoGoClaw runtime 正在使用此数据目录”并退出。若先启动了独立 gateway 或 Agent，再启动 Launcher，Launcher 管理的 gateway 会在锁释放前启动失败。进程退出或崩溃时系统会自动释放锁；home 目录中的 `.gogoclaw.instance.lock` 文件可能保留，请勿在 GoGoClaw 运行期间删除。
+
+`GOGOCLAW_HOME` 为 Launcher、gateway 和 CLI 指定共同的 GoGoClaw home。`GOGOCLAW_CONFIG` 只更换配置文件路径，不会更换锁使用的 home。workspace 路径不会单独加锁。如果不同安装使用不同 home，却把 `agents.defaults.workspace` 或某个 Agent 的 `workspace` 指向同一个外部目录，home 锁无法检测这种共享；请避免同时运行这些安装。
+
 ## NAS 直接运行镜像
 
 ### 1. 创建数据目录

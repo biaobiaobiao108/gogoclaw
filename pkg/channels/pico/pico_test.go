@@ -25,6 +25,16 @@ func TestPicoMessageLimitAccommodatesMaxInlineImage(t *testing.T) {
 	}
 }
 
+func TestPicoServerAllowListTrustsAuthenticatedTransportWhenEmpty(t *testing.T) {
+	if got := picoAllowList(nil); len(got) != 1 || got[0] != "*" {
+		t.Fatalf("picoAllowList(nil) = %#v, want [\"*\"]", got)
+	}
+	configured := []string{"user-1"}
+	if got := picoAllowList(configured); len(got) != 1 || got[0] != "user-1" {
+		t.Fatalf("picoAllowList(%#v) = %#v, want configured allowlist", configured, got)
+	}
+}
+
 func TestApprovalRequestAndResponseRoundTrip(t *testing.T) {
 	ch := newTestPicoChannel(t)
 	conn, received, cleanup := newTestPicoWebSocket(t)

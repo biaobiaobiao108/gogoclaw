@@ -55,7 +55,7 @@ from_user_id=o9cq...@im.wechat
 
 put that exact `from_user_id` into `allow_from` and restart the gateway. New web bindings do this automatically; accounts bound before this behavior was added should be rebound once.
 
-If no inbound message appears, check for `Session expired`, `getUpdates API error`, or an invalid token. An empty `allow_from` opens the channel to everyone and emits a security warning; personal bindings should use an explicit user ID.
+If no inbound message appears, check for `Session expired`, `getUpdates API error`, or an invalid token. An empty `allow_from` denies all senders; personal bindings should use the bound user ID. Use `*` only to explicitly allow everyone.
 
 ## Notes
 

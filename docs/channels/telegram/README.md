@@ -27,7 +27,7 @@ The Telegram channel uses long polling via the Telegram Bot API for bot-based co
 | ---------------- | ------ | -------- | ------------------------------------------------------------------ |
 | enabled          | bool   | Yes      | Whether to enable the Telegram channel                             |
 | token            | string | Yes      | Telegram Bot API Token                                             |
-| allow_from       | array  | No       | Allowlist of user IDs; empty means all users are allowed           |
+| allow_from       | array  | No       | Allowlist of user IDs; empty denies all senders; use `*` to allow everyone |
 | proxy            | string | No       | Proxy URL for connecting to the Telegram API (e.g. http://127.0.0.1:7890) |
 | base_url         | string | No       | Telegram Bot API endpoint, defaulting to `https://api.telegram.org`; this is not a proxy field |
 | use_markdown_v2 | bool   | No       | Enable Telegram MarkdownV2 formatting                              |
@@ -42,7 +42,7 @@ The Telegram channel uses long polling via the Telegram Bot API for bot-based co
 2. Send the `/newbot` command and follow the prompts to create a new bot
 3. Obtain the HTTP API Token
 4. Fill in the Token in the configuration file
-5. (Optional) Configure `allow_from` to restrict which user IDs can interact (you can get IDs via `@userinfobot`)
+5. Configure `allow_from` with the user IDs that can interact (you can get IDs via `@userinfobot`). Leave it empty to deny everyone, or use `*` only for a public bot.
 
 ## Built-in Commands
 

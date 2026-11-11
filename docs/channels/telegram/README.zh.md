@@ -26,7 +26,7 @@ Telegram Channel 通过 Telegram 机器人 API 使用长轮询实现基于机器
 | ---------------- | ------ | ---- | --------------------------------------------------------- |
 | enabled          | bool   | 是   | 是否启用 Telegram 频道                                    |
 | token            | string | 是   | Telegram 机器人 API Token                                 |
-| allow_from       | array  | 否   | 用户ID白名单，空表示允许所有用户                          |
+| allow_from       | array  | 否   | 用户 ID 白名单；留空时拒绝所有人；使用 `*` 可允许所有人 |
 | proxy            | string | 否   | 连接 Telegram API 的代理 URL (例如 http://127.0.0.1:7890) |
 | base_url         | string | 否   | Telegram Bot API 地址，默认 `https://api.telegram.org`；不是代理字段 |
 | use_markdown_v2 | bool   | 否   | 启用 Telegram MarkdownV2 格式化                           |
@@ -40,7 +40,7 @@ Telegram Channel 通过 Telegram 机器人 API 使用长轮询实现基于机器
 2. 发送 `/newbot` 命令并按照提示创建新机器人
 3. 获取 HTTP API Token
 4. 将 Token 填入配置文件中
-5. (可选) 配置 `allow_from` 以限制允许互动的用户 ID (可通过 `@userinfobot` 获取 ID)
+5. 在 `allow_from` 中填写允许互动的用户 ID（可通过 `@userinfobot` 获取）。留空会拒绝所有人；仅在公开机器人时使用 `*`。
 
 ## 内置命令
 

@@ -146,6 +146,8 @@ See [Providers and Models](docs/guides/providers.md) for fallback chains and rou
 | Feishu / Lark | WebSocket / SDK | No public callback URL is required |
 | QQ | Bot WebSocket | Enable the required sandbox or group permissions on QQ |
 
+External chat channels reject all senders when `allow_from` is empty. After upgrading an existing configuration, add user IDs for private channels; use `"*"` only when the channel is intentionally public. The Pico console channel authenticates connections with its own token and continues to trust authenticated connections when this list is empty.
+
 ### Telegram Proxy
 
 Correct configuration:

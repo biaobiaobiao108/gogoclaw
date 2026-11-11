@@ -19,11 +19,22 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/approval"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/instance"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
 func agentCmd(message, sessionKey, model string, debug, resume bool) error {
+	dataDirLock, err := instance.AcquireDataDirLock(internal.GetGogoclawHome())
+	if err != nil {
+		return fmt.Errorf("another GoGoClaw runtime may already be using this data directory: %w", err)
+	}
+	defer func() {
+		if err := dataDirLock.Release(); err != nil {
+			logger.Warnf("release data directory lock failed: %v", err)
+		}
+	}()
+
 	if sessionKey == "" {
 		sessionKey = "cli:default"
 	}

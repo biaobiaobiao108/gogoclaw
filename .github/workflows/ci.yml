@@ -81,3 +81,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: docker build --file docker/Dockerfile --tag gogoclaw:ci .
       - run: docker run --rm --entrypoint /usr/local/bin/gogoclaw gogoclaw:ci --help
+      - run: bash scripts/test-container-restart.sh
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web/frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun add --global playwright@1.64.1
+      - run: '"$(bun pm bin -g)/playwright" install --with-deps chromium'
+      - name: Exercise login, chat and OAuth origin handling
+        run: |
+          bun run dev --host 127.0.0.1 > /tmp/gogoclaw-vite.log 2>&1 &
+          trap 'kill $! 2>/dev/null || true' EXIT
+          timeout 60 bash -c 'until curl -fsS http://127.0.0.1:5173/ >/dev/null; do sleep 1; done'
+          PLAYWRIGHT_MODULE="$(bun pm bin -g)/../install/global/node_modules/playwright" bun ./scripts/browser-smoke.cjs

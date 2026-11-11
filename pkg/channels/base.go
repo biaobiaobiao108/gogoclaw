@@ -177,14 +177,12 @@ func NewBaseChannel(
 		opt(bc)
 	}
 
-	// Security Audit: Check for open-by-default (unsecured) channels.
-	// GoGoClaw aims to be secure-by-default. If allow_from is empty, the bot
-	// currently defaults to accepting messages from ANYONE. To explicitly
-	// acknowledge and permit this (e.g. for a public bot), use ["*"].
+	// An empty allow_from is deny-all. Public channels must opt in explicitly
+	// with ["*"].
 	if len(bc.allowList) == 0 {
-		logger.WarnCF("channels", "SECURITY: Channel allows EVERYONE (allow_from is empty)", map[string]any{
+		logger.WarnCF("channels", "SECURITY: Channel rejects all senders (allow_from is empty)", map[string]any{
 			"channel": bc.name,
-			"hint":    "Set allow_from to your ID, or use '*' to explicitly acknowledge open access.",
+			"hint":    "Set allow_from to permitted sender IDs, or use '*' to explicitly allow everyone.",
 		})
 	}
 
@@ -257,7 +255,7 @@ func (c *BaseChannel) IsRunning() bool {
 
 func (c *BaseChannel) IsAllowed(senderID string) bool {
 	if len(c.allowList) == 0 {
-		return true
+		return false
 	}
 
 	// Extract parts from compound senderID like "123456|username"
@@ -302,7 +300,7 @@ func (c *BaseChannel) IsAllowed(senderID string) bool {
 // across all legacy formats and the new canonical "platform:id" format.
 func (c *BaseChannel) IsAllowedSender(sender bus.SenderInfo) bool {
 	if len(c.allowList) == 0 {
-		return true
+		return false
 	}
 
 	for _, allowed := range c.allowList {

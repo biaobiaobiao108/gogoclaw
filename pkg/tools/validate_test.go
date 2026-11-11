@@ -168,6 +168,48 @@ func TestValidateToolArgs(t *testing.T) {
 			wantErr: "not in enum",
 		},
 		{
+			name: "enum valid array value []any",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"items": map[string]any{"type": "array", "enum": []any{[]any{"a"}, []any{"b"}}},
+				},
+			},
+			args: map[string]any{"items": []any{"a"}},
+		},
+		{
+			name: "enum invalid array value []any",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"items": map[string]any{"type": "array", "enum": []any{[]any{"a"}, []any{"b"}}},
+				},
+			},
+			args:    map[string]any{"items": []any{"c"}},
+			wantErr: "not in enum",
+		},
+		{
+			name: "enum valid object value []any",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"options": map[string]any{"type": "object", "enum": []any{map[string]any{"mode": "safe"}}},
+				},
+			},
+			args: map[string]any{"options": map[string]any{"mode": "safe"}},
+		},
+		{
+			name: "enum invalid object value []any",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"options": map[string]any{"type": "object", "enum": []any{map[string]any{"mode": "safe"}}},
+				},
+			},
+			args:    map[string]any{"options": map[string]any{"mode": "fast"}},
+			wantErr: "not in enum",
+		},
+		{
 			name: "enum valid value []string",
 			schema: map[string]any{
 				"type": "object",

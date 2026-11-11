@@ -50,6 +50,14 @@ GOGOCLAW_LAUNCHER_BIND=0.0.0.0 \
 
 Compose uses the `gogoclaw-data` named volume and is the recommended first deployment.
 
+## One Runtime Per Data Directory
+
+The launcher starts and supervises its gateway. Use either the `launcher` profile or the standalone `gateway` profile for a given data volume; do not start both. The `agent` profile is for one-off work and must not run beside either service when it uses the same data volume.
+
+GoGoClaw takes an operating-system lock in its home directory. The launcher itself does not take this lock; its managed gateway does, so the supported launcher-plus-gateway setup uses one lock. A standalone gateway or CLI Agent that tries to use an already locked home exits with an “already using this data directory” error. If the launcher starts while a standalone gateway or Agent holds the lock, its managed gateway will fail to start until that process exits. The lock is released automatically when the owning process exits, including after a crash; the `.gogoclaw.instance.lock` file may remain in the home directory and should not be removed while GoGoClaw is running.
+
+`GOGOCLAW_HOME` selects the shared GoGoClaw home for the launcher, gateway, and CLI. `GOGOCLAW_CONFIG` changes the config file path but does not change the home directory used for locking. Workspace paths are not locked separately. If separate installations use different homes while pointing `agents.defaults.workspace` or an agent's `workspace` to the same external directory, the home locks cannot detect that overlap; do not run those installations at the same time.
+
 ## Direct Docker Run On A NAS
 
 ### 1. Create The Data Directory

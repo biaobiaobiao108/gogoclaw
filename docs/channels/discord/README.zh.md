@@ -26,7 +26,7 @@ Discord 是一个专为社区设计的免费语音、视频和文本聊天应用
 | ------------ | ------ | ---- | -------------------------------- |
 | enabled      | bool   | 是   | 是否启用 Discord 频道            |
 | token        | string | 是   | Discord 机器人 Token             |
-| allow_from   | array  | 否   | 用户ID白名单，空表示允许所有用户 |
+| allow_from   | array  | 否   | 用户 ID 白名单；留空时拒绝所有人；使用 `*` 可允许所有人 |
 | group_trigger | object | 否   | 群组触发设置（示例: { "mention_only": false }） |
 
 ## 设置流程

@@ -18,14 +18,12 @@ case "$1" in
                 exit 78
             fi
         fi
-        rm -f "${HOME}/.gogoclaw/.gogoclaw.pid"
         exec gogoclaw gateway "$@"
         ;;
     gogoclaw)
         exec "$@"
         ;;
     gogoclaw-launcher)
-        rm -f "${HOME}/.gogoclaw/.gogoclaw.pid"
         exec "$@"
         ;;
     agent|auth|config|cron|mcp|migrate|model|onboard|skills|status|version)

@@ -57,7 +57,7 @@ from_user_id=o9cq...@im.wechat
 
 把日志中的精确 `from_user_id` 写入 `allow_from`，然后重启 gateway。新版 Web 绑定会自动完成这一步；升级前绑定的账号建议重新扫码。
 
-如果日志没有入站消息，检查 iLink 是否返回 `Session expired`、`getUpdates API error` 或 token 失效。`allow_from` 为空时 GoGoClaw 会开放所有来源，并输出安全警告；个人号绑定应始终使用明确用户 ID。
+如果日志没有入站消息，检查 iLink 是否返回 `Session expired`、`getUpdates API error` 或 token 失效。`allow_from` 留空时会拒绝所有来源；个人号绑定应始终使用绑定用户 ID。只有明确要开放给所有人时才使用 `*`。
 
 ## 注意事项
 
