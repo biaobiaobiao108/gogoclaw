@@ -11,7 +11,7 @@ func TestApprovalConfigRequires(t *testing.T) {
 	}
 
 	defaults := ApprovalConfig{Enabled: true}
-	for _, tool := range []string{"exec", "write_file", "edit_file", "append_file", "spawn", "subagent", "install_skill"} {
+	for _, tool := range []string{"exec", "write_file", "edit_file", "append_file", "spawn", "subagent", "install_skill", "message"} {
 		if !defaults.Requires(tool) {
 			t.Fatalf("default approval policy should require %q", tool)
 		}

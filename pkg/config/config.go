@@ -801,7 +801,15 @@ type ToolConfig struct {
 type MessageToolsConfig struct {
 	ToolConfig `yaml:"-" envPrefix:"GOGOCLAW_TOOLS_MESSAGE_"`
 
-	MediaEnabled bool `json:"media_enabled" yaml:"-" env:"GOGOCLAW_TOOLS_MESSAGE_MEDIA_ENABLED"`
+	MediaEnabled   bool            `json:"media_enabled"  yaml:"-" env:"GOGOCLAW_TOOLS_MESSAGE_MEDIA_ENABLED"`
+	AllowedTargets []MessageTarget `json:"allowed_targets,omitempty" yaml:"-"`
+}
+
+// MessageTarget identifies a channel conversation that the message tool may
+// explicitly address outside the current turn context.
+type MessageTarget struct {
+	Channel string `json:"channel"`
+	ChatID  string `json:"chat_id"`
 }
 
 type BraveConfig struct {
@@ -1073,7 +1081,7 @@ func (c ApprovalConfig) Requires(tool string) bool {
 	tool = strings.TrimSpace(tool)
 	tools := c.Tools
 	if len(tools) == 0 {
-		tools = []string{"exec", "write_file", "edit_file", "append_file", "spawn", "subagent", "install_skill"}
+		tools = []string{"exec", "write_file", "edit_file", "append_file", "spawn", "subagent", "install_skill", "message"}
 	}
 	for _, candidate := range tools {
 		candidate = strings.TrimSpace(candidate)

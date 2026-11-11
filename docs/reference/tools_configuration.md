@@ -50,7 +50,7 @@ Human approval pauses selected tool calls until a decision is received in the Go
 | `tools` | string[] | built-in high-risk list | Exact tool names to gate; use `["*"]` to gate every tool |
 | `timeout_seconds` | int | `1800` | How long to wait before denying the call |
 
-The default tool list is `exec`, `write_file`, `edit_file`, `append_file`, `spawn`, `subagent`, and `install_skill`. Each request supports approving once, approving the exact same tool and arguments for the current session, or denying the call. Requests and decisions are stored in the turn checkpoint and published as `agent.approval.*` runtime events.
+The default tool list is `exec`, `write_file`, `edit_file`, `append_file`, `spawn`, `subagent`, `install_skill`, and `message`. Each request supports approving once, approving the exact same tool and arguments for the current session, or denying the call. Requests and decisions are stored in the turn checkpoint and published as `agent.approval.*` runtime events.
 
 ```json
 {

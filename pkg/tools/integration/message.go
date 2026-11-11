@@ -44,6 +44,7 @@ type MessageTool struct {
 	mediaStore        media.MediaStore
 	allowPaths        []*regexp.Regexp
 	localMediaEnabled bool
+	allowedTargets    []config.MessageTarget
 	mu                sync.Mutex
 	sentTargets       map[string][]sentTarget
 }
@@ -141,6 +142,14 @@ func (t *MessageTool) SetMediaStore(store media.MediaStore) {
 	t.mediaStore = store
 }
 
+// ConfigureAllowedTargets sets the conversations that may be addressed outside
+// the current turn context. The current turn target is always allowed.
+func (t *MessageTool) ConfigureAllowedTargets(targets []config.MessageTarget) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.allowedTargets = append([]config.MessageTarget(nil), targets...)
+}
+
 // ResetSentInRound resets the per-round send tracker for the given session key.
 // Called by the agent loop at the start of each inbound message processing round.
 func (t *MessageTool) ResetSentInRound(sessionKey string) {
@@ -198,15 +207,28 @@ func (t *MessageTool) Execute(ctx context.Context, args map[string]any) *ToolRes
 	chatID, _ := args["chat_id"].(string)
 	replyToMessageID, _ := args["reply_to_message_id"].(string)
 
+	contextChannel := ToolChannel(ctx)
+	contextChatID := ToolChatID(ctx)
 	if channel == "" {
-		channel = ToolChannel(ctx)
+		channel = contextChannel
 	}
 	if chatID == "" {
-		chatID = ToolChatID(ctx)
+		chatID = contextChatID
 	}
 
 	if channel == "" || chatID == "" {
 		return &ToolResult{ForLLM: "No target channel/chat specified", IsError: true}
+	}
+
+	if (channel != contextChannel || chatID != contextChatID) && !t.isAllowedTarget(channel, chatID) {
+		return &ToolResult{
+			ForLLM: fmt.Sprintf(
+				"message target %s:%s is not allowed; use the current conversation or add it to tools.message.allowed_targets",
+				channel,
+				chatID,
+			),
+			IsError: true,
+		}
 	}
 
 	if t.sendCallback == nil {
@@ -240,6 +262,17 @@ func (t *MessageTool) Execute(ctx context.Context, args map[string]any) *ToolRes
 		ForLLM: status,
 		Silent: true,
 	}
+}
+
+func (t *MessageTool) isAllowedTarget(channel, chatID string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, target := range t.allowedTargets {
+		if target.Channel == channel && target.ChatID == chatID {
+			return true
+		}
+	}
+	return false
 }
 
 func parseMessageMediaArgs(raw any) ([]messageMediaArg, error) {

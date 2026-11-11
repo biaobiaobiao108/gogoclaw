@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
@@ -77,6 +78,9 @@ func TestMessageTool_Execute_Success(t *testing.T) {
 
 func TestMessageTool_Execute_WithCustomChannel(t *testing.T) {
 	tool := NewMessageTool()
+	tool.ConfigureAllowedTargets([]config.MessageTarget{
+		{Channel: "custom-channel", ChatID: "custom-chat-id"},
+	})
 
 	var sentChannel, sentChatID string
 	tool.SetSendCallback(func(
@@ -111,6 +115,65 @@ func TestMessageTool_Execute_WithCustomChannel(t *testing.T) {
 	}
 	if result.ForLLM != "Message sent to custom-channel:custom-chat-id" {
 		t.Errorf("Expected ForLLM 'Message sent to custom-channel:custom-chat-id', got '%s'", result.ForLLM)
+	}
+}
+
+func TestMessageTool_Execute_CrossTargetDeniedByDefault(t *testing.T) {
+	tool := NewMessageTool()
+	tool.SetSendCallback(func(
+		ctx context.Context,
+		channel, chatID, content, replyToMessageID string,
+		mediaParts []bus.MediaPart,
+	) error {
+		t.Fatal("send callback should not run for a disallowed target")
+		return nil
+	})
+
+	ctx := WithToolContext(context.Background(), "telegram", "current-chat")
+	result := tool.Execute(ctx, map[string]any{
+		"content": "Test message",
+		"channel": "telegram",
+		"chat_id": "other-chat",
+	})
+
+	if !result.IsError {
+		t.Fatal("expected cross-target message to be rejected")
+	}
+	want := "message target telegram:other-chat is not allowed; use the current conversation or add it to tools.message.allowed_targets"
+	if result.ForLLM != want {
+		t.Fatalf("ForLLM = %q, want %q", result.ForLLM, want)
+	}
+}
+
+func TestMessageTool_Execute_AllowedTarget(t *testing.T) {
+	tool := NewMessageTool()
+	tool.ConfigureAllowedTargets([]config.MessageTarget{
+		{Channel: "telegram", ChatID: "other-chat"},
+	})
+
+	var sentChannel, sentChatID string
+	tool.SetSendCallback(func(
+		ctx context.Context,
+		channel, chatID, content, replyToMessageID string,
+		mediaParts []bus.MediaPart,
+	) error {
+		sentChannel = channel
+		sentChatID = chatID
+		return nil
+	})
+
+	ctx := WithToolContext(context.Background(), "telegram", "current-chat")
+	result := tool.Execute(ctx, map[string]any{
+		"content": "Test message",
+		"channel": "telegram",
+		"chat_id": "other-chat",
+	})
+
+	if result.IsError {
+		t.Fatalf("expected allowed target to succeed, got %q", result.ForLLM)
+	}
+	if sentChannel != "telegram" || sentChatID != "other-chat" {
+		t.Fatalf("sent target = %s:%s, want telegram:other-chat", sentChannel, sentChatID)
 	}
 }
 

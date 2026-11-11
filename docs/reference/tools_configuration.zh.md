@@ -52,7 +52,7 @@ GoGoClaw 的工具配置位于 `config.json` 的 `tools` 字段中。
 | `tools` | string[] | 内置高危工具列表 | 精确匹配的工具名；使用 `["*"]` 可审批所有工具 |
 | `timeout_seconds` | int | `1800` | 等待多久后拒绝该调用 |
 
-默认工具列表为 `exec`、`write_file`、`edit_file`、`append_file`、`spawn`、`subagent` 和 `install_skill`。每次请求可以批准一次、在本次会话中批准完全相同的工具参数，或拒绝调用。请求和决定会写入 turn checkpoint，并发布 `agent.approval.*` runtime event。
+默认工具列表为 `exec`、`write_file`、`edit_file`、`append_file`、`spawn`、`subagent`、`install_skill` 和 `message`。每次请求可以批准一次、在本次会话中批准完全相同的工具参数，或拒绝调用。请求和决定会写入 turn checkpoint，并发布 `agent.approval.*` runtime event。
 
 ```json
 {

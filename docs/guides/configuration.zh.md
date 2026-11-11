@@ -337,6 +337,21 @@ GoGoClaw 默认在沙箱环境中运行。Agent 只能访问配置的工作区�
 |--------|------|--------|------|
 | `tools.allow_read_paths` | string[] | `[]` | 允许在工作区外读取的额外路径 |
 | `tools.allow_write_paths` | string[] | `[]` | 允许在工作区外写入的额外路径 |
+| `tools.message.allowed_targets` | object[] | `[]` | `message` 工具可在当前回合目标之外发送的 `{ "channel": "...", "chat_id": "..." }` 会话名单。当前会话始终允许。 |
+
+`message` 工具始终可以发送到当前回合的频道与会话，包括上下文已携带目标会话的 cron 和主动提醒回合。模型指定的其他目标只有在 `tools.message.allowed_targets` 中存在完全匹配的 channel 与 chat ID 组合时才会放行，避免提示注入让模型向无关会话发送消息。
+
+```json
+{
+  "tools": {
+    "message": {
+      "allowed_targets": [
+        { "channel": "telegram", "chat_id": "123456789" }
+      ]
+    }
+  }
+}
+```
 
 ### Exec 安全配置
 

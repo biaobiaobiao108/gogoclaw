@@ -411,6 +411,21 @@ Even with `restrict_to_workspace: false`, the `exec` tool blocks these dangerous
 | `tools.allow_read_paths` | string[] | `[]` | Additional paths allowed for reading outside workspace |
 | `tools.allow_write_paths` | string[] | `[]` | Additional paths allowed for writing outside workspace |
 | `tools.message.media_enabled` | bool | `false` | Allows the `message` tool to attach local media files by path. This is separate from `tools.send_file.enabled`; enable it only when unified text/media/caption delivery is intended. |
+| `tools.message.allowed_targets` | object[] | `[]` | Additional `{ "channel": "...", "chat_id": "..." }` conversations the `message` tool may address outside the current turn. The current conversation is always allowed. |
+
+The `message` tool can always send to the channel and chat of the active turn, including cron and proactive turns whose context carries the destination conversation. A model-supplied target outside that conversation is rejected unless the exact channel and chat ID pair appears in `tools.message.allowed_targets`. This prevents a prompt-injected model from sending messages to unrelated conversations.
+
+```json
+{
+  "tools": {
+    "message": {
+      "allowed_targets": [
+        { "channel": "telegram", "chat_id": "123456789" }
+      ]
+    }
+  }
+}
+```
 
 ### Read File Mode
 
