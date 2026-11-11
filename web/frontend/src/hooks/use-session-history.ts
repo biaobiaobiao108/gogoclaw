@@ -1,3 +1,4 @@
+import { useAtom } from "jotai"
 import { useCallback, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -8,6 +9,10 @@ import {
   type SessionSummary,
   updateSessionMetadata,
 } from "@/api/sessions"
+import {
+  activeSessionHistoryAtom,
+  archivedSessionHistoryAtom,
+} from "@/store/chat"
 
 const LIMIT = 20
 
@@ -23,19 +28,19 @@ export function useSessionHistory({
   const { t } = useTranslation()
   const loadingRef = useRef(false)
   const requestIdRef = useRef(0)
-  const [sessions, setSessions] = useState<SessionSummary[]>([])
-  const [cursor, setCursor] = useState<string>()
-  const [hasMore, setHasMore] = useState(true)
-  const [isLoading, setIsLoading] = useState(true)
+  const [archived, setArchivedState] = useState(false)
+  const [activeHistory, setActiveHistory] = useAtom(activeSessionHistoryAtom)
+  const [archivedHistory, setArchivedHistory] = useAtom(
+    archivedSessionHistoryAtom,
+  )
+
+  const currentCategory = archived ? archivedHistory : activeHistory
+  const [isLoading, setIsLoading] = useState(!currentCategory.hasLoaded)
   const [loadError, setLoadError] = useState(false)
   const [deleteError, setDeleteError] = useState(false)
-  const [archived, setArchivedState] = useState(false)
 
   const setArchived = useCallback((value: boolean) => {
     setArchivedState(value)
-    setCursor(undefined)
-    setHasMore(true)
-    setSessions([])
   }, [])
 
   const loadSessions = useCallback(
@@ -43,33 +48,57 @@ export function useSessionHistory({
       if (!reset && loadingRef.current) return
       const requestId = ++requestIdRef.current
       loadingRef.current = true
-      setIsLoading(true)
+
+      const categoryLoaded = archived
+        ? archivedHistory.hasLoaded
+        : activeHistory.hasLoaded
+      if (!categoryLoaded && reset) {
+        setIsLoading(true)
+      }
       setLoadError(false)
       try {
-        const currentCursor = reset ? undefined : cursor
+        const currentCursor = reset
+          ? undefined
+          : archived
+            ? archivedHistory.cursor
+            : activeHistory.cursor
         if (reset) {
           setLoadError(false)
-          setIsLoading(true)
           setDeleteError(false)
-          setHasMore(true)
-          setCursor(undefined)
         }
 
         const data = await getSessions(currentCursor, LIMIT, archived)
         if (requestId !== requestIdRef.current) return
         setLoadError(false)
 
-        setHasMore(data.has_more)
-        setCursor(data.next_cursor)
-
-        if (reset) {
-          setSessions(data.items)
+        if (archived) {
+          setArchivedHistory((prev) => ({
+            items: reset
+              ? data.items
+              : [
+                  ...prev.items,
+                  ...data.items.filter(
+                    (s) => !prev.items.some((e) => e.id === s.id),
+                  ),
+                ],
+            cursor: data.next_cursor,
+            hasMore: data.has_more,
+            hasLoaded: true,
+          }))
         } else {
-          setSessions((prev) => {
-            const existingIds = new Set(prev.map((s) => s.id))
-            const newItems = data.items.filter((s) => !existingIds.has(s.id))
-            return [...prev, ...newItems]
-          })
+          setActiveHistory((prev) => ({
+            items: reset
+              ? data.items
+              : [
+                  ...prev.items,
+                  ...data.items.filter(
+                    (s) => !prev.items.some((e) => e.id === s.id),
+                  ),
+                ],
+            cursor: data.next_cursor,
+            hasMore: data.has_more,
+            hasLoaded: true,
+          }))
         }
       } catch (err) {
         if (requestId !== requestIdRef.current) return
@@ -82,7 +111,15 @@ export function useSessionHistory({
         }
       }
     },
-    [archived, cursor],
+    [
+      activeHistory.cursor,
+      activeHistory.hasLoaded,
+      archived,
+      archivedHistory.cursor,
+      archivedHistory.hasLoaded,
+      setActiveHistory,
+      setArchivedHistory,
+    ],
   )
 
   const handleDeleteSession = useCallback(
@@ -90,7 +127,14 @@ export function useSessionHistory({
       try {
         setDeleteError(false)
         await deleteSession(id)
-        setSessions((prev) => prev.filter((s) => s.id !== id))
+        setActiveHistory((prev) => ({
+          ...prev,
+          items: prev.items.filter((s) => s.id !== id),
+        }))
+        setArchivedHistory((prev) => ({
+          ...prev,
+          items: prev.items.filter((s) => s.id !== id),
+        }))
         if (id === activeSessionId) {
           onDeletedActiveSession()
         }
@@ -99,7 +143,12 @@ export function useSessionHistory({
         setDeleteError(true)
       }
     },
-    [activeSessionId, onDeletedActiveSession],
+    [
+      activeSessionId,
+      onDeletedActiveSession,
+      setActiveHistory,
+      setArchivedHistory,
+    ],
   )
 
   const handleUpdateSession = useCallback(
@@ -107,7 +156,10 @@ export function useSessionHistory({
       id: string,
       update: { title?: string; pinned?: boolean; archived?: boolean },
     ) => {
-      setSessions((previous) => {
+      const updater = (
+        previous: SessionSummary[],
+        targetArchived: boolean,
+      ): SessionSummary[] => {
         const next = previous
           .map((session) =>
             session.id === id
@@ -129,7 +181,7 @@ export function useSessionHistory({
             (session) =>
               update.archived === undefined ||
               session.id !== id ||
-              Boolean(session.archived) === archived,
+              Boolean(session.archived) === targetArchived,
           )
         return next.sort((left, right) => {
           if (Boolean(left.pinned) !== Boolean(right.pinned)) {
@@ -137,7 +189,17 @@ export function useSessionHistory({
           }
           return Date.parse(right.updated) - Date.parse(left.updated)
         })
-      })
+      }
+
+      setActiveHistory((prev) => ({
+        ...prev,
+        items: updater(prev.items, false),
+      }))
+      setArchivedHistory((prev) => ({
+        ...prev,
+        items: updater(prev.items, true),
+      }))
+
       try {
         await updateSessionMetadata(id, update)
       } catch (err) {
@@ -146,12 +208,12 @@ export function useSessionHistory({
         await loadSessions(true)
       }
     },
-    [archived, loadSessions, t],
+    [loadSessions, setActiveHistory, setArchivedHistory, t],
   )
 
   return {
-    sessions,
-    hasMore,
+    sessions: currentCategory.items,
+    hasMore: currentCategory.hasMore,
     loadError,
     isLoading,
     deleteError,

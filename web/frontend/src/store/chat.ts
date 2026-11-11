@@ -1,6 +1,8 @@
 import { atom, getDefaultStore } from "jotai"
 import { atomWithStorage } from "jotai/utils"
 
+import type { ModelInfo } from "@/api/models"
+import type { SessionSummary } from "@/api/sessions"
 import {
   ASSISTANT_DETAIL_VISIBILITY_STORAGE_KEY,
   type AssistantDetailVisibility,
@@ -223,3 +225,36 @@ export function updateChatStore(
 
 export { shouldShowAssistantMessage, DEFAULT_ASSISTANT_DETAIL_VISIBILITY }
 export type { AssistantDetailVisibility }
+
+export interface SessionHistoryCategoryState {
+  items: SessionSummary[]
+  cursor?: string
+  hasMore: boolean
+  hasLoaded: boolean
+}
+
+export const activeSessionHistoryAtom = atom<SessionHistoryCategoryState>({
+  items: [],
+  cursor: undefined,
+  hasMore: true,
+  hasLoaded: false,
+})
+
+export const archivedSessionHistoryAtom = atom<SessionHistoryCategoryState>({
+  items: [],
+  cursor: undefined,
+  hasMore: true,
+  hasLoaded: false,
+})
+
+export interface ChatModelsState {
+  modelList: ModelInfo[]
+  defaultModelName: string
+  hasLoaded: boolean
+}
+
+export const chatModelsAtom = atom<ChatModelsState>({
+  modelList: [],
+  defaultModelName: "",
+  hasLoaded: false,
+})

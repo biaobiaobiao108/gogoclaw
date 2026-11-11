@@ -1,9 +1,11 @@
+import { useAtom } from "jotai"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
 import { getModels, type ModelInfo, setDefaultModel } from "@/api/models"
 import { showSaveSuccessOrRestartToast } from "@/lib/restart-required"
+import { chatModelsAtom } from "@/store/chat"
 import { refreshGatewayState } from "@/store/gateway"
 
 interface UseChatModelsOptions {
@@ -23,36 +25,39 @@ function isLocalModel(model: ModelInfo): boolean {
 
 export function useChatModels({ isConnected }: UseChatModelsOptions) {
   const { t } = useTranslation()
-  const [modelList, setModelList] = useState<ModelInfo[]>([])
-  const [defaultModelName, setDefaultModelName] = useState("")
+  const [chatModels, setChatModels] = useAtom(chatModelsAtom)
   const [settingDefault, setSettingDefault] = useState(false)
-  const [modelsLoading, setModelsLoading] = useState(true)
+  const [modelsLoading, setModelsLoading] = useState(!chatModels.hasLoaded)
   const [modelsError, setModelsError] = useState(false)
   const setDefaultRequestIdRef = useRef(0)
   const loadModelsRequestIdRef = useRef(0)
   const setDefaultQueueRef = useRef<Promise<void>>(Promise.resolve())
 
-  const syncDefaultModelName = useCallback((defaultModel: string) => {
-    setDefaultModelName(defaultModel.trim())
-  }, [])
-
   const loadModels = useCallback(async () => {
     const requestId = ++loadModelsRequestIdRef.current
-    setModelsLoading(true)
+    setChatModels((prev) => {
+      if (!prev.hasLoaded) {
+        setModelsLoading(true)
+      }
+      return prev
+    })
     setModelsError(false)
     try {
       await setDefaultQueueRef.current.catch(() => {})
       if (requestId !== loadModelsRequestIdRef.current) return
       const data = await getModels()
       if (requestId !== loadModelsRequestIdRef.current) return
-      setModelList(data.models)
-      syncDefaultModelName(data.default_model)
+      setChatModels({
+        modelList: data.models,
+        defaultModelName: data.default_model?.trim() ?? "",
+        hasLoaded: true,
+      })
     } catch {
       if (requestId === loadModelsRequestIdRef.current) setModelsError(true)
     } finally {
       if (requestId === loadModelsRequestIdRef.current) setModelsLoading(false)
     }
-  }, [syncDefaultModelName])
+  }, [setChatModels])
 
   useEffect(() => {
     const timerId = setTimeout(() => {
@@ -64,7 +69,7 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
 
   const handleSetDefault = useCallback(
     async (modelName: string) => {
-      if (modelName === defaultModelName) return
+      if (modelName === chatModels.defaultModelName) return
       const requestId = ++setDefaultRequestIdRef.current
       ++loadModelsRequestIdRef.current
       setSettingDefault(true)
@@ -78,10 +83,13 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
           const data = await getModels()
           if (requestId !== setDefaultRequestIdRef.current) return
 
-          setModelList(data.models)
+          setChatModels({
+            modelList: data.models,
+            defaultModelName: data.default_model?.trim() ?? "",
+            hasLoaded: true,
+          })
           setModelsError(false)
           setModelsLoading(false)
-          syncDefaultModelName(data.default_model)
           const gateway = await refreshGatewayState({ force: true })
           if (requestId !== setDefaultRequestIdRef.current) return
           showSaveSuccessOrRestartToast(
@@ -105,12 +113,12 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
         }
       }
     },
-    [defaultModelName, syncDefaultModelName, t],
+    [chatModels.defaultModelName, setChatModels, t],
   )
 
   const defaultSelectableModels = useMemo(() => {
     const modelsByAlias = new Map<string, ModelInfo[]>()
-    for (const model of modelList) {
+    for (const model of chatModels.modelList) {
       const entries = modelsByAlias.get(model.model_name) ?? []
       entries.push(model)
       modelsByAlias.set(model.model_name, entries)
@@ -125,7 +133,7 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
         ? [entries.find((model) => model.available) ?? entries[0]]
         : [],
     )
-  }, [modelList])
+  }, [chatModels.modelList])
 
   const hasAvailableModels = useMemo(
     () => defaultSelectableModels.some((m) => m.available),
@@ -154,7 +162,7 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
   )
 
   return {
-    defaultModelName,
+    defaultModelName: chatModels.defaultModelName,
     hasAvailableModels,
     apiKeyModels,
     oauthModels,

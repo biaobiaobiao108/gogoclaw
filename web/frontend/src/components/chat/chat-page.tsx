@@ -40,6 +40,12 @@ import {
   retryChatAttachment,
   uploadChatAttachments,
 } from "@/features/chat/image-input"
+import {
+  getCachedRowSize,
+  getSessionViewport,
+  saveSessionViewport,
+  setCachedRowSize,
+} from "@/features/chat/viewport"
 import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
 import { useIsHistorySheet } from "@/hooks/use-mobile"
@@ -54,6 +60,31 @@ import {
   estimateChatStreamRow,
   resolveChatInputDisabledReason,
 } from "./chat-page-logic"
+
+let cachedUploadLimit: number | null = null
+let uploadLimitPromise: Promise<number> | null = null
+
+async function getCachedUploadLimit(): Promise<number> {
+  if (cachedUploadLimit !== null) return cachedUploadLimit
+  if (!uploadLimitPromise) {
+    uploadLimitPromise = getUploadConfig()
+      .then((config) => {
+        const limit =
+          config.max_media_size > 0 ? config.max_media_size : 20 * 1024 * 1024
+        cachedUploadLimit = limit
+        return limit
+      })
+      .catch((error) => {
+        console.warn("Failed to load attachment limit:", error)
+        return 20 * 1024 * 1024
+      })
+      .finally(() => {
+        uploadLimitPromise = null
+      })
+  }
+  return uploadLimitPromise
+}
+
 export function ChatPage() {
   const { t } = useTranslation()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -61,19 +92,6 @@ export function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragDepthRef = useRef(0)
   const isHistorySheet = useIsHistorySheet()
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const [historyCollapsed, setHistoryCollapsed] = useState(false)
-  const [expandedProcesses, setExpandedProcesses] = useState<
-    Record<string, boolean>
-  >({})
-  const [isAtBottom, setIsAtBottom] = useState(true)
-  const [hasScrolled, setHasScrolled] = useState(false)
-  const [drafts, setDrafts] = useAtom(chatDraftsAtom)
-  const [isDragActive, setIsDragActive] = useState(false)
-  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
-  const [maxAttachmentSize, setMaxAttachmentSize] = useState(20 * 1024 * 1024)
-  const [thinkingLevel, setThinkingLevel] = useState("")
-  const autoScrollEnabledRef = useRef(true)
 
   const {
     messages,
@@ -100,6 +118,53 @@ export function ChatPage() {
     loadOlderHistory,
     retryHistory,
   } = usePicoChat()
+
+  const initialViewport = useMemo(
+    () => getSessionViewport(activeSessionId),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
+
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyCollapsed, setHistoryCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("gogoclaw:chat-history-collapsed") === "true"
+    } catch {
+      return false
+    }
+  })
+  const [expandedProcesses, setExpandedProcesses] = useState<
+    Record<string, boolean>
+  >(() => initialViewport?.expandedProcesses ?? {})
+  const [isAtBottom, setIsAtBottom] = useState(
+    () => initialViewport?.isAtBottom ?? true,
+  )
+  const [hasScrolled, setHasScrolled] = useState(
+    () => initialViewport?.hasScrolled ?? false,
+  )
+  const [drafts, setDrafts] = useAtom(chatDraftsAtom)
+  const [isDragActive, setIsDragActive] = useState(false)
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [maxAttachmentSize, setMaxAttachmentSize] = useState(
+    () => cachedUploadLimit ?? 20 * 1024 * 1024,
+  )
+  const [thinkingLevel, setThinkingLevel] = useState("")
+  const autoScrollEnabledRef = useRef(
+    initialViewport?.autoScrollEnabled ?? true,
+  )
+  const prevSessionIdRef = useRef(activeSessionId)
+  const isInitialMountRef = useRef(true)
+
+  const toggleHistoryCollapsed = useCallback(() => {
+    setHistoryCollapsed((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem("gogoclaw:chat-history-collapsed", String(next))
+      } catch {}
+      return next
+    })
+  }, [])
+
   const messageActionsDisabled = Boolean(
     activeTurn || isTyping || isBranchSwitching,
   )
@@ -140,15 +205,9 @@ export function ChatPage() {
 
   useEffect(() => {
     let cancelled = false
-    void getUploadConfig()
-      .then((config) => {
-        if (!cancelled && config.max_media_size > 0) {
-          setMaxAttachmentSize(config.max_media_size)
-        }
-      })
-      .catch((error) => {
-        console.warn("Failed to load attachment limit:", error)
-      })
+    void getCachedUploadLimit().then((limit) => {
+      if (!cancelled) setMaxAttachmentSize(limit)
+    })
     return () => {
       cancelled = true
     }
@@ -219,13 +278,41 @@ export function ChatPage() {
     autoScrollEnabledRef.current = true
   }, [])
 
-  const syncScrollState = useCallback((element: HTMLDivElement) => {
-    const { clientHeight, scrollHeight, scrollTop } = element
-    const atBottom = scrollHeight - scrollTop - clientHeight <= 48
-    setHasScrolled(scrollTop > 0)
-    setIsAtBottom(atBottom)
-    if (atBottom) autoScrollEnabledRef.current = true
-  }, [])
+  const syncScrollState = useCallback(
+    (element: HTMLDivElement) => {
+      const { clientHeight, scrollHeight, scrollTop } = element
+      const atBottom = scrollHeight - scrollTop - clientHeight <= 48
+      const scrolled = scrollTop > 0
+      setHasScrolled(scrolled)
+      setIsAtBottom(atBottom)
+      if (atBottom) autoScrollEnabledRef.current = true
+
+      saveSessionViewport(activeSessionId, {
+        scrollTop,
+        isAtBottom: atBottom,
+        hasScrolled: scrolled,
+        autoScrollEnabled: autoScrollEnabledRef.current,
+        expandedProcesses,
+      })
+    },
+    [activeSessionId, expandedProcesses],
+  )
+
+  useEffect(() => {
+    const el = scrollRef.current
+    return () => {
+      if (el) {
+        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 48
+        saveSessionViewport(activeSessionId, {
+          scrollTop: el.scrollTop,
+          isAtBottom: atBottom,
+          hasScrolled: el.scrollTop > 0,
+          autoScrollEnabled: autoScrollEnabledRef.current,
+          expandedProcesses,
+        })
+      }
+    }
+  }, [activeSessionId, expandedProcesses])
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     syncScrollState(e.currentTarget)
@@ -556,9 +643,12 @@ export function ChatPage() {
   const streamVirtualizer = useVirtualizer({
     count: streamRows.length,
     getScrollElement: () => scrollRef.current,
+    initialOffset: initialViewport?.scrollTop,
     estimateSize: (index) => {
       const row = streamRows[index]
-      return row ? estimateChatStreamRow(row) : 112
+      if (!row) return 112
+      const key = chatStreamRowKey(row)
+      return getCachedRowSize(key, estimateChatStreamRow(row))
     },
     getItemKey: (index) => {
       const row = streamRows[index]
@@ -566,6 +656,27 @@ export function ChatPage() {
     },
     overscan: 6,
   })
+
+  const handleMeasureElement = useCallback(
+    (node: HTMLElement | null) => {
+      streamVirtualizer.measureElement(node)
+      if (node) {
+        const indexStr = node.getAttribute("data-index")
+        if (indexStr !== null) {
+          const index = Number(indexStr)
+          const row = streamRows[index]
+          if (row) {
+            const key = chatStreamRowKey(row)
+            const height = node.getBoundingClientRect().height
+            if (height > 0) {
+              setCachedRowSize(key, height)
+            }
+          }
+        }
+      }
+    },
+    [streamRows, streamVirtualizer],
+  )
 
   const streamingMessageId = (() => {
     if (!activeTurn && !isTyping) {
@@ -602,17 +713,50 @@ export function ChatPage() {
     }
   }, [activeSessionId])
 
-  // Scroll to bottom on initial session switch
   useEffect(() => {
-    autoScrollEnabledRef.current = true
-    const timer = setTimeout(() => {
-      if (scrollRef.current) {
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    const el = scrollRef.current
+    if (!el) return
+
+    const sessionChanged = prevSessionIdRef.current !== activeSessionId
+    prevSessionIdRef.current = activeSessionId
+
+    if (sessionChanged) {
+      const targetViewport = getSessionViewport(activeSessionId)
+      if (targetViewport) {
+        if (targetViewport.isAtBottom) {
+          el.scrollTop = el.scrollHeight
+          setIsAtBottom(true)
+          autoScrollEnabledRef.current = true
+        } else {
+          el.scrollTop = targetViewport.scrollTop
+          setIsAtBottom(targetViewport.isAtBottom)
+          autoScrollEnabledRef.current = targetViewport.autoScrollEnabled
+        }
+        setHasScrolled(targetViewport.hasScrolled)
+        setExpandedProcesses(targetViewport.expandedProcesses)
+      } else {
+        el.scrollTop = el.scrollHeight
         setIsAtBottom(true)
+        autoScrollEnabledRef.current = true
+        setHasScrolled(false)
+        setExpandedProcesses({})
       }
-    }, 50)
-    return () => clearTimeout(timer)
-  }, [activeSessionId])
+      return
+    }
+
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false
+      if (initialViewport) {
+        if (initialViewport.isAtBottom) {
+          el.scrollTop = el.scrollHeight
+        } else {
+          el.scrollTop = initialViewport.scrollTop
+        }
+      } else {
+        el.scrollTop = el.scrollHeight
+      }
+    }
+  }, [activeSessionId, initialViewport])
 
   return (
     <div className="chat-surface flex h-full min-w-0 flex-col">
@@ -625,7 +769,7 @@ export function ChatPage() {
             aria-label={t("chat.history")}
             aria-expanded={isHistorySheet ? historyOpen : !historyCollapsed}
             onClick={() => {
-              if (!isHistorySheet) setHistoryCollapsed((value) => !value)
+              if (!isHistorySheet) toggleHistoryCollapsed()
               else setHistoryOpen(true)
             }}
           >
@@ -736,7 +880,7 @@ export function ChatPage() {
                 return (
                   <div
                     key={virtualRow.key}
-                    ref={streamVirtualizer.measureElement}
+                    ref={handleMeasureElement}
                     data-index={virtualRow.index}
                     role="listitem"
                     className="absolute top-0 left-0 w-full pb-6"
@@ -858,12 +1002,18 @@ export function ChatPage() {
                           expandedProcesses[row.messages[0].id] ?? false
                         }
                         onToggle={() =>
-                          setExpandedProcesses((previous) => ({
-                            ...previous,
-                            [row.messages[0].id]: !(
-                              previous[row.messages[0].id] ?? false
-                            ),
-                          }))
+                          setExpandedProcesses((previous) => {
+                            const next = {
+                              ...previous,
+                              [row.messages[0].id]: !(
+                                previous[row.messages[0].id] ?? false
+                              ),
+                            }
+                            saveSessionViewport(activeSessionId, {
+                              expandedProcesses: next,
+                            })
+                            return next
+                          })
                         }
                       />
                     )}
