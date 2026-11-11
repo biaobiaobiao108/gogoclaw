@@ -130,20 +130,8 @@ BINARY_PATH=$(BUILD_DIR)/$(BINARY_NAME)-$(PLATFORM)-$(ARCH)
 # Default target
 all: build
 
-## generate: Run generate
-generate:
-	@echo "Run generate..."
-ifeq ($(OS),Windows_NT)
-	@$(POWERSHELL) "if (Test-Path -LiteralPath './$(CMD_DIR)/workspace') { Remove-Item -LiteralPath './$(CMD_DIR)/workspace' -Recurse -Force }"
-	@$(GO) generate ./...
-else
-	@rm -r ./$(CMD_DIR)/workspace 2>/dev/null || true
-	@GOOS=$$($(GO) env GOHOSTOS) GOARCH=$$($(GO) env GOHOSTARCH) $(GO) generate ./...
-endif
-	@echo "Run generate complete"
-
 ## build: Build the gogoclaw binary for current platform
-build: generate
+build:
 	@echo "Building $(BINARY_NAME)$(EXT) for $(PLATFORM)/$(ARCH)..."
 ifeq ($(OS),Windows_NT)
 	@$(POWERSHELL) "New-Item -ItemType Directory -Force -Path '$(BUILD_DIR)' | Out-Null"
@@ -190,7 +178,7 @@ endif
 	@echo "Clean complete"
 
 ## test: Test Go code
-test: generate
+test:
 	@$(GO) test $(GOFLAGS) $$($(GO) list $(GOFLAGS) ./... | grep -v github.com/biaobiaobiao108/gogoclaw/web/)
 	@cd web && make test
 
