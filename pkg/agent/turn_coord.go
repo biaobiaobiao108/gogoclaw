@@ -20,6 +20,10 @@ import (
 const maxTurnCheckpointEvents = 128
 
 func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipeline) (result turnResult, retErr error) {
+	mediaStore := pipeline.MediaStore
+	if mediaStore == nil {
+		mediaStore = al.runtimeSnapshot().mediaStore
+	}
 	if ts.al == nil {
 		ts.al = al
 	}
@@ -88,7 +92,7 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		refs := ts.steeringMedia
 		ts.steeringMedia = nil
 		ts.mu.Unlock()
-		media.Unpin(al.mediaStore, refs)
+		media.Unpin(mediaStore, refs)
 	}()
 
 	if al.takePendingStop(ts.sessionKey) {
@@ -271,7 +275,7 @@ turnLoop:
 
 			// Inject pending steering messages
 			if len(pendingMessages) > 0 {
-				resolvedPending := resolveMediaRefs(pendingMessages, al.mediaStore, maxMediaSize, 0)
+				resolvedPending := resolveMediaRefs(pendingMessages, mediaStore, maxMediaSize, 0)
 				totalContentLen := 0
 				for i, pm := range pendingMessages {
 					messages = append(messages, resolvedPending[i])
@@ -531,41 +535,40 @@ func (ts *turnState) saveTurnCheckpoint(status, tool string) error {
 	if !ok {
 		return nil
 	}
-	previous, err := store.GetTurnCheckpoint(ts.sessionKey)
-	if err != nil {
-		return err
-	}
-	checkpoint := session.TurnCheckpoint{
-		TurnID: ts.turnID, Status: status, Iteration: ts.currentIteration(), Tool: tool,
-		EndReason: string(ts.endReasonSnapshot()),
-		StartedAt: ts.startedAt.UTC(), UpdatedAt: time.Now().UTC(),
-		Activities: ts.activitiesSnapshot(),
-		ToolItems:  ts.toolItemsSnapshot(),
-		Usage:      ts.contextUsageSnapshot(),
-	}
-	checkpoint.Deliveries = append([]session.TurnDelivery(nil), previous.Deliveries...)
-	if previous.Delivery != nil {
-		checkpoint.Delivery = previous.Delivery
-	}
-	if previous.Approval != nil {
-		checkpoint.Approval = previous.Approval
-	}
-	if previous.TurnID == ts.turnID && !(status == "running" && checkpoint.Iteration == 0) {
-		checkpoint.Events = append(checkpoint.Events, previous.Events...)
-		if status == "failed" || status == "interrupted" {
-			checkpoint.Tool = previous.Tool
-		}
-	}
 	var plan []session.TurnPlanStep
 	for _, step := range ts.snapshot().Plan {
 		plan = append(plan, session.TurnPlanStep{Text: step.Text, Status: step.Status})
 	}
-	checkpoint.Plan = plan
-	checkpoint.Events = append(checkpoint.Events, session.TurnCheckpointEvent{Status: status, Iteration: checkpoint.Iteration, Tool: checkpoint.Tool, At: time.Now().UTC(), Plan: plan})
-	if overflow := len(checkpoint.Events) - maxTurnCheckpointEvents; overflow > 0 {
-		checkpoint.Events = append([]session.TurnCheckpointEvent(nil), checkpoint.Events[overflow:]...)
+	al := ts.al
+	if al == nil {
+		return fmt.Errorf("agent loop is unavailable")
 	}
-	return store.SetTurnCheckpoint(ts.sessionKey, checkpoint)
+	return al.updateTurnCheckpoint(store, ts.sessionKey, func(previous *session.TurnCheckpoint) error {
+		checkpoint := session.TurnCheckpoint{
+			TurnID: ts.turnID, Status: status, Iteration: ts.currentIteration(), Tool: tool,
+			EndReason: string(ts.endReasonSnapshot()),
+			StartedAt: ts.startedAt.UTC(), UpdatedAt: time.Now().UTC(),
+			Activities: ts.activitiesSnapshot(),
+			ToolItems:  ts.toolItemsSnapshot(),
+			Usage:      ts.contextUsageSnapshot(),
+			Plan:       plan,
+		}
+		checkpoint.Deliveries = append([]session.TurnDelivery(nil), previous.Deliveries...)
+		checkpoint.Delivery = previous.Delivery
+		checkpoint.Approval = previous.Approval
+		if previous.TurnID == ts.turnID && !(status == "running" && checkpoint.Iteration == 0) {
+			checkpoint.Events = append(checkpoint.Events, previous.Events...)
+			if status == "failed" || status == "interrupted" {
+				checkpoint.Tool = previous.Tool
+			}
+		}
+		checkpoint.Events = append(checkpoint.Events, session.TurnCheckpointEvent{Status: status, Iteration: checkpoint.Iteration, Tool: checkpoint.Tool, At: time.Now().UTC(), Plan: plan})
+		if overflow := len(checkpoint.Events) - maxTurnCheckpointEvents; overflow > 0 {
+			checkpoint.Events = append([]session.TurnCheckpointEvent(nil), checkpoint.Events[overflow:]...)
+		}
+		*previous = checkpoint
+		return nil
+	})
 }
 
 func (al *AgentLoop) abortTurn(ts *turnState) (turnResult, error) {
@@ -707,7 +710,9 @@ func (al *AgentLoop) selectCandidates(
 }
 
 func (al *AgentLoop) resolveContextManager() ContextManager {
-	name := al.cfg.Agents.Defaults.ContextManager
+	runtime := al.runtimeSnapshot()
+	cfg := runtime.cfg
+	name := cfg.Agents.Defaults.ContextManager
 	if name == "" || name == "legacy" {
 		return &legacyContextManager{al: al}
 	}
@@ -718,7 +723,7 @@ func (al *AgentLoop) resolveContextManager() ContextManager {
 		})
 		return &legacyContextManager{al: al}
 	}
-	cm, err := factory(al.cfg.Agents.Defaults.ContextManagerConfig, al)
+	cm, err := factory(cfg.Agents.Defaults.ContextManagerConfig, al)
 	if err != nil {
 		logger.WarnCF("agent", "Failed to create context manager, falling back to legacy", map[string]any{
 			"name":  name,
@@ -735,6 +740,7 @@ func (al *AgentLoop) askSideQuestion(
 	opts *processOptions,
 	question string,
 ) (string, error) {
+	runtime := al.runtimeSnapshot()
 	if agent == nil {
 		return "", fmt.Errorf("askSideQuestion: no agent available for /btw")
 	}
@@ -749,7 +755,7 @@ func (al *AgentLoop) askSideQuestion(
 
 	if opts != nil {
 		normalizeProcessOptionsInPlace(opts)
-		resolved, err := resolveTurnProfileOptions(al.GetConfig(), *opts)
+		resolved, err := resolveTurnProfileOptions(runtime.cfg, *opts)
 		if err != nil {
 			return "", err
 		}
@@ -770,7 +776,7 @@ func (al *AgentLoop) askSideQuestion(
 	var history []providers.Message
 	var summary string
 	if opts != nil && !opts.NoHistory {
-		if resp, err := al.contextManager.Assemble(ctx, &AssembleRequest{
+		if resp, err := runtime.contextManager.Assemble(ctx, &AssembleRequest{
 			SessionKey: opts.SessionKey,
 			Budget:     agent.ContextWindow,
 			MaxTokens:  agent.MaxTokens,
@@ -806,12 +812,12 @@ func (al *AgentLoop) askSideQuestion(
 	promptReq.ToolUseFallback = false
 	messages := agent.ContextBuilder.BuildMessagesFromPrompt(promptReq)
 
-	maxMediaSize := al.GetConfig().Agents.Defaults.GetMaxMediaSize()
+	maxMediaSize := runtime.cfg.Agents.Defaults.GetMaxMediaSize()
 	currentTurnStart := len(messages)
 	if strings.TrimSpace(question) != "" || len(media) > 0 {
 		currentTurnStart = len(messages) - 1
 	}
-	messages = resolveMediaRefs(messages, al.mediaStore, maxMediaSize, currentTurnStart)
+	messages = resolveMediaRefs(messages, runtime.mediaStore, maxMediaSize, currentTurnStart)
 
 	activeCandidates, activeModel, usedLight := al.selectCandidates(agent, question, messages)
 	selectedModelName := sideQuestionModelName(agent, usedLight)
@@ -911,8 +917,8 @@ func (al *AgentLoop) askSideQuestion(
 	}
 
 	callSideLLM := func(callMessages []providers.Message) (*providers.LLMResponse, error) {
-		if len(activeCandidates) > 1 && al.fallback != nil {
-			fbResult, err := al.fallback.ExecuteCandidate(
+		if len(activeCandidates) > 1 && runtime.fallback != nil {
+			fbResult, err := runtime.fallback.ExecuteCandidate(
 				ctx,
 				activeCandidates,
 				func(ctx context.Context, candidate providers.FallbackCandidate) (*providers.LLMResponse, error) {

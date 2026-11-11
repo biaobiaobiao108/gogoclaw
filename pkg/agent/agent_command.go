@@ -253,10 +253,11 @@ func (al *AgentLoop) buildCommandsRuntime(
 			return toolInfos, nil
 		},
 		GetEnabledChannels: func() []string {
-			if al.channelManager == nil {
+			channelManager := al.runtimeSnapshot().channelManager
+			if channelManager == nil {
 				return nil
 			}
-			return al.channelManager.GetEnabledChannels()
+			return channelManager.GetEnabledChannels()
 		},
 		GetActiveTurn: func() any {
 			info := al.GetActiveTurn()
@@ -266,10 +267,11 @@ func (al *AgentLoop) buildCommandsRuntime(
 			return info
 		},
 		SwitchChannel: func(value string) error {
-			if al.channelManager == nil {
+			channelManager := al.runtimeSnapshot().channelManager
+			if channelManager == nil {
 				return fmt.Errorf("channel manager not initialized")
 			}
-			if _, exists := al.channelManager.GetChannel(value); !exists && value != "cli" {
+			if _, exists := channelManager.GetChannel(value); !exists && value != "cli" {
 				return fmt.Errorf("channel '%s' not found or not enabled", value)
 			}
 			return nil
@@ -285,10 +287,11 @@ func (al *AgentLoop) buildCommandsRuntime(
 		rt.ListSkillNames = agent.ContextBuilder.ListSkillNames
 	}
 	rt.ReloadConfig = func() error {
-		if al.reloadFunc == nil {
+		reload := al.currentReloadFunc()
+		if reload == nil {
 			return fmt.Errorf("reload not configured")
 		}
-		return al.reloadFunc()
+		return reload()
 	}
 	if agent != nil {
 		if agent.ContextBuilder != nil {
@@ -395,7 +398,7 @@ func (al *AgentLoop) buildCommandsRuntime(
 				opts.Dispatch.SessionScope,
 				opts.Dispatch.SessionAliases,
 			)
-			if err := al.contextManager.Clear(ctx, opts.SessionKey); err != nil {
+			if err := al.runtimeSnapshot().contextManager.Clear(ctx, opts.SessionKey); err != nil {
 				return err
 			}
 			if store, ok := agent.Sessions.(session.TurnCheckpointStore); ok {

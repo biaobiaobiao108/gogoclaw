@@ -36,7 +36,7 @@ var (
 
 // getSubTurnConfig returns the effective SubTurn configuration with defaults applied.
 func (al *AgentLoop) getSubTurnConfig() subTurnRuntimeConfig {
-	cfg := al.cfg.Agents.Defaults.SubTurn
+	cfg := al.runtimeSnapshot().cfg.Agents.Defaults.SubTurn
 
 	maxDepth := cfg.MaxDepth
 	if maxDepth <= 0 {
@@ -252,11 +252,9 @@ func (s *AgentLoopSpawner) RunBackground(fn func()) {
 		go fn()
 		return
 	}
-	s.al.backgroundWG.Add(1)
-	go func() {
-		defer s.al.backgroundWG.Done()
-		fn()
-	}()
+	if !s.al.startBackground(fn) {
+		logger.WarnCF("agent", "Background task rejected during shutdown", nil)
+	}
 }
 
 // NewSubTurnSpawner creates a SubTurnSpawner for the given AgentLoop.
@@ -345,10 +343,9 @@ func spawnSubTurn(
 		timeout = rtCfg.defaultTimeout
 	}
 
-	// 4. Create INDEPENDENT child context (not derived from parent ctx).
-	// This allows the child to continue running after parent finishes gracefully.
-	// The child has its own timeout for self-protection.
-	childCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	// 4. Critical children outlive the parent turn, but remain tied to the
+	// AgentLoop lifetime so shutdown can cancel and drain them.
+	childCtx, cancel := context.WithTimeout(al.backgroundContext(), timeout)
 	defer cancel()
 
 	childID := al.generateSubTurnID()
@@ -358,16 +355,17 @@ func spawnSubTurn(
 	// child runs with the target's workspace, model, tools, and system prompt.
 	// Otherwise fall back to the parent's agent (existing behavior).
 	var baseAgent *AgentInstance
+	registry := al.runtimeSnapshot().registry
 	if cfg.TargetAgentID != "" {
 		var ok bool
-		baseAgent, ok = al.registry.GetAgent(cfg.TargetAgentID)
+		baseAgent, ok = registry.GetAgent(cfg.TargetAgentID)
 		if !ok {
 			return nil, fmt.Errorf("target agent %q not found in registry", cfg.TargetAgentID)
 		}
 	} else {
 		baseAgent = parentTS.agent
 		if baseAgent == nil {
-			baseAgent = al.registry.GetDefaultAgent()
+			baseAgent = registry.GetDefaultAgent()
 		}
 	}
 	if baseAgent == nil {

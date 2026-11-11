@@ -86,6 +86,7 @@ func TestPublishResponseIfNeeded_DismissesToolFeedbackWhenMessageToolAlreadySent
 		t.Fatal("expected default agent")
 	}
 	mt := tools.NewMessageTool()
+	mt.ConfigureAllowedTargets([]config.MessageTarget{{Channel: "telegram", ChatID: "-100123"}})
 	mt.SetSendCallback(func(
 		ctx context.Context,
 		channel, chatID, content, replyToMessageID string,

@@ -34,6 +34,7 @@ func canExecuteInParallel(al *AgentLoop, ts *turnState, toolCalls []providers.To
 	if al.hooks != nil && al.hooks.HasActiveHooks() {
 		return false
 	}
+	runtime := al.runtimeSnapshot()
 	seenFingerprints := make(map[string]struct{}, len(toolCalls))
 	for _, tc := range toolCalls {
 		policy := ts.toolPolicy(tc.Name)
@@ -45,7 +46,7 @@ func canExecuteInParallel(al *AgentLoop, ts *turnState, toolCalls []providers.To
 			return false
 		}
 		seenFingerprints[fingerprint] = struct{}{}
-		if al.cfg != nil && al.cfg.Tools.Approval.Requires(tc.Name) {
+		if runtime.cfg != nil && runtime.cfg.Tools.Approval.Requires(tc.Name) {
 			return false
 		}
 		if !turnProfileToolAllowed(ts.profile, tc.Name) {
@@ -95,6 +96,7 @@ func toolItemResultFields(
 	result *tools.ToolResult,
 	duplicate bool,
 ) (status, sideEffect, summary, errorSummary string) {
+	runtime := al.runtimeSnapshot()
 	status = toolItemStatusCompleted
 	sideEffect = toolItemSideEffectPossible
 	if policy.ReadOnly {
@@ -110,11 +112,11 @@ func toolItemResultFields(
 		}
 	}
 	if result != nil {
-		content := al.cfg.FilterSensitiveData(result.ContentForLLM())
+		content := runtime.cfg.FilterSensitiveData(result.ContentForLLM())
 		summary = utils.Truncate(content, 300)
 		errorSummary = utils.Truncate(toolErrorSummary(result), 200)
 		if errorSummary != "" {
-			errorSummary = al.cfg.FilterSensitiveData(errorSummary)
+			errorSummary = runtime.cfg.FilterSensitiveData(errorSummary)
 		}
 	}
 	return status, sideEffect, summary, errorSummary
@@ -217,6 +219,9 @@ func (p *Pipeline) ExecuteTools(
 	iteration int,
 ) ToolControl {
 	al := p.al
+	cfg := p.Cfg
+	mediaStore := p.MediaStore
+	channelManager := p.ChannelManager
 	normalizedToolCalls := exec.normalizedToolCalls
 
 	messages := exec.messages
@@ -232,7 +237,7 @@ func (p *Pipeline) ExecuteTools(
 		parallelDurations = make([]time.Duration, len(normalizedToolCalls))
 		for i, call := range normalizedToolCalls {
 			args, _ := json.Marshal(call.Arguments)
-			parallelActivities[i] = ts.startTurnActivity("tool", call.Name, call.ID, call.Name, al.cfg.FilterSensitiveData(utils.Truncate(string(args), 200)))
+			parallelActivities[i] = ts.startTurnActivity("tool", call.Name, call.ID, call.Name, cfg.FilterSensitiveData(utils.Truncate(string(args), 200)))
 			ts.markToolItemRunning(toolBatchID, i, call.Name, call.Arguments)
 		}
 		if !ts.opts.NoHistory {
@@ -276,7 +281,7 @@ func (p *Pipeline) ExecuteTools(
 						if result.IsError {
 							a.Status = "failed"
 						}
-						a.Output = boundedActivityOutput(al.cfg.FilterSensitiveData(result.ContentForLLM()), al.cfg.FilterSensitiveData(result.ForUser))
+						a.Output = boundedActivityOutput(cfg.FilterSensitiveData(result.ContentForLLM()), cfg.FilterSensitiveData(result.ForUser))
 					})
 				}
 			}()
@@ -375,8 +380,8 @@ toolLoop:
 						},
 					)
 
-					if shouldPublishToolFeedback(al.cfg, ts) && ts.channel != "pico" {
-						toolFeedbackMaxLen := al.cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength()
+					if shouldPublishToolFeedback(cfg, ts) && ts.channel != "pico" {
+						toolFeedbackMaxLen := cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength()
 						toolFeedbackExplanation := toolFeedbackExplanationForToolCall(
 							exec.response,
 							tc,
@@ -418,8 +423,8 @@ toolLoop:
 						parts := make([]bus.MediaPart, 0, len(hookResult.Media))
 						for _, ref := range hookResult.Media {
 							part := bus.MediaPart{Ref: ref}
-							if al.mediaStore != nil {
-								if _, meta, err := al.mediaStore.ResolveWithMeta(ref); err == nil {
+							if mediaStore != nil {
+								if _, meta, err := mediaStore.ResolveWithMeta(ref); err == nil {
 									part.Filename = meta.Filename
 									part.ContentType = meta.ContentType
 									part.Type = inferMediaType(meta.Filename, meta.ContentType)
@@ -441,8 +446,8 @@ toolLoop:
 							Scope:      outboundScopeFromSessionScope(ts.opts.Dispatch.SessionScope),
 							Parts:      parts,
 						}
-						if al.channelManager != nil && ts.channel != "" && !constants.IsInternalChannel(ts.channel) {
-							if err := al.channelManager.SendMedia(ctx, outboundMedia); err != nil {
+						if channelManager != nil && ts.channel != "" && !constants.IsInternalChannel(ts.channel) {
+							if err := channelManager.SendMedia(ctx, outboundMedia); err != nil {
 								logger.WarnCF("agent", "Failed to deliver hook media",
 									map[string]any{
 										"agent_id": ts.agent.ID,
@@ -456,7 +461,7 @@ toolLoop:
 							} else {
 								handledAttachments = append(
 									handledAttachments,
-									buildProviderAttachments(al.mediaStore, hookResult.Media)...,
+									buildProviderAttachments(mediaStore, hookResult.Media)...,
 								)
 							}
 						} else if al.bus != nil {
@@ -470,16 +475,16 @@ toolLoop:
 					}
 
 					contentForLLM := hookResult.ContentForLLM()
-					if al.cfg.Tools.IsFilterSensitiveDataEnabled() {
-						contentForLLM = al.cfg.FilterSensitiveData(contentForLLM)
+					if cfg.Tools.IsFilterSensitiveDataEnabled() {
+						contentForLLM = cfg.FilterSensitiveData(contentForLLM)
 					}
 
 					var toolResultMedia []string
 					if len(hookResult.Media) > 0 && !hookResult.ResponseHandled {
-						hookResult.ArtifactTags = buildArtifactTags(al.mediaStore, hookResult.Media)
+						hookResult.ArtifactTags = buildArtifactTags(mediaStore, hookResult.Media)
 						contentForLLM = hookResult.ContentForLLM()
-						if al.cfg.Tools.IsFilterSensitiveDataEnabled() {
-							contentForLLM = al.cfg.FilterSensitiveData(contentForLLM)
+						if cfg.Tools.IsFilterSensitiveDataEnabled() {
+							contentForLLM = cfg.FilterSensitiveData(contentForLLM)
 						}
 						toolResultMedia = append(toolResultMedia, hookResult.Media...)
 					}
@@ -625,7 +630,7 @@ toolLoop:
 			}
 		}
 
-		humanApprovalRequired := al.cfg.Tools.Approval.Requires(toolName)
+		humanApprovalRequired := cfg.Tools.Approval.Requires(toolName)
 		humanApprovalReason := ""
 		if al.hooks != nil {
 			approval := al.hooks.ApproveTool(turnCtx, &ToolApprovalRequest{
@@ -742,11 +747,11 @@ toolLoop:
 		if preExecutedResults != nil {
 			activityID = parallelActivities[i]
 		} else {
-			activityID = ts.startTurnActivity("tool", toolName, toolCallIDFromCall(tc), toolName, al.cfg.FilterSensitiveData(argsPreview))
+			activityID = ts.startTurnActivity("tool", toolName, toolCallIDFromCall(tc), toolName, cfg.FilterSensitiveData(argsPreview))
 		}
 
-		if !duplicateReadOnly && shouldPublishToolFeedback(al.cfg, ts) && ts.channel != "pico" {
-			toolFeedbackMaxLen := al.cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength()
+		if !duplicateReadOnly && shouldPublishToolFeedback(cfg, ts) && ts.channel != "pico" {
+			toolFeedbackMaxLen := cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength()
 			toolFeedbackExplanation := toolFeedbackExplanationForToolCall(
 				exec.response,
 				tc,
@@ -832,8 +837,8 @@ toolLoop:
 				activity.Status = "effects_unknown"
 				if toolResult != nil {
 					activity.Output = boundedActivityOutput(
-						al.cfg.FilterSensitiveData(toolResult.ContentForLLM()),
-						al.cfg.FilterSensitiveData(toolResult.ForUser),
+						cfg.FilterSensitiveData(toolResult.ContentForLLM()),
+						cfg.FilterSensitiveData(toolResult.ForUser),
 					)
 				}
 				activity.Detail = strings.TrimSpace(activity.Detail +
@@ -913,8 +918,8 @@ toolLoop:
 			parts := make([]bus.MediaPart, 0, len(toolResult.Media))
 			for _, ref := range toolResult.Media {
 				part := bus.MediaPart{Ref: ref}
-				if al.mediaStore != nil {
-					if _, meta, err := al.mediaStore.ResolveWithMeta(ref); err == nil {
+				if mediaStore != nil {
+					if _, meta, err := mediaStore.ResolveWithMeta(ref); err == nil {
 						part.Filename = meta.Filename
 						part.ContentType = meta.ContentType
 						part.Type = inferMediaType(meta.Filename, meta.ContentType)
@@ -936,8 +941,8 @@ toolLoop:
 				Scope:      outboundScopeFromSessionScope(ts.opts.Dispatch.SessionScope),
 				Parts:      parts,
 			}
-			if al.channelManager != nil && ts.channel != "" && !constants.IsInternalChannel(ts.channel) {
-				if err := al.channelManager.SendMedia(ctx, outboundMedia); err != nil {
+			if channelManager != nil && ts.channel != "" && !constants.IsInternalChannel(ts.channel) {
+				if err := channelManager.SendMedia(ctx, outboundMedia); err != nil {
 					logger.WarnCF("agent", "Failed to deliver handled tool media",
 						map[string]any{
 							"agent_id": ts.agent.ID,
@@ -950,7 +955,7 @@ toolLoop:
 				} else {
 					handledAttachments = append(
 						handledAttachments,
-						buildProviderAttachments(al.mediaStore, toolResult.Media)...,
+						buildProviderAttachments(mediaStore, toolResult.Media)...,
 					)
 				}
 			} else if al.bus != nil {
@@ -960,7 +965,7 @@ toolLoop:
 		}
 
 		if len(toolResult.Media) > 0 && !toolResult.ResponseHandled {
-			toolResult.ArtifactTags = buildArtifactTags(al.mediaStore, toolResult.Media)
+			toolResult.ArtifactTags = buildArtifactTags(mediaStore, toolResult.Media)
 		}
 
 		if !toolResult.ResponseHandled {
@@ -980,8 +985,8 @@ toolLoop:
 		}
 		contentForLLM := toolResult.ContentForLLM()
 
-		if al.cfg.Tools.IsFilterSensitiveDataEnabled() {
-			contentForLLM = al.cfg.FilterSensitiveData(contentForLLM)
+		if cfg.Tools.IsFilterSensitiveDataEnabled() {
+			contentForLLM = cfg.FilterSensitiveData(contentForLLM)
 		}
 		compacted := al.compactToolResultForPrompt(ts, toolName, toolCallID, contentForLLM)
 		contentForLLM = compacted.Content
@@ -1030,8 +1035,8 @@ toolLoop:
 			} else if toolResult.IsError {
 				activity.Status = "failed"
 			}
-			filteredForLLM := al.cfg.FilterSensitiveData(toolResult.ForLLM)
-			filteredForUser := al.cfg.FilterSensitiveData(toolResult.ForUser)
+			filteredForLLM := cfg.FilterSensitiveData(toolResult.ForLLM)
+			filteredForUser := cfg.FilterSensitiveData(toolResult.ForUser)
 			activity.Output = boundedActivityOutput(filteredForLLM, filteredForUser)
 			activity.Diff = activityDiffPreview(filteredForUser)
 			activity.ExitCode = activityExitCode(toolResult.ForLLM)
@@ -1171,7 +1176,7 @@ toolLoop:
 			}
 		}
 		if !ts.opts.NoHistory && ts.opts.EnableSummary {
-			if err := al.contextManager.Compact(turnCtx, &CompactRequest{
+			if err := p.ContextManager.Compact(turnCtx, &CompactRequest{
 				SessionKey: ts.sessionKey,
 				Reason:     ContextCompressReasonSummarize,
 				Budget:     ts.agent.ContextWindow,
@@ -1184,8 +1189,8 @@ toolLoop:
 			}
 		}
 		ts.setFinalContent("")
-		if al.channelManager != nil && ts.channel != "" {
-			al.channelManager.DismissToolFeedback(ctx, ts.channel, ts.chatID, ts.opts.InboundContext)
+		if channelManager != nil && ts.channel != "" {
+			channelManager.DismissToolFeedback(ctx, ts.channel, ts.chatID, ts.opts.InboundContext)
 		}
 		logger.InfoCF("agent", "Tool output satisfied delivery; ending turn without follow-up LLM",
 			map[string]any{

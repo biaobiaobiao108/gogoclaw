@@ -26,15 +26,19 @@ type Pipeline struct {
 
 // NewPipeline creates a Pipeline from an AgentLoop instance.
 func NewPipeline(al *AgentLoop) *Pipeline {
+	return newPipelineWithRuntime(al, al.runtimeSnapshot())
+}
+
+func newPipelineWithRuntime(al *AgentLoop, runtime runtimeSnapshot) *Pipeline {
 	return &Pipeline{
-		Bus:            al.bus,
-		Cfg:            al.GetConfig(),
-		ContextManager: al.contextManager,
+		Bus:            runtime.bus,
+		Cfg:            runtime.cfg,
+		ContextManager: runtime.contextManager,
 		Hooks:          al.hooks,
-		Fallback:       al.fallback,
-		ChannelManager: al.channelManager,
-		MediaStore:     al.mediaStore,
-		Steering:       al.steering,
+		Fallback:       runtime.fallback,
+		ChannelManager: runtime.channelManager,
+		MediaStore:     runtime.mediaStore,
+		Steering:       runtime.steering,
 		al:             al,
 	}
 }

@@ -1803,10 +1803,8 @@ func (m *slowMockProvider) GetDefaultModel() string {
 	return "slow-model"
 }
 
-// TestAsyncSubTurn_ParentFinishesEarly simulates the scenario where:
-// 1. Parent spawns an async SubTurn that takes a long time
-// 2. Parent finishes quickly
-// 3. SubTurn should be canceled with context canceled error
+// TestAsyncSubTurn_ParentFinishesEarly verifies that an asynchronous child
+// outlives the parent turn, then exits cleanly when it observes the parent end.
 func TestAsyncSubTurn_ParentFinishesEarly(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
@@ -1816,7 +1814,7 @@ func TestAsyncSubTurn_ParentFinishesEarly(t *testing.T) {
 		},
 	}
 	msgBus := bus.NewMessageBus()
-	provider := &slowMockProvider{delay: 5 * time.Second} // SubTurn takes 5 seconds
+	provider := &slowMockProvider{delay: 500 * time.Millisecond}
 	al := NewAgentLoop(cfg, msgBus, provider)
 
 	var mu sync.Mutex
@@ -1873,18 +1871,11 @@ func TestAsyncSubTurn_ParentFinishesEarly(t *testing.T) {
 	// Wait for SubTurn to complete (or be canceled)
 	wg.Wait()
 
-	// Check the result
-	t.Logf("SubTurn error: %v", subTurnErr)
-	t.Logf("SubTurn result: %v", subTurnResult)
-
 	if subTurnErr != nil {
-		if errors.Is(subTurnErr, context.Canceled) {
-			t.Log("✓ SubTurn was canceled as expected (context canceled)")
-		} else {
-			t.Logf("SubTurn failed with other error: %v", subTurnErr)
-		}
-	} else {
-		t.Log("SubTurn completed before parent finished (unlikely but possible)")
+		t.Fatalf("SubTurn error = %v, want nil", subTurnErr)
+	}
+	if subTurnResult == nil || !strings.Contains(subTurnResult.ForLLM, "slow response completed") {
+		t.Fatalf("SubTurn result = %+v, want completed response", subTurnResult)
 	}
 
 	// Log captured events

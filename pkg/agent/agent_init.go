@@ -74,8 +74,10 @@ func NewAgentLoop(
 		steering:          newSteeringQueue(parseSteeringMode(cfg.Agents.Defaults.SteeringMode)),
 		followUpQueue:     newSteeringQueue(SteeringOneAtATime),
 		workerSem:         make(chan struct{}, workerPoolSize),
+		systemNotify:      make(chan struct{}, 1),
 		ownsRuntimeEvents: true,
 	}
+	al.lifecycleCtx, al.lifecycleCancel = context.WithCancel(context.Background())
 	for _, opt := range opts {
 		if opt != nil {
 			opt(al)
@@ -166,6 +168,7 @@ func registerSharedTools(
 		// Message tool
 		if cfg.Tools.IsToolEnabled("message") {
 			messageTool := tools.NewMessageTool()
+			messageTool.ConfigureAllowedTargets(cfg.Tools.Message.AllowedTargets)
 			if cfg.Tools.Message.MediaEnabled {
 				messageTool.ConfigureLocalMedia(
 					agent.Workspace,
@@ -179,6 +182,8 @@ func registerSharedTools(
 				channel, chatID, content, replyToMessageID string,
 				mediaParts []bus.MediaPart,
 			) error {
+				runtime := al.runtimeSnapshot()
+				channelManager := runtime.channelManager
 				outboundCtx := bus.NewOutboundContext(channel, chatID, replyToMessageID)
 				outboundAgentID, outboundSessionKey, outboundScope := outboundTurnMetadata(
 					tools.ToolAgentID(ctx),
@@ -195,8 +200,8 @@ func registerSharedTools(
 						Scope:      outboundScope,
 						Parts:      mediaParts,
 					}
-					if al.channelManager != nil && channel != "" {
-						return al.channelManager.SendMedia(ctx, outboundMedia)
+					if channelManager != nil && channel != "" {
+						return channelManager.SendMedia(ctx, outboundMedia)
 					}
 					pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
 					defer pubCancel()
@@ -212,8 +217,8 @@ func registerSharedTools(
 					Content:          content,
 					ReplyToMessageID: replyToMessageID,
 				}
-				if al.channelManager != nil && channel != "" {
-					return al.channelManager.SendMessage(ctx, outboundMessage)
+				if channelManager != nil && channel != "" {
+					return channelManager.SendMessage(ctx, outboundMessage)
 				}
 				pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer pubCancel()
@@ -224,10 +229,11 @@ func registerSharedTools(
 		if cfg.Tools.IsToolEnabled("reaction") {
 			reactionTool := tools.NewReactionTool()
 			reactionTool.SetReactionCallback(func(ctx context.Context, channel, chatID, messageID string) error {
-				if al.channelManager == nil {
+				channelManager := al.runtimeSnapshot().channelManager
+				if channelManager == nil {
 					return fmt.Errorf("channel manager not configured")
 				}
-				ch, ok := al.channelManager.GetChannel(channel)
+				ch, ok := channelManager.GetChannel(channel)
 				if !ok {
 					return fmt.Errorf("channel %s not found", channel)
 				}
@@ -301,7 +307,7 @@ func registerSharedTools(
 			// This keeps subagent vision support working even when the optimized
 			// sub-turn spawner path is unavailable.
 			subagentManager.SetMediaResolver(func(msgs []providers.Message) []providers.Message {
-				return resolveMediaRefs(msgs, al.mediaStore, cfg.Agents.Defaults.GetMaxMediaSize(), 0)
+				return resolveMediaRefs(msgs, al.runtimeSnapshot().mediaStore, cfg.Agents.Defaults.GetMaxMediaSize(), 0)
 			})
 
 			// Set the spawner that links into AgentLoop's turnState

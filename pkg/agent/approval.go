@@ -419,33 +419,38 @@ func (al *AgentLoop) respondPersistedApproval(ctx context.Context, response appr
 			if response.ChatID != "" && checkpoint.Approval.ChatID != response.ChatID {
 				continue
 			}
-			if checkpoint.Approval.Status != approval.StatusPending {
-				return errApprovalAlreadyClosed
-			}
-			if !checkpoint.Approval.ExpiresAt.IsZero() && time.Now().After(checkpoint.Approval.ExpiresAt) {
-				return fmt.Errorf("approval request %s has expired", response.ID)
-			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
 			default:
 			}
-			now := time.Now().UTC()
-			status := approval.StatusDenied
-			checkpoint.Status = "denied"
-			if response.Approve {
-				status = approval.StatusApproved
-				checkpoint.Status = "ready_to_resume"
-			}
-			checkpoint.Approval.Status = status
-			checkpoint.Approval.Scope = response.Scope
-			if checkpoint.Approval.Scope != approval.ScopeSession {
-				checkpoint.Approval.Scope = approval.ScopeOnce
-			}
-			checkpoint.Approval.Reason = strings.TrimSpace(response.Reason)
-			checkpoint.Approval.ResolvedAt = &now
-			checkpoint.UpdatedAt = now
-			return store.SetTurnCheckpoint(sessionKey, checkpoint)
+			return al.updateTurnCheckpoint(store, sessionKey, func(checkpoint *session.TurnCheckpoint) error {
+				if checkpoint.Approval == nil || checkpoint.Approval.ID != response.ID {
+					return errApprovalNotFound
+				}
+				if checkpoint.Approval.Status != approval.StatusPending {
+					return errApprovalAlreadyClosed
+				}
+				if !checkpoint.Approval.ExpiresAt.IsZero() && time.Now().After(checkpoint.Approval.ExpiresAt) {
+					return fmt.Errorf("approval request %s has expired", response.ID)
+				}
+				now := time.Now().UTC()
+				status := approval.StatusDenied
+				checkpoint.Status = "denied"
+				if response.Approve {
+					status = approval.StatusApproved
+					checkpoint.Status = "ready_to_resume"
+				}
+				checkpoint.Approval.Status = status
+				checkpoint.Approval.Scope = response.Scope
+				if checkpoint.Approval.Scope != approval.ScopeSession {
+					checkpoint.Approval.Scope = approval.ScopeOnce
+				}
+				checkpoint.Approval.Reason = strings.TrimSpace(response.Reason)
+				checkpoint.Approval.ResolvedAt = &now
+				checkpoint.UpdatedAt = now
+				return nil
+			})
 		}
 	}
 	return errApprovalNotFound
@@ -481,9 +486,17 @@ func (al *AgentLoop) ResumeSession(ctx context.Context, sessionKey string) (stri
 		return "", err
 	}
 	defer al.releaseSessionTurnState(sessionKey, placeholder)
-	checkpoint.Status = "resuming"
-	checkpoint.UpdatedAt = time.Now().UTC()
-	if err := store.SetTurnCheckpoint(sessionKey, checkpoint); err != nil {
+	if err := al.updateTurnCheckpoint(store, sessionKey, func(checkpoint *session.TurnCheckpoint) error {
+		if checkpoint.Status == "" || checkpoint.Status == "completed" {
+			return fmt.Errorf("session %q no longer has an interrupted task", sessionKey)
+		}
+		if checkpoint.Approval != nil && checkpoint.Approval.Status == approval.StatusPending {
+			return fmt.Errorf("task is still waiting for approval %s", checkpoint.Approval.ID)
+		}
+		checkpoint.Status = "resuming"
+		checkpoint.UpdatedAt = time.Now().UTC()
+		return nil
+	}); err != nil {
 		return "", err
 	}
 	return al.processDirectWithChannel(ctx,
@@ -502,7 +515,7 @@ func (al *AgentLoop) requestHumanApproval(
 	if al == nil || ts == nil || al.humanApprovals == nil {
 		return approval.Decision{}, fmt.Errorf("human approval is not configured")
 	}
-	safeArguments, _ := filterApprovalValue(al.cfg, cloneStringAnyMap(arguments)).(map[string]any)
+	safeArguments, _ := filterApprovalValue(al.runtimeSnapshot().cfg, cloneStringAnyMap(arguments)).(map[string]any)
 	req := approval.Request{
 		ID:          "approval-" + uuid.NewString(),
 		TurnID:      ts.turnID,
@@ -550,18 +563,20 @@ func (ts *turnState) saveApprovalCheckpoint(req approval.Request) error {
 	if !ok {
 		return nil
 	}
-	checkpoint, err := store.GetTurnCheckpoint(ts.sessionKey)
-	if err != nil {
-		return err
+	al := ts.al
+	if al == nil {
+		return fmt.Errorf("agent loop is unavailable")
 	}
-	checkpoint.TurnID = ts.turnID
-	checkpoint.UpdatedAt = time.Now().UTC()
-	checkpoint.Activities = ts.activitiesSnapshot()
-	checkpoint.Approval = &req
-	if req.Status == approval.StatusPending {
-		checkpoint.Status = "awaiting_approval"
-	} else if checkpoint.Status == "awaiting_approval" {
-		checkpoint.Status = "running"
-	}
-	return store.SetTurnCheckpoint(ts.sessionKey, checkpoint)
+	return al.updateTurnCheckpoint(store, ts.sessionKey, func(checkpoint *session.TurnCheckpoint) error {
+		checkpoint.TurnID = ts.turnID
+		checkpoint.UpdatedAt = time.Now().UTC()
+		checkpoint.Activities = ts.activitiesSnapshot()
+		checkpoint.Approval = &req
+		if req.Status == approval.StatusPending {
+			checkpoint.Status = "awaiting_approval"
+		} else if checkpoint.Status == "awaiting_approval" {
+			checkpoint.Status = "running"
+		}
+		return nil
+	})
 }

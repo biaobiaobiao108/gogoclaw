@@ -68,7 +68,21 @@ type AgentLoop struct {
 	workerSem chan struct{}
 	// backgroundWG tracks workers and the delivery outbox so shutdown does not
 	// return while sessions or delivery checkpoints are still being written.
-	backgroundWG sync.WaitGroup
+	backgroundMu       sync.Mutex
+	backgroundWG       sync.WaitGroup
+	backgroundStopping bool
+	backgroundTimedOut bool
+
+	lifecycleCtx    context.Context
+	lifecycleCancel context.CancelFunc
+	runMu           sync.Mutex
+	runCtx          context.Context
+	runCancel       context.CancelFunc
+
+	systemMu           sync.Mutex
+	systemQueue        []bus.InboundMessage
+	systemNotify       chan struct{}
+	systemWorkerActive atomic.Bool
 
 	// activeTurnStates tracks active turns per session to prevent duplicates.
 	activeTurnStates  sync.Map
@@ -122,6 +136,7 @@ type processOptions struct {
 	InboundContext          *bus.InboundContext     // Normalized inbound facts for events/hooks
 	RouteResult             *routing.ResolvedRoute  // Route decision snapshot for events/hooks
 	SessionScope            *session.SessionScope   // Session scope snapshot for events/hooks
+	runtime                 *runtimeSnapshot        // Dependency version captured at message intake
 }
 
 type continuationTarget struct {
@@ -161,9 +176,15 @@ const (
 
 func (al *AgentLoop) Run(ctx context.Context) error {
 	al.running.Store(true)
-	defer al.waitForBackgroundWorkers(10 * time.Second)
 	runCtx, cancelRun := context.WithCancel(ctx)
-	defer cancelRun()
+	al.setRunContext(runCtx, cancelRun)
+	stopLifecycle := context.AfterFunc(al.lifecycleCtx, cancelRun)
+	defer func() {
+		stopLifecycle()
+		cancelRun()
+		al.waitForBackgroundWorkers(backgroundDrainTimeout)
+		al.clearRunContext()
+	}()
 
 	if err := al.ensureHooksInitialized(ctx); err != nil {
 		return err
@@ -171,11 +192,8 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 	if err := al.ensureMCPInitialized(ctx); err != nil {
 		return err
 	}
-	al.backgroundWG.Add(1)
-	go func() {
-		defer al.backgroundWG.Done()
-		al.runDeliveryOutbox(runCtx)
-	}()
+	al.startBackground(func() { al.runDeliveryOutbox(runCtx) })
+	al.startSystemMessageWorker(runCtx)
 
 	idleTicker := time.NewTicker(100 * time.Millisecond)
 	defer idleTicker.Stop()
@@ -193,13 +211,16 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				return nil
 			}
 
+			runtime := al.runtimeSnapshot()
+			mediaStore := runtime.mediaStore
+			channelManager := runtime.channelManager
+
 			// Resolve the session key for this message
 			sessionKey, agentID, ok := al.resolveSteeringTarget(msg)
 			if !ok {
-				// Non-routable message (e.g., system) — process immediately.
-				// Note: system messages are processed in the main goroutine,
-				// so they block the receive loop but guarantee session serialization.
-				al.processMessageSync(ctx, msg)
+				// A single ordered worker keeps the receive loop responsive while
+				// preserving non-routable message ordering.
+				al.enqueueSystemMessage(msg)
 				continue
 			}
 
@@ -219,7 +240,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 			}
 			if _, loaded := al.activeTurnStates.LoadOrStore(sessionKey, placeholder); loaded {
 				if al.tryHandleStopCommand(ctx, msg, sessionKey) {
-					media.Unpin(al.mediaStore, msg.Media)
+					media.Unpin(mediaStore, msg.Media)
 					continue
 				}
 
@@ -233,11 +254,11 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 					if remainingMedia[ref] > 0 {
 						remainingMedia[ref]--
 					} else {
-						media.Unpin(al.mediaStore, []string{ref})
+						media.Unpin(mediaStore, []string{ref})
 					}
 				}
 				if isChatBranchMutation(msg) {
-					media.Unpin(al.mediaStore, msg.Media)
+					media.Unpin(mediaStore, msg.Media)
 					al.maybePublishError(
 						ctx,
 						msg.Channel,
@@ -255,7 +276,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 					Content: msg.Content,
 					Media:   append([]string(nil), msg.Media...),
 				}); err != nil {
-					media.Unpin(al.mediaStore, msg.Media)
+					media.Unpin(mediaStore, msg.Media)
 					logger.WarnCF("agent", "Failed to enqueue steering message",
 						map[string]any{
 							"error":       err.Error(),
@@ -271,7 +292,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 						"消息未加入队列：当前会话待处理消息已满。请等待当前任务结束后重试。",
 					)
 				} else {
-					media.Unpin(al.mediaStore, msg.Media)
+					media.Unpin(mediaStore, msg.Media)
 				}
 				continue
 			}
@@ -279,10 +300,14 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 			// Session claimed — spawn a worker goroutine that acquires a semaphore
 			// slot. The goroutine is spawned immediately so the main loop keeps
 			// draining the inbound channel. The goroutine blocks on the semaphore.
-			al.backgroundWG.Add(1)
-			go func(m bus.InboundMessage, ph *turnState) {
-				defer al.backgroundWG.Done()
-				defer media.Unpin(al.mediaStore, m.Media)
+			if !al.beginBackground() {
+				al.releaseSessionTurnState(sessionKey, nil)
+				media.Unpin(mediaStore, msg.Media)
+				continue
+			}
+			go func(m bus.InboundMessage, ph *turnState, mediaStore media.MediaStore, channelManager interfaces.ChannelManager) {
+				defer al.endBackground()
+				defer media.Unpin(mediaStore, m.Media)
 				var releaseSession bool
 				// Acquire semaphore slot (blocks if at capacity)
 				select {
@@ -330,12 +355,14 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 								"chat_id":     m.ChatID,
 								"panic":       fmt.Sprintf("%v", r),
 							})
+						al.maybePublishError(runCtx, m.Channel, m.ChatID, sessionKey,
+							fmt.Errorf("turn panicked: %v", r))
 					}
 				}()
 				defer func() { <-al.workerSem }() // Release slot
 
-				if al.channelManager != nil {
-					defer al.channelManager.InvokeTypingStop(m.Channel, m.ChatID)
+				if channelManager != nil {
+					defer channelManager.InvokeTypingStop(m.Channel, m.ChatID)
 				}
 
 				if al.takePendingStop(sessionKey) {
@@ -357,24 +384,9 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				}
 
 				al.runTurnWithSteering(runCtx, m)
-			}(msg, placeholder)
+			}(msg, placeholder, mediaStore, channelManager)
 
 		}
-	}
-}
-
-func (al *AgentLoop) waitForBackgroundWorkers(timeout time.Duration) {
-	done := make(chan struct{})
-	go func() {
-		al.backgroundWG.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(timeout):
-		logger.WarnCF("agent", "Background worker shutdown timed out", map[string]any{
-			"timeout": timeout.String(),
-		})
 	}
 }
 
@@ -390,10 +402,13 @@ func (al *AgentLoop) waitForBackgroundWorkers(timeout time.Duration) {
 
 func (al *AgentLoop) Stop() {
 	al.running.Store(false)
+	al.cancelBackground()
+	al.waitForBackgroundWorkers(backgroundDrainTimeout)
 }
 
 // Close releases resources held by agent session stores. Call after Stop.
 func (al *AgentLoop) Close() {
+	al.Stop()
 	mcpManager := al.mcp.takeManager()
 
 	if mcpManager != nil {
@@ -414,13 +429,16 @@ func (al *AgentLoop) Close() {
 		}
 	}
 
-	if closer, ok := al.contextManager.(interface{ Close() error }); ok {
+	contextManager := al.runtimeSnapshot().contextManager
+	if closer, ok := contextManager.(interface{ Close() error }); ok {
 		if err := closer.Close(); err != nil {
 			logger.ErrorCF("agent", "Failed to close context manager",
 				map[string]any{"error": err.Error()})
 		}
-		al.contextManager = nil
 	}
+	al.mu.Lock()
+	al.contextManager = nil
+	al.mu.Unlock()
 
 	al.GetRegistry().Close()
 	if al.hooks != nil {
@@ -488,8 +506,9 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 		return fmt.Errorf("context canceled after registry creation: %w", err)
 	}
 
-	// Ensure shared tools are re-registered on the new registry
-	registerSharedTools(al, cfg, al.bus, registry, provider)
+	// Ensure shared tools are re-registered on the new registry.
+	current := al.runtimeSnapshot()
+	registerSharedTools(al, cfg, current.bus, registry, provider)
 
 	newEvolution, evolutionErr := newEvolutionBridge(registry, cfg, provider)
 	if evolutionErr != nil {
@@ -504,18 +523,6 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 		}
 	}
 
-	// Atomically swap the config and registry under write lock
-	// This ensures readers see a consistent pair
-	al.mu.Lock()
-	oldRegistry := al.registry
-	oldEvolution := al.evolution
-
-	// Store new values
-	al.cfg = cfg
-	al.registry = registry
-	al.evolution = newEvolution
-
-	// Also update fallback chain with new config; rebuild rate limiter registry.
 	newRL := providers.NewRateLimiterRegistry()
 	for _, agentID := range registry.ListAgentIDs() {
 		if agent, ok := registry.GetAgent(agentID); ok {
@@ -523,9 +530,19 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 			newRL.RegisterCandidates(agent.LightCandidates)
 		}
 	}
-	al.fallback = providers.NewFallbackChain(providers.NewCooldownTracker(), newRL)
+	newFallback := providers.NewFallbackChain(providers.NewCooldownTracker(), newRL)
 
+	// Swap every reload-owned dependency under one lock so a Pipeline captures
+	// either the complete old version or the complete new version.
+	al.mu.Lock()
+	oldRegistry := al.registry
+	oldEvolution := al.evolution
+	al.cfg = cfg
+	al.registry = registry
+	al.evolution = newEvolution
+	al.fallback = newFallback
 	al.mu.Unlock()
+	al.propagateMediaStore(registry, current.mediaStore)
 	al.refreshRuntimeEventLogger(cfg)
 
 	oldMCPManager := al.mcp.reset()
@@ -621,8 +638,12 @@ func (al *AgentLoop) runAgentLoopResult(
 	opts processOptions,
 ) (agentLoopResult, error) {
 	opts = normalizeProcessOptions(opts)
+	runtime := al.runtimeSnapshot()
+	if opts.runtime != nil {
+		runtime = *opts.runtime
+	}
 	var err error
-	opts, err = resolveTurnProfileOptions(al.GetConfig(), opts)
+	opts, err = resolveTurnProfileOptions(runtime.cfg, opts)
 	if err != nil {
 		return agentLoopResult{}, err
 	}
@@ -654,7 +675,7 @@ func (al *AgentLoop) runAgentLoopResult(
 		newTurnContext(opts.Dispatch.InboundContext, opts.Dispatch.RouteResult, opts.Dispatch.SessionScope),
 	)
 	ts := newTurnState(agent, opts, turnScope)
-	pipeline := NewPipeline(al)
+	pipeline := newPipelineWithRuntime(al, runtime)
 	result, err := al.runTurn(ctx, ts, pipeline)
 	if err != nil {
 		return agentLoopResult{}, err

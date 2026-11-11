@@ -61,8 +61,8 @@ func (p *Pipeline) CallLLM(
 	}
 
 	// Native web search support
-	webSearchEnabled := al.cfg.Tools.IsToolEnabled("web") && turnProfileToolAllowed(ts.profile, "web_search")
-	exec.useNativeSearch = webSearchEnabled && al.cfg.Tools.Web.PreferNative &&
+	webSearchEnabled := p.Cfg.Tools.IsToolEnabled("web") && turnProfileToolAllowed(ts.profile, "web_search")
+	exec.useNativeSearch = webSearchEnabled && p.Cfg.Tools.Web.PreferNative &&
 		func() bool {
 			if ns, ok := exec.activeProvider.(providers.NativeSearchCapable); ok {
 				return ns.SupportsNativeSearch()
@@ -157,7 +157,7 @@ func (p *Pipeline) CallLLM(
 		}
 		return ControlBreak, contextErr
 	}
-	exec.useNativeSearch = webSearchEnabled && al.cfg.Tools.Web.PreferNative &&
+	exec.useNativeSearch = webSearchEnabled && p.Cfg.Tools.Web.PreferNative &&
 		func() bool {
 			if ns, ok := exec.activeProvider.(providers.NativeSearchCapable); ok {
 				return ns.SupportsNativeSearch()
@@ -252,7 +252,7 @@ func (p *Pipeline) CallLLM(
 			callOpts := shallowCloneLLMOptions(exec.llmOpts)
 			delete(callOpts, "thinking_level")
 			candidateTools := toolDefsForCall
-			candidateNativeSearch := webSearchEnabled && al.cfg.Tools.Web.PreferNative &&
+			candidateNativeSearch := webSearchEnabled && p.Cfg.Tools.Web.PreferNative &&
 				func() bool {
 					if ns, ok := candidateProvider.(providers.NativeSearchCapable); ok {
 						return ns.SupportsNativeSearch()
@@ -650,12 +650,14 @@ func (p *Pipeline) CallLLM(
 			al.publishPicoReasoning(turnCtx, reasoningContent, ts.chatID, ts.sessionKey, exec.llmModelName, assistantResponseID(ts, exec)+"-thought")
 		}
 	} else {
-		go al.handleReasoning(
-			turnCtx,
-			reasoningContent,
-			ts.channel,
-			al.targetReasoningChannelID(ts.channel),
-		)
+		al.startBackground(func() {
+			al.handleReasoning(
+				turnCtx,
+				reasoningContent,
+				ts.channel,
+				al.targetReasoningChannelID(ts.channel),
+			)
+		})
 	}
 	al.emitEvent(
 		runtimeevents.KindAgentLLMResponse,

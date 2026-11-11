@@ -409,7 +409,7 @@ func (al *AgentLoop) ConversationInterrupted(channel, chatID, senderID string) (
 	if !ok {
 		return false, nil
 	}
-	agent, ok := al.registry.GetAgent(agentID)
+	agent, ok := al.runtimeSnapshot().registry.GetAgent(agentID)
 	if !ok || agent.Sessions == nil {
 		return false, nil
 	}
@@ -445,7 +445,7 @@ func (al *AgentLoop) ConversationTurnCompletion(channel, chatID, senderID string
 	if !ok {
 		return TurnCompletionInfo{}, false, nil
 	}
-	agent, ok := al.registry.GetAgent(agentID)
+	agent, ok := al.runtimeSnapshot().registry.GetAgent(agentID)
 	if !ok || agent.Sessions == nil {
 		return TurnCompletionInfo{}, false, nil
 	}
@@ -677,10 +677,11 @@ func (ts *turnState) persistedMessagesSnapshot() []providers.Message {
 
 // ingestMessage records a persisted message in the configured context manager.
 func (ts *turnState) ingestMessage(ctx context.Context, al *AgentLoop, msg providers.Message) error {
-	if al.contextManager == nil {
+	contextManager := al.runtimeSnapshot().contextManager
+	if contextManager == nil {
 		return nil
 	}
-	if err := al.contextManager.Ingest(ctx, &IngestRequest{
+	if err := contextManager.Ingest(ctx, &IngestRequest{
 		SessionKey: ts.sessionKey,
 		Message:    msg,
 	}); err != nil {

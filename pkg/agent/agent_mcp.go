@@ -116,16 +116,18 @@ func (r *mcpRuntime) getManager() *mcp.Manager {
 func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 	al.mcp.initMu.Lock()
 	defer al.mcp.initMu.Unlock()
-	if !al.cfg.Tools.IsToolEnabled("mcp") {
+	runtime := al.runtimeSnapshot()
+	cfg := runtime.cfg
+	if cfg == nil || !cfg.Tools.IsToolEnabled("mcp") {
 		return nil
 	}
 
-	if al.cfg.Tools.MCP.Servers == nil || len(al.cfg.Tools.MCP.Servers) == 0 {
+	if cfg.Tools.MCP.Servers == nil || len(cfg.Tools.MCP.Servers) == 0 {
 		logger.WarnCF("agent", "MCP is enabled but no servers are configured, skipping MCP initialization", nil)
 		return nil
 	}
 
-	mcpCfg := filterMCPConfigServers(al.cfg.Tools.MCP, al.registry.allowedMCPServers())
+	mcpCfg := filterMCPConfigServers(cfg.Tools.MCP, runtime.registry.allowedMCPServers())
 	if mcpCfg.Servers == nil || len(mcpCfg.Servers) == 0 {
 		logger.InfoCF(
 			"agent",
@@ -159,8 +161,8 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 			mcp.WithToolListChanged(al.handleMCPToolListChanged),
 		)
 
-		defaultAgent := al.registry.GetDefaultAgent()
-		workspacePath := al.cfg.WorkspacePath()
+		defaultAgent := runtime.registry.GetDefaultAgent()
+		workspacePath := cfg.WorkspacePath()
 		if defaultAgent != nil && defaultAgent.Workspace != "" {
 			workspacePath = defaultAgent.Workspace
 		}
@@ -184,7 +186,7 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 		servers := mcpManager.GetServers()
 		uniqueTools := 0
 		totalRegistrations := 0
-		agentIDs := al.registry.ListAgentIDs()
+		agentIDs := runtime.registry.ListAgentIDs()
 		agentCount := len(agentIDs)
 
 		for serverName, conn := range servers {
@@ -200,8 +202,8 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 			})
 
 		for _, agentID := range agentIDs {
-			agent, ok := al.registry.GetAgent(agentID)
-			if ok && agentHasDiscoverableMCPServers(al.cfg, agent.MCPServerAllowlist) {
+			agent, ok := runtime.registry.GetAgent(agentID)
+			if ok && agentHasDiscoverableMCPServers(cfg, agent.MCPServerAllowlist) {
 				agent.Tools.Register(tools.NewToolSearchTool(agent.Tools))
 			}
 		}
@@ -228,7 +230,11 @@ func (al *AgentLoop) syncMCPToolsForServer(
 	serverName string,
 	serverTools []*sdkmcp.Tool,
 ) int {
-	if al == nil || al.registry == nil || strings.TrimSpace(serverName) == "" {
+	if al == nil {
+		return 0
+	}
+	runtime := al.runtimeSnapshot()
+	if runtime.registry == nil || runtime.cfg == nil || strings.TrimSpace(serverName) == "" {
 		return 0
 	}
 	if mcpManager == nil {
@@ -249,8 +255,8 @@ func (al *AgentLoop) syncMCPToolsForServer(
 	}
 
 	totalRegistrations := 0
-	for _, agentID := range al.registry.ListAgentIDs() {
-		agent, ok := al.registry.GetAgent(agentID)
+	for _, agentID := range runtime.registry.ListAgentIDs() {
+		agent, ok := runtime.registry.GetAgent(agentID)
 		if !ok {
 			continue
 		}
@@ -274,7 +280,7 @@ func (al *AgentLoop) syncMCPToolsForServer(
 		for toolName, tool := range toolsByName {
 			mcpTool := tools.NewMCPTool(mcpManager, serverName, tool)
 			mcpTool.SetWorkspace(agent.Workspace)
-			mcpTool.SetMaxInlineTextRunes(al.cfg.Tools.MCP.GetMaxInlineTextChars())
+			mcpTool.SetMaxInlineTextRunes(runtime.cfg.Tools.MCP.GetMaxInlineTextChars())
 			mcpTool.SetEventPublisher(al.runtimeEvents)
 			if registerAsHidden {
 				agent.Tools.RegisterHidden(mcpTool)

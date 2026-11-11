@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
@@ -11,10 +12,22 @@ import (
 )
 
 func (al *AgentLoop) processMessageSync(ctx context.Context, msg bus.InboundMessage) {
-	defer media.Unpin(al.mediaStore, msg.Media)
-	if al.channelManager != nil {
-		defer al.channelManager.InvokeTypingStop(msg.Channel, msg.ChatID)
+	runtime := al.runtimeSnapshot()
+	defer media.Unpin(runtime.mediaStore, msg.Media)
+	if runtime.channelManager != nil {
+		defer runtime.channelManager.InvokeTypingStop(msg.Channel, msg.ChatID)
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			logger.ErrorCF("agent", "System message processing panicked", map[string]any{
+				"channel": msg.Channel,
+				"chat_id": msg.ChatID,
+				"panic":   fmt.Sprintf("%v", r),
+			})
+			al.maybePublishError(ctx, msg.Channel, msg.ChatID, msg.SessionKey,
+				fmt.Errorf("system message processing failed: %v", r))
+		}
+	}()
 
 	response, err := al.processMessage(ctx, msg)
 	al.publishResponseOrError(ctx, msg.Channel, msg.ChatID, msg.SessionKey, response, err)

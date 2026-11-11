@@ -691,16 +691,13 @@ func (al *AgentLoop) waitForProviderIdle(
 		defer timer.Stop()
 	}
 	waitCtx := ctx
-	var stopWatch context.CancelFunc
 	if ctx != nil && ctx.Done() != nil {
-		waitCtx, stopWatch = context.WithCancel(ctx)
-		defer stopWatch()
-		go func() {
-			<-waitCtx.Done()
+		stopWatch := context.AfterFunc(ctx, func() {
 			al.activeReqMu.Lock()
 			al.activeReqCond.Broadcast()
 			al.activeReqMu.Unlock()
-		}()
+		})
+		defer stopWatch()
 	}
 	for al.activeReqCount > 0 || al.providerRefs[provider] > 0 {
 		if timedOut || (waitCtx != nil && waitCtx.Err() != nil) {
@@ -730,12 +727,12 @@ func (al *AgentLoop) waitForActiveRequests(ctx context.Context, timeout time.Dur
 			al.activeReqMu.Unlock()
 		})
 	}
-	go func() {
-		<-ctx.Done()
+	stopWake := context.AfterFunc(ctx, func() {
 		al.activeReqMu.Lock()
 		al.activeReqCond.Broadcast()
 		al.activeReqMu.Unlock()
-	}()
+	})
+	defer stopWake()
 
 	for al.activeReqCount > 0 && !timedOut && ctx.Err() == nil {
 		al.activeReqCond.Wait()
@@ -760,12 +757,14 @@ func (al *AgentLoop) closeReloadedProvider(ctx context.Context, provider provide
 		} else {
 			logger.WarnCF("agent", "Provider reload grace period expired with in-flight requests still running", fields)
 		}
-		go func() {
-			if !al.waitForProviderIdle(context.Background(), provider, 10*time.Minute) {
+		if !al.startBackground(func() {
+			if !al.waitForProviderIdle(al.backgroundContext(), provider, 10*time.Minute) {
 				logger.WarnCF("agent", "Closing reloaded provider after maximum idle wait", nil)
 			}
 			provider.Close()
-		}()
+		}) {
+			provider.Close()
+		}
 		return
 	}
 

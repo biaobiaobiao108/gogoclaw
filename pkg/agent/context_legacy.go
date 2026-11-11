@@ -104,7 +104,7 @@ func (m *legacyContextManager) maybeSummarize(sessionKey string) {
 		summarizeKey := agent.ID + ":" + sessionKey
 		if _, loading := m.summarizing.LoadOrStore(summarizeKey, true); !loading {
 			turn := m.al.getActiveTurnState(sessionKey)
-			go func() {
+			started := m.al.startBackground(func() {
 				defer m.summarizing.Delete(summarizeKey)
 				defer func() {
 					if r := recover(); r != nil {
@@ -116,7 +116,10 @@ func (m *legacyContextManager) maybeSummarize(sessionKey string) {
 				}()
 				logger.Debug("Memory threshold reached. Optimizing conversation history...")
 				m.summarizeSession(agent, sessionKey, turn)
-			}()
+			})
+			if !started {
+				m.summarizing.Delete(summarizeKey)
+			}
 		}
 	}
 }
@@ -206,7 +209,7 @@ func (m *legacyContextManager) forceCompression(sessionKey string) (compressionR
 }
 
 func (m *legacyContextManager) summarizeSession(agent *AgentInstance, sessionKey string, turns ...*turnState) {
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(m.al.backgroundContext(), 120*time.Second)
 	defer cancel()
 	fail := func(err error) {
 		logger.WarnCF("agent", "Session summarization failed", map[string]any{"session_key": sessionKey, "error": err.Error()})

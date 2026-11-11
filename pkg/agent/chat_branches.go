@@ -85,7 +85,7 @@ func branchSessionDir(al *AgentLoop, agent *AgentInstance) string {
 		return filepath.Join(strings.TrimSpace(agent.Workspace), "sessions")
 	}
 	if al != nil {
-		if defaultAgent := al.registry.GetDefaultAgent(); defaultAgent != nil && strings.TrimSpace(defaultAgent.Workspace) != "" {
+		if defaultAgent := al.runtimeSnapshot().registry.GetDefaultAgent(); defaultAgent != nil && strings.TrimSpace(defaultAgent.Workspace) != "" {
 			return filepath.Join(strings.TrimSpace(defaultAgent.Workspace), "sessions")
 		}
 	}
@@ -102,11 +102,15 @@ func (al *AgentLoop) branchStorePath(sessionID string) string {
 func (al *AgentLoop) legacyBranchStorePaths() []string {
 	paths := []string{chatmeta.LegacyBranchStorePath(branchSessionDir(al, nil))}
 	seen := map[string]struct{}{filepath.Clean(paths[0]): {}}
-	if al == nil || al.registry == nil {
+	if al == nil {
 		return paths
 	}
-	for _, agentID := range al.registry.ListAgentIDs() {
-		agent, ok := al.registry.GetAgent(agentID)
+	registry := al.runtimeSnapshot().registry
+	if registry == nil {
+		return paths
+	}
+	for _, agentID := range registry.ListAgentIDs() {
+		agent, ok := registry.GetAgent(agentID)
 		if !ok || agent == nil || strings.TrimSpace(agent.Workspace) == "" {
 			continue
 		}
@@ -304,14 +308,15 @@ func (al *AgentLoop) replaceContextHistory(
 	sessionKey string,
 	history []providers.Message,
 ) error {
-	if al.contextManager == nil {
+	contextManager := al.runtimeSnapshot().contextManager
+	if contextManager == nil {
 		return nil
 	}
-	if err := al.contextManager.Clear(ctx, sessionKey); err != nil {
+	if err := contextManager.Clear(ctx, sessionKey); err != nil {
 		return fmt.Errorf("clear context manager: %w", err)
 	}
 	for _, message := range history {
-		if err := al.contextManager.Ingest(ctx, &IngestRequest{SessionKey: sessionKey, Message: message}); err != nil {
+		if err := contextManager.Ingest(ctx, &IngestRequest{SessionKey: sessionKey, Message: message}); err != nil {
 			return fmt.Errorf("restore branch context: %w", err)
 		}
 	}
@@ -354,7 +359,10 @@ func (al *AgentLoop) restoreStoredSessionHistory(
 		restoreErrs = append(restoreErrs, fmt.Errorf("restore session summary: %w", err))
 	}
 	if store, ok := agent.Sessions.(session.TurnCheckpointStore); ok {
-		if err := store.SetTurnCheckpoint(sessionKey, backup.checkpoint); err != nil {
+		if err := al.updateTurnCheckpoint(store, sessionKey, func(checkpoint *session.TurnCheckpoint) error {
+			*checkpoint = backup.checkpoint
+			return nil
+		}); err != nil {
 			restoreErrs = append(restoreErrs, fmt.Errorf("restore turn checkpoint: %w", err))
 		}
 	}
@@ -399,7 +407,10 @@ func (al *AgentLoop) resetSessionHistory(
 		return rollback(fmt.Errorf("clear session summary: %w", err))
 	}
 	if store, ok := agent.Sessions.(session.TurnCheckpointStore); ok {
-		if err := store.SetTurnCheckpoint(sessionKey, session.TurnCheckpoint{}); err != nil {
+		if err := al.updateTurnCheckpoint(store, sessionKey, func(checkpoint *session.TurnCheckpoint) error {
+			*checkpoint = session.TurnCheckpoint{}
+			return nil
+		}); err != nil {
 			return rollback(fmt.Errorf("clear active turn checkpoint: %w", err))
 		}
 	}

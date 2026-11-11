@@ -12,7 +12,15 @@ import (
 )
 
 func (al *AgentLoop) transcribeAudioInMessage(ctx context.Context, msg bus.InboundMessage) (bus.InboundMessage, bool) {
-	if al.transcriber == nil || al.mediaStore == nil || len(msg.Media) == 0 {
+	return al.transcribeAudioInMessageWithRuntime(ctx, msg, al.runtimeSnapshot())
+}
+
+func (al *AgentLoop) transcribeAudioInMessageWithRuntime(
+	ctx context.Context,
+	msg bus.InboundMessage,
+	runtime runtimeSnapshot,
+) (bus.InboundMessage, bool) {
+	if runtime.transcriber == nil || runtime.mediaStore == nil || len(msg.Media) == 0 {
 		return msg, false
 	}
 
@@ -20,7 +28,7 @@ func (al *AgentLoop) transcribeAudioInMessage(ctx context.Context, msg bus.Inbou
 	var transcriptions []string
 	var keptMedia []string
 	for _, ref := range msg.Media {
-		path, meta, err := al.mediaStore.ResolveWithMeta(ref)
+		path, meta, err := runtime.mediaStore.ResolveWithMeta(ref)
 		if err != nil {
 			logger.WarnCF("voice", "Failed to resolve media ref", map[string]any{"ref": ref, "error": err})
 			keptMedia = append(keptMedia, ref)
@@ -30,7 +38,7 @@ func (al *AgentLoop) transcribeAudioInMessage(ctx context.Context, msg bus.Inbou
 			keptMedia = append(keptMedia, ref)
 			continue
 		}
-		result, err := al.transcriber.Transcribe(ctx, path)
+		result, err := runtime.transcriber.Transcribe(ctx, path)
 		if err != nil {
 			logger.WarnCF("voice", "Transcription failed", map[string]any{"ref": ref, "error": err})
 			transcriptions = append(transcriptions, "")
@@ -44,7 +52,7 @@ func (al *AgentLoop) transcribeAudioInMessage(ctx context.Context, msg bus.Inbou
 		return msg, false
 	}
 
-	al.sendTranscriptionFeedback(ctx, msg.Channel, msg.ChatID, msg.MessageID, transcriptions)
+	al.sendTranscriptionFeedbackWithRuntime(ctx, msg.Channel, msg.ChatID, msg.MessageID, transcriptions, runtime)
 
 	// Replace audio annotations sequentially with transcriptions.
 	idx := 0
@@ -77,10 +85,19 @@ func (al *AgentLoop) sendTranscriptionFeedback(
 	channel, chatID, messageID string,
 	validTexts []string,
 ) {
-	if !al.cfg.Voice.EchoTranscription {
+	al.sendTranscriptionFeedbackWithRuntime(ctx, channel, chatID, messageID, validTexts, al.runtimeSnapshot())
+}
+
+func (al *AgentLoop) sendTranscriptionFeedbackWithRuntime(
+	ctx context.Context,
+	channel, chatID, messageID string,
+	validTexts []string,
+	runtime runtimeSnapshot,
+) {
+	if !runtime.cfg.Voice.EchoTranscription {
 		return
 	}
-	if al.channelManager == nil {
+	if runtime.channelManager == nil {
 		return
 	}
 
@@ -98,7 +115,7 @@ func (al *AgentLoop) sendTranscriptionFeedback(
 		feedbackMsg = "No voice detected in the audio"
 	}
 
-	err := al.channelManager.SendMessage(ctx, bus.OutboundMessage{
+	err := runtime.channelManager.SendMessage(ctx, bus.OutboundMessage{
 		Context:          bus.NewOutboundContext(channel, chatID, messageID),
 		Content:          feedbackMsg,
 		ReplyToMessageID: messageID,

@@ -50,7 +50,11 @@ func (al *AgentLoop) publishResponseOrError(
 }
 
 func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatID, sessionKey, response string) {
-	_ = al.PublishResponseIfNeededChecked(ctx, channel, chatID, sessionKey, response)
+	if err := al.PublishResponseIfNeededChecked(ctx, channel, chatID, sessionKey, response); err != nil {
+		logger.WarnCF("agent", "Failed to publish final response", map[string]any{
+			"channel": channel, "chat_id": chatID, "session_key": sessionKey, "error": err.Error(),
+		})
+	}
 }
 
 func (al *AgentLoop) PublishResponseIfNeededChecked(ctx context.Context, channel, chatID, sessionKey, response string) error {
@@ -59,7 +63,8 @@ func (al *AgentLoop) PublishResponseIfNeededChecked(ctx context.Context, channel
 	}
 
 	alreadySentToSameChat := false
-	defaultAgent := al.GetRegistry().GetDefaultAgent()
+	runtime := al.runtimeSnapshot()
+	defaultAgent := runtime.registry.GetDefaultAgent()
 	if defaultAgent != nil {
 		if tool, ok := defaultAgent.Tools.Get("message"); ok {
 			if mt, ok := tool.(*tools.MessageTool); ok {
@@ -69,9 +74,9 @@ func (al *AgentLoop) PublishResponseIfNeededChecked(ctx context.Context, channel
 	}
 
 	if alreadySentToSameChat {
-		if al.channelManager != nil && channel != "" && chatID != "" {
+		if runtime.channelManager != nil && channel != "" && chatID != "" {
 			dismissCtx, dismissCancel := context.WithTimeout(ctx, 5*time.Second)
-			al.channelManager.DismissToolFeedback(
+			runtime.channelManager.DismissToolFeedback(
 				dismissCtx,
 				channel,
 				chatID,
@@ -118,10 +123,11 @@ func (al *AgentLoop) PublishResponseIfNeededChecked(ctx context.Context, channel
 }
 
 func (al *AgentLoop) targetReasoningChannelID(channelName string) (chatID string) {
-	if al.channelManager == nil {
+	channelManager := al.runtimeSnapshot().channelManager
+	if channelManager == nil {
 		return ""
 	}
-	if ch, ok := al.channelManager.GetChannel(channelName); ok {
+	if ch, ok := channelManager.GetChannel(channelName); ok {
 		return ch.ReasoningChannelID()
 	}
 	return ""
@@ -226,7 +232,7 @@ func (al *AgentLoop) publishPicoToolCallInterim(
 
 	visibleToolCalls := utils.BuildVisibleToolCalls(
 		toolCalls,
-		al.cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength(),
+		al.runtimeSnapshot().cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength(),
 	)
 	duplicateToolCallContent := len(visibleToolCalls) > 0 &&
 		utils.ToolCallExplanationDuplicatesContent(content, toolCalls)

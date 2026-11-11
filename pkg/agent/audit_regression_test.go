@@ -15,6 +15,7 @@ func TestRegressionCheckpointPreservesOutbox(t *testing.T) {
 	}
 	agent := &AgentInstance{ID: "main", Sessions: store}
 	ts := newTurnState(agent, normalizeProcessOptions(makeTestProcessOpts("review")), turnEventScope{turnID: "new-turn", context: newTurnContext(nil, nil, nil)})
+	ts.al = &AgentLoop{}
 	if err := ts.saveTurnCheckpoint("running", ""); err != nil {
 		t.Fatal(err)
 	}

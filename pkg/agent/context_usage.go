@@ -219,7 +219,7 @@ func (al *AgentLoop) ConversationUsage(channel, chatID, senderID string) (*bus.C
 	if turn := al.getActiveTurnState(key); turn != nil {
 		return turn.contextUsageSnapshot(), nil
 	}
-	agent, ok := al.registry.GetAgent(agentID)
+	agent, ok := al.runtimeSnapshot().registry.GetAgent(agentID)
 	if !ok || agent.Sessions == nil {
 		return nil, nil
 	}

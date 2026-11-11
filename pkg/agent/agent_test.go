@@ -279,7 +279,7 @@ func (p *sideQuestionFallbackTestProvider) Chat(
 	opts map[string]any,
 ) (*providers.LLMResponse, error) {
 	if p.model == "test-model" {
-		return nil, context.DeadlineExceeded
+		return nil, fmt.Errorf("provider timeout")
 	}
 	return &providers.LLMResponse{
 		ReasoningContent: "thinking trace",

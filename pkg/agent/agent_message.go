@@ -116,15 +116,25 @@ func (al *AgentLoop) prepareInboundMessageForAgent(
 	ctx context.Context,
 	msg bus.InboundMessage,
 ) bus.InboundMessage {
+	return al.prepareInboundMessageForAgentWithRuntime(ctx, msg, al.runtimeSnapshot())
+}
+
+func (al *AgentLoop) prepareInboundMessageForAgentWithRuntime(
+	ctx context.Context,
+	msg bus.InboundMessage,
+	runtime runtimeSnapshot,
+) bus.InboundMessage {
 	msg = bus.NormalizeInboundMessage(msg)
 
 	var hadAudio bool
-	msg, hadAudio = al.transcribeAudioInMessage(ctx, msg)
+	msg, hadAudio = al.transcribeAudioInMessageWithRuntime(ctx, msg, runtime)
 
 	// For audio messages the placeholder was deferred by the channel.
 	// Now that transcription (and optional feedback) is done, send it.
-	if hadAudio && al.channelManager != nil {
-		al.channelManager.SendPlaceholder(ctx, msg.Channel, msg.ChatID)
+	if hadAudio {
+		if channelManager := runtime.channelManager; channelManager != nil {
+			channelManager.SendPlaceholder(ctx, msg.Channel, msg.ChatID)
+		}
 	}
 
 	return msg
@@ -154,7 +164,8 @@ func (al *AgentLoop) processMessageResult(
 	msg bus.InboundMessage,
 	sessionClaimed bool,
 ) (processMessageResult, error) {
-	msg = al.prepareInboundMessageForAgent(ctx, msg)
+	runtime := al.runtimeSnapshot()
+	msg = al.prepareInboundMessageForAgentWithRuntime(ctx, msg, runtime)
 
 	// Add message preview to log (show full content for error messages)
 	var logContent string
@@ -176,11 +187,11 @@ func (al *AgentLoop) processMessageResult(
 
 	// Route system messages to processSystemMessage
 	if msg.Channel == "system" {
-		response, err := al.processSystemMessage(ctx, msg)
+		response, err := al.processSystemMessage(ctx, msg, runtime)
 		return processMessageResult{content: response}, err
 	}
 
-	route, agent, routeErr := al.resolveMessageRoute(msg)
+	route, agent, routeErr := al.resolveMessageRouteWithRuntime(msg, runtime)
 	if routeErr != nil {
 		return processMessageResult{}, routeErr
 	}
@@ -240,9 +251,10 @@ func (al *AgentLoop) processMessageResult(
 		EnableSummary:           true,
 		SendResponse:            false,
 		AllowInterimPicoPublish: true,
+		runtime:                 &runtime,
 	}
 	var err error
-	opts, err = resolveTurnProfileOptions(al.GetConfig(), opts)
+	opts, err = resolveTurnProfileOptions(runtime.cfg, opts)
 	if err != nil {
 		return processMessageResult{}, err
 	}
@@ -275,7 +287,14 @@ func (al *AgentLoop) processMessageResult(
 }
 
 func (al *AgentLoop) resolveMessageRoute(msg bus.InboundMessage) (routing.ResolvedRoute, *AgentInstance, error) {
-	registry := al.GetRegistry()
+	return al.resolveMessageRouteWithRuntime(msg, al.runtimeSnapshot())
+}
+
+func (al *AgentLoop) resolveMessageRouteWithRuntime(
+	msg bus.InboundMessage,
+	runtime runtimeSnapshot,
+) (routing.ResolvedRoute, *AgentInstance, error) {
+	registry := runtime.registry
 	inboundCtx := normalizedInboundContext(msg)
 	route := registry.ResolveRoute(inboundCtx)
 
@@ -301,6 +320,7 @@ func (al *AgentLoop) allocateRouteSession(route routing.ResolvedRoute, msg bus.I
 func (al *AgentLoop) processSystemMessage(
 	ctx context.Context,
 	msg bus.InboundMessage,
+	runtime runtimeSnapshot,
 ) (string, error) {
 	if msg.Channel != "system" {
 		return "", fmt.Errorf(
@@ -349,10 +369,10 @@ func (al *AgentLoop) processSystemMessage(
 	sessionKey := strings.TrimSpace(msg.SessionKey)
 	var agent *AgentInstance
 	if sessionKey != "" {
-		agent = al.agentForSession(sessionKey)
+		agent = al.agentForSessionWithRuntime(sessionKey, runtime)
 	}
 	if agent == nil {
-		agent = al.GetRegistry().GetDefaultAgent()
+		agent = runtime.registry.GetDefaultAgent()
 	}
 	if agent == nil {
 		return "", fmt.Errorf("no default agent for system message")
@@ -388,6 +408,7 @@ func (al *AgentLoop) processSystemMessage(
 		DefaultResponse: "Background task completed.",
 		EnableSummary:   false,
 		SendResponse:    true,
+		runtime:         &runtime,
 	})
 	return result.content, err
 }

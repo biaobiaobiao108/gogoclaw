@@ -460,7 +460,7 @@ func setupAndStartServices(
 		return nil, fmt.Errorf("error creating channel manager: %w", err)
 	}
 
-	agentLoop.SetChannelManager(runningServices.ChannelManager)
+	agentLoop.SetRuntimeDependencies(runningServices.ChannelManager, runningServices.MediaStore)
 	if channel, ok := runningServices.ChannelManager.GetChannel(config.ChannelPico); ok {
 		if provider, ok := channel.(interface {
 			SetTurnStatusProvider(func(string, bool) map[string]any)
@@ -529,8 +529,6 @@ func setupAndStartServices(
 			approvalChannel.SetAttachmentResolver(agentLoop.ResolvePicoAttachment)
 		}
 	}
-	agentLoop.SetMediaStore(runningServices.MediaStore)
-
 	transcriber := asr.DetectTranscriber(cfg)
 	if transcriber != nil {
 		agentLoop.SetTranscriber(transcriber)
@@ -647,7 +645,7 @@ func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Dura
 	if runningServices.CronService != nil {
 		runningServices.CronService.Stop()
 	}
-	if runningServices.MediaStore != nil {
+	if !isReload && runningServices.MediaStore != nil {
 		if fms, ok := runningServices.MediaStore.(*media.FileMediaStore); ok {
 			fms.Stop()
 		}
@@ -663,9 +661,7 @@ func shutdownGateway(
 ) {
 	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayShutdown, time.Time{}, nil)
 
-	if cp, ok := provider.(providers.StatefulProvider); ok && fullShutdown {
-		cp.Close()
-	}
+	agentLoop.Stop()
 
 	stopAndCleanupServices(runningServices, gracefulShutdownTimeout, false)
 
@@ -673,8 +669,10 @@ func shutdownGateway(
 		msgBus.Close()
 	}
 
-	agentLoop.Stop()
 	agentLoop.Close()
+	if cp, ok := provider.(providers.StatefulProvider); ok && fullShutdown {
+		cp.Close()
+	}
 
 	logger.Info("✓ Gateway stopped")
 }
@@ -791,9 +789,7 @@ func restartServices(
 	if runningServices.ChannelManager != nil {
 		runningServices.ChannelManager.SetMediaStore(runningServices.MediaStore)
 	}
-	al.SetMediaStore(runningServices.MediaStore)
-
-	al.SetChannelManager(runningServices.ChannelManager)
+	al.SetRuntimeDependencies(runningServices.ChannelManager, runningServices.MediaStore)
 
 	if err = runningServices.ChannelManager.Reload(context.Background(), cfg); err != nil {
 		return fmt.Errorf("error reload channels: %w", err)

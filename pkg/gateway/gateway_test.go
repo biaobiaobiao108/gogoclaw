@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
 func TestRun_StartupFailuresReturnErrorAndEmitStructuredLog(t *testing.T) {
@@ -306,6 +308,48 @@ func TestShutdownGatewayClosesMessageBus(t *testing.T) {
 	}
 	if err := msgBus.PublishVoiceControl(context.Background(), bus.VoiceControl{}); !errors.Is(err, bus.ErrBusClosed) {
 		t.Fatalf("PublishVoiceControl after shutdown error = %v, want %v", err, bus.ErrBusClosed)
+	}
+}
+
+type gatewayOrderProvider struct {
+	closed atomic.Bool
+}
+
+func (p *gatewayOrderProvider) Chat(
+	context.Context,
+	[]providers.Message,
+	[]providers.ToolDefinition,
+	string,
+	map[string]any,
+) (*providers.LLMResponse, error) {
+	return &providers.LLMResponse{Content: "ok"}, nil
+}
+
+func (p *gatewayOrderProvider) GetDefaultModel() string { return "order-test" }
+func (p *gatewayOrderProvider) Close()                  { p.closed.Store(true) }
+
+func TestShutdownGatewayDrainsAgentBeforeClosingProvider(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.Workspace = t.TempDir()
+	msgBus := bus.NewMessageBus()
+	provider := &gatewayOrderProvider{}
+	al := agent.NewAgentLoop(cfg, msgBus, provider)
+
+	var backgroundDone atomic.Bool
+	agent.NewSubTurnSpawner(al).RunBackground(func() {
+		time.Sleep(100 * time.Millisecond)
+		if provider.closed.Load() {
+			t.Error("provider closed before background work drained")
+		}
+		backgroundDone.Store(true)
+	})
+
+	shutdownGateway(&services{}, al, provider, msgBus, true)
+	if !backgroundDone.Load() {
+		t.Fatal("shutdown returned before background work drained")
+	}
+	if !provider.closed.Load() {
+		t.Fatal("provider was not closed")
 	}
 }
 

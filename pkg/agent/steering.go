@@ -219,9 +219,10 @@ func (al *AgentLoop) enqueueSteeringMessage(scope, agentID string, msg providers
 	}
 
 	msg = steeringPromptMessage(msg)
-	media.Pin(al.mediaStore, msg.Media)
+	mediaStore := al.runtimeSnapshot().mediaStore
+	media.Pin(mediaStore, msg.Media)
 	if err := al.steering.pushScope(scope, msg); err != nil {
-		media.Unpin(al.mediaStore, msg.Media)
+		media.Unpin(mediaStore, msg.Media)
 		logger.WarnCF("agent", "Failed to enqueue steering message", map[string]any{
 			"error": err.Error(),
 			"role":  msg.Role,
@@ -332,7 +333,7 @@ func (al *AgentLoop) trackSteeringMedia(scope string, msgs []providers.Message) 
 }
 
 func (al *AgentLoop) pinTurnMedia(ts *turnState, refs []string) {
-	media.Pin(al.mediaStore, refs)
+	media.Pin(al.runtimeSnapshot().mediaStore, refs)
 	ts.mu.Lock()
 	ts.steeringMedia = append(ts.steeringMedia, refs...)
 	ts.mu.Unlock()
@@ -350,8 +351,9 @@ func (al *AgentLoop) clearSteeringMessagesForScope(scope string) int {
 		return 0
 	}
 	msgs := al.steering.clearScope(scope)
+	mediaStore := al.runtimeSnapshot().mediaStore
 	for _, msg := range msgs {
-		media.Unpin(al.mediaStore, msg.Media)
+		media.Unpin(mediaStore, msg.Media)
 	}
 	return len(msgs)
 }
@@ -385,7 +387,11 @@ func (al *AgentLoop) continueWithSteeringMessages(
 }
 
 func (al *AgentLoop) agentForSession(sessionKey string) *AgentInstance {
-	registry := al.GetRegistry()
+	return al.agentForSessionWithRuntime(sessionKey, al.runtimeSnapshot())
+}
+
+func (al *AgentLoop) agentForSessionWithRuntime(sessionKey string, runtime runtimeSnapshot) *AgentInstance {
+	registry := runtime.registry
 	if registry == nil {
 		return nil
 	}
@@ -445,9 +451,10 @@ func (al *AgentLoop) Continue(ctx context.Context, sessionKey, channel, chatID s
 	if len(steeringMsgs) == 0 && al.followUpQueue != nil {
 		steeringMsgs = al.followUpQueue.dequeueScopeWithFallback(sessionKey)
 	}
+	mediaStore := al.runtimeSnapshot().mediaStore
 	defer func() {
 		for _, msg := range steeringMsgs {
-			media.Unpin(al.mediaStore, msg.Media)
+			media.Unpin(mediaStore, msg.Media)
 		}
 	}()
 	if len(steeringMsgs) == 0 {
@@ -653,9 +660,10 @@ func (al *AgentLoop) enqueueFollowUp(scope string, msg providers.Message) error 
 		return fmt.Errorf("follow-up queue is not initialized")
 	}
 	msg = steeringPromptMessage(msg)
-	media.Pin(al.mediaStore, msg.Media)
+	mediaStore := al.runtimeSnapshot().mediaStore
+	media.Pin(mediaStore, msg.Media)
 	if err := al.followUpQueue.pushScope(scope, msg); err != nil {
-		media.Unpin(al.mediaStore, msg.Media)
+		media.Unpin(mediaStore, msg.Media)
 		return err
 	}
 	return nil

@@ -99,7 +99,7 @@ func (p *Pipeline) Finalize(
 	}
 
 	if !ts.opts.NoHistory && ts.opts.EnableSummary {
-		if err := al.contextManager.Compact(
+		if err := p.ContextManager.Compact(
 			turnCtx,
 			&CompactRequest{
 				SessionKey: ts.sessionKey,

@@ -72,9 +72,6 @@ func (al *AgentLoop) setTurnDelivery(sessionKey string, delivery session.TurnDel
 	if al == nil || sessionKey == "" {
 		return nil
 	}
-	unlock := al.lockDeliveryCheckpoint(sessionKey)
-	defer unlock()
-
 	agent := al.agentForSession(sessionKey)
 	if agent == nil {
 		return nil
@@ -83,19 +80,20 @@ func (al *AgentLoop) setTurnDelivery(sessionKey string, delivery session.TurnDel
 	if !ok {
 		return nil
 	}
-	checkpoint, err := store.GetTurnCheckpoint(sessionKey)
-	if err != nil {
-		return err
-	}
 	now := time.Now().UTC()
 	if delivery.CreatedAt.IsZero() {
 		delivery.CreatedAt = now
 	}
 	delivery.UpdatedAt = now
-	previous := checkpointDeliveries(checkpoint)
-	checkpoint.Deliveries = upsertTurnDelivery(checkpoint.Deliveries, delivery)
-	checkpoint.Delivery = &delivery
-	if err := store.SetTurnCheckpoint(sessionKey, checkpoint); err != nil {
+	var previous []session.TurnDelivery
+	var updated []session.TurnDelivery
+	if err := al.updateTurnCheckpoint(store, sessionKey, func(checkpoint *session.TurnCheckpoint) error {
+		previous = checkpointDeliveries(*checkpoint)
+		checkpoint.Deliveries = upsertTurnDelivery(checkpoint.Deliveries, delivery)
+		checkpoint.Delivery = &delivery
+		updated = checkpoint.Deliveries
+		return nil
+	}); err != nil {
 		return err
 	}
 	if delivery.ID != "" {
@@ -105,7 +103,7 @@ func (al *AgentLoop) setTurnDelivery(sessionKey string, delivery session.TurnDel
 		})
 	}
 	for _, prior := range previous {
-		if prior.ID != "" && !containsDelivery(checkpoint.Deliveries, prior.ID) {
+		if prior.ID != "" && !containsDelivery(updated, prior.ID) {
 			al.deliveryLocations.Delete(prior.ID)
 		}
 	}
@@ -356,22 +354,20 @@ func (al *AgentLoop) discardDelivery(sessionKey, deliveryID string) {
 	if !ok {
 		return
 	}
-	checkpoint, err := store.GetTurnCheckpoint(sessionKey)
-	if err != nil {
-		return
-	}
-	deliveries := checkpointDeliveries(checkpoint)
-	kept := deliveries[:0]
-	for _, delivery := range deliveries {
-		if delivery.ID != deliveryID {
-			kept = append(kept, delivery)
+	_ = al.updateTurnCheckpoint(store, sessionKey, func(checkpoint *session.TurnCheckpoint) error {
+		deliveries := checkpointDeliveries(*checkpoint)
+		kept := deliveries[:0]
+		for _, delivery := range deliveries {
+			if delivery.ID != deliveryID {
+				kept = append(kept, delivery)
+			}
 		}
-	}
-	checkpoint.Deliveries = kept
-	if checkpoint.Delivery != nil && checkpoint.Delivery.ID == deliveryID {
-		checkpoint.Delivery = nil
-	}
-	_ = store.SetTurnCheckpoint(sessionKey, checkpoint)
+		checkpoint.Deliveries = kept
+		if checkpoint.Delivery != nil && checkpoint.Delivery.ID == deliveryID {
+			checkpoint.Delivery = nil
+		}
+		return nil
+	})
 	al.deliveryLocations.Delete(deliveryID)
 }
 

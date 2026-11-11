@@ -41,8 +41,8 @@ func (al *AgentLoop) tryHandleStopCommand(
 		reply = "Failed to stop task: " + err.Error()
 	}
 
-	if al.channelManager != nil {
-		al.channelManager.InvokeTypingStop(msg.Channel, msg.ChatID)
+	if channelManager := al.runtimeSnapshot().channelManager; channelManager != nil {
+		channelManager.InvokeTypingStop(msg.Channel, msg.ChatID)
 	}
 	al.resetMessageToolRound(sessionKey)
 	al.PublishResponseIfNeeded(ctx, msg.Channel, msg.ChatID, sessionKey, reply)

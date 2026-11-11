@@ -261,7 +261,7 @@ func (al *AgentLoop) publishAsyncFollowUp(ts *turnState, delivery asyncDelivery)
 	if content == "" {
 		return
 	}
-	content = al.cfg.FilterSensitiveData(content)
+	content = al.runtimeSnapshot().cfg.FilterSensitiveData(content)
 	if delivery.Origin == asyncOriginTool {
 		callID := delivery.ToolCallID
 		if callID == "" {
@@ -347,7 +347,7 @@ func (al *AgentLoop) consumeAsyncDeliveries(ctx context.Context, ts *turnState, 
 			}
 		}
 
-		content := al.cfg.FilterSensitiveData(result.ContentForLLM())
+		content := al.runtimeSnapshot().cfg.FilterSensitiveData(result.ContentForLLM())
 		if content == "" {
 			continue
 		}
