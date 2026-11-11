@@ -61,7 +61,10 @@ func (e *CompactionEngine) Compact(ctx context.Context, convID int64, input Comp
 	}
 
 	// Phase 2: condensed compaction if over threshold
-	tokensBefore, _ := e.store.GetContextTokenCount(ctx, convID)
+	tokensBefore, err := e.store.GetContextTokenCount(ctx, convID)
+	if err != nil {
+		return nil, fmt.Errorf("get context token count: %w", err)
+	}
 	var budget int
 	if input.Budget != nil {
 		budget = *input.Budget

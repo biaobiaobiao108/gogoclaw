@@ -97,11 +97,23 @@ func (s *Store) GetSessionStatus(ctx context.Context, sessionKey string) (*Sessi
 		return nil, nil
 	}
 
-	msgCount, _ := s.GetMessageCount(ctx, conv.ConversationID)
-	sumCount, _ := s.getSummaryCount(ctx, conv.ConversationID)
-	tokenCount, _ := s.GetContextTokenCount(ctx, conv.ConversationID)
+	msgCount, err := s.GetMessageCount(ctx, conv.ConversationID)
+	if err != nil {
+		return nil, fmt.Errorf("get message count: %w", err)
+	}
+	sumCount, err := s.getSummaryCount(ctx, conv.ConversationID)
+	if err != nil {
+		return nil, fmt.Errorf("get summary count: %w", err)
+	}
+	tokenCount, err := s.GetContextTokenCount(ctx, conv.ConversationID)
+	if err != nil {
+		return nil, fmt.Errorf("get context token count: %w", err)
+	}
 
-	oldest, newest, _ := s.getMessageTimeRange(ctx, conv.ConversationID)
+	oldest, newest, err := s.getMessageTimeRange(ctx, conv.ConversationID)
+	if err != nil {
+		return nil, fmt.Errorf("get message time range: %w", err)
+	}
 
 	return &SessionStatus{
 		SessionKey:     conv.SessionKey,

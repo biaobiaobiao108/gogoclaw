@@ -120,21 +120,34 @@ func TestRetrievalGrepWithTimeFilter(t *testing.T) {
 	ctx := context.Background()
 
 	now := time.Now().UTC()
-	before := now.Add(-2 * time.Hour)
+	since := now.Add(-2 * time.Hour)
 
 	// Create messages at different times
-	s.AddMessage(ctx, convID, "user", "old message about auth", 5)
-	s.AddMessage(ctx, convID, "user", "recent message about auth", 5)
+	oldMsg, err := s.AddMessage(ctx, convID, "user", "old message about auth", 5)
+	if err != nil {
+		t.Fatalf("AddMessage(old): %v", err)
+	}
+	if err := s.UpdateMessageCreatedAt(ctx, oldMsg.ID, now.Add(-3*time.Hour)); err != nil {
+		t.Fatalf("UpdateMessageCreatedAt(old): %v", err)
+	}
+	if _, err := s.AddMessage(ctx, convID, "user", "recent message about auth", 5); err != nil {
+		t.Fatalf("AddMessage(recent): %v", err)
+	}
 
 	// Search with time filter
 	results, err := r.Grep(ctx, GrepInput{
 		Pattern: "auth",
-		Since:   &before,
+		Since:   &since,
 	})
 	if err != nil {
 		t.Fatalf("Grep: %v", err)
 	}
-	_ = results // Just verify no error
+	if results.TotalMessages != 1 || len(results.Messages) != 1 {
+		t.Fatalf("results = %+v, want exactly the recent message", results)
+	}
+	if results.Messages[0].Snippet != "recent message about auth" {
+		t.Fatalf("snippet = %q, want recent message", results.Messages[0].Snippet)
+	}
 }
 
 func TestRetrievalGrepAllConversations(t *testing.T) {
