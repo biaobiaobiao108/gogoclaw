@@ -58,7 +58,6 @@ pi-mono 的核心思路更接近当前分支：
 
 - `pkg/events` 定义 runtime event envelope、kind、scope、source、severity 和 fan-out bus
 - `pkg/agent/event_payloads.go` 保留 agent domain payload
-- agent domain payload 保留在 `pkg/agent/event_payloads.go`
 - `pkg/agent/loop.go` 中的 `runTurn()` 已在 turn、llm、tool、interrupt、follow-up、summary 等节点发射事件
 - `pkg/agent/steering.go` 已支持 steering、graceful interrupt、hard abort
 - `pkg/agent/turn.go` 已维护 turn phase、恢复点、active turn、abort 状态

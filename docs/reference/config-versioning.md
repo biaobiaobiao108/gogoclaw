@@ -226,10 +226,10 @@ Backups are created in the same directory as your config file:
 
 ### Scenario: Adding a new field with default value
 
-Old config (version 3):
+Old config (version 2):
 ```json
 {
-  "version": 3,
+  "version": 2,
   "model_list": [
     {
       "model_name": "gpt-5.4",

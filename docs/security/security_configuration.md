@@ -365,12 +365,7 @@ The system maintains full backward compatibility:
 
 ## Environment Variables
 
-You can override any security value using environment variables:
-
-**For models:**
-```bash
-export GOGOCLAW_CHANNELS_TELEGRAM_TOKEN="token-from-env"
-```
+You can override channel and tool security values using environment variables:
 
 **For channels:**
 ```bash
@@ -387,6 +382,15 @@ export GOGOCLAW_TOOLS_WEB_BAIDU_API_KEY="baidu-key-from-env"
 Environment variables have the highest priority and will override both `config.json` and `.security.yml` values.
 
 The pattern is: `GOGOCLAW_<SECTION>_<KEY>_<FIELD>` with underscores separating path segments and converted to uppercase.
+
+## OAuth Token Storage
+
+OAuth tokens in `auth.json` follow the same `enc://` encryption policy as config secrets:
+
+- When `GOGOCLAW_KEY_PASSPHRASE` is set, access and refresh tokens are encrypted with AES-256-GCM before being written. The key is derived from the passphrase and the SSH key at `GOGOCLAW_SSH_KEY_PATH` (default `~/.ssh/gogoclaw_ed25519.key`).
+- Without a passphrase, tokens are stored in the legacy plaintext format and a warning is logged; OAuth login keeps working.
+- Legacy plaintext stores load normally and are upgraded to encrypted form on the next save once a passphrase is configured.
+- `auth.json` is always written with `0600` permissions.
 
 ## Security Best Practices
 
