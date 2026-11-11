@@ -2,13 +2,16 @@ package auth
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/credential"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 )
 
 type AuthCredential struct {
@@ -168,6 +171,69 @@ func normalizeStore(store *AuthStore) {
 	store.Credentials = normalized
 }
 
+func cloneStore(store *AuthStore) *AuthStore {
+	if store == nil {
+		return &AuthStore{Credentials: make(map[string]*AuthCredential)}
+	}
+	out := &AuthStore{Credentials: make(map[string]*AuthCredential, len(store.Credentials))}
+	for provider, cred := range store.Credentials {
+		out.Credentials[provider] = cloneCredential(cred)
+	}
+	return out
+}
+
+func decryptCredentialTokens(provider string, cred *AuthCredential) error {
+	if cred == nil {
+		return nil
+	}
+	resolver := credential.NewResolver("")
+	for _, field := range []struct {
+		name  string
+		value *string
+	}{
+		{name: "access_token", value: &cred.AccessToken},
+		{name: "refresh_token", value: &cred.RefreshToken},
+	} {
+		if !strings.HasPrefix(*field.value, credential.EncScheme) {
+			continue
+		}
+		plaintext, err := resolver.Resolve(*field.value)
+		if err != nil {
+			return fmt.Errorf("auth: decrypt %s for %q: %w", field.name, provider, err)
+		}
+		*field.value = plaintext
+	}
+	return nil
+}
+
+func encryptCredentialTokens(provider string, cred *AuthCredential, passphrase string) error {
+	// Without a passphrase keep the legacy plaintext format, mirroring
+	// config.SecureString: encryption is opportunistic so existing OAuth
+	// logins keep working. Once a passphrase is configured, encryption
+	// failures are fatal instead of silently writing plaintext.
+	if cred == nil || passphrase == "" {
+		return nil
+	}
+	for _, field := range []struct {
+		name  string
+		value *string
+	}{
+		{name: "access_token", value: &cred.AccessToken},
+		{name: "refresh_token", value: &cred.RefreshToken},
+	} {
+		if *field.value == "" {
+			continue
+		}
+		encrypted, err := credential.Encrypt(passphrase, "", *field.value)
+		if err != nil {
+			return fmt.Errorf("auth: encrypt %s for %q: %w", field.name, provider, err)
+		}
+		*field.value = encrypted
+	}
+	return nil
+}
+
+// LoadStore decrypts enc:// OAuth tokens and accepts legacy plaintext stores.
 func LoadStore() (*AuthStore, error) {
 	path := authFilePath()
 	data, err := os.ReadFile(path)
@@ -182,19 +248,47 @@ func LoadStore() (*AuthStore, error) {
 	if err := json.Unmarshal(data, &store); err != nil {
 		return nil, err
 	}
+	for provider, cred := range store.Credentials {
+		if err := decryptCredentialTokens(provider, cred); err != nil {
+			return nil, err
+		}
+	}
 	normalizeStore(&store)
 	return &store, nil
 }
 
+// SaveStore encrypts OAuth tokens with the shared credential key when a
+// passphrase is available, without mutating the caller's in-memory store.
+// Without key material it keeps the legacy plaintext format and warns, the
+// same policy as config.SecureString.
 func SaveStore(store *AuthStore) error {
 	path := authFilePath()
-	data, err := json.MarshalIndent(store, "", "  ")
+	encryptedStore := cloneStore(store)
+	passphrase := credential.PassphraseProvider()
+	if passphrase == "" && storeHasTokens(encryptedStore) {
+		logger.WarnCF("auth", "OAuth tokens are stored without encryption; set "+credential.PassphraseEnvVar+" to encrypt auth.json at rest", nil)
+	}
+	for provider, cred := range encryptedStore.Credentials {
+		if err := encryptCredentialTokens(provider, cred, passphrase); err != nil {
+			return err
+		}
+	}
+	data, err := json.MarshalIndent(encryptedStore, "", "  ")
 	if err != nil {
 		return err
 	}
 
 	// Use unified atomic write utility with explicit sync for flash storage reliability.
 	return fileutil.WriteFileAtomic(path, data, 0o600)
+}
+
+func storeHasTokens(store *AuthStore) bool {
+	for _, cred := range store.Credentials {
+		if cred != nil && (cred.AccessToken != "" || cred.RefreshToken != "") {
+			return true
+		}
+	}
+	return false
 }
 
 func GetCredential(provider string) (*AuthCredential, error) {

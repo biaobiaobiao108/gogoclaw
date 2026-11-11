@@ -5,17 +5,25 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/credential"
 )
 
 func setTestAuthHome(t *testing.T) string {
 	t.Helper()
 
 	tmpDir := t.TempDir()
+	keyPath := filepath.Join(tmpDir, "gogoclaw_ed25519.key")
+	if err := os.WriteFile(keyPath, []byte("fake-test-key-material\n"), 0o600); err != nil {
+		t.Fatalf("write test SSH key: %v", err)
+	}
 	t.Setenv(config.EnvHome, filepath.Join(tmpDir, ".gogoclaw"))
+	t.Setenv(credential.PassphraseEnvVar, "test-auth-store-passphrase")
+	t.Setenv(credential.SSHKeyPathEnvVar, keyPath)
 	return tmpDir
 }
 
@@ -119,6 +127,131 @@ func TestStoreFilePermissions(t *testing.T) {
 	}
 	if perm != 0o600 {
 		t.Errorf("file permissions = %o, want 0600", perm)
+	}
+}
+
+func TestStoreEncryptsTokensAtRest(t *testing.T) {
+	tmpDir := setTestAuthHome(t)
+
+	cred := &AuthCredential{
+		AccessToken:  "plain-access-token",
+		RefreshToken: "plain-refresh-token",
+		Provider:     "openai",
+		AuthMethod:   "oauth",
+	}
+	if err := SetCredential("openai", cred); err != nil {
+		t.Fatalf("SetCredential() error: %v", err)
+	}
+
+	path := filepath.Join(tmpDir, ".gogoclaw", "auth.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error: %v", err)
+	}
+	if strings.Contains(string(data), cred.AccessToken) || strings.Contains(string(data), cred.RefreshToken) {
+		t.Fatal("auth.json contains plaintext OAuth tokens")
+	}
+
+	var onDisk AuthStore
+	if err := json.Unmarshal(data, &onDisk); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
+	onDiskCred := onDisk.Credentials["openai"]
+	if onDiskCred == nil {
+		t.Fatal("openai credential missing from auth.json")
+	}
+	if !strings.HasPrefix(onDiskCred.AccessToken, credential.EncScheme) {
+		t.Fatalf("stored access token = %q, want enc:// value", onDiskCred.AccessToken)
+	}
+	if !strings.HasPrefix(onDiskCred.RefreshToken, credential.EncScheme) {
+		t.Fatalf("stored refresh token = %q, want enc:// value", onDiskCred.RefreshToken)
+	}
+
+	loaded, err := GetCredential("openai")
+	if err != nil {
+		t.Fatalf("GetCredential() error: %v", err)
+	}
+	if loaded == nil || loaded.AccessToken != cred.AccessToken || loaded.RefreshToken != cred.RefreshToken {
+		t.Fatalf("decrypted credential = %+v, want tokens %q/%q", loaded, cred.AccessToken, cred.RefreshToken)
+	}
+}
+
+func TestStoreMigratesLegacyPlaintextOnSave(t *testing.T) {
+	tmpDir := setTestAuthHome(t)
+
+	legacy := `{
+  "credentials": {
+    "openai": {
+      "access_token": "legacy-access-token",
+      "refresh_token": "legacy-refresh-token",
+      "provider": "openai",
+      "auth_method": "oauth"
+    }
+  }
+}`
+	path := filepath.Join(tmpDir, ".gogoclaw", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+
+	t.Setenv(credential.PassphraseEnvVar, "")
+	loaded, err := LoadStore()
+	if err != nil {
+		t.Fatalf("LoadStore() error: %v", err)
+	}
+	if loaded.Credentials["openai"].AccessToken != "legacy-access-token" {
+		t.Fatalf("legacy access token = %q", loaded.Credentials["openai"].AccessToken)
+	}
+	t.Setenv(credential.PassphraseEnvVar, "test-auth-store-passphrase")
+	if err := SaveStore(loaded); err != nil {
+		t.Fatalf("SaveStore() error: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error: %v", err)
+	}
+	if strings.Contains(string(data), "legacy-access-token") || strings.Contains(string(data), "legacy-refresh-token") {
+		t.Fatal("legacy plaintext tokens remained after save")
+	}
+	migrated, err := LoadStore()
+	if err != nil {
+		t.Fatalf("LoadStore() after migration error: %v", err)
+	}
+	cred := migrated.Credentials["openai"]
+	if cred == nil || cred.AccessToken != "legacy-access-token" || cred.RefreshToken != "legacy-refresh-token" {
+		t.Fatalf("migrated credential = %+v", cred)
+	}
+}
+
+func TestStoreWithoutPassphraseKeepsPlaintextCompatible(t *testing.T) {
+	tmpDir := setTestAuthHome(t)
+	t.Setenv(credential.PassphraseEnvVar, "")
+
+	if err := SetCredential("openai", &AuthCredential{
+		AccessToken: "legacy-style-token",
+		Provider:    "openai",
+		AuthMethod:  "oauth",
+	}); err != nil {
+		t.Fatalf("SetCredential() error: %v", err)
+	}
+	path := filepath.Join(tmpDir, ".gogoclaw", "auth.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error: %v", err)
+	}
+	if strings.Contains(string(data), credential.EncScheme) {
+		t.Fatal("auth.json contains enc:// tokens without a passphrase")
+	}
+	loaded, err := LoadStore()
+	if err != nil {
+		t.Fatalf("LoadStore() error: %v", err)
+	}
+	if loaded.Credentials["openai"].AccessToken != "legacy-style-token" {
+		t.Fatalf("access token = %q, want legacy-style-token", loaded.Credentials["openai"].AccessToken)
 	}
 }
 
