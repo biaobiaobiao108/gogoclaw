@@ -15,6 +15,14 @@ Supported platforms are Linux `amd64` and `arm64`. The image contains:
 - `gogoclaw`: CLI and gateway
 - `gogoclaw-launcher`: web console and gateway supervisor
 
+The Compose example defaults to `latest` for quick setup. For production, set `GOGOCLAW_IMAGE` to a specific release tag; use an image digest when strict reproducibility is required. Set it in the project-root `.env` file, for example:
+
+```dotenv
+GOGOCLAW_IMAGE=ghcr.io/biaobiaobiao108/gogoclaw:vX.Y.Z
+```
+
+Back up `/data` before upgrading, then deliberately update this reference and recreate the container. Record the image reference so you can roll back to the same build.
+
 | Port | Purpose |
 |---|---|
 | `18800` | Web console |
@@ -268,4 +276,6 @@ The Compose and direct-run examples use:
 - `no-new-privileges`
 - A bounded writable `/tmp`
 
-The container is the execution sandbox, so `tools.approval` is disabled by default. Do not mount the Docker socket or unrelated host directories.
+The container provides a host isolation boundary, but the Agent can still use enabled tools inside it and access persistent files mounted at `/data`. Tools such as command execution, skill installation, and subagents have broad permissions. If external messages or web content influence the Agent, workspace data could be changed. Keep channel `allow_from` lists limited to explicit user IDs, do not set them to `"*"` for convenience, and avoid exposing the console or channel endpoints to untrusted sources.
+
+`tools.approval` is disabled by default for direct use in a personal instance. Enable approval in the tool configuration when high-risk actions should require human confirmation. Also avoid mounting the Docker socket or unrelated host directories. Container restrictions reduce the impact area, but do not replace access control and trusted input management.

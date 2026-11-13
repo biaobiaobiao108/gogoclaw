@@ -302,6 +302,7 @@
   "common": {
     "cancel": "取消",
     "close": "关闭",
+    "dismiss": "关闭提示",
     "save": "保存",
     "showPassword": "显示密码",
     "hidePassword": "隐藏密码",
@@ -312,6 +313,10 @@
     "restartRequiredTitle": "需要重启服务",
     "restartRequiredDesc": "{{name}} 的最新配置已保存。重启服务后才能正式生效。",
     "fix": "修复"
+  },
+  "auth": {
+    "serviceError": "认证服务错误",
+    "serviceUnavailable": "认证服务不可用。请检查连接后重试。"
   },
   "labels": {
     "loading": "加载中..."

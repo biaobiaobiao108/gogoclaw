@@ -10,10 +10,17 @@ async function main() {
     const errors = []
     const flows = []
     let authenticated = false
+    let authServiceFailure = false
     let chatMessage = ""
     page.on("pageerror", (error) => errors.push(error.message))
     page.on("console", (message) => {
-      if (message.type() === "error" && !message.text().includes("401")) {
+      const text = message.text()
+      const expectedAuthFailure = authServiceFailure && text.includes("503")
+      if (
+        message.type() === "error" &&
+        !text.includes("401") &&
+        !expectedAuthFailure
+      ) {
         errors.push(message.text())
       }
     })
@@ -38,7 +45,12 @@ async function main() {
       let status = 200
       let body = {}
       if (path === "/api/auth/status") {
-        body = { initialized: true, authenticated }
+        if (authServiceFailure) {
+          status = 503
+          body = { error: "unavailable" }
+        } else {
+          body = { initialized: true, authenticated }
+        }
       } else if (path === "/api/auth/login") {
         authenticated = JSON.parse(request.postData()).password === "correct"
         status = authenticated ? 200 : 401
@@ -91,8 +103,11 @@ async function main() {
     await page.locator("#launcher-password").fill("correct")
     await page.locator('button[type="submit"]').click()
     await page.waitForURL(`${base}/`)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.keyboard.press("Escape")
     const skip = page.getByRole("button", { name: /跳过引导|Skip/i })
-    if (await skip.isVisible()) await skip.click()
+    await skip.waitFor({ state: "visible" })
+    await skip.click()
     const composer = page.locator('textarea:not([aria-hidden="true"])')
     await composer.waitFor({ state: "visible" })
     await composer.fill("Hello from browser")
@@ -100,6 +115,19 @@ async function main() {
     await page.getByText("Mock reply", { exact: true }).waitFor()
     if (chatMessage !== "Hello from browser")
       throw new Error("Chat message was not sent")
+
+    const mobileOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    )
+    if (mobileOverflow) throw new Error("Chat overflows the mobile viewport")
+
+    await page.keyboard.press("Escape")
+    await page.getByRole("button", { name: /更多操作|More actions/i }).click()
+    await page.getByRole("menuitem", { name: "简体中文" }).click()
+    await page.waitForFunction(() => document.documentElement.lang === "zh-CN")
+    await page.getByRole("button", { name: "更多操作" }).click()
+    await page.getByRole("menuitem", { name: "English" }).click()
+    await page.waitForFunction(() => document.documentElement.lang === "en")
 
     await page.goto(`${base}/credentials`)
     await page.getByText("OpenAI", { exact: true }).first().waitFor()
@@ -126,8 +154,22 @@ async function main() {
       ),
     )
     await validFlow
+
+    await page.keyboard.press("Escape")
+    await page.getByRole("button", { name: /更多操作|More actions/i }).click()
+    await page.getByRole("menuitem", { name: "简体中文" }).click()
+    await page.waitForFunction(() => document.documentElement.lang === "zh-CN")
+    authServiceFailure = true
+    await page.goto(`${base}/`)
+    await page.getByText("认证服务错误", { exact: false }).waitFor()
+    const authError = page.getByText("认证服务错误", { exact: false })
+    await page.getByRole("button", { name: "关闭提示" }).click()
+    await authError.waitFor({ state: "detached" })
+
     if (errors.length) throw new Error(`Browser errors: ${errors.join(", ")}`)
-    console.log("Browser smoke passed: login, chat and OAuth message origin")
+    console.log(
+      "Browser smoke passed: login, mobile chat, language switching, auth error dismissal and OAuth message origin",
+    )
   } finally {
     await browser.close()
   }

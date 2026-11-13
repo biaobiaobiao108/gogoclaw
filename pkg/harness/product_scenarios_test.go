@@ -3,6 +3,7 @@ package harness
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,6 +115,94 @@ func TestProductFlowSQLiteSessionSurvivesAgentLoopRestart(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// Exercise multiple independent sessions against the same store across loop restarts.
+func TestProductFlowConcurrentSessionsSurviveRestarts(t *testing.T) {
+	workspace := t.TempDir()
+	sessionDir := filepath.Join(workspace, "sessions")
+	const sessions, rounds = 8, 3
+
+	for round := 0; round < rounds; round++ {
+		store, err := memory.NewSQLiteStore(sessionDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		backend := session.NewStoreBackend(store)
+		result, runErr := Run(context.Background(), Scenario{
+			Name: "concurrent-restart", Workspace: workspace, Session: backend,
+			UserMessage: "main", Provider: &restartEchoProvider{},
+			ConcurrentSetup: func(runtime ToolRuntime) error {
+				var wg sync.WaitGroup
+				errs := make(chan error, sessions)
+				for i := 0; i < sessions; i++ {
+					wg.Add(1)
+					go func(i int) {
+						defer wg.Done()
+						key := fmt.Sprintf("agent:main:restart-load-%d", i)
+						message := fmt.Sprintf("session-%d-round-%d", i, round)
+						ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+						defer cancel()
+						answer, err := runtime.Loop.ProcessDirectWithChannel(ctx, message, key, "harness", key)
+						if err == nil && answer != "echo "+message {
+							err = fmt.Errorf("%s: unexpected answer %q", key, answer)
+						}
+						errs <- err
+					}(i)
+				}
+				wg.Wait()
+				close(errs)
+				for err := range errs {
+					if err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		})
+		closeErr := backend.Close()
+		if runErr != nil {
+			t.Fatal(runErr)
+		}
+		if err := result.Verify(Expect{NoError: true}); err != nil {
+			t.Fatal(err)
+		}
+		if closeErr != nil {
+			t.Fatal(closeErr)
+		}
+	}
+
+	store, err := memory.NewSQLiteStore(sessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := session.NewStoreBackend(store)
+	t.Cleanup(func() { _ = backend.Close() })
+	for i := 0; i < sessions; i++ {
+		key := fmt.Sprintf("agent:main:restart-load-%d", i)
+		history, err := backend.GetHistoryChecked(key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(history) != rounds*2 {
+			t.Fatalf("%s: got %d messages, want %d", key, len(history), rounds*2)
+		}
+		for round := 0; round < rounds; round++ {
+			message := fmt.Sprintf("session-%d-round-%d", i, round)
+			if history[round*2].Role != "user" || history[round*2].Content != message ||
+				history[round*2+1].Role != "assistant" || history[round*2+1].Content != "echo "+message {
+				t.Fatalf("%s round %d: unexpected history %+v", key, round, history[round*2:round*2+2])
+			}
+		}
+	}
+}
+
+type restartEchoProvider struct{}
+
+func (*restartEchoProvider) GetDefaultModel() string { return "harness-model" }
+
+func (*restartEchoProvider) Chat(_ context.Context, messages []providers.Message, _ []providers.ToolDefinition, _ string, _ map[string]any) (*providers.LLMResponse, error) {
+	return &providers.LLMResponse{Content: "echo " + messages[len(messages)-1].Content}, nil
 }
 
 func TestProductFlowSpawnDeliversAsyncResultToFollowUp(t *testing.T) {

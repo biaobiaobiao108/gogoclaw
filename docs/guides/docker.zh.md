@@ -17,6 +17,14 @@ ghcr.io/biaobiaobiao108/gogoclaw:latest
 - `gogoclaw`：CLI 与 gateway
 - `gogoclaw-launcher`：Web 控制台，并负责启动和管理 gateway
 
+Compose 示例默认使用 `latest`，便于快速体验。生产部署建议将 `GOGOCLAW_IMAGE` 固定到明确的发布标签；需要严格复现时固定到镜像摘要（digest）。在项目根目录的 `.env` 中设置，例如：
+
+```dotenv
+GOGOCLAW_IMAGE=ghcr.io/biaobiaobiao108/gogoclaw:vX.Y.Z
+```
+
+升级时先备份 `/data`，再有意更新这个版本并重新创建容器。记录使用的镜像引用，方便回滚到同一构建。
+
 端口：
 
 | 端口 | 用途 |
@@ -274,4 +282,6 @@ Compose 和本文的直接运行命令都使用：
 - `no-new-privileges`
 - 有大小限制的可写 `/tmp`
 
-容器是执行沙箱，因此 `tools.approval` 默认关闭。不要挂载 Docker socket，也不要挂载无关的宿主机目录。
+容器提供宿主机隔离边界，但 Agent 仍可访问容器内启用的工具和挂载到 `/data` 的持久文件。命令执行、技能安装和子 Agent 等工具权限较强；如果外部消息或网页内容影响了 Agent 决策，可能导致工作区数据被修改。保持频道 `allow_from` 为明确用户 ID，不要为方便设为 `"*"`，并避免把控制台或频道端点暴露给不可信来源。
+
+`tools.approval` 默认关闭，以便个人实例直接使用。需要人工确认高风险操作时，可在工具配置中启用审批；同时不要挂载 Docker socket 或无关的宿主机目录。容器限制能降低影响范围，但不能替代访问控制和可信输入管理。

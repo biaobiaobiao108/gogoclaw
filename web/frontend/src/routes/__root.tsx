@@ -1,5 +1,6 @@
 import { createRootRoute, Outlet, useRouterState } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 
 import { getLauncherAuthStatus } from "@/api/launcher-auth"
 import { AppLayout } from "@/components/app-layout"
@@ -7,6 +8,7 @@ import { initializeChatStore } from "@/features/chat/controller"
 import { isLauncherAuthPathname } from "@/lib/launcher-login-path"
 
 const RootLayout = () => {
+  const { t } = useTranslation()
   // Prefer the real address bar path: stale embedded bundles may not register
   // /launcher-login or /launcher-setup in the route tree, which would otherwise
   // keep AppLayout + gateway polling → 401 → launcherFetch redirect loop.
@@ -50,11 +52,7 @@ const RootLayout = () => {
         if (err instanceof Error && /^status 40[13]$/.test(err.message)) {
           globalThis.location.assign("/launcher-login")
         } else {
-          setAuthError(
-            err instanceof Error
-              ? err.message
-              : "Auth service unavailable. Reset dashboard password storage and restart the application.",
-          )
+          setAuthError(err instanceof Error ? err.message : "")
         }
       })
   }, [isAuthPage])
@@ -72,13 +70,16 @@ const RootLayout = () => {
 
   return (
     <>
-      {authError && (
+      {authError !== null && (
         <div className="bg-destructive text-destructive-foreground fixed inset-x-0 top-0 z-[100] flex items-center justify-between px-4 py-2 text-sm shadow-md">
-          <span>Auth service error: {authError}</span>
+          <span>
+            {t("auth.serviceError")}:{" "}
+            {authError || t("auth.serviceUnavailable")}
+          </span>
           <button
             className="ml-4 opacity-70 hover:opacity-100"
             onClick={() => setAuthError(null)}
-            aria-label="Dismiss"
+            aria-label={t("common.dismiss")}
           >
             ✕
           </button>
