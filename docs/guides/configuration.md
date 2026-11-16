@@ -1188,7 +1188,9 @@ GoGoClaw supports cron-style scheduled tasks via the `cron` tool. The agent can 
 }
 ```
 
-Scheduled tasks persist across restarts and are stored in `~/.gogoclaw/workspace/cron/`.
+Scheduled tasks persist across restarts and are stored in `~/.gogoclaw/workspace/cron/`. At most four jobs run concurrently; `cron list` and `get` include disabled jobs and their latest status.
+
+The scheduler persists `running` before starting a job. If a process stops during execution or a running job is canceled on shutdown, its result is `unknown`: external effects may already have occurred. A one-shot job is disabled and is not retried automatically; inspect the external result before changing its time and re-enabling it. Recurring jobs continue on their next schedule. Exactly-once execution of external commands and messages cannot be guaranteed.
 
 Command cron jobs can execute shell commands. By default, remote channels cannot schedule command jobs. To allow specific remote channels, set `command_allowed_remotes` to entries such as `"telegram"` or `"telegram:1234567890"`; use `"*"` only if every non-empty channel should be allowed. The `"*"` wildcard is potentially dangerous because any remote channel that can talk to GoGoClaw can schedule shell commands. This does not bypass `allow_command`, `command_confirm`, or exec safety checks.
 

@@ -58,6 +58,9 @@ type CronStore struct {
 
 type JobHandler func(job *CronJob) (string, error)
 
+// Bound concurrent work so a burst of due jobs cannot exhaust the instance.
+const maxConcurrentJobs = 4
+
 type CronService struct {
 	storePath    string
 	store        *CronStore
@@ -186,31 +189,38 @@ func (cs *CronService) checkJobs() {
 		return
 	}
 	now := time.Now().UnixMilli()
+	slots := maxConcurrentJobs - len(cs.inFlight)
+	if slots <= 0 {
+		return
+	}
 	var due []string
+	previous := make(map[string]CronJobState)
+	scheduled := make(map[string]CronJob)
 	for i := range cs.store.Jobs {
 		job := &cs.store.Jobs[i]
 		if job.Enabled && !cs.inFlight[job.ID] && job.State.NextRunAtMS != nil && *job.State.NextRunAtMS <= now {
 			due = append(due, job.ID)
+			previous[job.ID] = cloneCronJob(*job).State
+			job.State.NextRunAtMS = nil
+			job.State.LastRunAtMS = &now
+			job.State.LastStatus = "running"
+			job.State.LastError = ""
+			scheduled[job.ID] = cloneCronJob(*job)
+			if len(due) == slots {
+				break
+			}
 		}
 	}
 	if len(due) == 0 {
 		return
 	}
-	for i := range cs.store.Jobs {
-		for _, id := range due {
-			if cs.store.Jobs[i].ID == id {
-				cs.store.Jobs[i].State.NextRunAtMS = nil
-			}
-		}
-	}
 	if err := cs.saveStoreUnsafe(); err != nil {
 		log.Printf("[cron] failed to save store: %v", err)
 		retry := time.Now().Add(time.Second).UnixMilli()
 		for i := range cs.store.Jobs {
-			for _, id := range due {
-				if cs.store.Jobs[i].ID == id {
-					cs.store.Jobs[i].State.NextRunAtMS = &retry
-				}
+			if state, ok := previous[cs.store.Jobs[i].ID]; ok {
+				cs.store.Jobs[i].State = state
+				cs.store.Jobs[i].State.NextRunAtMS = &retry
 			}
 		}
 		return
@@ -221,18 +231,21 @@ func (cs *CronService) checkJobs() {
 	for _, id := range due {
 		cs.inFlight[id] = true
 		cs.workers.Add(1)
-		go func(id string) { defer cs.workers.Done(); cs.executeJobByID(id) }(id)
+		job := scheduled[id]
+		go func() { defer cs.workers.Done(); cs.executeJobSnapshot(job.ID, &job) }()
 	}
 }
 
-func (cs *CronService) executeJobByID(jobID string) {
+func (cs *CronService) executeJobByID(jobID string) { cs.executeJobSnapshot(jobID, nil) }
+
+func (cs *CronService) executeJobSnapshot(jobID string, scheduled *CronJob) {
 	startTime := time.Now().UnixMilli()
 
 	cs.mu.RLock()
 	var callbackJob *CronJob
 	for i := range cs.store.Jobs {
 		job := &cs.store.Jobs[i]
-		if job.ID == jobID && job.Enabled {
+		if job.ID == jobID && job.Enabled && (scheduled == nil || sameSchedule(job.Schedule, scheduled.Schedule)) {
 			jobCopy := cloneCronJob(*job)
 			callbackJob = &jobCopy
 			break
@@ -243,6 +256,18 @@ func (cs *CronService) executeJobByID(jobID string) {
 	defer func() { cs.mu.Lock(); delete(cs.inFlight, jobID); cs.notify(); cs.mu.Unlock() }()
 
 	if callbackJob == nil {
+		cs.mu.Lock()
+		for i := range cs.store.Jobs {
+			job := &cs.store.Jobs[i]
+			if job.ID == jobID && job.State.LastStatus == "running" {
+				job.State.LastStatus = "skipped"
+				if err := cs.saveStoreUnsafe(); err != nil {
+					log.Printf("[cron] failed to save skipped job: %v", err)
+				}
+				break
+			}
+		}
+		cs.mu.Unlock()
 		log.Printf("[cron] job %s not found, skipping", jobID)
 		return
 	}
@@ -284,9 +309,12 @@ func (cs *CronService) executeJobByID(jobID string) {
 	}
 
 	if err != nil && ctx != nil && ctx.Err() != nil {
+		job.State.LastStatus = "unknown"
+		job.State.LastError = "execution interrupted; external effects may have occurred"
 		if job.Enabled && job.State.NextRunAtMS == nil && sameSchedule(job.Schedule, callbackJob.Schedule) {
-			job.State.NextRunAtMS = callbackJob.Schedule.AtMS
-			if job.Schedule.Kind != "at" {
+			if job.Schedule.Kind == "at" {
+				job.Enabled = false
+			} else {
 				job.State.NextRunAtMS = cs.computeNextRun(&job.Schedule, time.Now().UnixMilli())
 			}
 		}
@@ -397,6 +425,14 @@ func (cs *CronService) recomputeNextRuns() {
 	now := time.Now().UnixMilli()
 	for i := range cs.store.Jobs {
 		job := &cs.store.Jobs[i]
+		if job.State.LastStatus == "running" {
+			job.State.LastStatus = "unknown"
+			job.State.LastError = "process stopped during execution; external effects may have occurred"
+			if job.Schedule.Kind == "at" {
+				job.Enabled = false
+				job.State.NextRunAtMS = nil
+			}
+		}
 		if job.Enabled {
 			// Enabled one-shot jobs are still pending, including those due during downtime.
 			if job.Schedule.Kind == "at" {
@@ -409,6 +445,9 @@ func (cs *CronService) recomputeNextRuns() {
 }
 
 func (cs *CronService) getNextWakeMS() *int64 {
+	if len(cs.inFlight) >= maxConcurrentJobs {
+		return nil
+	}
 	var nextWake *int64
 	for _, job := range cs.store.Jobs {
 		if job.Enabled && !cs.inFlight[job.ID] && (cs.onJob != nil || cs.onJobContext != nil) && job.State.NextRunAtMS != nil {
@@ -474,6 +513,11 @@ func (cs *CronService) AddJob(
 	message string,
 	channel, to string,
 ) (*CronJob, error) {
+	return cs.AddJobWithCommand(name, schedule, message, channel, to, "")
+}
+
+// AddJobWithCommand persists the complete job before it can be scheduled.
+func (cs *CronService) AddJobWithCommand(name string, schedule CronSchedule, message, channel, to, command string) (*CronJob, error) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -490,6 +534,7 @@ func (cs *CronService) AddJob(
 		Payload: CronPayload{
 			Kind:    "agent_turn",
 			Message: message,
+			Command: command,
 			Channel: channel,
 			To:      to,
 		},

@@ -318,17 +318,21 @@ func logMessage(level LogLevel, component string, message string, fields map[str
 
 	appendFields(event, fields)
 
-	event.CallerSkipFrame(skip).Msg(message)
+	event.CallerSkipFrame(skip).Msg(redactText(message))
 }
 
 func appendFields(event *zerolog.Event, fields map[string]any) {
 	for k, v := range fields {
+		if secretField(k) {
+			event.Str(k, "[REDACTED]")
+			continue
+		}
 		// Type switch to avoid double JSON serialization of strings
 		switch val := v.(type) {
 		case error:
-			event.Str(k, val.Error())
+			event.Str(k, redactText(val.Error()))
 		case string:
-			event.Str(k, val)
+			event.Str(k, redactText(val))
 		case int:
 			event.Int(k, val)
 		case int64:
@@ -338,7 +342,7 @@ func appendFields(event *zerolog.Event, fields map[string]any) {
 		case bool:
 			event.Bool(k, val)
 		default:
-			event.Interface(k, v) // Fallback for struct, slice and maps
+			event.Interface(k, redactStructured(v))
 		}
 	}
 }

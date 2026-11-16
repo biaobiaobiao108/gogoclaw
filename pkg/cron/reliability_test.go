@@ -103,8 +103,8 @@ func TestStopWaitsForCanceledJobBeforeRestart(t *testing.T) {
 	awaitSignal(t, stopped)
 	reloaded := NewCronService(path, nil)
 	got, ok := reloaded.GetJob(job.ID)
-	if !ok || !got.Enabled {
-		t.Fatalf("interrupted job lost: %+v", got)
+	if !ok || got.Enabled || got.State.LastStatus != "unknown" {
+		t.Fatalf("interrupted job state: %+v", got)
 	}
 }
 
@@ -169,5 +169,80 @@ func TestFailedOneShotIsRetained(t *testing.T) {
 	got, ok := cs.GetJob(job.ID)
 	if !ok || got.Enabled || got.State.LastStatus != "error" {
 		t.Fatalf("failed job not retained: %+v", got)
+	}
+}
+
+func TestRestartMarksInterruptedOneShotUnknown(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	cs := NewCronService(path, nil)
+	at := time.Now().Add(-time.Minute).UnixMilli()
+	job, err := cs.AddJob("job", CronSchedule{Kind: "at", AtMS: &at}, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs.mu.Lock()
+	cs.store.Jobs[0].State.LastStatus = "running"
+	cs.store.Jobs[0].State.NextRunAtMS = nil
+	if err := cs.saveStoreUnsafe(); err != nil {
+		cs.mu.Unlock()
+		t.Fatal(err)
+	}
+	cs.mu.Unlock()
+	ran := make(chan struct{}, 1)
+	restarted := NewCronService(path, func(*CronJob) (string, error) { ran <- struct{}{}; return "", nil })
+	if err := restarted.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Stop()
+	got, ok := restarted.GetJob(job.ID)
+	if !ok || got.Enabled || got.State.LastStatus != "unknown" {
+		t.Fatalf("unexpected recovered job: %+v", got)
+	}
+	select {
+	case <-ran:
+		t.Fatal("interrupted one-shot ran again")
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+func TestJobConcurrencyIsBounded(t *testing.T) {
+	started := make(chan struct{}, maxConcurrentJobs+1)
+	release := make(chan struct{})
+	cs := NewCronService(filepath.Join(t.TempDir(), "jobs.json"), func(*CronJob) (string, error) { started <- struct{}{}; <-release; return "", nil })
+	at := time.Now().Add(300 * time.Millisecond).UnixMilli()
+	for i := 0; i < maxConcurrentJobs+1; i++ {
+		if _, err := cs.AddJob("job", CronSchedule{Kind: "at", AtMS: &at}, "", "", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := cs.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Stop()
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(release) })
+	for i := 0; i < maxConcurrentJobs; i++ {
+		awaitSignal(t, started)
+	}
+	select {
+	case <-started:
+		t.Fatal("concurrency limit exceeded")
+	case <-time.After(200 * time.Millisecond):
+	}
+	releaseOnce.Do(func() { close(release) })
+	awaitSignal(t, started)
+}
+
+func TestAddCommandIsPersistedBeforeScheduling(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	cs := NewCronService(path, nil)
+	at := time.Now().Add(time.Hour).UnixMilli()
+	job, err := cs.AddJobWithCommand("command", CronSchedule{Kind: "at", AtMS: &at}, "run", "cli", "direct", "echo ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := NewCronService(path, nil).GetJob(job.ID)
+	if !ok || got.Payload.Command != "echo ready" {
+		t.Fatalf("persisted command: %+v", got)
 	}
 }

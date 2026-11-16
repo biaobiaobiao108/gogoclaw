@@ -234,32 +234,23 @@ func (t *CronTool) addJob(ctx context.Context, args map[string]any) *ToolResult 
 	// Truncate message for job name (max 30 chars)
 	messagePreview := utils.Truncate(message, 30)
 
-	job, err := t.cronService.AddJob(
+	job, err := t.cronService.AddJobWithCommand(
 		messagePreview,
 		schedule,
 		message,
 		channel,
 		chatID,
+		command,
 	)
 	if err != nil {
 		return ErrorResult(fmt.Sprintf("Error adding job: %v", err))
-	}
-
-	// Apply optional payload fields and persist in a single UpdateJob call
-	needsUpdate := false
-	if command != "" {
-		job.Payload.Command = command
-		needsUpdate = true
-	}
-	if needsUpdate {
-		t.cronService.UpdateJob(job)
 	}
 
 	return SilentResult(fmt.Sprintf("Cron job added: %s (id: %s)", job.Name, job.ID))
 }
 
 func (t *CronTool) listJobs(ctx context.Context) *ToolResult {
-	jobs := t.cronService.ListJobs(false)
+	jobs := t.cronService.ListJobs(true)
 
 	var accessibleJobs []cron.CronJob
 	for _, job := range jobs {
@@ -286,7 +277,7 @@ func (t *CronTool) listJobs(ctx context.Context) *ToolResult {
 		} else {
 			scheduleInfo = "unknown"
 		}
-		result.WriteString(fmt.Sprintf("- %s (id: %s, %s)\n", j.Name, j.ID, scheduleInfo))
+		result.WriteString(fmt.Sprintf("- %s (id: %s, %s, enabled: %t, last status: %s, last error: %s)\n", j.Name, j.ID, scheduleInfo, j.Enabled, j.State.LastStatus, j.State.LastError))
 	}
 
 	return SilentResult(result.String())

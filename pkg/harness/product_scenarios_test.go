@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -121,7 +123,24 @@ func TestProductFlowSQLiteSessionSurvivesAgentLoopRestart(t *testing.T) {
 func TestProductFlowConcurrentSessionsSurviveRestarts(t *testing.T) {
 	workspace := t.TempDir()
 	sessionDir := filepath.Join(workspace, "sessions")
-	const sessions, rounds = 8, 3
+	const sessions = 8
+	rounds := 3
+	if value := os.Getenv("GOGOCLAW_HARNESS_RESTART_ROUNDS"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 100000 {
+			t.Fatal("GOGOCLAW_HARNESS_RESTART_ROUNDS must be an integer between 1 and 100000")
+		}
+		rounds = parsed
+	}
+	started := time.Now()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	t.Logf("restart stress: sessions=%d rounds=%d initial_goroutines=%d initial_heap_bytes=%d", sessions, rounds, runtime.NumGoroutine(), before.HeapAlloc)
+	defer func() {
+		var after runtime.MemStats
+		runtime.ReadMemStats(&after)
+		t.Logf("restart stress complete: elapsed=%s goroutines=%d heap_bytes=%d", time.Since(started), runtime.NumGoroutine(), after.HeapAlloc)
+	}()
 
 	for round := 0; round < rounds; round++ {
 		store, err := memory.NewSQLiteStore(sessionDir)
@@ -170,6 +189,11 @@ func TestProductFlowConcurrentSessionsSurviveRestarts(t *testing.T) {
 		if closeErr != nil {
 			t.Fatal(closeErr)
 		}
+		if rounds > 3 && (round+1)%10 == 0 {
+			var stats runtime.MemStats
+			runtime.ReadMemStats(&stats)
+			t.Logf("restart stress: round=%d/%d elapsed=%s goroutines=%d heap_bytes=%d", round+1, rounds, time.Since(started), runtime.NumGoroutine(), stats.HeapAlloc)
+		}
 	}
 
 	store, err := memory.NewSQLiteStore(sessionDir)
@@ -180,7 +204,7 @@ func TestProductFlowConcurrentSessionsSurviveRestarts(t *testing.T) {
 	t.Cleanup(func() { _ = backend.Close() })
 	for i := 0; i < sessions; i++ {
 		key := fmt.Sprintf("agent:main:restart-load-%d", i)
-		history, err := backend.GetHistoryChecked(key)
+		history, err := backend.GetTranscriptChecked(key)
 		if err != nil {
 			t.Fatal(err)
 		}

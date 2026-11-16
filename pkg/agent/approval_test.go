@@ -258,3 +258,34 @@ func TestRespondPersistedApprovalRejectsClosedAndExpiredRequests(t *testing.T) {
 		t.Fatal("expected expired approval to be rejected")
 	}
 }
+
+func TestCanceledApprovalCannotBeApprovedLater(t *testing.T) {
+	manager := newHumanApprovalManager(time.Hour)
+	notified := make(chan approval.Request, 1)
+	manager.setNotifier(func(_ context.Context, req approval.Request) error { notified <- req; return nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	req := approval.Request{SessionKey: "session", Tool: "exec", Arguments: map[string]any{"command": "echo test"}}
+	fingerprint := approvalFingerprint(req.SessionKey, req.Tool, req.Arguments)
+	result := make(chan error, 1)
+	var statuses []approval.Request
+	go func() {
+		_, err := manager.request(ctx, req, fingerprint, func(v approval.Request) error { statuses = append(statuses, v); return nil })
+		result <- err
+	}()
+	pending := <-notified
+	cancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("request error = %v", err)
+	}
+	if len(statuses) != 2 || statuses[1].Status != approval.StatusExpired {
+		t.Fatalf("statuses: %+v", statuses)
+	}
+	if err := manager.respond(context.Background(), approval.Response{ID: pending.ID, Approve: true, Scope: approval.ScopeSession}); !errors.Is(err, errApprovalNotFound) {
+		t.Fatalf("late response error = %v", err)
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if len(manager.grants[req.SessionKey]) != 0 {
+		t.Fatal("canceled request granted future access")
+	}
+}

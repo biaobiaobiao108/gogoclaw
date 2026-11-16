@@ -43,6 +43,12 @@ func cronListCmd(storePath string) {
 		fmt.Printf("    Schedule: %s\n", schedule)
 		fmt.Printf("    Status: %s\n", status)
 		fmt.Printf("    Next run: %s\n", nextRun)
+		if job.State.LastStatus != "" {
+			fmt.Printf("    Last status: %s\n", job.State.LastStatus)
+		}
+		if job.State.LastError != "" {
+			fmt.Printf("    Last error: %s\n", job.State.LastError)
+		}
 	}
 }
 

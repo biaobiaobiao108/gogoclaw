@@ -46,7 +46,7 @@ globally, leaving the frontend dependency lockfile unchanged.
 
 The container job also runs `scripts/test-container-restart.sh` against the
 just-built image. It creates a disposable container and volume, sets a dashboard
-password, restarts the container, and verifies login using the persisted data.
+password, restarts the container, backs up the stopped data volume, restores it into a fresh volume, and verifies login using the restored data.
 Run it locally after `docker build -f docker/Dockerfile -t gogoclaw:ci .`.
 
 ## How the Runner Works
