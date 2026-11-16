@@ -14,9 +14,37 @@ cat > "$bin_dir/docker" <<'MOCK_DOCKER'
 set -euo pipefail
 case "$1 $2" in
   "container inspect"|"volume inspect") exit 1 ;;
-  "volume create"|"volume rm"|"rm -f"|"run -d") exit 0 ;;
+  "volume create"|"volume rm"|"rm -f") exit 0 ;;
+  "run -d")
+    if grep -q '^restored$' "$SMOKE_STATE"; then
+      [[ " $* " == *-restored:/data* ]] || { echo 'restored container did not use restored volume' >&2; exit 1; }
+      echo restored_container >> "$SMOKE_STATE"
+    fi
+    ;;
+  "stop "*)
+    grep -q '^restarted$' "$SMOKE_STATE"
+    echo stopped >> "$SMOKE_STATE"
+    ;;
+  "run --rm")
+    grep -q '^stopped$' "$SMOKE_STATE"
+    if [[ " $* " == *'tar czf /backup/data.tgz -C /source .'* ]]; then
+      [[ " $* " == *-data:/source:ro* ]]
+      echo archived >> "$SMOKE_STATE"
+    elif [[ " $* " == *'tar xzf /backup/data.tgz -C /target'* ]]; then
+      grep -q '^archived$' "$SMOKE_STATE"
+      [[ " $* " == *-restored:/target* ]]
+      echo restored >> "$SMOKE_STATE"
+    else
+      printf 'unexpected backup invocation: %s\n' "$*" >&2; exit 1
+    fi
+    ;;
+  "rm "*)
+    grep -q '^restored$' "$SMOKE_STATE"
+    ;;
   "port "*)
-    if grep -q '^restarted$' "$SMOKE_STATE"; then
+    if grep -q '^restored_container$' "$SMOKE_STATE"; then
+      echo '127.0.0.1:54221'
+    elif grep -q '^restarted$' "$SMOKE_STATE"; then
       echo '127.0.0.1:53177'
     else
       echo '127.0.0.1:49123'
@@ -97,4 +125,7 @@ PATH="$bin_dir:$PATH" bash "$repo_root/scripts/test-container-restart.sh"
 grep -q '^49123/api/auth/setup http://127.0.0.1:49123$' "$SMOKE_REQUESTS"
 grep -q '^53177/api/auth/login http://127.0.0.1:53177$' "$SMOKE_REQUESTS"
 grep -q '^53177/api/auth/status $' "$SMOKE_REQUESTS"
-echo "Container restart smoke script passed across port change"
+grep -q '^54221/api/auth/login http://127.0.0.1:54221$' "$SMOKE_REQUESTS"
+grep -q '^54221/api/auth/status $' "$SMOKE_REQUESTS"
+grep -q '^restored_container$' "$SMOKE_STATE"
+echo "Container restart and restore smoke script passed across port changes"
