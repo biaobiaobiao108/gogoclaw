@@ -26,6 +26,7 @@ type stubJobExecutor struct {
 	publishedChan   string
 	publishedChatID string
 	publishedKey    string
+	publishErr      error
 }
 
 func (s *stubJobExecutor) ProcessDirectWithChannel(
@@ -39,17 +40,21 @@ func (s *stubJobExecutor) ProcessDirectWithChannel(
 	return s.response, s.err
 }
 
-func (s *stubJobExecutor) PublishResponseIfNeeded(
+func (s *stubJobExecutor) PublishResponseIfNeededChecked(
 	_ context.Context,
 	channel, chatID, sessionKey, response string,
-) {
+) error {
+	if s.publishErr != nil {
+		return s.publishErr
+	}
 	if s.alreadySent {
-		return
+		return nil
 	}
 	s.publishedResp = response
 	s.publishedChan = channel
 	s.publishedChatID = chatID
 	s.publishedKey = sessionKey
+	return nil
 }
 
 func newTestCronToolWithExecutorAndConfig(t *testing.T, executor JobExecutor, cfg *config.Config) *CronTool {
@@ -1290,5 +1295,19 @@ func TestCronTool_ExecuteJobReturnsCommandFailure(t *testing.T) {
 	job.Payload.Command = "exit 1"
 	if _, err := tool.ExecuteJob(context.Background(), job); err == nil {
 		t.Fatal("failed command must return an error to the scheduler")
+	}
+}
+
+func TestCronTool_ExecuteJobReportsPublishFailures(t *testing.T) {
+	executor := &stubJobExecutor{response: "reply", publishErr: fmt.Errorf("outbound failed")}
+	tool := newTestCronToolWithExecutorAndConfig(t, executor, nil)
+	job := &cron.CronJob{ID: "test", Payload: cron.CronPayload{Message: "hello", Channel: "cli", To: "direct"}}
+	if _, err := tool.ExecuteJob(context.Background(), job); err == nil || !strings.Contains(err.Error(), "outbound failed") {
+		t.Fatalf("agent delivery error: %v", err)
+	}
+	tool.msgBus.Close()
+	job.Payload.Command = "echo hello"
+	if _, err := tool.ExecuteJob(context.Background(), job); err == nil || !strings.Contains(err.Error(), "publish scheduled command") {
+		t.Fatalf("command delivery error: %v", err)
 	}
 }

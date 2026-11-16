@@ -954,8 +954,8 @@ func setupCronTool(
 	}
 
 	if cronTool != nil {
-		cronService.SetOnJob(func(job *cron.CronJob) (string, error) {
-			return cronTool.ExecuteJob(context.Background(), job)
+		cronService.SetContextOnJob(func(ctx context.Context, job *cron.CronJob) (string, error) {
+			return cronTool.ExecuteJob(ctx, job)
 		})
 	}
 

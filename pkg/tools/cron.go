@@ -21,7 +21,7 @@ type JobExecutor interface {
 	ProcessDirectWithChannel(ctx context.Context, content, sessionKey, channel, chatID string) (string, error)
 	// PublishResponseIfNeeded sends response to the outbound bus only when the
 	// agent did not already deliver content through the message tool in this round.
-	PublishResponseIfNeeded(ctx context.Context, channel, chatID, sessionKey, response string)
+	PublishResponseIfNeededChecked(ctx context.Context, channel, chatID, sessionKey, response string) error
 }
 
 // CronTool provides scheduling capabilities for the agent
@@ -391,7 +391,11 @@ func (t *CronTool) removeJob(ctx context.Context, args map[string]any) *ToolResu
 		return ErrorResult(fmt.Sprintf("Job %s is not accessible from this channel", jobID))
 	}
 
-	if t.cronService.RemoveJob(jobID) {
+	removed, err := t.cronService.RemoveJob(jobID)
+	if err != nil {
+		return ErrorResult(fmt.Sprintf("Error removing job: %v", err))
+	}
+	if removed {
 		return SilentResult(fmt.Sprintf("Cron job removed: %s", jobID))
 	}
 	return ErrorResult(fmt.Sprintf("Job %s not found", jobID))
@@ -578,7 +582,10 @@ func (t *CronTool) enableJob(ctx context.Context, args map[string]any, enable bo
 		return ErrorResult(fmt.Sprintf("Job %s is not accessible from this channel", jobID))
 	}
 
-	updatedJob := t.cronService.EnableJob(jobID, enable)
+	updatedJob, err := t.cronService.EnableJob(jobID, enable)
+	if err != nil {
+		return ErrorResult(fmt.Sprintf("Error changing job: %v", err))
+	}
 	if updatedJob == nil {
 		return ErrorResult(fmt.Sprintf("Job %s not found", jobID))
 	}
@@ -610,10 +617,13 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) (string, e
 			output := "Error executing scheduled command: command execution is disabled"
 			pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer pubCancel()
-			t.msgBus.PublishOutbound(pubCtx, bus.OutboundMessage{
+			pubErr := t.msgBus.PublishOutbound(pubCtx, bus.OutboundMessage{
 				Context: bus.NewOutboundContext(channel, chatID, ""),
 				Content: output,
 			})
+			if pubErr != nil {
+				return "", fmt.Errorf("%s; publish result: %w", output, pubErr)
+			}
 			return "", fmt.Errorf("%s", output)
 		}
 
@@ -634,10 +644,13 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) (string, e
 
 		pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer pubCancel()
-		t.msgBus.PublishOutbound(pubCtx, bus.OutboundMessage{
+		pubErr := t.msgBus.PublishOutbound(pubCtx, bus.OutboundMessage{
 			Context: bus.NewOutboundContext(channel, chatID, ""),
 			Content: output,
 		})
+		if pubErr != nil {
+			return "", fmt.Errorf("publish scheduled command result: %w", pubErr)
+		}
 		if result.IsError {
 			return "", fmt.Errorf("%s", output)
 		}
@@ -659,7 +672,9 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) (string, e
 	}
 
 	if response != "" {
-		t.executor.PublishResponseIfNeeded(ctx, channel, chatID, sessionKey, response)
+		if err := t.executor.PublishResponseIfNeededChecked(ctx, channel, chatID, sessionKey, response); err != nil {
+			return "", fmt.Errorf("publish scheduled agent response: %w", err)
+		}
 	}
 	return "ok", nil
 }

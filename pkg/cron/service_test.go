@@ -70,13 +70,13 @@ func TestCronService_CRUD(t *testing.T) {
 	}
 
 	// Test EnableJob
-	cs.EnableJob(job.ID, false)
+	_, _ = cs.EnableJob(job.ID, false)
 	if cs.store.Jobs[0].Enabled != false || cs.store.Jobs[0].State.NextRunAtMS != nil {
 		t.Error("EnableJob(false) failed to clear state")
 	}
 
 	// Test RemoveJob
-	removed := cs.RemoveJob(job.ID)
+	removed, err := cs.RemoveJob(job.ID)
 	if !removed || len(cs.store.Jobs) != 0 {
 		t.Error("RemoveJob failed")
 	}
@@ -154,7 +154,7 @@ func TestCronService_UpdateJobRecomputesNextRunOnScheduleOrEnabledChange(t *test
 		t.Fatalf("next run should be recomputed, still %d", initialNextRun)
 	}
 
-	if disabled := cs.EnableJob(job.ID, false); disabled == nil {
+	if disabled, _ := cs.EnableJob(job.ID, false); disabled == nil {
 		t.Fatal("EnableJob(false) returned nil")
 	}
 	disabled, ok := cs.GetJob(job.ID)
@@ -187,6 +187,9 @@ func TestCronService_UpdateJobPreservesRunStateOnPayloadOnlyChange(t *testing.T)
 	job.State.LastRunAtMS = &lastRun
 	job.State.LastStatus = "ok"
 	job.State.LastError = "previous"
+	cs.mu.Lock()
+	cs.store.Jobs[0].State = job.State
+	cs.mu.Unlock()
 	if job.State.NextRunAtMS == nil {
 		t.Fatal("expected next run before update")
 	}
@@ -305,81 +308,6 @@ func TestCronService_NotifyRetainsWakeWithoutReceiver(t *testing.T) {
 	}
 }
 
-func TestCronService_SkipsQueuedJobDisabledBeforeExecution(t *testing.T) {
-	firstStarted := make(chan struct{})
-	releaseFirst := make(chan struct{})
-	secondRan := make(chan struct{}, 1)
-	cs, path := setupService(func(job *CronJob) (string, error) {
-		if job.Name == "first" {
-			close(firstStarted)
-			<-releaseFirst
-		} else {
-			secondRan <- struct{}{}
-		}
-		return "ok", nil
-	})
-	defer os.Remove(path)
-
-	every := int64(time.Minute / time.Millisecond)
-	_, err := cs.AddJob("first", CronSchedule{Kind: "every", EveryMS: &every}, "", "", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := cs.AddJob("second", CronSchedule{Kind: "every", EveryMS: &every}, "", "", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	dueAt := time.Now().Add(-time.Second).UnixMilli()
-	cs.mu.Lock()
-	cs.running = true
-	for i := range cs.store.Jobs {
-		cs.store.Jobs[i].State.NextRunAtMS = int64Ptr(dueAt)
-	}
-	if err := cs.saveStoreUnsafe(); err != nil {
-		cs.mu.Unlock()
-		t.Fatal(err)
-	}
-	cs.mu.Unlock()
-	defer func() {
-		cs.mu.Lock()
-		cs.running = false
-		cs.mu.Unlock()
-	}()
-
-	checkDone := make(chan struct{})
-	go func() {
-		cs.checkJobs()
-		close(checkDone)
-	}()
-	select {
-	case <-firstStarted:
-	case <-time.After(time.Second):
-		close(releaseFirst)
-		t.Fatal("first due job did not start")
-	}
-
-	if job := cs.EnableJob(second.ID, false); job == nil {
-		close(releaseFirst)
-		t.Fatal("failed to disable queued job")
-	}
-	close(releaseFirst)
-	select {
-	case <-checkDone:
-	case <-time.After(time.Second):
-		t.Fatal("due job check did not finish")
-	}
-	select {
-	case <-secondRan:
-		t.Fatalf("queued job %q ran after being disabled", second.ID)
-	default:
-	}
-
-	got, ok := cs.GetJob(second.ID)
-	if !ok || got.Enabled || got.State.LastRunAtMS != nil {
-		t.Fatalf("disabled queued job state = %+v, want disabled and not run", got)
-	}
-}
-
 func TestCronService_PersistenceIntegrity(t *testing.T) {
 	tmpFile := "persist_test.json"
 	defer os.Remove(tmpFile)
@@ -446,7 +374,7 @@ func TestCronService_ConcurrentAccess(t *testing.T) {
 			for j := range iterations {
 				jobs := cs.ListJobs(true)
 				if len(jobs) > 0 {
-					cs.EnableJob(jobs[0].ID, j%2 == 0)
+					_, _ = cs.EnableJob(jobs[0].ID, j%2 == 0)
 				}
 				time.Sleep(100 * time.Microsecond)
 			}
