@@ -69,7 +69,16 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
-      - run: bun audit
+      # No patched picomatch release exists yet (GHSA-fc5q-39xc-vjpf).
+      # It is used by frontend build tooling, not shipped in the runtime image.
+      # Fail when the latest release changes so this exception is reassessed.
+      - name: Audit dependencies
+        run: |
+          if [ "$(bun pm view picomatch version)" != "4.0.7" ]; then
+            echo "A new picomatch release is available; update dependencies and reassess GHSA-fc5q-39xc-vjpf."
+            exit 1
+          fi
+          bun audit --ignore GHSA-fc5q-39xc-vjpf
       - run: bun run fmt:check
       - run: bun test --reporter=dots
       - run: bun run build
