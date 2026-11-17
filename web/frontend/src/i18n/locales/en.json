@@ -1,4 +1,21 @@
 {
+  "sessionManagement": {
+    "stopGateway": "Stop the gateway before deleting sessions.",
+    "title": "Sessions",
+    "refresh": "Refresh",
+    "search": "Search channel, user or session ID",
+    "loading": "Loading…",
+    "empty": "No sessions found",
+    "unknown": "Unknown channel",
+    "messages_one": "{{count}} message",
+    "messages_other": "{{count}} messages",
+    "select": "Select a session to view its history",
+    "delete": "Delete",
+    "older": "Load earlier messages",
+    "deleteTitle": "Delete session?",
+    "deleteDescription": "This deletes the session history and search index. Stop the gateway first. This cannot be undone.",
+    "cancel": "Cancel"
+  },
   "navigation": {
     "chat": "Chat",
     "model_group": "Models",

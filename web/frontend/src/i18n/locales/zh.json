@@ -1,4 +1,21 @@
 {
+  "sessionManagement": {
+    "stopGateway": "请先停止 Gateway，再删除会话。",
+    "title": "会话管理",
+    "refresh": "刷新",
+    "search": "搜索渠道、用户或会话 ID",
+    "loading": "正在加载…",
+    "empty": "没有找到会话",
+    "unknown": "未知渠道",
+    "messages_one": "{{count}} 条消息",
+    "messages_other": "{{count}} 条消息",
+    "select": "选择一个会话查看历史",
+    "delete": "删除",
+    "older": "加载更早的消息",
+    "deleteTitle": "删除会话？",
+    "deleteDescription": "会删除此会话的历史和检索索引。请先停止 Gateway；此操作无法撤销。",
+    "cancel": "取消"
+  },
   "navigation": {
     "chat": "对话",
     "model_group": "模型",
