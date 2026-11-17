@@ -1066,7 +1066,21 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	removed := false
-	if ref, err := h.findPicoJSONLSession(dir, sessionID); err == nil {
+	ref, err := h.findPicoJSONLSession(dir, sessionID)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		logger.Warnf("failed to find session %s: %v", sessionID, err)
+		http.Error(w, "failed to find session", http.StatusInternalServerError)
+		return
+	}
+	refFound := err == nil
+	legacyRef, err := h.findLegacyPicoSession(dir, sessionID)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		logger.Warnf("failed to find legacy session %s: %v", sessionID, err)
+		http.Error(w, "failed to find session", http.StatusInternalServerError)
+		return
+	}
+	legacyFound := err == nil
+	if refFound {
 		base := filepath.Join(dir, sanitizeSessionKey(ref.Key))
 		if sess, _, err := h.readJSONLSessionInfo(dir, ref.Key); err != nil {
 			http.Error(w, "failed to read session", http.StatusInternalServerError)
@@ -1105,7 +1119,7 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if legacyRef, err := h.findLegacyPicoSession(dir, sessionID); err == nil {
+	if legacyFound {
 		legacy, err := h.readLegacySession(legacyRef.Path)
 		if err != nil {
 			http.Error(w, "failed to read session", http.StatusInternalServerError)
@@ -1135,6 +1149,8 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	}
 	if cleanupErr := h.cleanupDeletedSessionData(dir, sessionID); cleanupErr != nil {
 		logger.Warnf("failed to clean chat data for deleted session %s: %v", sessionID, cleanupErr)
+		http.Error(w, "session deleted but failed to clean associated data", http.StatusInternalServerError)
+		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)

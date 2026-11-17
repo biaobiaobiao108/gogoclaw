@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,55 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 )
+
+type failingClearStore struct {
+	*session.StoreBackend
+	historyErr error
+	summaryErr error
+}
+
+func (s *failingClearStore) SetHistoryChecked(key string, history []providers.Message) error {
+	if s.historyErr != nil {
+		return s.historyErr
+	}
+	return s.StoreBackend.SetHistoryChecked(key, history)
+}
+
+func (s *failingClearStore) SetSummaryChecked(key, summary string) error {
+	if s.summaryErr != nil {
+		return s.summaryErr
+	}
+	return s.StoreBackend.SetSummaryChecked(key, summary)
+}
+
+func TestSeahorseClearReportsSessionWriteFailures(t *testing.T) {
+	for _, field := range []string{"history", "summary"} {
+		t.Run(field, func(t *testing.T) {
+			root := t.TempDir()
+			raw, err := memory.NewSQLiteStore(filepath.Join(root, "sessions"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer raw.Close()
+			failure := errors.New("write failed")
+			store := &failingClearStore{StoreBackend: session.NewStoreBackend(raw)}
+			if field == "history" {
+				store.historyErr = failure
+			} else {
+				store.summaryErr = failure
+			}
+			engine, err := seahorse.NewEngine(seahorse.Config{DBPath: filepath.Join(root, "index.db")}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer engine.Close()
+			mgr := &seahorseContextManager{engine: engine, sessions: store}
+			if err := mgr.Clear(context.Background(), "test"); !errors.Is(err, failure) {
+				t.Fatalf("Clear() error = %v, want %v", err, failure)
+			}
+		})
+	}
+}
 
 // seahorseTestProvider implements providers.LLMProvider for seahorse tests.
 type seahorseTestProvider struct {

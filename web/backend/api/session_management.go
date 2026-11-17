@@ -165,6 +165,9 @@ func (h *Handler) deleteManagedSession(w http.ResponseWriter, r *http.Request) {
 	if pico, ok := sessionRefFromMeta(meta); ok {
 		if err := h.cleanupDeletedSessionData(ref.Dir, pico.ID); err != nil {
 			logger.Warnf("failed to clean chat data for deleted session %s: %v", pico.ID, err)
+			h.pruneSessionListCache(nil, ref.Dir)
+			http.Error(w, "session deleted but failed to clean associated data", http.StatusInternalServerError)
+			return
 		}
 	}
 	h.pruneSessionListCache(nil, ref.Dir)
