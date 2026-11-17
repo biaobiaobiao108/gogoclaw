@@ -21,6 +21,7 @@ type Handler struct {
 	serverCIDRs                []string
 	serverAllowLocalhostBypass bool
 	serverExternalAccess       middleware.ExternalAccess
+	publicExposureInput        PublicExposureInput
 	debug                      bool
 	// Serializes config load-modify-save cycles across API handlers.
 	configMu            sync.Mutex
@@ -65,6 +66,13 @@ func (h *Handler) SetServerOptions(port int, public bool, publicExplicit bool, a
 func (h *Handler) SetServerAccessOptions(allowLocalhostBypass bool, externalAccess middleware.ExternalAccess) {
 	h.serverAllowLocalhostBypass = allowLocalhostBypass
 	h.serverExternalAccess = externalAccess
+}
+
+// SetPublicExposureInput stores launcher exposure details used by the gateway
+// status API and subprocess environment.
+func (h *Handler) SetPublicExposureInput(input PublicExposureInput) {
+	h.publicExposureInput = input
+	h.publicExposureInput.AllowedCIDRs = append([]string(nil), input.AllowedCIDRs...)
 }
 
 // SetServerBindHost stores the launcher's effective bind host.

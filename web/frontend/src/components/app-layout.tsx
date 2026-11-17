@@ -3,6 +3,7 @@ import { Toaster } from "sonner"
 
 import { AppHeader } from "@/components/app-header"
 import { AppSidebar } from "@/components/app-sidebar"
+import { PublicExposureBanner } from "@/components/public-exposure-banner"
 import { TourGuide } from "@/components/tour/tour-guide"
 import { SidebarProvider } from "@/components/ui/sidebar"
 
@@ -13,6 +14,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       className="flex h-dvh flex-col overflow-hidden"
     >
       <AppHeader />
+      <PublicExposureBanner />
 
       <div className="flex flex-1 overflow-hidden">
         <AppSidebar />

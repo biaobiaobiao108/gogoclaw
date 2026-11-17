@@ -47,3 +47,21 @@ gogoclaw gateway --debug --no-truncate
 * 验证发送给提供商的消息的确切语法。
 * 读取 `exec`、`web_fetch` 或 `read_file` 等工具的完整输出。
 * 调试保存在内存中的会话历史。
+
+## SQLite 启动完整性
+
+进程在读写会话数据之前，会通过 `PRAGMA quick_check(1)` 检查 `sessions/sessions.db`。Schema 初始化在事务中执行；检查失败时会拒绝打开数据库，而不是带着损坏状态继续运行。
+
+需要完整检查、备份或恢复时，请使用 `gogoclaw storage` 命令，参见 [SQLite 存储恢复](storage-recovery.zh.md)。
+
+## 长时运行 soak
+
+`TestProductSoak` 默认跳过，设置时长后启用：
+
+```bash
+GOGOCLAW_SOAK_DURATION=20m make soak-test
+```
+
+测试会持续运行多轮对话，并输出 CSV，记录 RSS、goroutine、Go heap/sys、SQLite、WAL 与日志占用。可用 `GOGOCLAW_SOAK_REPORT` 指定 CSV 路径；可选阈值为 `GOGOCLAW_SOAK_MAX_RSS_GROWTH_MB` 与 `GOGOCLAW_SOAK_MAX_GOROUTINE_GROWTH`，Linux 下会报告 RSS。
+
+可靠性工作流会运行 20 分钟 soak 并上传报告 artifact，不包含 NAS 72 小时测试。

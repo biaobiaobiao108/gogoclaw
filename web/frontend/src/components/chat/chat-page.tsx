@@ -1,4 +1,4 @@
-import { IconArrowDown, IconLayoutSidebar, IconPlus } from "@tabler/icons-react"
+import { IconLayoutSidebar, IconPlus } from "@tabler/icons-react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useAtom } from "jotai"
 import {
@@ -13,17 +13,18 @@ import {
 } from "react"
 import { useTranslation } from "react-i18next"
 
-import { deleteSessionAttachment, getUploadConfig } from "@/api/sessions"
-import { ActiveWorkIndicator } from "@/components/chat/active-work-indicator"
-import { ActivityTimeline } from "@/components/chat/activity-timeline"
+import { deleteSessionAttachment } from "@/api/sessions"
 import { ApprovalPanel } from "@/components/chat/approval-panel"
-import { AssistantMessage } from "@/components/chat/assistant-message"
 import { ChatComposer } from "@/components/chat/chat-composer"
-import { ChatEmptyState } from "@/components/chat/chat-empty-state"
+import {
+  ChatInterruptedNotice,
+  ChatScrollToBottom,
+  ChatTaskPlan,
+} from "@/components/chat/chat-page-notices"
+import { ChatStreamRowContent } from "@/components/chat/chat-stream-row"
+import { getCachedUploadLimit } from "@/components/chat/chat-upload-limit"
 import { ModelSelector } from "@/components/chat/model-selector"
-import { ProcessMessage } from "@/components/chat/process-message"
 import { SessionHistoryMenu } from "@/components/chat/session-history-menu"
-import { UserMessage } from "@/components/chat/user-message"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import {
@@ -60,30 +61,6 @@ import {
   estimateChatStreamRow,
   resolveChatInputDisabledReason,
 } from "./chat-page-logic"
-
-let cachedUploadLimit: number | null = null
-let uploadLimitPromise: Promise<number> | null = null
-
-async function getCachedUploadLimit(): Promise<number> {
-  if (cachedUploadLimit !== null) return cachedUploadLimit
-  if (!uploadLimitPromise) {
-    uploadLimitPromise = getUploadConfig()
-      .then((config) => {
-        const limit =
-          config.max_media_size > 0 ? config.max_media_size : 20 * 1024 * 1024
-        cachedUploadLimit = limit
-        return limit
-      })
-      .catch((error) => {
-        console.warn("Failed to load attachment limit:", error)
-        return 20 * 1024 * 1024
-      })
-      .finally(() => {
-        uploadLimitPromise = null
-      })
-  }
-  return uploadLimitPromise
-}
 
 export function ChatPage() {
   const { t } = useTranslation()
@@ -145,7 +122,7 @@ export function ChatPage() {
   const [drafts, setDrafts] = useAtom(chatDraftsAtom)
   const [isDragActive, setIsDragActive] = useState(false)
   const [maxAttachmentSize, setMaxAttachmentSize] = useState(
-    () => cachedUploadLimit ?? 20 * 1024 * 1024,
+    () => 20 * 1024 * 1024,
   )
   const autoScrollEnabledRef = useRef(
     initialViewport?.autoScrollEnabled ?? true,
@@ -901,166 +878,58 @@ export function ChatPage() {
                     className="absolute top-0 left-0 w-full pb-6"
                     style={{ transform: `translateY(${virtualRow.start}px)` }}
                   >
-                    {row.kind === "loadOlder" && (
-                      <div className="flex justify-center">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void handleLoadOlderHistory()}
-                          disabled={isLoadingOlderHistory}
-                        >
-                          {isLoadingOlderHistory
-                            ? t("chat.loadingEarlierMessages")
-                            : t("chat.loadEarlierMessages")}
-                        </Button>
-                      </div>
-                    )}
-                    {row.kind === "historyLoading" && (
-                      <div className="space-y-3" aria-busy="true">
-                        <span className="sr-only">
-                          {t("chat.loadingConversation")}
-                        </span>
-                        {[72, 88, 56].map((width) => (
-                          <div
-                            key={width}
-                            className="bg-muted/50 h-4 animate-pulse rounded motion-reduce:animate-none"
-                            style={{ width: `${width}%` }}
-                            aria-hidden="true"
-                          />
-                        ))}
-                      </div>
-                    )}
-                    {row.kind === "historyError" && (
-                      <div
-                        className="border-border bg-card flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
-                        role="alert"
-                      >
-                        <div>
-                          <p className="text-sm font-medium">
-                            {t("chat.historyLoadTitle")}
-                          </p>
-                          <p className="text-muted-foreground mt-0.5 text-xs">
-                            {t("chat.historyLoadFailed")}
-                          </p>
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void retryHistory()}
-                        >
-                          {t("chat.historyRetry")}
-                        </Button>
-                      </div>
-                    )}
-                    {row.kind === "empty" &&
-                      (modelsLoading && !hasDefaultModel ? (
-                        <div role="status">
-                          {t("chat.disabledPlaceholder.modelsLoading")}
-                        </div>
-                      ) : modelsError && !hasDefaultModel ? null : (
-                        <ChatEmptyState
-                          hasAvailableModels={hasAvailableModels}
-                          defaultModelName={defaultModelName}
-                          isConnected={isGatewayRunning}
-                          onSelectPrompt={(prompt) => {
-                            setInput(prompt)
-                          }}
-                        />
-                      ))}
-                    {row.kind === "message" &&
-                      (row.message.role === "assistant" ? (
-                        <AssistantMessage
-                          content={row.message.content}
-                          attachments={row.message.attachments}
-                          kind={row.message.kind}
-                          modelName={row.message.modelName}
-                          toolCalls={row.message.toolCalls}
-                          feedback={row.message.feedback}
-                          sources={row.message.sources}
-                          branchGroup={branchByVersion.get(row.message.id)}
-                          onFeedback={(value) =>
-                            void saveMessageFeedback(row.message.id, value)
+                    <ChatStreamRowContent
+                      row={row}
+                      isLoadingOlderHistory={isLoadingOlderHistory}
+                      onLoadOlder={() => void handleLoadOlderHistory()}
+                      onRetryHistory={() => void retryHistory()}
+                      modelsLoading={modelsLoading}
+                      modelsError={modelsError}
+                      hasDefaultModel={hasDefaultModel}
+                      hasAvailableModels={hasAvailableModels}
+                      defaultModelName={defaultModelName}
+                      isGatewayRunning={isGatewayRunning}
+                      onSelectPrompt={(prompt) => setInput(prompt)}
+                      branchGroup={
+                        row.kind === "message"
+                          ? branchByVersion.get(row.message.id)
+                          : undefined
+                      }
+                      onFeedback={(messageId, value) =>
+                        void saveMessageFeedback(messageId, value)
+                      }
+                      onRegenerate={handleRegenerateMessage}
+                      onSelectBranch={selectChatBranch}
+                      messageActionsDisabled={messageActionsDisabled}
+                      isBranchSwitching={isBranchSwitching}
+                      streamingMessageId={streamingMessageId}
+                      onEditMessage={handleEditMessage}
+                      connectionState={connectionState}
+                      onRetryMessage={retryChatMessage}
+                      activeTurn={activeTurn}
+                      recentActivities={recentActivities}
+                      expandedProcesses={expandedProcesses}
+                      onToggleProcess={(messageId) =>
+                        setExpandedProcesses((previous) => {
+                          const next = {
+                            ...previous,
+                            [messageId]: !(previous[messageId] ?? false),
                           }
-                          onRegenerate={() =>
-                            handleRegenerateMessage(row.message.id)
-                          }
-                          onSelectBranch={selectChatBranch}
-                          actionsDisabled={messageActionsDisabled}
-                          branchSwitchPending={isBranchSwitching}
-                          timestamp={row.message.timestamp}
-                          isStreaming={row.message.id === streamingMessageId}
-                        />
-                      ) : (
-                        <UserMessage
-                          content={row.message.content}
-                          attachments={row.message.attachments}
-                          timestamp={row.message.timestamp}
-                          deliveryStatus={row.message.deliveryStatus}
-                          onEdit={() => handleEditMessage(row.message)}
-                          interactionsDisabled={messageActionsDisabled}
-                          onRetry={
-                            connectionState === "connected"
-                              ? () => retryChatMessage(row.message.id)
-                              : undefined
-                          }
-                        />
-                      ))}
-                    {row.kind === "process" && (
-                      <ProcessMessage
-                        messages={row.messages}
-                        streamingMessageId={streamingMessageId}
-                        activeTurn={row.active ? activeTurn : undefined}
-                        activities={row.active ? recentActivities : []}
-                        expanded={
-                          expandedProcesses[row.messages[0].id] ?? false
-                        }
-                        onToggle={() =>
-                          setExpandedProcesses((previous) => {
-                            const next = {
-                              ...previous,
-                              [row.messages[0].id]: !(
-                                previous[row.messages[0].id] ?? false
-                              ),
-                            }
-                            saveSessionViewport(activeSessionId, {
-                              expandedProcesses: next,
-                            })
-                            return next
+                          saveSessionViewport(activeSessionId, {
+                            expandedProcesses: next,
                           })
-                        }
-                      />
-                    )}
-                    {row.kind === "working" && (
-                      <ActiveWorkIndicator
-                        activeTurn={activeTurn}
-                        activities={recentActivities ?? []}
-                      />
-                    )}
-                    {row.kind === "activity" && (
-                      <ActivityTimeline
-                        plan={row.plan}
-                        activities={row.activities}
-                        history={row.history}
-                      />
-                    )}
+                          return next
+                        })
+                      }
+                    />{" "}
                   </div>
                 )
               })}
             </div>
           </div>
 
-          {/* Floating ChatGPT-style Scroll to Bottom button */}
           {!isAtBottom && (
-            <button
-              type="button"
-              className="bg-card text-foreground hover:bg-muted border-border/80 absolute right-6 bottom-36 z-30 flex size-9 cursor-pointer items-center justify-center rounded-full border shadow-xs transition-[color,background-color,border-color,box-shadow,transform] duration-[var(--motion-state)] ease-out active:scale-95 motion-reduce:transition-none"
-              aria-label={t("chat.scrollToBottom")}
-              onClick={() => scrollToBottom("smooth")}
-            >
-              <IconArrowDown className="size-4" />
-            </button>
+            <ChatScrollToBottom onClick={() => scrollToBottom("smooth")} />
           )}
           <input
             ref={fileInputRef}
@@ -1071,46 +940,13 @@ export function ChatPage() {
             onChange={handleImageSelection}
           />
 
-          {activeTurn?.plan && activeTurn.plan.length > 0 && (
-            <details
-              open
-              className="mx-auto max-h-[25dvh] w-full max-w-3xl shrink-0 overflow-y-auto px-4 pb-2 text-xs"
-            >
-              <summary className="text-muted-foreground cursor-pointer">
-                {t("chat.taskPlan")}
-              </summary>
-              <ol className="mt-2 space-y-1 pl-4">
-                {activeTurn.plan.map((step, index) => (
-                  <li key={index} className="text-muted-foreground">
-                    <span aria-label={t(`chat.planStatus.${step.status}`)}>
-                      {step.status === "completed"
-                        ? "✓"
-                        : step.status === "in_progress"
-                          ? "●"
-                          : "○"}
-                    </span>{" "}
-                    {step.text}
-                  </li>
-                ))}
-              </ol>
-            </details>
-          )}
+          {activeTurn?.plan && <ChatTaskPlan steps={activeTurn.plan} />}
           {interrupted && !activeTurn && !isTyping && canInput && (
-            <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 pb-2 text-xs">
-              <span className="text-muted-foreground">
-                {t("chat.taskInterrupted")}
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  sendMessage({ content: t("chat.continuePrompt") })
-                }
-              >
-                {t("chat.continueTask")}
-              </Button>
-            </div>
+            <ChatInterruptedNotice
+              onContinue={() =>
+                sendMessage({ content: t("chat.continuePrompt") })
+              }
+            />
           )}
           {pendingApproval && (
             <ApprovalPanel

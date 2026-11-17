@@ -81,6 +81,12 @@ Do not use all-caps eyebrow labels or decorative letter spacing. Acronyms and ma
 - Every file/image upload surface has a drop zone from its first version, with picker and keyboard alternatives.
 - Long chat histories use server cursor pagination and DOM windowing. Preserve the viewport anchor when older messages are inserted.
 
+## Public Exposure
+
+- A persistent status strip below the header marks a non-loopback, public-URL, or wildcard-channel deployment. It uses the warning role with an icon and sentence-case text, not color alone.
+- The strip opens a dialog that names the exposed launcher or channels, the saved approval gaps, disabled shell deny patterns, and the forced-approval safeguard. Links from the dialog close it before navigating.
+- The strip is operational state, not a marketing notice: keep it compact, avoid repeated explanations in the page body, and preserve the underlying page's primary action.
+
 ## Voice
 
 Use direct sentence case. Name the object and the action. Avoid page introductions that restate the title, repeated helper text, marketing claims, emoji labels, and decorative punctuation. Errors state what failed and what the user can do next.

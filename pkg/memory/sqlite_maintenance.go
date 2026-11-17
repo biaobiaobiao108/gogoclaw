@@ -1,0 +1,247 @@
+package memory
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"io"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+// SQLiteIntegrityReport summarizes the checks most relevant to a session
+// database before backup, restore, or startup.
+type SQLiteIntegrityReport struct {
+	OK                      bool
+	QuickCheck              []string
+	ForeignKeyViolations    int
+	SizeBytes               int64
+	WALBytes                int64
+	SharedMemoryBytes       int64
+	CheckedPath             string
+	FullIntegrityCheckUsed  bool
+	IntegrityCheckElapsedMS int64
+}
+
+// RestoreSQLiteResult records the safety copy created before a restore.
+type RestoreSQLiteResult struct {
+	Target       string
+	SafetyBackup string
+}
+
+// CheckSQLiteIntegrity opens the database read-only and runs quick_check plus
+// foreign_key_check. Set full to run the more expensive integrity_check.
+func CheckSQLiteIntegrity(ctx context.Context, path string, full bool) (SQLiteIntegrityReport, error) {
+	ctx = sqliteContext(ctx)
+	if strings.TrimSpace(path) == "" {
+		return SQLiteIntegrityReport{}, errors.New("memory: database path is required")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return SQLiteIntegrityReport{}, fmt.Errorf("memory: stat database: %w", err)
+	}
+	if info.IsDir() {
+		return SQLiteIntegrityReport{}, fmt.Errorf("memory: database path is a directory: %s", path)
+	}
+
+	params := url.Values{
+		"mode":    {"ro"},
+		"_pragma": {"query_only(1)", "busy_timeout(5000)"},
+	}
+	dsn := path + "?" + params.Encode()
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return SQLiteIntegrityReport{}, fmt.Errorf("memory: open database for integrity check: %w", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+
+	started := time.Now()
+	checkName := "quick_check"
+	if full {
+		checkName = "integrity_check"
+	}
+	rows, err := db.QueryContext(ctx, "PRAGMA "+checkName)
+	if err != nil {
+		return SQLiteIntegrityReport{}, fmt.Errorf("memory: run %s: %w", checkName, err)
+	}
+	var messages []string
+	for rows.Next() {
+		var message string
+		if err := rows.Scan(&message); err != nil {
+			rows.Close()
+			return SQLiteIntegrityReport{}, fmt.Errorf("memory: scan %s: %w", checkName, err)
+		}
+		messages = append(messages, message)
+	}
+	if err := rows.Close(); err != nil {
+		return SQLiteIntegrityReport{}, fmt.Errorf("memory: close %s rows: %w", checkName, err)
+	}
+	if err := rows.Err(); err != nil {
+		return SQLiteIntegrityReport{}, fmt.Errorf("memory: iterate %s: %w", checkName, err)
+	}
+
+	var fkViolations int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM pragma_foreign_key_check").Scan(&fkViolations); err != nil {
+		return SQLiteIntegrityReport{}, fmt.Errorf("memory: run foreign_key_check: %w", err)
+	}
+
+	report := SQLiteIntegrityReport{
+		QuickCheck:              messages,
+		ForeignKeyViolations:    fkViolations,
+		SizeBytes:               info.Size(),
+		WALBytes:                fileSize(path + "-wal"),
+		SharedMemoryBytes:       fileSize(path + "-shm"),
+		CheckedPath:             path,
+		FullIntegrityCheckUsed:  full,
+		IntegrityCheckElapsedMS: time.Since(started).Milliseconds(),
+	}
+	report.OK = fkViolations == 0 && len(messages) == 1 && strings.EqualFold(strings.TrimSpace(messages[0]), "ok")
+	if !report.OK {
+		return report, fmt.Errorf("memory: integrity check failed: %s", strings.Join(messages, "; "))
+	}
+	return report, nil
+}
+
+// BackupSQLite creates a transactionally consistent copy using SQLite's VACUUM
+// INTO. The source is checked first and the resulting file is checked again.
+func BackupSQLite(ctx context.Context, source, destination string) (SQLiteIntegrityReport, error) {
+	ctx = sqliteContext(ctx)
+	if _, err := CheckSQLiteIntegrity(ctx, source, false); err != nil {
+		return SQLiteIntegrityReport{}, err
+	}
+	sourceAbs, err := filepath.Abs(source)
+	if err != nil {
+		return SQLiteIntegrityReport{}, err
+	}
+	destinationAbs, err := filepath.Abs(destination)
+	if err != nil {
+		return SQLiteIntegrityReport{}, err
+	}
+	if strings.EqualFold(sourceAbs, destinationAbs) {
+		return SQLiteIntegrityReport{}, errors.New("memory: backup destination must differ from source")
+	}
+	if _, err := os.Stat(destination); err == nil {
+		return SQLiteIntegrityReport{}, fmt.Errorf("memory: backup destination already exists: %s", destination)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return SQLiteIntegrityReport{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return SQLiteIntegrityReport{}, fmt.Errorf("memory: create backup directory: %w", err)
+	}
+
+	params := url.Values{
+		"mode":    {"rw"},
+		"_pragma": {"busy_timeout(5000)", "foreign_keys(1)"},
+	}
+	db, err := sql.Open("sqlite", source+"?"+params.Encode())
+	if err != nil {
+		return SQLiteIntegrityReport{}, fmt.Errorf("memory: open database for backup: %w", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+
+	escaped := strings.ReplaceAll(destinationAbs, "'", "''")
+	if _, err := db.ExecContext(ctx, "VACUUM INTO '"+escaped+"'"); err != nil {
+		_ = os.Remove(destination)
+		return SQLiteIntegrityReport{}, fmt.Errorf("memory: create backup: %w", err)
+	}
+	if err := os.Chmod(destination, 0o600); err != nil {
+		_ = os.Remove(destination)
+		return SQLiteIntegrityReport{}, fmt.Errorf("memory: secure backup: %w", err)
+	}
+	report, err := CheckSQLiteIntegrity(ctx, destination, false)
+	if err != nil {
+		_ = os.Remove(destination)
+		return SQLiteIntegrityReport{}, fmt.Errorf("memory: validate backup: %w", err)
+	}
+	return report, nil
+}
+
+// RestoreSQLite validates a backup, creates a safety copy of the current
+// database, then atomically replaces the target.
+func RestoreSQLite(ctx context.Context, backup, target string, overwrite bool) (RestoreSQLiteResult, error) {
+	ctx = sqliteContext(ctx)
+	if _, err := CheckSQLiteIntegrity(ctx, backup, false); err != nil {
+		return RestoreSQLiteResult{}, fmt.Errorf("memory: validate restore source: %w", err)
+	}
+	if strings.EqualFold(filepath.Clean(backup), filepath.Clean(target)) {
+		return RestoreSQLiteResult{}, errors.New("memory: restore source and target must differ")
+	}
+	targetExists := false
+	if _, err := os.Stat(target); err == nil {
+		targetExists = true
+		if !overwrite {
+			return RestoreSQLiteResult{}, fmt.Errorf("memory: target exists; use --force to replace it: %s", target)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return RestoreSQLiteResult{}, err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return RestoreSQLiteResult{}, fmt.Errorf("memory: create target directory: %w", err)
+	}
+	temp, err := os.CreateTemp(filepath.Dir(target), ".restore-*.db")
+	if err != nil {
+		return RestoreSQLiteResult{}, fmt.Errorf("memory: create restore staging file: %w", err)
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if err := temp.Chmod(0o600); err != nil {
+		temp.Close()
+		return RestoreSQLiteResult{}, err
+	}
+	source, err := os.Open(backup)
+	if err != nil {
+		temp.Close()
+		return RestoreSQLiteResult{}, err
+	}
+	_, copyErr := io.Copy(temp, source)
+	closeSourceErr := source.Close()
+	syncErr := temp.Sync()
+	closeTempErr := temp.Close()
+	if copyErr != nil {
+		return RestoreSQLiteResult{}, fmt.Errorf("memory: copy restore source: %w", copyErr)
+	}
+	if closeSourceErr != nil {
+		return RestoreSQLiteResult{}, closeSourceErr
+	}
+	if syncErr != nil {
+		return RestoreSQLiteResult{}, syncErr
+	}
+	if closeTempErr != nil {
+		return RestoreSQLiteResult{}, closeTempErr
+	}
+	if _, err := CheckSQLiteIntegrity(ctx, tempPath, false); err != nil {
+		return RestoreSQLiteResult{}, fmt.Errorf("memory: validate staged restore: %w", err)
+	}
+
+	result := RestoreSQLiteResult{Target: target}
+	if targetExists {
+		result.SafetyBackup = target + ".before-restore-" + time.Now().UTC().Format("20060102T150405.000000000Z")
+		if _, err := BackupSQLite(ctx, target, result.SafetyBackup); err != nil {
+			return RestoreSQLiteResult{}, fmt.Errorf("memory: create restore safety backup: %w", err)
+		}
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Remove(target + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return RestoreSQLiteResult{}, fmt.Errorf("memory: remove target%s: %w", suffix, err)
+		}
+	}
+	if err := os.Rename(tempPath, target); err != nil {
+		return RestoreSQLiteResult{}, fmt.Errorf("memory: install restored database: %w", err)
+	}
+	return result, nil
+}
+
+func fileSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}

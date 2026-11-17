@@ -97,14 +97,17 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
-      - run: bun add --global playwright@1.64.1
+      - run: bun add --global playwright@1.64.1 axe-core@4.11.0
       - run: '"$(bun pm bin -g)/playwright" install --with-deps chromium'
-      - name: Exercise login, chat and OAuth origin handling
+      - name: Exercise console workflows in Chromium
         run: |
           bun run dev --host 127.0.0.1 > /tmp/gogoclaw-vite.log 2>&1 &
           trap 'kill $! 2>/dev/null || true' EXIT
           timeout 60 bash -c 'until curl -fsS http://127.0.0.1:5173/ >/dev/null; do sleep 1; done'
-          PLAYWRIGHT_MODULE="$(bun pm bin -g)/../install/global/node_modules/playwright" bun ./scripts/browser-smoke.cjs
+          export PLAYWRIGHT_MODULE="$(bun pm bin -g)/../install/global/node_modules/playwright"
+          export AXE_MODULE="$(bun pm bin -g)/../install/global/node_modules/axe-core/axe.min.js"
+          bun ./scripts/browser-smoke.cjs
+          GOGOCLAW_BROWSER=chromium bun ./scripts/browser-console-smoke.cjs
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
@@ -121,3 +124,35 @@ jobs:
             GOGOCLAW_TEST_CLI="$GITHUB_WORKSPACE/build/browser-cli" \
             GOGOCLAW_TEST_LAUNCHER="$GITHUB_WORKSPACE/build/browser-launcher" \
             bun ./scripts/browser-backend-smoke.cjs
+
+  browser-cross-engine:
+    name: browser (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        browser:
+          - firefox
+          - webkit
+    defaults:
+      run:
+        working-directory: web/frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun add --global playwright@1.64.1 axe-core@4.11.0
+      - run: '"$(bun pm bin -g)/playwright" install --with-deps ${{ matrix.browser }}'
+      - name: Exercise console workflows
+        env:
+          GOGOCLAW_BROWSER: ${{ matrix.browser }}
+        run: |
+          bun run dev --host 127.0.0.1 > /tmp/gogoclaw-vite.log 2>&1 &
+          trap 'kill $! 2>/dev/null || true' EXIT
+          timeout 60 bash -c 'until curl -fsS http://127.0.0.1:5173/ >/dev/null; do sleep 1; done'
+          PLAYWRIGHT_MODULE="$(bun pm bin -g)/../install/global/node_modules/playwright" \
+            AXE_MODULE="$(bun pm bin -g)/../install/global/node_modules/axe-core/axe.min.js" \
+            bun ./scripts/browser-console-smoke.cjs

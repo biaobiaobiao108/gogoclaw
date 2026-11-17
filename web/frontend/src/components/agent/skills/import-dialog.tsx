@@ -1,5 +1,5 @@
 import { IconLoader2, IconUpload, IconX } from "@tabler/icons-react"
-import type { DragEvent, KeyboardEvent } from "react"
+import type { DragEvent, KeyboardEvent, RefObject } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
@@ -21,6 +21,7 @@ interface ImportDialogProps {
   onDragEnter: (event: DragEvent<HTMLDivElement>) => void
   onDragLeave: (event: DragEvent<HTMLDivElement>) => void
   onDrop: (event: DragEvent<HTMLDivElement>) => void
+  triggerRef: RefObject<HTMLButtonElement | null>
 }
 
 export function ImportDialog({
@@ -32,6 +33,7 @@ export function ImportDialog({
   onDragEnter,
   onDragLeave,
   onDrop,
+  triggerRef,
 }: ImportDialogProps) {
   const { t } = useTranslation()
 
@@ -46,6 +48,10 @@ export function ImportDialog({
     >
       <DialogContent
         showCloseButton={false}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          triggerRef.current?.focus()
+        }}
         className="border-border bg-card max-w-[420px] gap-6 rounded-lg p-6 text-center shadow-xs focus:outline-none"
       >
         <div className="relative space-y-1 px-8">

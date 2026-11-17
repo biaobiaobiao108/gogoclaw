@@ -36,3 +36,10 @@ Record the device model, system version, container CPU/memory limits, and storag
 ## GitHub Actions
 
 The repository's manual `Benchmark` workflow generates and retains report artifacts on a fixed Ubuntu runner. It is suitable for comparing trends in code changes on the same class of runner, but cannot replace measurements on the target NAS.
+
+The workflow downloads the latest `gogoclaw-benchmarks` artifact as its rolling baseline. `scripts/check-benchmark-regression.ts` compares the median of each benchmark and fails when:
+
+- `ns/op` grows by more than 35% and by at least 50,000 ns; or
+- `B/op` or `allocs/op` grows by more than 25%.
+
+The thresholds can be tuned with `GOGOCLAW_BENCH_MAX_TIME_RATIO`, `GOGOCLAW_BENCH_MIN_TIME_DELTA_NS`, and `GOGOCLAW_BENCH_MAX_ALLOC_RATIO`. A missing overlapping baseline is reported instead of silently passing.

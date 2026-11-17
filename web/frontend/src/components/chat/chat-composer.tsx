@@ -120,6 +120,7 @@ export function ChatComposer({
     <div className="relative z-20 shrink-0 px-4 pb-3 md:px-8">
       <div className="mx-auto flex w-full max-w-3xl flex-col">
         <div
+          data-chat-dropzone
           className={cn(
             "border-border/80 focus-within:border-muted-foreground/60 relative flex w-full flex-col rounded-[24px] border bg-[var(--chat-composer)] shadow-[0_4px_20px_-4px_rgba(0,0,0,0.06)] transition-[background-color,border-color,box-shadow] duration-150 ease-out dark:shadow-[0_4px_24px_-4px_rgba(0,0,0,0.3)]",
             isDragActive &&

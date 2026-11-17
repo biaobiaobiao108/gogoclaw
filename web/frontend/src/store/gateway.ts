@@ -1,6 +1,10 @@
 import { atom, getDefaultStore } from "jotai"
 
-import { type GatewayStatusResponse, getGatewayStatus } from "@/api/gateway"
+import {
+  type GatewayStatusResponse,
+  getGatewayStatus,
+  type PublicExposureStatus,
+} from "@/api/gateway"
 
 export type GatewayState =
   | "running"
@@ -16,6 +20,7 @@ export interface GatewayStoreState {
   canStart: boolean
   startReason?: string
   restartRequired: boolean
+  publicExposure?: PublicExposureStatus
 }
 
 type GatewayStorePatch = Partial<GatewayStoreState>
@@ -59,7 +64,8 @@ function normalizeGatewayStoreState(
     next.status === prev.status &&
     next.canStart === prev.canStart &&
     next.startReason === prev.startReason &&
-    next.restartRequired === prev.restartRequired
+    next.restartRequired === prev.restartRequired &&
+    JSON.stringify(next.publicExposure) === JSON.stringify(prev.publicExposure)
   ) {
     return prev
   }
@@ -114,6 +120,7 @@ export function applyGatewayStatusToStore(
       | "gateway_start_allowed"
       | "gateway_start_reason"
       | "gateway_restart_required"
+      | "security_exposure"
     >
   >,
 ) {
@@ -134,6 +141,7 @@ export function applyGatewayStatusToStore(
       prev.status === "stopping" && data.gateway_status === "running"
         ? false
         : (data.gateway_restart_required ?? prev.restartRequired),
+    publicExposure: data.security_exposure ?? prev.publicExposure,
   }))
 }
 

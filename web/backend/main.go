@@ -694,6 +694,29 @@ func main() {
 	// API Routes (e.g. /api/status)
 	apiHandler = api.NewHandler(absPath)
 	apiHandler.SetDebug(debug)
+	exposureInput := api.PublicExposureInput{
+		LauncherExposed:      launcherBindMayExposeBeyondLoopback(hostInput, effectivePublic),
+		PublicURL:            externalAccessCfg.PublicURL,
+		AllowedCIDRs:         launcherCfg.AllowedCIDRs,
+		AllowLocalhostBypass: launcherCfg.AllowLocalhostBypass,
+	}
+	apiHandler.SetPublicExposureInput(exposureInput)
+	if startupCfg, loadErr := config.LoadConfig(absPath); loadErr == nil {
+		exposure := api.EvaluatePublicExposure(startupCfg, exposureInput)
+		if exposure.Public {
+			logger.WarnCF("security", "Launcher is publicly reachable", map[string]any{
+				"launcher":                   exposure.Launcher,
+				"public_url":                 exposure.PublicURL,
+				"public_channels":            exposure.PublicChannels,
+				"unapproved_high_risk_tools": exposure.UnapprovedHighRiskTools,
+				"exec_guard_disabled":        exposure.ExecGuardDisabled,
+			})
+		}
+	} else {
+		logger.WarnCF("security", "Could not evaluate public exposure policy", map[string]any{
+			"error": loadErr.Error(),
+		})
+	}
 	if _, err = apiHandler.EnsurePicoChannel(); err != nil {
 		logger.ErrorC("web", fmt.Sprintf("Warning: failed to ensure pico channel on startup: %v", err))
 	}

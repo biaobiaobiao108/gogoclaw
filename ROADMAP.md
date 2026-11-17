@@ -7,10 +7,10 @@ security boundary.
 
 ## Runtime reliability and performance
 
-- Track gateway memory between releases against the 20 MB target on compact
-  64-bit hosts (512 MB RAM baseline); the benchmark workflow records results.
-- Add long-running and multi-session stress scenarios to the evaluation
-  harness, including restart recovery under load.
+- Use the scheduled 20-minute soak artifact to review RSS, goroutine, SQLite,
+  WAL and log growth against the compact-host baseline.
+- Keep restart recovery and concurrent-session stress in the reliability
+  workflow as the product surface grows.
 - Extend end-to-end coverage for real channels beyond the manual live-contract
   workflows.
 
@@ -19,7 +19,6 @@ security boundary.
 - Evaluate optional OS-level sandboxing for high-risk tools. In-process path
   checks are guardrails; the container remains the isolation boundary.
 - Redact secrets and personal data from logs and tool output by default.
-- Harden prompt-injection resistance for tool results and fetched content.
 
 ## Connectivity
 
@@ -29,8 +28,8 @@ security boundary.
 
 ## Console
 
-- Raise frontend interaction test coverage beyond the current chat-logic tests.
-- Continue splitting the largest console pages into focused components.
+- Keep the cross-browser console smoke, axe scans, 200% text and reduced-motion
+  checks current as settings and upload flows change.
 - Keep `DESIGN.md` and the implementation in sync.
 
 ## Documentation and onboarding

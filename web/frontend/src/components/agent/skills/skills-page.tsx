@@ -1,4 +1,5 @@
 import { IconLoader2, IconPlus } from "@tabler/icons-react"
+import { useRef } from "react"
 import { useTranslation } from "react-i18next"
 
 import { PageHeader } from "@/components/page-header"
@@ -15,6 +16,7 @@ import { useSkillsPage } from "./use-skills-page"
 
 export function SkillsPage() {
   const { t } = useTranslation()
+  const importButtonRef = useRef<HTMLButtonElement>(null)
   const {
     searchQuery,
     sourceFilter,
@@ -71,6 +73,7 @@ export function SkillsPage() {
               onChange={handleImportFileChange}
             />
             <Button
+              ref={importButtonRef}
               variant="outline"
               onClick={openImportDialog}
               disabled={isImportPending}
@@ -146,6 +149,7 @@ export function SkillsPage() {
         onDragEnter={handleDropZoneDragEnter}
         onDragLeave={handleDropZoneDragLeave}
         onDrop={handleDropZoneDrop}
+        triggerRef={importButtonRef}
       />
 
       <DeleteDialog

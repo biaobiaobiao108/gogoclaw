@@ -392,6 +392,22 @@ export GOGOCLAW_TOOLS_WEB_BAIDU_API_KEY="baidu-key-from-env"
 - 数据库内的明文 token 在配置 passphrase 后会于下次保存时加密。旧 JSON 文件不会自动导入。
 - 打开 `sessions.db` 时会将其权限设为 `0600`。
 
+## 公开暴露模式
+
+以下部署会被 GoGoClaw 视为公开暴露：
+
+- Launcher 监听非 loopback 地址；
+- 配置了外部访问公开 URL；或
+- 除已认证 Pico/CLI 传输之外，启用中的频道使用 `allow_from: ["*"]`。
+
+Launcher 会向受管 gateway 传递 `GOGOCLAW_PUBLIC_EXPOSURE=true`。独立运行的 gateway 也可以显式设置该环境变量。
+
+公开模式下，高风险、会改变状态的工具即使未在 `tools.approval` 中启用也必须经过人工审批，包括 `exec`、文件修改、子代理、文件发送、技能安装、Cron、消息发送以及未知或破坏性工具。正常的最终回复不会触发审批。
+
+`/api/gateway/status` 会返回 `security_exposure` 对象。控制台会显示常驻警告条，并在对话框中列出公开的 Launcher、通配频道、已保存审批策略的缺口和已关闭的 exec 拒绝规则。公开模式是护栏，不能替代容器隔离边界。
+
+仅在确有需要时公开频道或 Launcher；保持 `allow_from` 尽可能窄，保留 exec 拒绝规则，并在允许不受信任用户访问前检查控制台警告。
+
 ## 安全最佳实践
 
 1. **永远不要将 `.security.yml` 提交**到版本控制

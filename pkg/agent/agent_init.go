@@ -87,6 +87,7 @@ func NewAgentLoopChecked(
 		workerSem:         make(chan struct{}, workerPoolSize),
 		systemNotify:      make(chan struct{}, 1),
 		ownsRuntimeEvents: true,
+		publicExposure:    config.PublicExposureEnabled(cfg),
 	}
 	al.lifecycleCtx, al.lifecycleCancel = context.WithCancel(context.Background())
 	for _, opt := range opts {

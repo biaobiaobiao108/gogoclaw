@@ -46,6 +46,7 @@ type AgentLoop struct {
 	runtimeEventLogSub runtimeevents.Subscription
 	hooks              *HookManager
 	humanApprovals     *humanApprovalManager
+	publicExposure     bool
 
 	// Runtime state
 	running        atomic.Bool

@@ -48,6 +48,7 @@ func TestNewGogoclawCommand(t *testing.T) {
 		"onboard",
 		"skills",
 		"status",
+		"storage",
 		"version",
 	}
 

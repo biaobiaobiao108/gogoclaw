@@ -10,7 +10,19 @@ interface GatewayStatusResponse {
   pid?: number
   boot_default_model?: string
   config_default_model?: string
+  security_exposure?: PublicExposureStatus
   [key: string]: unknown
+}
+
+interface PublicExposureStatus {
+  public: boolean
+  launcher: boolean
+  public_url: boolean
+  public_channels?: string[]
+  unapproved_high_risk_tools?: string[]
+  exec_guard_disabled?: boolean
+  allowed_cidrs?: string[]
+  allow_localhost_bypass?: boolean
 }
 
 interface GatewayLogsResponse {
@@ -98,4 +110,5 @@ export type {
   GatewayStatusResponse,
   GatewayLogsResponse,
   GatewayActionResponse,
+  PublicExposureStatus,
 }

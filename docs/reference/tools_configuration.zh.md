@@ -68,6 +68,8 @@ GoGoClaw 的工具配置位于 `config.json` 的 `tools` 字段中。
 
 如果没有连接审批界面，调用会立即被拒绝，而不会一直等待。审批期间进程重启会让该 turn 进入中断状态，受影响的工具不会被自动重放。
 
+当 GoGoClaw 处于公开暴露模式时，高风险、会改变状态的工具即使 `enabled` 为 false 也必须经过审批，包括 `exec`、文件修改、`spawn`、`subagent`、`send_file`、`message`、`install_skill`、`cron` 以及未知破坏性工具。参见[公开暴露模式](../security/security_configuration.zh.md#公开暴露模式)。
+
 ## Web 工具
 
 Web 工具用于网页搜索和抓取。

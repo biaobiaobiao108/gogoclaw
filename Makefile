@@ -1,4 +1,4 @@
-.PHONY: all build build-launcher build-launcher-frontend clean help deps update-deps test harness-test integration-test benchmark check fmt
+.PHONY: all build build-launcher build-launcher-frontend clean help deps update-deps test harness-test soak-test integration-test benchmark check fmt
 
 # Build variables
 BINARY_NAME=gogoclaw
@@ -186,6 +186,12 @@ test:
 harness-test:
 	@CGO_ENABLED=1 $(GO) test -race $(GOFLAGS) ./pkg/harness/...
 	@$(GO) test $(GOFLAGS) ./cmd/gogoclaw-harness
+
+## soak-test: Run the configurable long-soak harness (default 10m)
+soak-test:
+	@GOGOCLAW_SOAK_DURATION="$${GOGOCLAW_SOAK_DURATION:-10m}" \
+		GOGOCLAW_SOAK_REPORT="$${GOGOCLAW_SOAK_REPORT:-build/soak/soak.csv}" \
+		$(GO) test $(GOFLAGS) ./pkg/harness -run '^TestProductSoak$$' -count=1 -timeout=25h -v
 
 ## integration-test: Run Docker-backed integration test suites
 integration-test:

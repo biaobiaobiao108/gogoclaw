@@ -9,6 +9,7 @@ import {
 import { useTranslation } from "react-i18next"
 
 import type { ModelInfo } from "@/api/models"
+import { modelStatusLabel } from "@/components/models/model-status"
 import { Button } from "@/components/ui/button"
 
 interface ModelCardProps {
@@ -39,7 +40,7 @@ export function ModelCard({
   const { t } = useTranslation()
   const isOAuth = model.auth_method === "oauth"
   const status = model.status
-  const statusLabel = t(`models.status.${status}`)
+  const statusLabel = modelStatusLabel(status, t)
   const canSetDefault = model.available && !isDefault && defaultChainAllowed
   const canUseInFallback =
     model.available &&
@@ -114,19 +115,21 @@ export function ModelCard({
                     ? "bg-warning"
                     : "bg-muted-foreground/30",
             ].join(" ")}
-            aria-label={statusLabel}
-            role="img"
+            aria-hidden="true"
           />
           <span className="text-foreground truncate text-sm font-medium tracking-tight">
             {model.model_name}
           </span>
+          <span className="text-muted-foreground shrink-0 text-[11px] leading-none">
+            {statusLabel}
+          </span>
           {isDefault && (
-            <span className="bg-primary/10 text-primary shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] leading-none font-semibold">
+            <span className="bg-primary/10 text-primary shrink-0 rounded px-1.5 py-0.5 font-mono text-[11px] leading-none font-semibold">
               DEFAULT
             </span>
           )}
           {model.is_virtual && (
-            <span className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] leading-none font-medium">
+            <span className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 font-mono text-[11px] leading-none font-medium">
               VIRTUAL
             </span>
           )}
@@ -203,19 +206,15 @@ export function ModelCard({
         </p>
         <div className="flex shrink-0 items-center gap-1.5">
           {isOAuth ? (
-            <span className="text-muted-foreground bg-muted rounded px-1.5 py-0.5 font-mono text-[10px] font-medium">
+            <span className="text-muted-foreground bg-muted rounded px-1.5 py-0.5 font-mono text-[11px] font-medium">
               OAUTH
             </span>
           ) : status === "available" && model.api_key ? (
-            <span className="text-muted-foreground/70 flex items-center gap-1 font-mono text-[10px]">
+            <span className="text-muted-foreground/70 flex items-center gap-1 font-mono text-[11px]">
               <IconKey className="size-3" />
               {model.api_key}
             </span>
-          ) : (
-            <span className="text-muted-foreground/50 text-[10px]">
-              {statusLabel}
-            </span>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

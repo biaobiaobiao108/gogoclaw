@@ -37,16 +37,18 @@ export function AgentDefaultsSection({
     value,
     onValueChange,
     allowCustom,
+    ariaLabel,
   }: {
     value: TurnProfileMode
     onValueChange: (mode: TurnProfileMode) => void
     allowCustom: boolean
+    ariaLabel: string
   }) => (
     <Select
       value={value}
       onValueChange={(next) => onValueChange(next as TurnProfileMode)}
     >
-      <SelectTrigger className="h-9">
+      <SelectTrigger aria-label={ariaLabel} className="h-9">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -244,7 +246,7 @@ export function AgentDefaultsSection({
             onFieldChange("budgetExceededMode", value as "stop" | "warn")
           }
         >
-          <SelectTrigger>
+          <SelectTrigger aria-label={t("pages.config.budget_exceeded_mode")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -287,6 +289,7 @@ export function AgentDefaultsSection({
                     mode === "off" ? "off" : "default",
                   ),
                 allowCustom: false,
+                ariaLabel: t("pages.config.turn_profile_history"),
               })}
               <p className="text-muted-foreground text-xs leading-relaxed">
                 {t("pages.config.turn_profile_history_hint")}
@@ -305,6 +308,7 @@ export function AgentDefaultsSection({
                     mode === "off" ? "off" : "default",
                   ),
                 allowCustom: false,
+                ariaLabel: t("pages.config.turn_profile_system_prompt"),
               })}
               <p className="text-muted-foreground text-xs leading-relaxed">
                 {t("pages.config.turn_profile_system_prompt_hint")}
@@ -320,6 +324,7 @@ export function AgentDefaultsSection({
                 onValueChange: (mode) =>
                   onTurnProfileFieldChange("skillsMode", mode),
                 allowCustom: true,
+                ariaLabel: t("pages.config.turn_profile_skills"),
               })}
               <p className="text-muted-foreground text-xs leading-relaxed">
                 {t("pages.config.turn_profile_skills_hint")}
@@ -347,6 +352,7 @@ export function AgentDefaultsSection({
                 onValueChange: (mode) =>
                   onTurnProfileFieldChange("toolsMode", mode),
                 allowCustom: true,
+                ariaLabel: t("pages.config.turn_profile_tools"),
               })}
               <p className="text-muted-foreground text-xs leading-relaxed">
                 {t("pages.config.turn_profile_tools_hint")}

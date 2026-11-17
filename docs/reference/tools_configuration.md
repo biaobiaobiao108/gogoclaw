@@ -66,6 +66,8 @@ The default tool list is `exec`, `write_file`, `edit_file`, `append_file`, `spaw
 
 If no approval interface is connected, the call is denied immediately instead of waiting forever. A process restart during approval leaves the turn interrupted; the affected tool is not automatically replayed.
 
+When GoGoClaw is publicly exposed, high-risk state-changing tools require approval even when `enabled` is false. This includes `exec`, file mutations, `spawn`, `subagent`, `send_file`, `message`, `install_skill`, `cron`, and unknown destructive tools. See [Public Exposure Mode](../security/security_configuration.md#public-exposure-mode).
+
 ## Web Tools
 
 Web tools are used for web search and fetching.

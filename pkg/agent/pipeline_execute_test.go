@@ -3,13 +3,15 @@ package agent
 import (
 	"context"
 	"fmt"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/biaobiaobiao108/gogoclaw/pkg/approval"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 )
 
 func TestInferSkillNamesFromToolCall_ReadFileSkillMarkdown(t *testing.T) {
@@ -125,6 +127,69 @@ func TestExecuteToolsAllowsReadAfterMutation(t *testing.T) {
 	}
 	if readTool.calls != 2 || writeTool.calls != 1 {
 		t.Fatalf("read calls=%d, write calls=%d; want 2 and 1", readTool.calls, writeTool.calls)
+	}
+}
+
+func TestPublicExposureApprovesExecutionButNotReads(t *testing.T) {
+	provider := &sequenceProvider{responses: []*providers.LLMResponse{
+		{ToolCalls: []providers.ToolCall{
+			{ID: "exec-1", Name: "exec", Arguments: map[string]any{"command": "printf safe"}},
+			{ID: "read-1", Name: "read_file", Arguments: map[string]any{"path": "notes.md"}},
+		}},
+		{Content: "操作已完成。"},
+	}}
+	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+	al.publicExposure = true
+
+	execTool := &countingHarnessTool{name: "exec", result: func(map[string]any) *tools.ToolResult {
+		return tools.SilentResult("safe")
+	}}
+	readTool := &countingHarnessTool{name: "read_file", result: func(map[string]any) *tools.ToolResult {
+		return tools.SilentResult("notes")
+	}}
+	agent.Tools.Register(execTool)
+	agent.Tools.Register(readTool)
+
+	approvalRequests := make(chan approval.Request, 1)
+	al.SetApprovalNotifier(func(_ context.Context, req approval.Request) error {
+		approvalRequests <- req
+		return nil
+	})
+	ts := newTurnState(agent, makeTestProcessOpts("public-exposure"), turnEventScope{
+		turnID: "public-exposure", context: newTurnContext(nil, nil, nil),
+	})
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := al.runTurn(context.Background(), ts, NewPipeline(al))
+		done <- err
+	}()
+
+	var req approval.Request
+	select {
+	case req = <-approvalRequests:
+	case <-time.After(3 * time.Second):
+		t.Fatal("public exposure did not request approval for exec")
+	}
+	if req.Tool != "exec" || !strings.Contains(req.Reason, "public exposure") {
+		t.Fatalf("unexpected approval request: %+v", req)
+	}
+	if err := al.RespondApproval(context.Background(), approval.Response{
+		ID: req.ID, SessionKey: req.SessionKey, Approve: true,
+	}); err != nil {
+		t.Fatalf("RespondApproval: %v", err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if execTool.calls != 1 || readTool.calls != 1 {
+		t.Fatalf("exec calls=%d, read calls=%d; want 1 and 1", execTool.calls, readTool.calls)
+	}
+	select {
+	case extra := <-approvalRequests:
+		t.Fatalf("read-only tool unexpectedly required approval: %+v", extra)
+	default:
 	}
 }
 

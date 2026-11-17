@@ -392,6 +392,22 @@ OAuth tokens in `sessions/sessions.db` follow the same `enc://` encryption polic
 - Plaintext tokens already in the database are encrypted on the next save once a passphrase is configured. Old JSON files are not imported automatically.
 - `sessions.db` is secured with `0600` permissions when opened.
 
+## Public Exposure Mode
+
+GoGoClaw treats the following deployments as publicly exposed:
+
+- the launcher listens on a non-loopback address;
+- an external access public URL is configured; or
+- an enabled channel other than the authenticated Pico/CLI transport uses `allow_from: ["*"]`.
+
+The launcher passes `GOGOCLAW_PUBLIC_EXPOSURE=true` to the managed gateway. A standalone gateway can set the same variable explicitly.
+
+In public mode, high-risk state-changing tools require human approval even when `tools.approval` is disabled or does not list them. This includes `exec`, file mutations, subagents, file delivery, skill installation, cron, messaging, and unknown or destructive tools. The normal final response is not an approval request.
+
+The `/api/gateway/status` response includes a `security_exposure` object. The console shows a persistent warning strip and a dialog listing the exposed launcher, wildcard channels, saved approval gaps, and disabled exec deny patterns. Public mode is a guardrail, not a replacement for the container boundary.
+
+Expose channels and the launcher only when intended, keep `allow_from` narrow, retain exec deny patterns, and inspect the console warning before inviting untrusted users.
+
 ## Security Best Practices
 
 1. **Never commit `.security.yml`** to version control

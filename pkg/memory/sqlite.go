@@ -199,6 +199,28 @@ var sqliteInitMu sync.Mutex
 func (s *SQLiteStore) initialize() error {
 	sqliteInitMu.Lock()
 	defer sqliteInitMu.Unlock()
+	rows, err := s.db.Query("PRAGMA quick_check(1)")
+	if err != nil {
+		return fmt.Errorf("memory: sessions database integrity check failed: %w", err)
+	}
+	var integrityMessages []string
+	for rows.Next() {
+		var message string
+		if err := rows.Scan(&message); err != nil {
+			rows.Close()
+			return fmt.Errorf("memory: scan sessions database quick check: %w", err)
+		}
+		integrityMessages = append(integrityMessages, message)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("memory: close sessions database quick check: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("memory: iterate sessions database quick check: %w", err)
+	}
+	if len(integrityMessages) != 1 || !strings.EqualFold(strings.TrimSpace(integrityMessages[0]), "ok") {
+		return fmt.Errorf("memory: sessions database integrity check failed: %s", strings.Join(integrityMessages, "; "))
+	}
 	var mode string
 	if err := s.db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
 		return fmt.Errorf("memory: read sessions journal mode: %w", err)
@@ -217,8 +239,16 @@ func (s *SQLiteStore) initialize() error {
 			time.Sleep(25 * time.Millisecond)
 		}
 	}
-	if _, err := s.db.Exec(sqliteSessionSchema); err != nil {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("memory: begin sessions schema transaction: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(sqliteSessionSchema); err != nil {
 		return fmt.Errorf("memory: initialize sessions schema: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("memory: commit sessions schema: %w", err)
 	}
 	return nil
 }

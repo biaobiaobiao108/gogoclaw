@@ -38,7 +38,10 @@ export function RuntimeSection({ form, onFieldChange }: RuntimeSectionProps) {
           value={form.dmScope}
           onValueChange={(value) => onFieldChange("dmScope", value)}
         >
-          <SelectTrigger className="w-full">
+          <SelectTrigger
+            aria-label={t("pages.config.session_scope")}
+            className="w-full"
+          >
             <SelectValue>
               {selectedDmScopeOption
                 ? t(

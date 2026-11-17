@@ -112,3 +112,21 @@ GOGOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_MAX_ARGS_LENGTH=300
 ```
 
 > **Note:** `tool_feedback` is independent of `--debug` mode. It works in production and does not require the gateway to be started with any special flag.
+
+## SQLite Startup Integrity
+
+Each process opens `sessions/sessions.db` through `PRAGMA quick_check(1)` before reading or writing session data. Schema creation runs in a transaction. A failed check refuses the open instead of continuing with a damaged database.
+
+For a full check, backup, or restore, use the `gogoclaw storage` commands. See [SQLite storage recovery](storage-recovery.md).
+
+## Long-Running Soak
+
+`TestProductSoak` is disabled by default and enabled with a duration:
+
+```bash
+GOGOCLAW_SOAK_DURATION=20m make soak-test
+```
+
+The test runs repeated turns and writes CSV samples for RSS, goroutines, Go heap/sys, SQLite, WAL, and log occupancy. Set `GOGOCLAW_SOAK_REPORT` to choose the CSV path. Optional thresholds are `GOGOCLAW_SOAK_MAX_RSS_GROWTH_MB` and `GOGOCLAW_SOAK_MAX_GOROUTINE_GROWTH`; Linux RSS is reported when available.
+
+The Reliability workflow runs a 20-minute soak and uploads the report as an artifact. It does not run a NAS 72-hour test.

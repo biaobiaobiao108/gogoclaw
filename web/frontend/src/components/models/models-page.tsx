@@ -42,23 +42,15 @@ import {
   sortModelList,
 } from "./model-list-logic"
 import {
+  deriveDefaultChainState,
+  groupModelsByProvider,
+} from "./model-page-state"
+import {
   ModelsDefaultChainCard,
   ModelsEmptyState,
 } from "./models-page-sections"
-import {
-  getCanonicalProviderKey,
-  getProviderCatalogMap,
-} from "./provider-registry"
-import type { ProviderCatalogEntry } from "./provider-registry"
+import { getProviderCatalogMap } from "./provider-registry"
 import { ProviderSection } from "./provider-section"
-
-interface ProviderGroup {
-  key: string
-  provider: Pick<ProviderCatalogEntry, "key" | "label" | "iconSlug" | "domain">
-  models: ModelInfo[]
-  hasDefault: boolean
-  availableCount: number
-}
 
 export function ModelsPage() {
   const { t } = useTranslation()
@@ -448,112 +440,25 @@ export function ModelsPage() {
     setFallbackChainDraft(fallbackChainBaseline)
   }
 
-  const grouped: Record<
-    string,
-    {
-      provider: Pick<
-        ProviderCatalogEntry,
-        "key" | "label" | "iconSlug" | "domain"
-      >
-      models: ModelInfo[]
-    }
-  > = {}
-  for (const model of models) {
-    const providerKey = getCanonicalProviderKey(model.provider, providerOptions)
-    const providerDef = providerKey ? providerMap.get(providerKey) : undefined
-    if (!grouped[providerKey]) {
-      grouped[providerKey] = {
-        provider: {
-          key: providerKey,
-          label: providerDef?.label || providerKey,
-          iconSlug: providerDef?.iconSlug,
-          domain: providerDef?.domain,
-        },
-        models: [],
-      }
-    }
-    grouped[providerKey].models.push(model)
-  }
-
-  const providerGroups: ProviderGroup[] = Object.entries(grouped)
-    .map(([key, group]) => {
-      const availableCount = group.models.filter(
-        (model) => model.available,
-      ).length
-      return {
-        key,
-        provider: group.provider,
-        models: group.models,
-        hasDefault: group.models.some(
-          (model) => model.model_name === defaultModelDraft,
-        ),
-        availableCount,
-      }
-    })
-    .sort((a, b) => {
-      if (a.hasDefault && !b.hasDefault) return -1
-      if (!a.hasDefault && b.hasDefault) return 1
-
-      if (a.availableCount !== b.availableCount) {
-        return b.availableCount - a.availableCount
-      }
-
-      const aPriority = -(providerMap.get(a.key)?.priority ?? 0)
-      const bPriority = -(providerMap.get(b.key)?.priority ?? 0)
-      if (aPriority !== bPriority) {
-        return aPriority - bPriority
-      }
-
-      return a.provider.label.localeCompare(b.provider.label)
-    })
-
-  const defaultModel = models.find(
-    (model) => model.model_name === defaultModelDraft,
-  )
-  const defaultModelEntryCount = models.filter(
-    (model) => model.model_name === defaultModelDraft,
-  ).length
-  const defaultModelIdentity = modelReferenceIdentity(
-    defaultModelDraft,
+  const providerGroups = groupModelsByProvider(
     models,
+    defaultModelDraft,
     providerOptions,
+    providerMap,
+  )
+  const {
+    defaultModelEntryCount,
+    fallbackDefaultConflictModelNames,
+    defaultModelLabel,
+    defaultChainAllowedModelNames,
+  } = deriveDefaultChainState({
+    models,
     defaultProvider,
-  )
-  const fallbackIdentities = new Set(
-    fallbackChainDraft.map((modelName) =>
-      modelReferenceIdentity(
-        modelName,
-        models,
-        providerOptions,
-        defaultProvider,
-      ),
-    ),
-  )
-  const fallbackDefaultConflictModelNames = new Set(
-    models
-      .filter((model) => {
-        const identity = modelReferenceIdentity(
-          model.model_name,
-          models,
-          providerOptions,
-          defaultProvider,
-        )
-        return (
-          identity === defaultModelIdentity ||
-          (!fallbackChainDraft.includes(model.model_name) &&
-            fallbackIdentities.has(identity))
-        )
-      })
-      .map((model) => model.model_name),
-  )
-  const defaultModelLabel = defaultModel?.model_name ?? defaultModelDraft
-  const defaultChainAllowedModelNames = new Set(
-    models
-      .filter((model) =>
-        modelNameAllowedInDefaultChain(model.model_name, models),
-      )
-      .map((model) => model.model_name),
-  )
+    providerOptions,
+    defaultModelDraft,
+    fallbackChainDraft,
+  })
+
   return (
     <div className="flex h-full flex-col">
       <PageHeader title={t("navigation.models")}>

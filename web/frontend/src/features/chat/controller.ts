@@ -3,6 +3,15 @@ import { toast } from "sonner"
 
 import { setSessionFeedback } from "@/api/sessions"
 import {
+  connectionGeneration,
+  invalidateConnectionGeneration,
+  nextConnectionGeneration,
+  reconnectAttemptCount,
+  resetReconnectAttempts,
+  scheduleReconnect as scheduleChatReconnect,
+  setMaintainConnection,
+} from "@/features/chat/chat-connection"
+import {
   loadOlderSessionHistory,
   loadSessionHistory,
   mergeHistoryMessages,
@@ -28,11 +37,7 @@ let activeSessionIdRef = getChatState().activeSessionId
 let initialized = false
 let unsubscribeGateway: (() => void) | null = null
 let hydratePromise: Promise<void> | null = null
-let connectionGeneration = 0
-let reconnectTimer: number | null = null
 let turnStatusTimer: number | null = null
-let reconnectAttempts = 0
-let shouldMaintainConnection = false
 let sessionSelectionGeneration = 0
 let historyGeneration = 0
 let historyRefreshGeneration = 0
@@ -43,36 +48,14 @@ const pendingOptimisticActions = new Map<string, () => void>()
 const feedbackSequences = new Map<string, number>()
 const feedbackWriteChains = new Map<string, Promise<void>>()
 
-function clearReconnectTimer() {
-  if (reconnectTimer !== null) {
-    window.clearTimeout(reconnectTimer)
-    reconnectTimer = null
-  }
-}
-
-function shouldReconnectFor(generation: number, sessionId: string): boolean {
-  return (
-    shouldMaintainConnection &&
-    generation === connectionGeneration &&
-    sessionId === activeSessionIdRef &&
-    store.get(gatewayAtom).status === "running"
-  )
-}
-
 function scheduleReconnect(generation: number, sessionId: string) {
-  if (!shouldReconnectFor(generation, sessionId) || reconnectTimer !== null) {
-    return
-  }
-
-  const delay = Math.min(1000 * 2 ** reconnectAttempts, 5000)
-  reconnectAttempts += 1
-  reconnectTimer = window.setTimeout(() => {
-    reconnectTimer = null
-    if (!shouldReconnectFor(generation, sessionId)) {
-      return
-    }
-    void connectChat()
-  }, delay)
+  scheduleChatReconnect(
+    generation,
+    sessionId,
+    (candidate) => candidate === activeSessionIdRef,
+    () => store.get(gatewayAtom).status === "running",
+    () => void connectChat(),
+  )
 }
 
 function needsActiveSessionHydration(): boolean {
@@ -103,8 +86,7 @@ function disconnectChatInternal({
 }: {
   clearDesiredConnection: boolean
 }) {
-  connectionGeneration += 1
-  clearReconnectTimer()
+  invalidateConnectionGeneration()
   if (turnStatusTimer !== null) {
     window.clearInterval(turnStatusTimer)
     turnStatusTimer = null
@@ -114,7 +96,7 @@ function disconnectChatInternal({
   pendingStatusWatchUntil = 0
 
   if (clearDesiredConnection) {
-    shouldMaintainConnection = false
+    setMaintainConnection(false)
   }
 
   const socket = wsRef
@@ -158,16 +140,14 @@ export async function connectChat() {
     return
   }
 
-  const generation = connectionGeneration + 1
-  connectionGeneration = generation
+  const generation = nextConnectionGeneration()
   isConnecting = true
-  clearReconnectTimer()
   updateChatStore({ connectionState: "connecting" })
 
   try {
     const sessionId = activeSessionIdRef
 
-    if (generation !== connectionGeneration) {
+    if (generation !== connectionGeneration()) {
       isConnecting = false
       return
     }
@@ -177,7 +157,7 @@ export async function connectChat() {
     const url = `${wsUrl}?session_id=${encodeURIComponent(sessionId)}`
     const socket = new WebSocket(url)
 
-    if (generation !== connectionGeneration) {
+    if (generation !== connectionGeneration()) {
       isConnecting = false
       invalidateSocket(socket)
       return
@@ -189,7 +169,7 @@ export async function connectChat() {
           socket,
           currentSocket: wsRef,
           generation,
-          currentGeneration: connectionGeneration,
+          currentGeneration: connectionGeneration(),
           sessionId,
           currentSessionId: activeSessionIdRef,
         })
@@ -221,8 +201,8 @@ export async function connectChat() {
       }
       requestTurnStatus()
       turnStatusTimer = window.setInterval(requestTurnStatus, 2000)
-      const reconnected = reconnectAttempts > 0
-      reconnectAttempts = 0
+      const reconnected = reconnectAttemptCount() > 0
+      resetReconnectAttempts()
       // Reconcile messages produced while the socket was disconnected.
       if (reconnected)
         void loadSessionHistory(sessionId)
@@ -232,7 +212,7 @@ export async function connectChat() {
                 socket,
                 currentSocket: wsRef,
                 generation,
-                currentGeneration: connectionGeneration,
+                currentGeneration: connectionGeneration(),
                 sessionId,
                 currentSessionId: activeSessionIdRef,
               })
@@ -266,7 +246,7 @@ export async function connectChat() {
           socket,
           currentSocket: wsRef,
           generation,
-          currentGeneration: connectionGeneration,
+          currentGeneration: connectionGeneration(),
           sessionId,
           currentSessionId: activeSessionIdRef,
         })
@@ -318,7 +298,7 @@ export async function connectChat() {
           socket,
           currentSocket: wsRef,
           generation,
-          currentGeneration: connectionGeneration,
+          currentGeneration: connectionGeneration(),
           sessionId,
           currentSessionId: activeSessionIdRef,
         })
@@ -352,7 +332,7 @@ export async function connectChat() {
           socket,
           currentSocket: wsRef,
           generation,
-          currentGeneration: connectionGeneration,
+          currentGeneration: connectionGeneration(),
           sessionId,
           currentSessionId: activeSessionIdRef,
         })
@@ -366,7 +346,7 @@ export async function connectChat() {
 
     wsRef = socket
   } catch (error) {
-    if (generation !== connectionGeneration) {
+    if (generation !== connectionGeneration()) {
       isConnecting = false
       return
     }
@@ -933,7 +913,7 @@ export async function switchChatSession(sessionId: string) {
     })
 
     if (store.get(gatewayAtom).status === "running") {
-      shouldMaintainConnection = true
+      setMaintainConnection(true)
       await connectChat()
     }
   } catch (error) {
@@ -966,7 +946,7 @@ export async function newChatSession() {
   })
 
   if (store.get(gatewayAtom).status === "running") {
-    shouldMaintainConnection = true
+    setMaintainConnection(true)
     await connectChat()
   }
 }
@@ -988,7 +968,7 @@ export function initializeChatStore() {
     lastGatewayStatus = gatewayStatus
 
     if (gatewayStatus === "running") {
-      shouldMaintainConnection = true
+      setMaintainConnection(true)
       if (needsActiveSessionHydration()) {
         return
       }

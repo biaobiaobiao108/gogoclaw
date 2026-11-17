@@ -22,15 +22,36 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - name: Download previous benchmark baseline
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p build/benchmarks
+          artifact_id=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=gogoclaw-benchmarks&per_page=1" \
+            --jq '.artifacts[0].id // empty')
+          if [ -n "$artifact_id" ]; then
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > /tmp/benchmarks.zip
+            unzip -p /tmp/benchmarks.zip '*.txt' > build/benchmarks/baseline.txt
+          fi
       - name: Run Go benchmarks
         env:
           GOGOCLAW_BENCH_OUTPUT: build/benchmarks/github-${{ github.sha }}.txt
           GOGOCLAW_BENCH_TIME: 2s
           GOGOCLAW_BENCH_COUNT: 3
         run: bash ./scripts/run-benchmarks.sh
+      - name: Reject benchmark regressions
+        if: hashFiles('build/benchmarks/baseline.txt') != ''
+        run: |
+          bun ./scripts/check-benchmark-regression.ts \
+            build/benchmarks/baseline.txt \
+            build/benchmarks/github-${{ github.sha }}.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: gogoclaw-benchmarks-${{ github.sha }}
-          path: build/benchmarks/*.txt
+          name: gogoclaw-benchmarks
+          path: build/benchmarks/github-${{ github.sha }}.txt
           if-no-files-found: error
           retention-days: 30

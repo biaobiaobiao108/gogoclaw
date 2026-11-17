@@ -36,3 +36,30 @@ jobs:
           path: build/reliability/restart.txt
           if-no-files-found: warn
           retention-days: 30
+
+  soak:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Exercise repeated turns while tracking RSS, goroutines, SQLite and logs
+        env:
+          GOGOCLAW_SOAK_DURATION: 20m
+          GOGOCLAW_SOAK_REPORT: build/soak/soak.csv
+        run: |
+          mkdir -p build/soak
+          set -o pipefail
+          go test -tags goolm,stdjson ./pkg/harness -run '^TestProductSoak$' -count=1 -timeout=32m -v 2>&1 | tee build/soak/soak.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: soak-${{ github.sha }}
+          path: |
+            build/soak/soak.txt
+            build/soak/soak.csv
+          if-no-files-found: warn
+          retention-days: 30

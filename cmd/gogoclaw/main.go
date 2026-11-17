@@ -26,6 +26,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/cmd/gogoclaw/internal/onboard"
 	"github.com/biaobiaobiao108/gogoclaw/cmd/gogoclaw/internal/skills"
 	"github.com/biaobiaobiao108/gogoclaw/cmd/gogoclaw/internal/status"
+	"github.com/biaobiaobiao108/gogoclaw/cmd/gogoclaw/internal/storage"
 	"github.com/biaobiaobiao108/gogoclaw/cmd/gogoclaw/internal/version"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 )
@@ -91,6 +92,7 @@ gogoclaw --no-color status`,
 		cron.NewCronCommand(),
 		mcp.NewMCPCommand(),
 		migrate.NewMigrateCommand(),
+		storage.NewStorageCommand(),
 		skills.NewSkillsCommand(),
 		model.NewModelCommand(),
 		version.NewVersionCommand(),

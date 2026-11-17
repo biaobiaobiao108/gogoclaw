@@ -36,3 +36,10 @@ make benchmark
 ## GitHub Actions
 
 仓库的手动 `Benchmark` 工作流会在固定的 Ubuntu runner 上生成并保留报告 artifact。它适合比较代码变更在同一类 runner 上的趋势，不能替代目标 NAS 上的实测。
+
+工作流会把最近一份 `gogoclaw-benchmarks` artifact 作为滚动基线。`scripts/check-benchmark-regression.ts` 比较每个 benchmark 的中位数，并在以下情况失败：
+
+- `ns/op` 恶化超过 35%，且绝对增加至少 50,000 ns；或
+- `B/op` 或 `allocs/op` 恶化超过 25%。
+
+可通过 `GOGOCLAW_BENCH_MAX_TIME_RATIO`、`GOGOCLAW_BENCH_MIN_TIME_DELTA_NS` 和 `GOGOCLAW_BENCH_MAX_ALLOC_RATIO` 调整阈值。没有可重叠的基线时会明确报错，而不是静默通过。

@@ -632,6 +632,10 @@ toolLoop:
 
 		humanApprovalRequired := cfg.Tools.Approval.Requires(toolName)
 		humanApprovalReason := ""
+		if !humanApprovalRequired && al.publicExposure {
+			humanApprovalReason = tools.PublicExposureApprovalReason(toolName, toolArgs)
+			humanApprovalRequired = humanApprovalReason != ""
+		}
 		if al.hooks != nil {
 			approval := al.hooks.ApproveTool(turnCtx, &ToolApprovalRequest{
 				Meta:       ts.eventMeta("runTurn", "turn.tool.approve"),

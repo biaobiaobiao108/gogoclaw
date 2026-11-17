@@ -41,6 +41,11 @@ const (
 	// EnvGatewayHost overrides the host address for the gateway server.
 	// Default: "localhost"
 	EnvGatewayHost = "GOGOCLAW_GATEWAY_HOST"
+
+	// EnvPublicExposure marks a gateway managed by a launcher that is reachable
+	// beyond the local machine. It makes risky state-changing tools require
+	// human approval even when the persisted approval list is otherwise empty.
+	EnvPublicExposure = "GOGOCLAW_PUBLIC_EXPOSURE"
 )
 
 func GetHome() string {
