@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/biaobiaobiao108/gogoclaw/pkg/appstate"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/credential"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 )
 
@@ -48,8 +48,34 @@ func (c *AuthCredential) NeedsRefresh() bool {
 	return time.Now().Add(5 * time.Minute).After(c.ExpiresAt)
 }
 
-func authFilePath() string {
-	return filepath.Join(config.GetHome(), "auth.json")
+func openAuthState() (*appstate.Store, error) {
+	path := strings.TrimSpace(os.Getenv(config.EnvConfig))
+	if path == "" {
+		path = filepath.Join(config.GetHome(), "config.json")
+	}
+	cfg, err := config.LoadConfig(path)
+	if err != nil {
+		return nil, err
+	}
+	return appstate.Open(filepath.Join(cfg.WorkspacePath(), "sessions"))
+}
+
+func readAuthState() ([]byte, error) {
+	db, err := openAuthState()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	return db.Get("auth", "credentials")
+}
+
+func writeAuthState(data []byte) error {
+	db, err := openAuthState()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.Put("auth", "credentials", data)
 }
 
 func canonicalProvider(provider string) string {
@@ -235,13 +261,12 @@ func encryptCredentialTokens(provider string, cred *AuthCredential, passphrase s
 
 // LoadStore decrypts enc:// OAuth tokens and accepts legacy plaintext stores.
 func LoadStore() (*AuthStore, error) {
-	path := authFilePath()
-	data, err := os.ReadFile(path)
+	data, err := readAuthState()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return &AuthStore{Credentials: make(map[string]*AuthCredential)}, nil
-		}
 		return nil, err
+	}
+	if len(data) == 0 {
+		return &AuthStore{Credentials: make(map[string]*AuthCredential)}, nil
 	}
 
 	var store AuthStore
@@ -262,11 +287,10 @@ func LoadStore() (*AuthStore, error) {
 // Without key material it keeps the legacy plaintext format and warns, the
 // same policy as config.SecureString.
 func SaveStore(store *AuthStore) error {
-	path := authFilePath()
 	encryptedStore := cloneStore(store)
 	passphrase := credential.PassphraseProvider()
 	if passphrase == "" && storeHasTokens(encryptedStore) {
-		logger.WarnCF("auth", "OAuth tokens are stored without encryption; set "+credential.PassphraseEnvVar+" to encrypt auth.json at rest", nil)
+		logger.WarnCF("auth", "OAuth tokens are stored without encryption; set "+credential.PassphraseEnvVar+" to encrypt OAuth tokens at rest", nil)
 	}
 	for provider, cred := range encryptedStore.Credentials {
 		if err := encryptCredentialTokens(provider, cred, passphrase); err != nil {
@@ -279,7 +303,7 @@ func SaveStore(store *AuthStore) error {
 	}
 
 	// Use unified atomic write utility with explicit sync for flash storage reliability.
-	return fileutil.WriteFileAtomic(path, data, 0o600)
+	return writeAuthState(data)
 }
 
 func storeHasTokens(store *AuthStore) bool {
@@ -332,9 +356,10 @@ func DeleteCredential(provider string) error {
 }
 
 func DeleteAllCredentials() error {
-	path := authFilePath()
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+	db, err := openAuthState()
+	if err != nil {
 		return err
 	}
-	return nil
+	defer db.Close()
+	return db.Delete("auth", "credentials")
 }

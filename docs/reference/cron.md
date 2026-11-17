@@ -156,7 +156,7 @@ Example:
 Cron jobs are stored in:
 
 ```text
-<workspace>/cron/jobs.json
+<workspace>/sessions/sessions.db
 ```
 
 By default, the workspace is:
@@ -171,7 +171,7 @@ If `GOGOCLAW_HOME` is set, the default workspace becomes:
 $GOGOCLAW_HOME/workspace
 ```
 
-Both the gateway and `gogoclaw cron` CLI subcommands use the same `cron/jobs.json` file.
+Both the gateway and `gogoclaw cron` CLI subcommands use the same `sessions/sessions.db` file.
 
 Notes:
 

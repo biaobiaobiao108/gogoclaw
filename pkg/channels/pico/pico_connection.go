@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -16,9 +15,9 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/approval"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/identity"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 )
 
 // writeJSON sends a JSON message to the connection with write locking.
@@ -730,12 +729,17 @@ func (c *PicoChannel) loadMessageDedupeLocked() error {
 	if c.dedupePath == "" {
 		return nil
 	}
-	data, err := os.ReadFile(c.dedupePath)
-	if os.IsNotExist(err) {
-		return nil
+	db, err := memory.NewSQLiteStore(c.dedupePath)
+	if err != nil {
+		return fmt.Errorf("open inbound dedupe state: %w", err)
 	}
+	defer db.Close()
+	data, err := db.GetAppState(nil, "pico", "inbound_dedupe")
 	if err != nil {
 		return fmt.Errorf("read inbound dedupe state: %w", err)
+	}
+	if len(data) == 0 {
+		return nil
 	}
 
 	type entry struct {
@@ -796,7 +800,12 @@ func (c *PicoChannel) saveMessageDedupeLocked() error {
 	if err != nil {
 		return err
 	}
-	if err := fileutil.WriteFileAtomic(c.dedupePath, data, 0o600); err != nil {
+	db, err := memory.NewSQLiteStore(c.dedupePath)
+	if err != nil {
+		return fmt.Errorf("open inbound dedupe state: %w", err)
+	}
+	defer db.Close()
+	if err := db.SetAppState(nil, "pico", "inbound_dedupe", data); err != nil {
 		return fmt.Errorf("write inbound dedupe state: %w", err)
 	}
 	return nil

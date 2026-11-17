@@ -594,7 +594,7 @@ export function sanitizeAntigravityThinkingBlocks(
 
 ### 认证配置文件存储
 
-认证配置文件存储在 `~/.gogoclaw/auth.json` 中：
+认证配置文件存储在 `<workspace>/sessions/sessions.db` 中，其逻辑结构如下：
 
 ```json
 {
@@ -735,7 +735,7 @@ export GOGOCLAW_MODEL_LIST='[{"model_name":"your-model","model":"your-provider/m
 - **源文件：**
   - `pkg/providers/antigravity_provider.go` - Antigravity 提供商实现
   - `pkg/auth/oauth.go` - OAuth 流程实现
-  - `pkg/auth/store.go` - 认证凭据存储（`~/.gogoclaw/auth.json`）
+  - `pkg/auth/store.go` - 认证凭据存储（`<workspace>/sessions/sessions.db`）
   - `pkg/providers/factory.go` - 提供商工厂和协议路由
   - `pkg/providers/types.go` - 提供商接口定义
   - `cmd/gogoclaw/internal/auth/helpers.go` - 认证 CLI 命令
@@ -805,5 +805,5 @@ export GOGOCLAW_MODEL_LIST='[{"model_name":"your-model","model":"your-provider/m
 
 ### 模型未出现在列表中
 - 验证 OAuth 认证是否成功完成
-- 检查认证配置文件存储：`~/.gogoclaw/auth.json`
+- 检查认证配置文件存储：`<workspace>/sessions/sessions.db`
 - 重新运行 `gogoclaw auth login --provider antigravity`

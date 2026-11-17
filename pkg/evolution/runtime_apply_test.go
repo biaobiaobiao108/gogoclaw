@@ -2,6 +2,7 @@ package evolution_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -1108,11 +1109,13 @@ func TestRuntime_RunColdPathOnce_ProfileSaveFailureRollsBackSkillAndQuarantinesD
 		t.Fatalf("AppendLearningRecords: %v", err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(paths.ProfilesDir), 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
+	db, err := sql.Open("sqlite", filepath.Join(root, "sessions", "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := os.WriteFile(paths.ProfilesDir, []byte("not-a-directory"), 0o644); err != nil {
-		t.Fatalf("WriteFile(profiles): %v", err)
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TRIGGER fail_profile BEFORE INSERT ON app_state WHEN NEW.namespace = 'evolution' AND NEW.state_key LIKE 'profiles/%' BEGIN SELECT RAISE(ABORT, 'profile failure'); END`); err != nil {
+		t.Fatal(err)
 	}
 
 	rt, err := evolution.NewRuntime(evolution.RuntimeOptions{

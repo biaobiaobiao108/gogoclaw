@@ -3,13 +3,12 @@ package state
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
-	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 )
 
 // State represents the persistent state for a workspace.
@@ -30,61 +29,20 @@ type Manager struct {
 	workspace string
 	state     *State
 	mu        sync.RWMutex
-	stateFile string
+	stateDir  string
 }
 
 // NewManager creates a new state manager for the given workspace.
 func NewManager(workspace string) *Manager {
-	stateDir := filepath.Join(workspace, "state")
-	stateFile := filepath.Join(stateDir, "state.json")
-	oldStateFile := filepath.Join(workspace, "state.json")
-
-	// Create state directory if it doesn't exist
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
-		logger.WarnCF("state", "failed to create state directory", map[string]any{
-			"dir":   stateDir,
-			"error": err.Error(),
-		})
+	sm := &Manager{workspace: workspace, stateDir: filepath.Join(workspace, "sessions"), state: &State{}}
+	if err := sm.load(); err != nil {
+		logger.WarnCF("state", "failed to load state", map[string]any{"error": err.Error()})
 	}
-
-	sm := &Manager{
-		workspace: workspace,
-		stateFile: stateFile,
-		state:     &State{},
-	}
-
-	// Try to load from new location first
-	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
-		// New file doesn't exist, try migrating from old location
-		if data, err := os.ReadFile(oldStateFile); err == nil {
-			if err := json.Unmarshal(data, sm.state); err == nil {
-				// Migrate to new location
-				if err := sm.saveAtomic(); err != nil {
-					logger.WarnCF("state", "failed to save state", map[string]any{
-						"error": err.Error(),
-					})
-				}
-				logger.InfoCF("state", "migrated state", map[string]any{
-					"from": oldStateFile,
-					"to":   stateFile,
-				})
-			}
-		}
-	} else {
-		// Load from new location
-		if err := sm.load(); err != nil {
-			logger.WarnCF("state", "failed to load state", map[string]any{
-				"error": err.Error(),
-			})
-		}
-	}
-
 	return sm
 }
 
 // SetLastChannel atomically updates the last channel and saves the state.
-// This method uses a temp file + rename pattern for atomic writes,
-// ensuring that the state file is never corrupted even if the process crashes.
+// SQLite commits the update atomically.
 func (sm *Manager) SetLastChannel(channel string) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -93,7 +51,7 @@ func (sm *Manager) SetLastChannel(channel string) error {
 	sm.state.LastChannel = channel
 	sm.state.Timestamp = time.Now()
 
-	// Atomic save using temp file + rename
+	// Commit the updated state
 	if err := sm.saveAtomic(); err != nil {
 		return fmt.Errorf("failed to save state atomically: %w", err)
 	}
@@ -110,7 +68,7 @@ func (sm *Manager) SetLastChatID(chatID string) error {
 	sm.state.LastChatID = chatID
 	sm.state.Timestamp = time.Now()
 
-	// Atomic save using temp file + rename
+	// Commit the updated state
 	if err := sm.saveAtomic(); err != nil {
 		return fmt.Errorf("failed to save state atomically: %w", err)
 	}
@@ -139,39 +97,35 @@ func (sm *Manager) GetTimestamp() time.Time {
 	return sm.state.Timestamp
 }
 
-// saveAtomic performs an atomic save using temp file + rename.
-// This ensures that the state file is never corrupted:
-// 1. Write to a temp file
-// 2. Sync to disk (critical for SD cards/flash storage)
-// 3. Rename temp file to target (atomic on POSIX systems)
-// 4. If rename fails, cleanup the temp file
-//
-// Must be called with the lock held.
+// saveAtomic must be called with the lock held.
 func (sm *Manager) saveAtomic() error {
-	// Use unified atomic write utility with explicit sync for flash storage reliability.
-	// Using 0o600 (owner read/write only) for secure default permissions.
-	data, err := json.MarshalIndent(sm.state, "", "  ")
+	data, err := json.Marshal(sm.state)
 	if err != nil {
-		return fmt.Errorf("failed to marshal state: %w", err)
+		return fmt.Errorf("marshal state: %w", err)
 	}
-
-	return fileutil.WriteFileAtomic(sm.stateFile, data, 0o600)
+	db, err := memory.NewSQLiteStore(sm.stateDir)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.SetAppState(nil, "runtime", "last_channel", data)
 }
 
-// load loads the state from disk.
 func (sm *Manager) load() error {
-	data, err := os.ReadFile(sm.stateFile)
+	db, err := memory.NewSQLiteStore(sm.stateDir)
 	if err != nil {
-		// File doesn't exist yet, that's OK
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to read state file: %w", err)
+		return err
 	}
-
+	defer db.Close()
+	data, err := db.GetAppState(nil, "runtime", "last_channel")
+	if err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return nil
+	}
 	if err := json.Unmarshal(data, sm.state); err != nil {
-		return fmt.Errorf("failed to unmarshal state: %w", err)
+		return fmt.Errorf("decode state: %w", err)
 	}
-
 	return nil
 }

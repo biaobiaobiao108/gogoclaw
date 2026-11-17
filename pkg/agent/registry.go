@@ -20,10 +20,18 @@ type AgentRegistry struct {
 }
 
 // NewAgentRegistry creates a registry from config, instantiating all agents.
-func NewAgentRegistry(
+func NewAgentRegistry(cfg *config.Config, provider providers.LLMProvider) *AgentRegistry {
+	registry, err := newAgentRegistry(cfg, provider)
+	if err != nil {
+		panic(err)
+	}
+	return registry
+}
+
+func newAgentRegistry(
 	cfg *config.Config,
 	provider providers.LLMProvider,
-) *AgentRegistry {
+) (*AgentRegistry, error) {
 	registry := &AgentRegistry{
 		cfg:      cfg,
 		agents:   make(map[string]*AgentInstance),
@@ -36,14 +44,21 @@ func NewAgentRegistry(
 			ID:      "main",
 			Default: true,
 		}
-		instance := NewAgentInstance(implicitAgent, &cfg.Agents.Defaults, cfg, provider)
+		instance, err := newAgentInstance(implicitAgent, &cfg.Agents.Defaults, cfg, provider)
+		if err != nil {
+			return nil, err
+		}
 		registry.agents["main"] = instance
 		logger.InfoCF("agent", "Created implicit main agent (no agents.list configured)", nil)
 	} else {
 		for i := range agentConfigs {
 			ac := &agentConfigs[i]
 			id := routing.NormalizeAgentID(ac.ID)
-			instance := NewAgentInstance(ac, &cfg.Agents.Defaults, cfg, provider)
+			instance, err := newAgentInstance(ac, &cfg.Agents.Defaults, cfg, provider)
+			if err != nil {
+				registry.Close()
+				return nil, err
+			}
 			registry.agents[id] = instance
 			logger.InfoCF("agent", "Registered agent",
 				map[string]any{
@@ -67,7 +82,7 @@ func NewAgentRegistry(
 		}
 	}
 
-	return registry
+	return registry, nil
 }
 
 // GetAgent returns the agent instance for a given ID.

@@ -49,12 +49,7 @@ If you are deploying via Coolify or Docker, follow these steps to test:
 
 1.  **Environment Variables**:
     *   `GOGOCLAW_AGENTS_DEFAULTS_MODEL=gemini-flash`
-2.  **Authentication persistence**: 
-    If you've logged in locally, you can copy your credentials to the server:
-    ```bash
-    scp ~/.gogoclaw/auth.json user@your-server:~/.gogoclaw/
-    ```
-    *Alternatively*, run the `auth login` command once on the server if you have terminal access.
+2.  **Authentication persistence**: Run `gogoclaw auth login` in the deployed container. Credentials are stored in the workspace `sessions/sessions.db`; protect the key material needed for decryption when backing up the database.
 
 ## 4. Troubleshooting
 

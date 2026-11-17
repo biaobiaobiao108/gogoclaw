@@ -6,15 +6,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	basechannels "github.com/biaobiaobiao108/gogoclaw/pkg/channels"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 )
 
 const (
@@ -54,27 +53,40 @@ func genWeixinAccountKey(cfg *config.WeixinSettings) string {
 }
 
 func buildWeixinSyncBufPath(cfg *config.WeixinSettings) string {
-	return filepath.Join(gogoclawHomeDir(), "channels", "weixin", "sync", genWeixinAccountKey(cfg)+".json")
+	return filepath.Join(gogoclawHomeDir(), "workspace", "sessions", "sync-"+genWeixinAccountKey(cfg))
 }
 
 func buildWeixinContextTokensPath(cfg *config.WeixinSettings) string {
-	return filepath.Join(gogoclawHomeDir(), "channels", "weixin", "context-tokens", genWeixinAccountKey(cfg)+".json")
+	return filepath.Join(gogoclawHomeDir(), "workspace", "sessions", "tokens-"+genWeixinAccountKey(cfg))
+}
+
+func loadWeixinState(path string) ([]byte, error) {
+	db, err := memory.NewSQLiteStore(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	return db.GetAppState(nil, "weixin", filepath.Base(path))
+}
+
+func saveWeixinState(path string, value []byte) error {
+	db, err := memory.NewSQLiteStore(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.SetAppState(nil, "weixin", filepath.Base(path), value)
 }
 
 func loadGetUpdatesBuf(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
+	data, err := loadWeixinState(path)
+	if err != nil || len(data) == 0 {
 		return "", err
 	}
-
 	var decoded syncCursorFile
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return "", err
 	}
-
 	return decoded.GetUpdatesBuf, nil
 }
 
@@ -83,15 +95,12 @@ func saveGetUpdatesBuf(path, cursor string) error {
 	if err != nil {
 		return err
 	}
-	return fileutil.WriteFileAtomic(path, data, 0o600)
+	return saveWeixinState(path, data)
 }
 
 func loadContextTokens(path string) (map[string]string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	data, err := loadWeixinState(path)
+	if err != nil || len(data) == 0 {
 		return nil, err
 	}
 	var decoded contextTokensFile
@@ -106,7 +115,7 @@ func saveContextTokens(path string, tokens map[string]string) error {
 	if err != nil {
 		return err
 	}
-	return fileutil.WriteFileAtomic(path, data, 0o600)
+	return saveWeixinState(path, data)
 }
 
 func (c *WeixinChannel) cdnBaseURL() string {

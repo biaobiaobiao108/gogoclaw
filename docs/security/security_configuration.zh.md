@@ -385,12 +385,12 @@ export GOGOCLAW_TOOLS_WEB_BAIDU_API_KEY="baidu-key-from-env"
 
 ## OAuth Token 存储
 
-`auth.json` 中的 OAuth token 与配置密钥遵循相同的 `enc://` 加密策略：
+`sessions/sessions.db` 中的 OAuth token 与配置密钥遵循相同的 `enc://` 加密策略：
 
 - 设置 `GOGOCLAW_KEY_PASSPHRASE` 后，access token 与 refresh token 会以 AES-256-GCM 加密后落盘。密钥由 passphrase 与 SSH key（`GOGOCLAW_SSH_KEY_PATH`，默认 `~/.ssh/gogoclaw_ed25519.key`）派生。
 - 未设置 passphrase 时，token 以旧版明文格式保存并记录警告日志；OAuth 登录不受影响。
-- 旧明文存储可正常加载；配置 passphrase 后，下次保存会自动升级为密文。
-- `auth.json` 始终以 `0600` 权限写入。
+- 数据库内的明文 token 在配置 passphrase 后会于下次保存时加密。旧 JSON 文件不会自动导入。
+- 打开 `sessions.db` 时会将其权限设为 `0600`。
 
 ## 安全最佳实践
 

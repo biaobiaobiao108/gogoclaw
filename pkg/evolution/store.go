@@ -1,7 +1,6 @@
 package evolution
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha1"
@@ -14,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/skills"
 )
 
@@ -59,53 +58,63 @@ func (s *Store) AppendTaskRecord(ctx context.Context, record LearningRecord) err
 }
 
 func (s *Store) AppendTaskRecords(ctx context.Context, records []LearningRecord) error {
-	return s.appendJSONLRecords(ctx, s.paths.TaskRecords, records)
+	return s.appendRecords(ctx, s.paths.TaskRecords, records)
 }
 
 func (s *Store) AppendPatternRecords(records []LearningRecord) error {
-	return s.appendJSONLRecords(context.Background(), s.paths.PatternRecords, records)
+	return s.appendRecords(context.Background(), s.paths.PatternRecords, records)
 }
 
-func (s *Store) appendJSONLRecords(ctx context.Context, path string, records []LearningRecord) error {
-	if len(records) == 0 {
-		return nil
+func (s *Store) stateKey(path string) string {
+	key, err := filepath.Rel(s.paths.RootDir, path)
+	if err != nil {
+		return path
 	}
+	return filepath.ToSlash(key)
+}
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+func (s *Store) readState(path string) ([]byte, error) {
+	db, err := memory.NewSQLiteStore(filepath.Join(s.paths.Workspace, "sessions"))
+	if err != nil {
+		return nil, err
 	}
+	defer db.Close()
+	return db.GetAppState(nil, "evolution", s.stateKey(path))
+}
 
-	unlock := lockStoreFile(path)
-	defer unlock()
-
-	if mkdirErr := os.MkdirAll(filepath.Dir(path), 0o755); mkdirErr != nil {
-		return mkdirErr
-	}
-
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+func (s *Store) writeState(path string, data []byte) error {
+	db, err := memory.NewSQLiteStore(filepath.Join(s.paths.Workspace, "sessions"))
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if closeErr := f.Close(); closeErr != nil && err == nil {
-			err = closeErr
-		}
-	}()
+	defer db.Close()
+	return db.SetAppState(nil, "evolution", s.stateKey(path), data)
+}
 
-	enc := json.NewEncoder(f)
+func (s *Store) appendRecords(ctx context.Context, path string, records []LearningRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	unlock := lockStoreFile(path)
+	defer unlock()
+	return s.writeRecords(ctx, path, records, false)
+}
+
+func (s *Store) writeRecords(ctx context.Context, path string, records []LearningRecord, replace bool) error {
+	payloads := make([][]byte, 0, len(records))
 	for _, record := range records {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		if err := enc.Encode(record); err != nil {
+		data, err := json.Marshal(record)
+		if err != nil {
 			return err
 		}
+		payloads = append(payloads, data)
 	}
-	return nil
+	db, err := memory.NewSQLiteStore(filepath.Join(s.paths.Workspace, "sessions"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.WriteEvolutionRecords(ctx, s.stateKey(path), payloads, replace)
 }
 
 func (s *Store) LoadLearningRecords() ([]LearningRecord, error) {
@@ -125,11 +134,7 @@ func (s *Store) LoadTaskRecords() ([]LearningRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	legacy, err := s.loadLegacyTaskRecords()
-	if err != nil {
-		return nil, err
-	}
-	return mergeLearningRecordsByID(legacy, records), nil
+	return mergeLearningRecordsByID(nil, records), nil
 }
 
 func (s *Store) LoadPatternRecords() ([]LearningRecord, error) {
@@ -137,58 +142,32 @@ func (s *Store) LoadPatternRecords() ([]LearningRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	legacy, err := s.loadLegacyPatternRecords()
-	if err != nil {
-		return nil, err
-	}
-	return mergeLearningRecordsByID(legacy, records), nil
+	return mergeLearningRecordsByID(nil, records), nil
 }
 
 func (s *Store) loadRecordsFromPath(path string) ([]LearningRecord, error) {
-	var records []LearningRecord
-	if err := decodeJSONLLines(path, func(line []byte) error {
+	db, err := memory.NewSQLiteStore(filepath.Join(s.paths.Workspace, "sessions"))
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	payloads, err := db.ListEvolutionRecords(nil, s.stateKey(path))
+	if err != nil {
+		return nil, err
+	}
+	records := make([]LearningRecord, 0, len(payloads))
+	for _, payload := range payloads {
 		var record LearningRecord
-		if err := json.Unmarshal(line, &record); err != nil {
-			return err
+		if err := json.Unmarshal(payload, &record); err != nil {
+			return nil, err
 		}
 		records = append(records, record)
-		return nil
-	}); err != nil {
-		return nil, err
 	}
 	return records, nil
 }
 
-func (s *Store) loadLegacyTaskRecords() ([]LearningRecord, error) {
-	records, err := s.loadRecordsFromPath(s.paths.LearningRecords)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]LearningRecord, 0, len(records))
-	for _, record := range records {
-		if isTaskRecordKind(record.Kind) {
-			out = append(out, record)
-		}
-	}
-	return out, nil
-}
-
-func (s *Store) loadLegacyPatternRecords() ([]LearningRecord, error) {
-	records, err := s.loadRecordsFromPath(s.paths.LearningRecords)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]LearningRecord, 0, len(records))
-	for _, record := range records {
-		if isPatternRecordKind(record.Kind) {
-			out = append(out, record)
-		}
-	}
-	return out, nil
-}
-
 func (s *Store) SaveTaskRecords(records []LearningRecord) error {
-	return s.saveJSONLRecords(s.paths.TaskRecords, records)
+	return s.saveRecords(s.paths.TaskRecords, records)
 }
 
 func (s *Store) MarkTaskRecordsClustered(ids []string) error {
@@ -214,11 +193,7 @@ func (s *Store) MarkTaskRecordsClustered(ids []string) error {
 	if err != nil {
 		return err
 	}
-	legacy, err := s.loadLegacyTaskRecords()
-	if err != nil {
-		return err
-	}
-	records := mergeLearningRecordsByID(legacy, current)
+	records := mergeLearningRecordsByID(nil, current)
 
 	hasTargetRecordInWorkspace := make(map[string]bool, len(target))
 	if strings.TrimSpace(s.paths.Workspace) != "" {
@@ -246,11 +221,11 @@ func (s *Store) MarkTaskRecordsClustered(ids []string) error {
 	if !changed {
 		return nil
 	}
-	return s.saveJSONLRecordsLocked(s.paths.TaskRecords, records)
+	return s.saveRecordsLocked(s.paths.TaskRecords, records)
 }
 
 func (s *Store) SavePatternRecords(records []LearningRecord) error {
-	return s.saveJSONLRecords(s.paths.PatternRecords, records)
+	return s.saveRecords(s.paths.PatternRecords, records)
 }
 
 func (s *Store) MergePatternRecords(records []LearningRecord) error {
@@ -265,34 +240,19 @@ func (s *Store) MergePatternRecords(records []LearningRecord) error {
 	if err != nil {
 		return err
 	}
-	legacy, err := s.loadLegacyPatternRecords()
-	if err != nil {
-		return err
-	}
-	merged := mergeLearningRecordsByID(mergeLearningRecordsByID(legacy, current), records)
-	return s.saveJSONLRecordsLocked(s.paths.PatternRecords, merged)
+	merged := mergeLearningRecordsByID(mergeLearningRecordsByID(nil, current), records)
+	return s.saveRecordsLocked(s.paths.PatternRecords, merged)
 }
 
-func (s *Store) saveJSONLRecords(path string, records []LearningRecord) error {
+func (s *Store) saveRecords(path string, records []LearningRecord) error {
 	unlock := lockStoreFile(path)
 	defer unlock()
 
-	return s.saveJSONLRecordsLocked(path, records)
+	return s.saveRecordsLocked(path, records)
 }
 
-func (s *Store) saveJSONLRecordsLocked(path string, records []LearningRecord) error {
-	if mkdirErr := os.MkdirAll(filepath.Dir(path), 0o755); mkdirErr != nil {
-		return mkdirErr
-	}
-
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	for _, record := range records {
-		if err := enc.Encode(record); err != nil {
-			return err
-		}
-	}
-	return fileutil.WriteFileAtomic(path, buf.Bytes(), 0o644)
+func (s *Store) saveRecordsLocked(path string, records []LearningRecord) error {
+	return s.writeRecords(context.Background(), path, records, true)
 }
 
 func mergeLearningRecordsByID(base, updates []LearningRecord) []LearningRecord {
@@ -357,11 +317,11 @@ func (s *Store) SaveDrafts(drafts []SkillDraft) error {
 	if err != nil {
 		return err
 	}
-	return fileutil.WriteFileAtomic(s.paths.SkillDrafts, data, 0o644)
+	return s.writeState(s.paths.SkillDrafts, data)
 }
 
 func (s *Store) LoadDrafts() ([]SkillDraft, error) {
-	data, err := os.ReadFile(s.paths.SkillDrafts)
+	data, err := s.readState(s.paths.SkillDrafts)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -387,15 +347,11 @@ func (s *Store) SaveProfile(profile SkillProfile) error {
 	unlock := lockStoreFile(path)
 	defer unlock()
 
-	if mkdirErr := os.MkdirAll(filepath.Dir(path), 0o755); mkdirErr != nil {
-		return mkdirErr
-	}
-
 	data, err := json.MarshalIndent(profile, "", "  ")
 	if err != nil {
 		return err
 	}
-	return fileutil.WriteFileAtomic(path, data, 0o644)
+	return s.writeState(path, data)
 }
 
 func (s *Store) LoadProfile(skillName string) (SkillProfile, error) {
@@ -428,15 +384,11 @@ func (s *Store) UpdateProfile(
 	if !exists && isZeroSkillProfile(profile) {
 		return nil
 	}
-	if mkdirErr := os.MkdirAll(filepath.Dir(targetPath), 0o755); mkdirErr != nil {
-		return mkdirErr
-	}
-
 	data, err := json.MarshalIndent(profile, "", "  ")
 	if err != nil {
 		return err
 	}
-	return fileutil.WriteFileAtomic(targetPath, data, 0o644)
+	return s.writeState(targetPath, data)
 }
 
 func (s *Store) loadProfileForWorkspace(workspaceID, skillName string) (SkillProfile, error) {
@@ -475,35 +427,27 @@ func isZeroSkillProfile(profile SkillProfile) bool {
 }
 
 func (s *Store) LoadProfiles() ([]SkillProfile, error) {
-	entries, err := os.ReadDir(s.paths.ProfilesDir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
+	db, err := memory.NewSQLiteStore(filepath.Join(s.paths.Workspace, "sessions"))
 	if err != nil {
 		return nil, err
 	}
-
-	profiles := make([]SkillProfile, 0, len(entries))
-	for _, entry := range entries {
-		entryPath := filepath.Join(s.paths.ProfilesDir, entry.Name())
-		if entry.IsDir() {
-			nestedProfiles, loadErr := s.loadProfilesFromDir(entryPath)
-			if loadErr != nil {
-				return nil, loadErr
-			}
-			profiles = append(profiles, nestedProfiles...)
+	defer db.Close()
+	values, err := db.ListAppState(nil, "evolution")
+	if err != nil {
+		return nil, err
+	}
+	prefix := s.stateKey(s.paths.ProfilesDir) + "/"
+	var profiles []SkillProfile
+	for key, data := range values {
+		if !strings.HasPrefix(key, prefix) {
 			continue
 		}
-		if filepath.Ext(entry.Name()) != ".json" {
-			continue
-		}
-		profile, err := s.loadProfileFromPath(entryPath)
-		if err != nil {
+		var profile SkillProfile
+		if err := json.Unmarshal(data, &profile); err != nil {
 			return nil, err
 		}
 		profiles = append(profiles, profile)
 	}
-
 	sort.Slice(profiles, func(i, j int) bool {
 		if profiles[i].SkillName != profiles[j].SkillName {
 			return profiles[i].SkillName < profiles[j].SkillName
@@ -513,48 +457,8 @@ func (s *Store) LoadProfiles() ([]SkillProfile, error) {
 	return profiles, nil
 }
 
-func decodeJSONLLines(path string, decode func(line []byte) error) error {
-	f, err := os.Open(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	var lines [][]byte
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
-			continue
-		}
-		lines = append(lines, append([]byte(nil), line...))
-	}
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-
-	for i, line := range lines {
-		if err := decode(line); err != nil {
-			if i == len(lines)-1 && isInvalidJSON(err) {
-				return nil
-			}
-			return err
-		}
-	}
-	return nil
-}
-
 func draftKey(workspaceID, id string) string {
 	return workspaceID + "\x00" + id
-}
-
-func isInvalidJSON(err error) bool {
-	var syntaxErr *json.SyntaxError
-	return errors.As(err, &syntaxErr)
 }
 
 func lockStoreFile(path string) func() {
@@ -585,32 +489,14 @@ func (s *Store) profilePath(workspaceID, skillName string) (string, error) {
 	return filepath.Join(s.paths.ProfilesDir, workspaceScopeDir(workspaceID), skillName+".json"), nil
 }
 
-func (s *Store) loadProfilesFromDir(dir string) ([]SkillProfile, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	profiles := make([]SkillProfile, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
-			continue
-		}
-		profile, err := s.loadProfileFromPath(filepath.Join(dir, entry.Name()))
-		if err != nil {
-			return nil, err
-		}
-		profiles = append(profiles, profile)
-	}
-	return profiles, nil
-}
-
 func (s *Store) loadProfileFromPath(path string) (SkillProfile, error) {
-	data, err := os.ReadFile(path)
+	data, err := s.readState(path)
 	if err != nil {
 		return SkillProfile{}, err
 	}
-
+	if len(data) == 0 {
+		return SkillProfile{}, os.ErrNotExist
+	}
 	var profile SkillProfile
 	if err := json.Unmarshal(data, &profile); err != nil {
 		return SkillProfile{}, err

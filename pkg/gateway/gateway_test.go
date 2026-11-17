@@ -390,7 +390,7 @@ func TestStartScheduledServicesReturnsNoPartialServices(t *testing.T) {
 	if err := os.WriteFile(workspaceFile, []byte("not a directory"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	cfg.Agents.Defaults.Workspace = workspaceFile
+	cfg.Agents.Defaults.Workspace = t.TempDir()
 	msgBus := bus.NewMessageBus()
 	al := agent.NewAgentLoop(cfg, msgBus, &startupBlockedProvider{reason: "not used"})
 	t.Cleanup(al.Close)
@@ -398,7 +398,7 @@ func TestStartScheduledServicesReturnsNoPartialServices(t *testing.T) {
 	cronService, heartbeatService, err := startScheduledServices(
 		al,
 		msgBus,
-		cfg.WorkspacePath(),
+		workspaceFile,
 		cfg.Agents.Defaults.RestrictToWorkspace,
 		time.Minute,
 		cfg,

@@ -7,13 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/adhocore/gronx"
 
-	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 )
 
 type CronSchedule struct {
@@ -63,6 +62,8 @@ const maxConcurrentJobs = 4
 
 type CronService struct {
 	storePath    string
+	db           *memory.SQLiteStore
+	dbPath       string
 	store        *CronStore
 	onJob        JobHandler
 	onJobContext func(context.Context, *CronJob) (string, error)
@@ -480,31 +481,52 @@ func (cs *CronService) SetContextOnJob(handler func(context.Context, *CronJob) (
 	cs.notify()
 }
 
+func (cs *CronService) stateDB() (*memory.SQLiteStore, error) {
+	if cs.db != nil && cs.dbPath == cs.storePath {
+		return cs.db, nil
+	}
+	if cs.db != nil {
+		_ = cs.db.Close()
+		cs.db = nil
+	}
+	db, err := memory.NewSQLiteStore(cs.storePath)
+	if err != nil {
+		return nil, err
+	}
+	cs.db, cs.dbPath = db, cs.storePath
+	return db, nil
+}
+
 func (cs *CronService) loadStore() error {
 	cs.store = &CronStore{
 		Version: 1,
 		Jobs:    []CronJob{},
 	}
 
-	data, err := os.ReadFile(cs.storePath)
+	db, err := cs.stateDB()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
 		return err
 	}
-
+	data, err := db.GetAppState(nil, "cron", "jobs")
+	if err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return nil
+	}
 	return json.Unmarshal(data, cs.store)
 }
 
 func (cs *CronService) saveStoreUnsafe() error {
-	data, err := json.MarshalIndent(cs.store, "", "  ")
+	data, err := json.Marshal(cs.store)
 	if err != nil {
 		return err
 	}
-
-	// Use unified atomic write utility with explicit sync for flash storage reliability.
-	return fileutil.WriteFileAtomic(cs.storePath, data, 0o600)
+	db, err := cs.stateDB()
+	if err != nil {
+		return err
+	}
+	return db.SetAppState(nil, "cron", "jobs", data)
 }
 
 func (cs *CronService) AddJob(

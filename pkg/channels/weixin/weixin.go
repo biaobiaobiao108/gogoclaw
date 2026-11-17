@@ -3,6 +3,7 @@ package weixin
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -52,6 +53,9 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
+			stateDir := filepath.Join(cfg.WorkspacePath(), "sessions")
+			ch.syncBufPath = filepath.Join(stateDir, filepath.Base(ch.syncBufPath))
+			ch.contextTokensPath = filepath.Join(stateDir, filepath.Base(ch.contextTokensPath))
 			if channelName != config.ChannelWeixin {
 				ch.SetName(channelName)
 			}

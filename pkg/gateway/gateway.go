@@ -195,7 +195,10 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	}
 
 	msgBus := bus.NewMessageBus()
-	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
+	agentLoop, err := agent.NewAgentLoopChecked(cfg, msgBus, provider)
+	if err != nil {
+		return fmt.Errorf("initialize agent: %w", err)
+	}
 	msgBus.SetEventPublisher(agentLoop.RuntimeEventBus())
 	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayStart, startedAt, nil)
 
@@ -938,7 +941,7 @@ func setupCronTool(
 	execTimeout time.Duration,
 	cfg *config.Config,
 ) (*cron.CronService, error) {
-	cronStorePath := filepath.Join(workspace, "cron", "jobs.json")
+	cronStorePath := filepath.Join(workspace, "sessions")
 
 	cronService := cron.NewCronService(cronStorePath, nil)
 

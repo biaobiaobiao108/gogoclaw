@@ -1,7 +1,6 @@
 package chatmeta
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -9,8 +8,8 @@ import (
 )
 
 func TestBranchStoreRoundTripAndSelection(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "chat-branches.json")
-	store, err := LoadBranches(path)
+	path := t.TempDir()
+	store, err := LoadBranches(path, "session-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,11 +25,11 @@ func TestBranchStoreRoundTripAndSelection(t *testing.T) {
 		CreatedAt: time.Unix(2, 0),
 		Messages:  []providers.Message{{ID: "answer-2", Role: "assistant", Content: "second"}},
 	})
-	if err := SaveBranches(path, store); err != nil {
+	if err := SaveBranches(path, "session-1", store); err != nil {
 		t.Fatal(err)
 	}
 
-	loaded, err := LoadBranches(path)
+	loaded, err := LoadBranches(path, "session-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,13 +48,13 @@ func TestBranchStoreRoundTripAndSelection(t *testing.T) {
 		t.Fatalf("FindVersion() = %+v %+v %v", group, version, ok)
 	}
 
-	if err := SaveBranches(path, loaded); err != nil {
+	if err := SaveBranches(path, "session-1", loaded); err != nil {
 		t.Fatal(err)
 	}
 	if err := RemoveBranchSession(path, "session-1"); err != nil {
 		t.Fatal(err)
 	}
-	removed, err := LoadBranches(path)
+	removed, err := LoadBranches(path, "session-1")
 	if err != nil {
 		t.Fatal(err)
 	}

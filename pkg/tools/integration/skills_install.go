@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/skills"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
@@ -291,7 +290,7 @@ func writeOriginMeta(targetDir string, registry skills.SkillRegistry, slug, vers
 	}
 
 	// Use unified atomic write utility with explicit sync for flash storage reliability.
-	return fileutil.WriteFileAtomic(filepath.Join(targetDir, ".skill-origin.json"), data, 0o600)
+	return skills.SaveOrigin(filepath.Dir(filepath.Dir(targetDir)), targetDir, data)
 }
 
 func workspaceHasValidInstalledSkill(workspace, directory string) bool {

@@ -385,12 +385,12 @@ The pattern is: `GOGOCLAW_<SECTION>_<KEY>_<FIELD>` with underscores separating p
 
 ## OAuth Token Storage
 
-OAuth tokens in `auth.json` follow the same `enc://` encryption policy as config secrets:
+OAuth tokens in `sessions/sessions.db` follow the same `enc://` encryption policy as config secrets:
 
 - When `GOGOCLAW_KEY_PASSPHRASE` is set, access and refresh tokens are encrypted with AES-256-GCM before being written. The key is derived from the passphrase and the SSH key at `GOGOCLAW_SSH_KEY_PATH` (default `~/.ssh/gogoclaw_ed25519.key`).
 - Without a passphrase, tokens are stored in the legacy plaintext format and a warning is logged; OAuth login keeps working.
-- Legacy plaintext stores load normally and are upgraded to encrypted form on the next save once a passphrase is configured.
-- `auth.json` is always written with `0600` permissions.
+- Plaintext tokens already in the database are encrypted on the next save once a passphrase is configured. Old JSON files are not imported automatically.
+- `sessions.db` is secured with `0600` permissions when opened.
 
 ## Security Best Practices
 

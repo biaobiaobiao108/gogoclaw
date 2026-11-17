@@ -1077,6 +1077,7 @@ func TestTurnProfile_ToolExecutionRejectsDisallowedToolCalls(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
+				Workspace: t.TempDir(),
 				TurnProfile: config.TurnProfileConfig{
 					Enabled: true,
 					History: config.TurnProfileBlock{Mode: config.TurnProfileModeOff},
@@ -1128,6 +1129,7 @@ func TestTurnProfile_BeforeToolRespondCannotBypassDisallowedTool(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
+				Workspace: t.TempDir(),
 				TurnProfile: config.TurnProfileConfig{
 					Enabled: true,
 					History: config.TurnProfileBlock{Mode: config.TurnProfileModeOff},

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
@@ -1363,5 +1364,19 @@ func TestNewAgentInstance_ExplicitEmptyToolsFieldBlocksAllTools(t *testing.T) {
 				t.Fatal("expected list_dir to be blocked by explicit empty tools field")
 			}
 		})
+	}
+}
+
+func TestNewAgentLoopCheckedFailsWhenWorkspaceIsUnavailable(t *testing.T) {
+	root := t.TempDir()
+	blocked := filepath.Join(root, "blocked")
+	if err := os.WriteFile(blocked, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.Workspace = blocked
+	loop, err := NewAgentLoopChecked(cfg, bus.NewMessageBus(), &mockProvider{})
+	if err == nil || loop != nil {
+		t.Fatalf("loop = %v, error = %v; want workspace error", loop, err)
 	}
 }

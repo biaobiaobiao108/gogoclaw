@@ -183,8 +183,7 @@ func (h *Handler) cleanupDeletedSessionData(dir, sessionID string) error {
 			h.attachmentMu.Unlock()
 		}
 	}
-	branchPath := chatmeta.BranchStorePath(chatmeta.BranchStoreRoot(config.GetHome()), sessionID)
-	if err := chatmeta.RemoveBranchSession(branchPath, sessionID); err != nil {
+	if err := chatmeta.RemoveBranchSession(dir, sessionID); err != nil {
 		cleanupErrs = append(cleanupErrs, fmt.Errorf("remove answer branches: %w", err))
 	}
 	return errors.Join(cleanupErrs...)
@@ -237,11 +236,7 @@ func (h *Handler) sessionExists(dir, sessionID string) bool {
 }
 
 func (h *Handler) readSessionBranches(dir, sessionID string) ([]chatmeta.BranchGroup, error) {
-	root := chatmeta.BranchStoreRoot(config.GetHome())
-	if err := chatmeta.MigrateLegacyBranches(chatmeta.LegacyBranchStorePath(dir), root); err != nil {
-		return nil, err
-	}
-	store, err := chatmeta.LoadBranches(chatmeta.BranchStorePath(root, sessionID))
+	store, err := chatmeta.LoadBranches(dir, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -939,11 +934,7 @@ func (h *Handler) sessionAttachmentReferences(sessionsDir, sessionID string) (ma
 	}
 	// Inactive answers still own their attachments even when the live history
 	// has been replaced by a different branch.
-	root := chatmeta.BranchStoreRoot(config.GetHome())
-	if err := chatmeta.MigrateLegacyBranches(chatmeta.LegacyBranchStorePath(sessionsDir), root); err != nil {
-		return nil, err
-	}
-	branches, err := chatmeta.LoadBranches(chatmeta.BranchStorePath(root, sessionID))
+	branches, err := chatmeta.LoadBranches(sessionsDir, sessionID)
 	if err != nil {
 		return nil, err
 	}

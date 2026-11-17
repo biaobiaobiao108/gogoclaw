@@ -1234,7 +1234,7 @@ func (h *Handler) handleFetchModels(w http.ResponseWriter, r *http.Request) {
 	for i, m := range models {
 		catalogModels[i] = CatalogModel{ID: m.ID, OwnedBy: m.OwnedBy}
 	}
-	if saveErr := SaveCatalog(req.Provider, apiBase, apiKey, catalogModels); saveErr != nil {
+	if saveErr := h.SaveCatalog(req.Provider, apiBase, apiKey, catalogModels); saveErr != nil {
 		// Log but don't fail the request — saving catalog is non-critical
 		logger.Warnf("Failed to save model catalog: %v", saveErr)
 	}

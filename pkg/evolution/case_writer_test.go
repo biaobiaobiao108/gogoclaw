@@ -3,7 +3,6 @@ package evolution_test
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +25,7 @@ func TestCaseWriter_AppendsOneRecord(t *testing.T) {
 		t.Fatalf("AppendCase second record: %v", err)
 	}
 
-	data, err := os.ReadFile(paths.TaskRecords)
+	data, err := taskRecordsAsJSONL(paths)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -74,4 +73,23 @@ func testRecord(id, workspaceID string, success bool) evolution.LearningRecord {
 		Status:      evolution.RecordStatus("new"),
 		Success:     &success,
 	}
+}
+
+func taskRecordsAsJSONL(paths evolution.Paths) ([]byte, error) {
+	records, err := evolution.NewStore(paths).LoadTaskRecords()
+	if err != nil {
+		return nil, err
+	}
+	var lines []string
+	for _, record := range records {
+		data, err := json.Marshal(record)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, string(data))
+	}
+	if len(lines) == 0 {
+		return nil, nil
+	}
+	return []byte(strings.Join(lines, "\n") + "\n"), nil
 }

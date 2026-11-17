@@ -214,7 +214,7 @@ func NewPicoChannel(
 		connections:        make(map[string]*picoConn),
 		sessionConnections: make(map[string]map[string]*picoConn),
 		messageSeen:        make(map[string]time.Time),
-		dedupePath:         filepath.Join(config.GetHome(), "state", "pico-inbound.json"),
+		dedupePath:         filepath.Join(config.GetHome(), "workspace", "sessions"),
 		approvalSessions:   make(map[string]string),
 	}
 	ch.progress = channels.NewToolFeedbackAnimator(ch.EditMessage)

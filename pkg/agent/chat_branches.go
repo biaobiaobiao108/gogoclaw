@@ -92,50 +92,6 @@ func branchSessionDir(al *AgentLoop, agent *AgentInstance) string {
 	return filepath.Join(config.GetHome(), "workspace", "sessions")
 }
 
-func (al *AgentLoop) branchStorePath(sessionID string) string {
-	return chatmeta.BranchStorePath(
-		chatmeta.BranchStoreRoot(config.GetHome()),
-		sessionID,
-	)
-}
-
-func (al *AgentLoop) legacyBranchStorePaths() []string {
-	paths := []string{chatmeta.LegacyBranchStorePath(branchSessionDir(al, nil))}
-	seen := map[string]struct{}{filepath.Clean(paths[0]): {}}
-	if al == nil {
-		return paths
-	}
-	registry := al.runtimeSnapshot().registry
-	if registry == nil {
-		return paths
-	}
-	for _, agentID := range registry.ListAgentIDs() {
-		agent, ok := registry.GetAgent(agentID)
-		if !ok || agent == nil || strings.TrimSpace(agent.Workspace) == "" {
-			continue
-		}
-		path := chatmeta.LegacyBranchStorePath(filepath.Join(strings.TrimSpace(agent.Workspace), "sessions"))
-		clean := filepath.Clean(path)
-		if _, exists := seen[clean]; exists {
-			continue
-		}
-		seen[clean] = struct{}{}
-		paths = append(paths, path)
-	}
-	return paths
-}
-
-func (al *AgentLoop) ensureBranchStoreMigrated() error {
-	root := chatmeta.BranchStoreRoot(config.GetHome())
-	var migrationErrs []error
-	for _, legacyPath := range al.legacyBranchStorePaths() {
-		if err := chatmeta.MigrateLegacyBranches(legacyPath, root); err != nil {
-			migrationErrs = append(migrationErrs, err)
-		}
-	}
-	return errors.Join(migrationErrs...)
-}
-
 func (al *AgentLoop) branchLock(sessionID string) *sync.Mutex {
 	value, _ := al.branchLocks.LoadOrStore(sessionID, &sync.Mutex{})
 	return value.(*sync.Mutex)
@@ -189,21 +145,18 @@ func (al *AgentLoop) recordBranchSnapshot(
 		CreatedAt: createdAt,
 		Messages:  chatmeta.CloneMessages(history[:assistantIndex+1]),
 	}
-	if err := al.ensureBranchStoreMigrated(); err != nil {
-		return err
-	}
-	path := al.branchStorePath(sessionID)
+	dir := branchSessionDir(al, nil)
 	lock := al.branchLock(sessionID)
 	lock.Lock()
 	defer lock.Unlock()
-	store, err := chatmeta.LoadBranches(path)
+	store, err := chatmeta.LoadBranches(dir, sessionID)
 	if err != nil {
 		return err
 	}
 	if !store.UpsertVersion(sessionID, groupID, ts.sessionKey, version) {
 		return nil
 	}
-	return chatmeta.SaveBranches(path, store)
+	return chatmeta.SaveBranches(dir, sessionID, store)
 }
 
 func (al *AgentLoop) recordBranchSnapshotByIDLocked(
@@ -231,11 +184,8 @@ func (al *AgentLoop) recordBranchSnapshotByIDLocked(
 		if assistant.CreatedAt != nil {
 			createdAt = assistant.CreatedAt.UTC()
 		}
-		if err := al.ensureBranchStoreMigrated(); err != nil {
-			return err
-		}
-		path := al.branchStorePath(sessionID)
-		store, loadErr := chatmeta.LoadBranches(path)
+		dir := branchSessionDir(al, agent)
+		store, loadErr := chatmeta.LoadBranches(dir, sessionID)
 		if loadErr != nil {
 			return loadErr
 		}
@@ -246,7 +196,7 @@ func (al *AgentLoop) recordBranchSnapshotByIDLocked(
 		}) {
 			return nil
 		}
-		return chatmeta.SaveBranches(path, store)
+		return chatmeta.SaveBranches(dir, sessionID, store)
 	}
 	return fmt.Errorf("assistant message %q not found", assistantID)
 }
@@ -521,14 +471,11 @@ func (al *AgentLoop) SelectBranch(ctx context.Context, sessionID, versionID stri
 	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(versionID) == "" {
 		return fmt.Errorf("session and branch id are required")
 	}
-	if err := al.ensureBranchStoreMigrated(); err != nil {
-		return err
-	}
-	path := al.branchStorePath(sessionID)
+	dir := branchSessionDir(al, nil)
 	lock := al.branchLock(sessionID)
 	lock.Lock()
 	defer lock.Unlock()
-	store, err := chatmeta.LoadBranches(path)
+	store, err := chatmeta.LoadBranches(dir, sessionID)
 	if err != nil {
 		return err
 	}
@@ -553,7 +500,7 @@ func (al *AgentLoop) SelectBranch(ctx context.Context, sessionID, versionID stri
 	if err := store.SetActive(sessionID, group.RootMessageID, versionID); err != nil {
 		return err
 	}
-	if err := chatmeta.SaveBranches(path, store); err != nil {
+	if err := chatmeta.SaveBranches(dir, sessionID, store); err != nil {
 		rollbackErr := al.restoreSessionHistory(ctx, agent, group.SessionKey, backup)
 		return errors.Join(err, rollbackErr)
 	}

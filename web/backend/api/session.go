@@ -89,22 +89,6 @@ type cachedSessionRefs struct {
 	legacyRefs []picoLegacySessionRef
 }
 
-const (
-	sessionIndexVersion  = 2
-	sessionIndexDir      = ".gogoclaw"
-	sessionIndexFilename = "session-index.json"
-)
-
-type persistentSessionIndex struct {
-	Version int                                 `json:"version"`
-	Items   map[string]persistedSessionListItem `json:"items"`
-}
-
-type persistedSessionListItem struct {
-	Item  sessionListItem `json:"item"`
-	Stamp string          `json:"stamp"`
-}
-
 type sessionChatMessage struct {
 	ID          string                  `json:"message_id,omitempty"`
 	Role        string                  `json:"role"`
@@ -1246,7 +1230,6 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	h.ensureSessionIndexLoaded(dir)
 	uiMeta := h.readChatUIMeta(dir)
 	archivedOnly := r.URL.Query().Get("archived") == "1" || r.URL.Query().Get("archived") == "true"
 
@@ -1311,7 +1294,6 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.pruneSessionListCache(validCacheKeys, dir)
-	h.saveSessionIndex(dir, validCacheKeys)
 
 	// Pinned sessions come first; remaining sessions use update time descending.
 	sort.Slice(items, func(i, j int) bool {
@@ -1686,76 +1668,6 @@ func sessionCacheKeyMatchesDir(key, dir string) bool {
 	cleanDir := filepath.Clean(dir)
 	return strings.HasPrefix(key, "jsonl:"+cleanDir+":") ||
 		strings.HasPrefix(key, "legacy:"+cleanDir+":")
-}
-
-func sessionIndexPath(dir string) string {
-	return filepath.Join(dir, sessionIndexDir, sessionIndexFilename)
-}
-
-func (h *Handler) ensureSessionIndexLoaded(dir string) {
-	key := filepath.Clean(dir)
-	h.sessionListMu.Lock()
-	if h.sessionIndexRead[key] {
-		h.sessionListMu.Unlock()
-		return
-	}
-	h.sessionIndexRead[key] = true
-	h.sessionListMu.Unlock()
-
-	data, err := os.ReadFile(sessionIndexPath(dir))
-	if err != nil {
-		return
-	}
-	var index persistentSessionIndex
-	if err := json.Unmarshal(data, &index); err != nil || index.Version != sessionIndexVersion {
-		return
-	}
-
-	h.sessionListMu.Lock()
-	defer h.sessionListMu.Unlock()
-	for cacheKey, entry := range index.Items {
-		if !sessionCacheKeyMatchesDir(cacheKey, dir) || entry.Stamp == "" {
-			continue
-		}
-		updatedAt, err := time.Parse(time.RFC3339Nano, entry.Item.Updated)
-		if err != nil {
-			updatedAt, err = time.Parse(time.RFC3339, entry.Item.Updated)
-		}
-		if err != nil {
-			continue
-		}
-		entry.Item.updatedAt = updatedAt
-		h.sessionListCache[cacheKey] = cachedSessionListItem{item: entry.Item, stamp: entry.Stamp}
-	}
-}
-
-func (h *Handler) saveSessionIndex(dir string, valid map[string]struct{}) {
-	index := persistentSessionIndex{
-		Version: sessionIndexVersion,
-		Items:   make(map[string]persistedSessionListItem, len(valid)),
-	}
-	h.sessionListMu.Lock()
-	for key := range valid {
-		entry, ok := h.sessionListCache[key]
-		if !ok {
-			continue
-		}
-		index.Items[key] = persistedSessionListItem{Item: entry.item, Stamp: entry.stamp}
-	}
-	h.sessionListMu.Unlock()
-	if len(index.Items) == 0 {
-		return
-	}
-
-	data, err := json.Marshal(index)
-	if err != nil {
-		return
-	}
-	path := sessionIndexPath(dir)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return
-	}
-	_ = fileutil.WriteFileAtomic(path, data, 0o644)
 }
 
 func clearSessionSQLite(r *http.Request, dir, key string) error {

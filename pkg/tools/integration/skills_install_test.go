@@ -281,7 +281,7 @@ func TestInstallSkillToolAllowsGitHubURLSlug(t *testing.T) {
 	assert.False(t, result.IsError)
 	assert.Contains(t, result.ForLLM, `Successfully installed skill`)
 
-	data, err := os.ReadFile(filepath.Join(workspace, "skills", "pr-review", ".skill-origin.json"))
+	data, err := skills.LoadOrigin(workspace, filepath.Join(workspace, "skills", "pr-review"))
 	require.NoError(t, err)
 
 	var meta originMeta
@@ -312,7 +312,7 @@ func TestInstallSkillToolPreservesGitHubSourceURLWithEnterpriseRegistry(t *testi
 
 	assert.False(t, result.IsError)
 
-	data, err := os.ReadFile(filepath.Join(workspace, "skills", "pr-review", ".skill-origin.json"))
+	data, err := skills.LoadOrigin(workspace, filepath.Join(workspace, "skills", "pr-review"))
 	require.NoError(t, err)
 
 	var meta originMeta

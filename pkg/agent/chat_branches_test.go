@@ -2,14 +2,10 @@ package agent
 
 import (
 	"context"
-	"errors"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/chatmeta"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
@@ -60,7 +56,7 @@ func TestPrepareChatBranchRequestRegeneratesAndStoresPreviousAnswer(t *testing.T
 	if len(remaining) != 0 {
 		t.Fatalf("history before regenerated answer = %+v, want empty", remaining)
 	}
-	store, err := chatmeta.LoadBranches(al.branchStorePath("branch-test"))
+	store, err := chatmeta.LoadBranches(branchSessionDir(al, nil), "branch-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +163,7 @@ func TestPrepareChatBranchRequestEditsUserMessage(t *testing.T) {
 	if len(remaining) != 0 {
 		t.Fatalf("history after edit reset = %+v, want empty", remaining)
 	}
-	store, err := chatmeta.LoadBranches(al.branchStorePath("edit-test"))
+	store, err := chatmeta.LoadBranches(branchSessionDir(al, nil), "edit-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,52 +195,9 @@ func TestNormalChatReplyDoesNotCreateBranchSnapshot(t *testing.T) {
 	if _, err := al.processMessage(context.Background(), msg); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(al.branchStorePath("normal-branch")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("normal reply created a branch store: %v", err)
-	}
-}
-
-func TestEnsureBranchStoreMigratesSharedWorkspace(t *testing.T) {
-	t.Setenv("GOGOCLAW_HOME", t.TempDir())
-	root := t.TempDir()
-	mainWorkspace := filepath.Join(root, "workspace")
-	supportWorkspace := filepath.Join(root, "workspace-support")
-	cfg := &config.Config{
-		Agents: config.AgentsConfig{
-			Defaults: config.AgentDefaults{
-				Workspace: mainWorkspace,
-				ModelName: "test-model",
-			},
-			List: []config.AgentConfig{
-				{ID: "main", Default: true, Workspace: mainWorkspace},
-				{ID: "Support", Workspace: supportWorkspace},
-			},
-		},
-	}
-	al := NewAgentLoop(cfg, bus.NewMessageBus(), &mockProvider{})
-
-	legacyPath := chatmeta.LegacyBranchStorePath(filepath.Join(mainWorkspace, "sessions"))
-	legacy := chatmeta.BranchStore{
-		Version: 1,
-		Sessions: map[string]chatmeta.BranchSession{
-			"migrated-session": {},
-		},
-	}
-	if err := chatmeta.SaveBranches(legacyPath, legacy); err != nil {
-		t.Fatal(err)
-	}
-	if err := al.ensureBranchStoreMigrated(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(legacyPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("legacy branch store still exists: %v", err)
-	}
-	store, err := chatmeta.LoadBranches(al.branchStorePath("migrated-session"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := store.Sessions["migrated-session"]; !ok {
-		t.Fatal("shared workspace branch was not migrated")
+	branches, err := chatmeta.LoadBranches(branchSessionDir(al, nil), "normal-branch")
+	if err != nil || len(branches.Sessions) != 0 {
+		t.Fatalf("normal reply created branches: %+v, %v", branches, err)
 	}
 }
 
@@ -259,7 +212,7 @@ func TestSelectBranchRejectsActiveTurnAndRestoresHistory(t *testing.T) {
 		{ID: "user-1", Role: "user", Content: "question"},
 		{ID: "answer-1", Role: "assistant", Content: "old answer"},
 	}
-	store, err := chatmeta.LoadBranches(al.branchStorePath(sessionID))
+	store, err := chatmeta.LoadBranches(branchSessionDir(al, nil), sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +228,7 @@ func TestSelectBranchRejectsActiveTurnAndRestoresHistory(t *testing.T) {
 			ID: "answer-2", Role: "assistant", Content: "new answer",
 		}),
 	})
-	if err := chatmeta.SaveBranches(al.branchStorePath(sessionID), store); err != nil {
+	if err := chatmeta.SaveBranches(branchSessionDir(al, nil), sessionID, store); err != nil {
 		t.Fatal(err)
 	}
 	if err := session.SetHistoryChecked(agent.Sessions, sessionKey, store.Sessions[sessionID].Groups["user-1"].Versions[1].Messages); err != nil {
@@ -303,7 +256,7 @@ func TestSelectBranchRejectsActiveTurnAndRestoresHistory(t *testing.T) {
 	if len(history) != len(versionMessages) || history[1].Content != "old answer" {
 		t.Fatalf("restored history = %+v", history)
 	}
-	reloaded, err := chatmeta.LoadBranches(al.branchStorePath(sessionID))
+	reloaded, err := chatmeta.LoadBranches(branchSessionDir(al, nil), sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}

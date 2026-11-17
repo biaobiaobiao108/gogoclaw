@@ -971,6 +971,7 @@ func TestGetActiveTurn(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
+				Workspace: t.TempDir(),
 				ModelName: "gpt-4o-mini",
 				Provider:  "mock",
 			},
@@ -1029,6 +1030,7 @@ func TestGetActiveTurn_WithChildren(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
+				Workspace: t.TempDir(),
 				ModelName: "gpt-4o-mini",
 				Provider:  "mock",
 			},
@@ -1110,6 +1112,7 @@ func TestInjectFollowUp(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
+				Workspace: t.TempDir(),
 				ModelName: "gpt-4o-mini",
 				Provider:  "mock",
 			},
@@ -1142,6 +1145,7 @@ func TestAPIAliases(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
+				Workspace: t.TempDir(),
 				ModelName: "gpt-4o-mini",
 				Provider:  "mock",
 			},
@@ -1181,6 +1185,7 @@ func TestInterruptHard_Alias(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
+				Workspace: t.TempDir(),
 				ModelName: "gpt-4o-mini",
 				Provider:  "mock",
 			},
@@ -1360,7 +1365,8 @@ func TestConcurrencySemaphore_Timeout(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
-				Provider: "mock",
+				Workspace: t.TempDir(),
+				Provider:  "mock",
 			},
 		},
 	}
@@ -1460,7 +1466,8 @@ func TestContextWrapping_SingleLayer(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
-				Provider: "mock",
+				Workspace: t.TempDir(),
+				Provider:  "mock",
 			},
 		},
 	}
@@ -1506,7 +1513,8 @@ func TestSyncSubTurn_NoChannelDelivery(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
-				Provider: "mock",
+				Workspace: t.TempDir(),
+				Provider:  "mock",
 			},
 		},
 	}
@@ -1553,7 +1561,8 @@ func TestAsyncSubTurn_ChannelDelivery(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
-				Provider: "mock",
+				Workspace: t.TempDir(),
+				Provider:  "mock",
 			},
 		},
 	}
@@ -1711,7 +1720,8 @@ func TestSpawnDuringAbort_RaceCondition(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
-				Provider: "mock",
+				Workspace: t.TempDir(),
+				Provider:  "mock",
 			},
 		},
 	}
@@ -1808,7 +1818,8 @@ func TestAsyncSubTurn_ParentFinishesEarly(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
-				Provider: "mock",
+				Workspace: t.TempDir(),
+				Provider:  "mock",
 			},
 		},
 	}
@@ -1894,7 +1905,8 @@ func TestAsyncSubTurn_ParentWaitsForChild(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
-				Provider: "mock",
+				Workspace: t.TempDir(),
+				Provider:  "mock",
 			},
 		},
 	}
@@ -2056,7 +2068,8 @@ func TestSubTurn_IndependentContext(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
-				Provider: "mock",
+				Workspace: t.TempDir(),
+				Provider:  "mock",
 			},
 		},
 	}

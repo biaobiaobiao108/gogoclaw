@@ -22,13 +22,24 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 )
 
-func NewAgentLoop(
+func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers.LLMProvider, opts ...AgentLoopOption) *AgentLoop {
+	loop, err := NewAgentLoopChecked(cfg, msgBus, provider, opts...)
+	if err != nil {
+		panic(err)
+	}
+	return loop
+}
+
+func NewAgentLoopChecked(
 	cfg *config.Config,
 	msgBus *bus.MessageBus,
 	provider providers.LLMProvider,
 	opts ...AgentLoopOption,
-) *AgentLoop {
-	registry := NewAgentRegistry(cfg, provider)
+) (*AgentLoop, error) {
+	registry, err := newAgentRegistry(cfg, provider)
+	if err != nil {
+		return nil, err
+	}
 
 	// Set up shared fallback chain with rate limiting.
 	cooldown := providers.NewCooldownTracker()
@@ -107,7 +118,7 @@ func NewAgentLoop(
 	// Register shared tools to all agents (now that al is created)
 	registerSharedTools(al, cfg, msgBus, registry, provider)
 
-	return al
+	return al, nil
 }
 
 func registerSharedTools(

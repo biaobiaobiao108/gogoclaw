@@ -1,7 +1,6 @@
 package state
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -37,7 +36,7 @@ func TestAtomicSave(t *testing.T) {
 	}
 
 	// Verify state file exists
-	stateFile := filepath.Join(tmpDir, "state", "state.json")
+	stateFile := filepath.Join(tmpDir, "sessions", "sessions.db")
 	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
 		t.Error("Expected state file to exist")
 	}
@@ -82,49 +81,6 @@ func TestSetLastChatID(t *testing.T) {
 	}
 }
 
-func TestAtomicity_NoCorruptionOnInterrupt(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "state-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	sm := NewManager(tmpDir)
-
-	// Write initial state
-	err = sm.SetLastChannel("initial-channel")
-	if err != nil {
-		t.Fatalf("SetLastChannel failed: %v", err)
-	}
-
-	// Simulate a crash scenario by manually creating a corrupted temp file
-	tempFile := filepath.Join(tmpDir, "state", "state.json.tmp")
-	err = os.WriteFile(tempFile, []byte("corrupted data"), 0o644)
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-
-	// Verify that the original state is still intact
-	lastChannel := sm.GetLastChannel()
-	if lastChannel != "initial-channel" {
-		t.Errorf("Expected channel 'initial-channel' after corrupted temp file, got '%s'", lastChannel)
-	}
-
-	// Clean up the temp file manually
-	os.Remove(tempFile)
-
-	// Now do a proper save
-	err = sm.SetLastChannel("new-channel")
-	if err != nil {
-		t.Fatalf("SetLastChannel failed: %v", err)
-	}
-
-	// Verify the new state was saved
-	if sm.GetLastChannel() != "new-channel" {
-		t.Errorf("Expected channel 'new-channel', got '%s'", sm.GetLastChannel())
-	}
-}
-
 func TestConcurrentAccess(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "state-test-*")
 	if err != nil {
@@ -155,16 +111,9 @@ func TestConcurrentAccess(t *testing.T) {
 		t.Error("Expected non-empty channel after concurrent writes")
 	}
 
-	// Verify state file is valid JSON
-	stateFile := filepath.Join(tmpDir, "state", "state.json")
-	data, err := os.ReadFile(stateFile)
-	if err != nil {
-		t.Fatalf("Failed to read state file: %v", err)
-	}
-
-	var state State
-	if err := json.Unmarshal(data, &state); err != nil {
-		t.Errorf("State file contains invalid JSON: %v", err)
+	reloaded := NewManager(tmpDir)
+	if reloaded.GetLastChannel() != lastChannel {
+		t.Fatalf("persisted channel = %q, want %q", reloaded.GetLastChannel(), lastChannel)
 	}
 }
 

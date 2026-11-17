@@ -592,7 +592,7 @@ Each SSE message (`data: {...}`) is wrapped in a `response` field:
 
 ### Auth Profile Storage
 
-Auth profiles are stored in `~/.gogoclaw/auth.json`:
+Auth profiles are stored in `<workspace>/sessions/sessions.db`. Their logical structure is:
 
 ```json
 {
@@ -733,7 +733,7 @@ export GOGOCLAW_MODEL_LIST='[{"model_name":"your-model","model":"your-provider/m
 - **Source Files:**
   - `pkg/providers/antigravity_provider.go` - Antigravity provider implementation
   - `pkg/auth/oauth.go` - OAuth flow implementation
-  - `pkg/auth/store.go` - Auth credential storage (`~/.gogoclaw/auth.json`)
+  - `pkg/auth/store.go` - Auth credential storage (`<workspace>/sessions/sessions.db`)
   - `pkg/providers/factory.go` - Provider factory and protocol routing
   - `pkg/providers/types.go` - Provider interface definitions
   - `cmd/gogoclaw/internal/auth/helpers.go` - Auth CLI commands
@@ -803,5 +803,5 @@ Some models might show up in the available models list but return an empty respo
 
 ### Models not appearing in list
 - Verify OAuth authentication completed successfully
-- Check auth profile storage: `~/.gogoclaw/auth.json`
+- Check auth profile storage: `<workspace>/sessions/sessions.db`
 - Re-run `gogoclaw auth login --provider antigravity`

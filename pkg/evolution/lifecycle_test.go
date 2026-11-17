@@ -167,8 +167,8 @@ func TestStore_SharedStateProfilesRemainIsolatedPerWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadProfiles: %v", err)
 	}
-	if len(allProfiles) != 2 {
-		t.Fatalf("len(LoadProfiles()) = %d, want 2", len(allProfiles))
+	if len(allProfiles) != 1 || allProfiles[0].WorkspaceID != workspaceA {
+		t.Fatalf("LoadProfiles() = %+v, want only workspace A", allProfiles)
 	}
 }
 

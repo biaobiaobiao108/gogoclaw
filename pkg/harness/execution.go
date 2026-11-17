@@ -128,7 +128,10 @@ func Run(ctx context.Context, scenario Scenario) (*Result, error) {
 		cfg.Agents.Defaults.MaxToolIterations = 8
 	}
 
-	loop := agent.NewAgentLoop(cfg, msgBus, provider)
+	loop, err := agent.NewAgentLoopChecked(cfg, msgBus, provider)
+	if err != nil {
+		return nil, err
+	}
 	defer loop.Close()
 	sessionKey := harnessSessionKey(scenario)
 	if err := configureScenarioSession(loop, workspace, scenario); err != nil {

@@ -10,9 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
@@ -34,6 +35,21 @@ CREATE TABLE IF NOT EXISTS session_meta (
 	turn_json BLOB,
 	turn_history_json BLOB NOT NULL DEFAULT '[]'
 );
+
+CREATE TABLE IF NOT EXISTS app_state (
+	namespace TEXT NOT NULL,
+	state_key TEXT NOT NULL,
+	value BLOB NOT NULL,
+	PRIMARY KEY (namespace, state_key)
+);
+
+CREATE TABLE IF NOT EXISTS evolution_records (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	collection TEXT NOT NULL,
+	payload BLOB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS evolution_records_collection_id ON evolution_records(collection, id);
 
 CREATE TABLE IF NOT EXISTS chat_ui_meta (
 	session_id TEXT PRIMARY KEY,
@@ -121,7 +137,16 @@ func NewSQLiteStore(dir string) (*SQLiteStore, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("memory: create sessions directory: %w", err)
 	}
-	return openSQLiteStore(filepath.Join(dir, sqliteSessionFilename))
+	path := filepath.Join(dir, sqliteSessionFilename)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err == nil {
+		if err := file.Close(); err != nil {
+			return nil, err
+		}
+	} else if !errors.Is(err, os.ErrExist) {
+		return nil, fmt.Errorf("memory: create sessions database: %w", err)
+	}
+	return openSQLiteStore(path)
 }
 
 // OpenSQLiteStore opens an existing sessions.db under dir without creating it.
@@ -134,6 +159,9 @@ func OpenSQLiteStore(dir string) (*SQLiteStore, error) {
 }
 
 func openSQLiteStore(path string) (*SQLiteStore, error) {
+	if err := os.Chmod(path, 0o600); err != nil {
+		return nil, fmt.Errorf("memory: secure sessions database: %w", err)
+	}
 	params := url.Values{
 		"_pragma": {
 			"busy_timeout(5000)",
@@ -166,9 +194,28 @@ func openSQLiteStore(path string) (*SQLiteStore, error) {
 	return store, nil
 }
 
+var sqliteInitMu sync.Mutex
+
 func (s *SQLiteStore) initialize() error {
-	if _, err := s.db.Exec("PRAGMA journal_mode = WAL"); err != nil {
-		return fmt.Errorf("memory: enable sessions WAL: %w", err)
+	sqliteInitMu.Lock()
+	defer sqliteInitMu.Unlock()
+	var mode string
+	if err := s.db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
+		return fmt.Errorf("memory: read sessions journal mode: %w", err)
+	}
+	if !strings.EqualFold(mode, "wal") {
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			_, err := s.db.Exec("PRAGMA journal_mode = WAL")
+			if err == nil {
+				break
+			}
+			var sqliteErr *sqlite.Error
+			if !errors.As(err, &sqliteErr) || (sqliteErr.Code()&0xff != 5 && sqliteErr.Code()&0xff != 6) || time.Now().After(deadline) {
+				return fmt.Errorf("memory: enable sessions WAL: %w", err)
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
 	}
 	if _, err := s.db.Exec(sqliteSessionSchema); err != nil {
 		return fmt.Errorf("memory: initialize sessions schema: %w", err)

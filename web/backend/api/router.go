@@ -24,6 +24,7 @@ type Handler struct {
 	debug                      bool
 	// Serializes config load-modify-save cycles across API handlers.
 	configMu            sync.Mutex
+	catalogMu           sync.Mutex
 	oauthMu             sync.Mutex
 	oauthFlows          map[string]*oauthFlow
 	oauthState          map[string]string
@@ -32,7 +33,6 @@ type Handler struct {
 	sessionListMu       sync.Mutex
 	sessionListCache    map[string]cachedSessionListItem
 	sessionRefCache     map[string]cachedSessionRefs
-	sessionIndexRead    map[string]bool
 	attachmentMu        sync.Mutex
 	attachmentCleanupAt map[string]time.Time
 }
@@ -48,7 +48,6 @@ func NewHandler(configPath string) *Handler {
 		weixinFlows:                make(map[string]*weixinFlow),
 		sessionListCache:           make(map[string]cachedSessionListItem),
 		sessionRefCache:            make(map[string]cachedSessionRefs),
-		sessionIndexRead:           make(map[string]bool),
 		attachmentCleanupAt:        make(map[string]time.Time),
 	}
 }

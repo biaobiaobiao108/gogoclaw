@@ -483,22 +483,18 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 	}
 
 	var registry *AgentRegistry
+	var registryErr error
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
 				logger.RecoverPanicNoExit(r)
-				logger.ErrorCF("agent", "Panic during registry creation",
-					map[string]any{"panic": r})
-				registry = nil
+				registryErr = fmt.Errorf("registry creation panic: %v", r)
 			}
 		}()
-		registry = NewAgentRegistry(cfg, provider)
+		registry, registryErr = newAgentRegistry(cfg, provider)
 	}()
-	if registry == nil {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("context canceled during registry creation: %w", err)
-		}
-		return fmt.Errorf("registry creation failed")
+	if registryErr != nil {
+		return fmt.Errorf("registry creation failed: %w", registryErr)
 	}
 
 	// Check context again before proceeding

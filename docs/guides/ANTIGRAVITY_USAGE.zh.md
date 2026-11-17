@@ -51,12 +51,7 @@ gogoclaw agent -m "Hello" --model claude-opus-4-6-thinking
 
 1.  **环境变量**：
     *   `GOGOCLAW_AGENTS_DEFAULTS_MODEL=gemini-flash`
-2.  **身份验证持久化**：
-    如果你已在本地登录，可以将凭据复制到服务器：
-    ```bash
-    scp ~/.gogoclaw/auth.json user@your-server:~/.gogoclaw/
-    ```
-    *或者*，如果你有终端访问权限，可以在服务器上运行一次 `auth login` 命令。
+2.  **身份验证持久化**：在部署的容器中运行一次 `gogoclaw auth login`。凭据保存在工作区的 `sessions/sessions.db` 中；备份数据库时请同时保护加密所需的密钥材料。
 
 ## 4. 故障排除
 

@@ -3,6 +3,7 @@ package cron
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -134,7 +135,10 @@ func TestMutationWriteFailuresRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cs.storePath = t.TempDir()
+	cs.storePath = filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(cs.storePath, []byte("blocked"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := cs.AddJob("new", CronSchedule{Kind: "every", EveryMS: &every}, "", "", ""); err == nil {
 		t.Fatal("expected add error")
 	}

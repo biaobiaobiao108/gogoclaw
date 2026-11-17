@@ -134,7 +134,7 @@ func TestRuntime_FinalizeTurnWritesRecordWithOverride(t *testing.T) {
 	}
 
 	paths := evolution.NewPaths(workspace, override)
-	data, err := os.ReadFile(paths.TaskRecords)
+	data, err := taskRecordsAsJSONL(paths)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestRuntime_FinalizeTurnWritesPotentiallyLearnableSignal(t *testing.T) {
 	}
 
 	paths := evolution.NewPaths(workspace, "")
-	data, err := os.ReadFile(paths.TaskRecords)
+	data, err := taskRecordsAsJSONL(paths)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -429,7 +429,7 @@ func TestRuntime_FinalizeTurnUsesSkillNamesFromToolExecutions(t *testing.T) {
 	}
 
 	paths := evolution.NewPaths(workspace, "")
-	data, err := os.ReadFile(paths.TaskRecords)
+	data, err := taskRecordsAsJSONL(paths)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -478,7 +478,7 @@ func TestRuntime_FinalizeTurnPreservesUTF8WhenTruncatingChineseOutput(t *testing
 	}
 
 	paths := evolution.NewPaths(workspace, "")
-	data, err := os.ReadFile(paths.TaskRecords)
+	data, err := taskRecordsAsJSONL(paths)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -534,7 +534,7 @@ func TestRuntime_FinalizeTurnPrefersExplicitAttemptTrail(t *testing.T) {
 	}
 
 	paths := evolution.NewPaths(workspace, "")
-	data, err := os.ReadFile(paths.TaskRecords)
+	data, err := taskRecordsAsJSONL(paths)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}

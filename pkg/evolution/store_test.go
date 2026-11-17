@@ -2,8 +2,8 @@ package evolution_test
 
 import (
 	"context"
-	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -49,112 +49,11 @@ func TestStore_AppendLearningRecordsPersistsCaseAndRule(t *testing.T) {
 	if loaded[1].Kind != evolution.RecordKindRule {
 		t.Fatalf("loaded[1].Kind = %q, want %q", loaded[1].Kind, evolution.RecordKindRule)
 	}
-	if _, statErr := os.Stat(paths.LearningRecords); !os.IsNotExist(statErr) {
-		t.Fatalf("legacy learning records file should not be written, stat err = %v", statErr)
+	if _, err := os.Stat(filepath.Join(root, "sessions", "sessions.db")); err != nil {
+		t.Fatalf("sessions database: %v", err)
 	}
-	if _, statErr := os.Stat(paths.TaskRecords); statErr != nil {
-		t.Fatalf("task records file should exist: %v", statErr)
-	}
-	if _, statErr := os.Stat(paths.PatternRecords); statErr != nil {
-		t.Fatalf("pattern records file should exist: %v", statErr)
-	}
-}
-
-func TestStore_LoadTaskRecordsMergesLegacyWhenSplitFileExists(t *testing.T) {
-	root := t.TempDir()
-	paths := evolution.NewPaths(root, "")
-	store := evolution.NewStore(paths)
-
-	legacy := evolution.LearningRecord{
-		ID:          "legacy-task",
-		Kind:        evolution.RecordKindTask,
-		WorkspaceID: "ws-1",
-		CreatedAt:   time.Unix(1700000000, 0).UTC(),
-		Summary:     "legacy task",
-		Status:      evolution.RecordStatus("new"),
-	}
-	data, err := json.Marshal(legacy)
-	if err != nil {
-		t.Fatalf("Marshal legacy: %v", err)
-	}
-	if mkdirErr := os.MkdirAll(paths.RootDir, 0o755); mkdirErr != nil {
-		t.Fatalf("MkdirAll: %v", mkdirErr)
-	}
-	if writeErr := os.WriteFile(paths.LearningRecords, append(data, '\n'), 0o644); writeErr != nil {
-		t.Fatalf("WriteFile legacy: %v", writeErr)
-	}
-
-	current := evolution.LearningRecord{
-		ID:          "current-task",
-		Kind:        evolution.RecordKindTask,
-		WorkspaceID: "ws-1",
-		CreatedAt:   time.Unix(1700000100, 0).UTC(),
-		Summary:     "current task",
-		Status:      evolution.RecordStatus("new"),
-	}
-	if appendErr := store.AppendTaskRecord(context.Background(), current); appendErr != nil {
-		t.Fatalf("AppendTaskRecord: %v", appendErr)
-	}
-
-	records, err := store.LoadTaskRecords()
-	if err != nil {
-		t.Fatalf("LoadTaskRecords: %v", err)
-	}
-	if len(records) != 2 {
-		t.Fatalf("len(records) = %d, want 2: %+v", len(records), records)
-	}
-	ids := records[0].ID + "," + records[1].ID
-	if !strings.Contains(ids, "legacy-task") || !strings.Contains(ids, "current-task") {
-		t.Fatalf("records should include legacy and current task IDs, got %q", ids)
-	}
-}
-
-func TestStore_LoadPatternRecordsMergesLegacyWhenSplitFileExists(t *testing.T) {
-	root := t.TempDir()
-	paths := evolution.NewPaths(root, "")
-	store := evolution.NewStore(paths)
-
-	legacy := evolution.LearningRecord{
-		ID:          "legacy-pattern",
-		Kind:        evolution.RecordKindPattern,
-		WorkspaceID: "ws-1",
-		CreatedAt:   time.Unix(1700000000, 0).UTC(),
-		Summary:     "legacy pattern",
-		Status:      evolution.RecordStatus("ready"),
-	}
-	data, err := json.Marshal(legacy)
-	if err != nil {
-		t.Fatalf("Marshal legacy: %v", err)
-	}
-	if mkdirErr := os.MkdirAll(paths.RootDir, 0o755); mkdirErr != nil {
-		t.Fatalf("MkdirAll: %v", mkdirErr)
-	}
-	if writeErr := os.WriteFile(paths.LearningRecords, append(data, '\n'), 0o644); writeErr != nil {
-		t.Fatalf("WriteFile legacy: %v", writeErr)
-	}
-
-	current := evolution.LearningRecord{
-		ID:          "current-pattern",
-		Kind:        evolution.RecordKindPattern,
-		WorkspaceID: "ws-1",
-		CreatedAt:   time.Unix(1700000100, 0).UTC(),
-		Summary:     "current pattern",
-		Status:      evolution.RecordStatus("ready"),
-	}
-	if appendErr := store.AppendPatternRecords([]evolution.LearningRecord{current}); appendErr != nil {
-		t.Fatalf("AppendPatternRecords: %v", appendErr)
-	}
-
-	records, err := store.LoadPatternRecords()
-	if err != nil {
-		t.Fatalf("LoadPatternRecords: %v", err)
-	}
-	if len(records) != 2 {
-		t.Fatalf("len(records) = %d, want 2: %+v", len(records), records)
-	}
-	ids := records[0].ID + "," + records[1].ID
-	if !strings.Contains(ids, "legacy-pattern") || !strings.Contains(ids, "current-pattern") {
-		t.Fatalf("records should include legacy and current pattern IDs, got %q", ids)
+	if _, err := os.Stat(paths.TaskRecords); !os.IsNotExist(err) {
+		t.Fatalf("record file should not exist: %v", err)
 	}
 }
 
@@ -385,54 +284,5 @@ func TestStore_SaveDraftsKeepsSameIDDifferentWorkspace(t *testing.T) {
 	}
 	if loaded[0].WorkspaceID == loaded[1].WorkspaceID {
 		t.Fatalf("loaded drafts should keep distinct workspace IDs: %+v", loaded)
-	}
-}
-
-func TestStore_LoadLearningRecordsIgnoresTruncatedTrailingLine(t *testing.T) {
-	root := t.TempDir()
-	paths := evolution.NewPaths(root, "")
-	store := evolution.NewStore(paths)
-
-	record := evolution.LearningRecord{
-		ID:          "case-1",
-		Kind:        evolution.RecordKindCase,
-		WorkspaceID: "ws-1",
-		CreatedAt:   time.Unix(1700000000, 0).UTC(),
-		Summary:     "weather task completed",
-		Status:      evolution.RecordStatus("new"),
-	}
-	if err := store.AppendLearningRecords([]evolution.LearningRecord{record}); err != nil {
-		t.Fatalf("AppendLearningRecords: %v", err)
-	}
-
-	f, err := os.OpenFile(paths.TaskRecords, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		t.Fatalf("OpenFile: %v", err)
-	}
-	if _, writeErr := f.WriteString("{\"id\":\"broken\""); writeErr != nil {
-		f.Close()
-		t.Fatalf("WriteString: %v", writeErr)
-	}
-	if closeErr := f.Close(); closeErr != nil {
-		t.Fatalf("Close: %v", closeErr)
-	}
-
-	loaded, err := store.LoadLearningRecords()
-	if err != nil {
-		t.Fatalf("LoadLearningRecords: %v", err)
-	}
-	if len(loaded) != 1 {
-		t.Fatalf("len(loaded) = %d, want 1", len(loaded))
-	}
-	if loaded[0].ID != "case-1" {
-		t.Fatalf("loaded[0].ID = %q, want %q", loaded[0].ID, "case-1")
-	}
-
-	data, err := os.ReadFile(paths.TaskRecords)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if !strings.Contains(string(data), "\"broken\"") {
-		t.Fatalf("expected test fixture to include broken trailing line")
 	}
 }

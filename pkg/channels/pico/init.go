@@ -4,6 +4,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"path/filepath"
 )
 
 func init() {
@@ -23,6 +24,7 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
+			ch.dedupePath = filepath.Join(cfg.WorkspacePath(), "sessions")
 			if channelName != config.ChannelPico {
 				ch.SetName(channelName)
 			}

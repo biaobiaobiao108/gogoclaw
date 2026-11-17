@@ -14,9 +14,6 @@ func TestNewPaths_DefaultRoot(t *testing.T) {
 	if paths.RootDir != wantRoot {
 		t.Fatalf("RootDir = %q, want %q", paths.RootDir, wantRoot)
 	}
-	if paths.LearningRecords != filepath.Join(wantRoot, "learning-records.jsonl") {
-		t.Fatalf("LearningRecords = %q", paths.LearningRecords)
-	}
 	if paths.TaskRecords != filepath.Join(wantRoot, "task-records.jsonl") {
 		t.Fatalf("TaskRecords = %q", paths.TaskRecords)
 	}
@@ -42,9 +39,6 @@ func TestNewPaths_UsesOverride(t *testing.T) {
 
 	if paths.RootDir != override {
 		t.Fatalf("RootDir = %q, want %q", paths.RootDir, override)
-	}
-	if paths.LearningRecords != filepath.Join(override, "learning-records.jsonl") {
-		t.Fatalf("LearningRecords = %q", paths.LearningRecords)
 	}
 	if paths.TaskRecords != filepath.Join(override, "task-records.jsonl") {
 		t.Fatalf("TaskRecords = %q", paths.TaskRecords)

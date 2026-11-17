@@ -1339,10 +1339,10 @@ func TestNewAgentLoop_StateInitialized(t *testing.T) {
 		t.Error("Expected state manager to be initialized")
 	}
 
-	// Verify state directory was created
-	stateDir := filepath.Join(tmpDir, "state")
+	// Verify the shared sessions database was created.
+	stateDir := filepath.Join(tmpDir, "sessions", "sessions.db")
 	if _, err := os.Stat(stateDir); os.IsNotExist(err) {
-		t.Error("Expected state directory to exist")
+		t.Error("Expected sessions database to exist")
 	}
 }
 

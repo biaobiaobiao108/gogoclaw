@@ -380,9 +380,14 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	previousOrigin, err := skills.LoadOrigin(workspace, targetDir)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load skill metadata: %v", err), http.StatusInternalServerError)
+		return
+	}
 	installedAt := time.Now().UnixMilli()
 	normalizedSlug, registryURL := skills.BuildInstallMetadataForRegistryInstance(registry, req.Slug, result.Version)
-	if err := persistSkillOriginMeta(stagedTargetDir, installedSkillOriginMeta{
+	if err := persistSkillOriginMeta(targetDir, installedSkillOriginMeta{
 		Version:          1,
 		OriginKind:       "third_party",
 		Registry:         registry.Name(),
@@ -401,6 +406,15 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 		targetDir,
 		req.Force && targetExists,
 	); err != nil {
+		var restoreErr error
+		if len(previousOrigin) == 0 {
+			restoreErr = skills.DeleteOrigin(workspace, targetDir)
+		} else {
+			restoreErr = skills.SaveOrigin(workspace, targetDir, previousOrigin)
+		}
+		if restoreErr != nil {
+			err = errors.Join(err, fmt.Errorf("restore skill metadata: %w", restoreErr))
+		}
 		http.Error(w, fmt.Sprintf("Failed to activate installed skill: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -504,6 +518,10 @@ func (h *Handler) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := os.RemoveAll(filepath.Dir(skill.Path)); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to delete skill: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if err := skills.DeleteOrigin(cfg.WorkspacePath(), filepath.Dir(skill.Path)); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to delete skill metadata: %v", err), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -723,12 +741,10 @@ func enrichSkillInfo(cfg *config.Config, skill skills.SkillInfo) (skillSupportIt
 }
 
 func readInstalledSkillOriginMeta(skillPath string) (*installedSkillOriginMeta, error) {
-	metaPath := filepath.Join(filepath.Dir(skillPath), ".skill-origin.json")
-	data, err := os.ReadFile(metaPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	skillDir := filepath.Dir(skillPath)
+	workspace := filepath.Dir(filepath.Dir(skillDir))
+	data, err := skills.LoadOrigin(workspace, skillDir)
+	if err != nil || len(data) == 0 {
 		return nil, err
 	}
 	var meta installedSkillOriginMeta
@@ -739,11 +755,11 @@ func readInstalledSkillOriginMeta(skillPath string) (*installedSkillOriginMeta, 
 }
 
 func writeSkillOriginMeta(targetDir string, meta installedSkillOriginMeta) error {
-	data, err := json.MarshalIndent(meta, "", "  ")
+	data, err := json.Marshal(meta)
 	if err != nil {
 		return err
 	}
-	return fileutil.WriteFileAtomic(filepath.Join(targetDir, ".skill-origin.json"), data, 0o600)
+	return skills.SaveOrigin(filepath.Dir(filepath.Dir(targetDir)), targetDir, data)
 }
 
 func registrySkillURL(cfg *config.Config, registryName, slug, version string) string {
@@ -974,6 +990,9 @@ func finalizeImportedSkill(
 
 	if requireValidatedSkill {
 		_ = os.RemoveAll(skillDir)
+		if err := skills.DeleteOrigin(cfg.WorkspacePath(), skillDir); err != nil {
+			return nil, http.StatusInternalServerError, fmt.Errorf("failed to remove invalid skill metadata: %w", err)
+		}
 		return nil, http.StatusBadRequest, fmt.Errorf("imported archive is not a valid skill")
 	}
 

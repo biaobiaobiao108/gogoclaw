@@ -821,6 +821,7 @@ func TestEvolutionBridge_TurnEndUsesPayloadWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newEvolutionBridge: %v", err)
 	}
+	defer bridge.Close()
 
 	err = bridge.OnEvent(context.Background(), Event{
 		Kind: EventKindTurnEnd,
@@ -859,6 +860,7 @@ func TestEvolutionBridge_TurnEndUsesExplicitAttemptTrail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newEvolutionBridge: %v", err)
 	}
+	defer bridge.Close()
 
 	err = bridge.OnEvent(context.Background(), Event{
 		Kind: EventKindTurnEnd,
@@ -1153,75 +1155,60 @@ func newEvolutionTestLoop(
 	return NewAgentLoop(cfg, bus.NewMessageBus(), provider)
 }
 
+func evolutionStoreForPath(path string) *evolution.Store {
+	workspace := filepath.Dir(filepath.Dir(filepath.Dir(path)))
+	return evolution.NewStore(evolution.NewPaths(workspace, ""))
+}
+
 func waitForEvolutionRecord(t *testing.T, path string) map[string]any {
 	t.Helper()
-
+	store := evolutionStoreForPath(path)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		data, err := os.ReadFile(path)
-		if err == nil {
-			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-			for i := len(lines) - 1; i >= 0; i-- {
-				if strings.TrimSpace(lines[i]) == "" {
-					continue
-				}
-				var record map[string]any
-				if err := json.Unmarshal([]byte(lines[i]), &record); err != nil {
-					t.Fatalf("json.Unmarshal(%s): %v", path, err)
-				}
-				if kind, _ := record["kind"].(string); kind == string(evolution.RecordKindTask) {
-					return record
-				}
+		records, err := store.LoadTaskRecords()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(records) > 0 {
+			data, err := json.Marshal(records[len(records)-1])
+			if err != nil {
+				t.Fatal(err)
 			}
+			var record map[string]any
+			if err := json.Unmarshal(data, &record); err != nil {
+				t.Fatal(err)
+			}
+			return record
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-
 	t.Fatalf("timed out waiting for evolution record at %s", path)
 	return nil
 }
 
 func countEvolutionTaskRecords(t *testing.T, path string) int {
 	t.Helper()
-
-	data, err := os.ReadFile(path)
+	records, err := evolutionStoreForPath(path).LoadTaskRecords()
 	if err != nil {
-		t.Fatalf("ReadFile(%s): %v", path, err)
+		t.Fatal(err)
 	}
-	count := 0
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		var record map[string]any
-		if err := json.Unmarshal([]byte(line), &record); err != nil {
-			t.Fatalf("json.Unmarshal(%s): %v", path, err)
-		}
-		if kind, _ := record["kind"].(string); kind == string(evolution.RecordKindTask) {
-			count++
-		}
-	}
-	return count
+	return len(records)
 }
 
 func waitForDrafts(t *testing.T, path string, want int) []evolution.SkillDraft {
 	t.Helper()
-
+	store := evolutionStoreForPath(path)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		data, err := os.ReadFile(path)
-		if err == nil {
-			var drafts []evolution.SkillDraft
-			if err := json.Unmarshal(data, &drafts); err != nil {
-				t.Fatalf("json.Unmarshal(%s): %v", path, err)
-			}
-			if len(drafts) == want {
-				return drafts
-			}
+		drafts, err := store.LoadDrafts()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(drafts) == want {
+			return drafts
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-
 	t.Fatalf("timed out waiting for %d drafts at %s", want, path)
 	return nil
 }
@@ -1270,6 +1257,20 @@ func assertProfileNotExists(t *testing.T, workspace, skillName string) {
 
 func assertNotExists(t *testing.T, path string) {
 	t.Helper()
+	switch filepath.Base(path) {
+	case "task-records.jsonl":
+		records, err := evolutionStoreForPath(path).LoadTaskRecords()
+		if err != nil || len(records) != 0 {
+			t.Fatalf("unexpected task records: %+v, %v", records, err)
+		}
+		return
+	case "skill-drafts.json":
+		drafts, err := evolutionStoreForPath(path).LoadDrafts()
+		if err != nil || len(drafts) != 0 {
+			t.Fatalf("unexpected drafts: %+v, %v", drafts, err)
+		}
+		return
+	}
 	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
 		t.Fatalf("%s should not exist, stat err = %v", path, statErr)
 	}

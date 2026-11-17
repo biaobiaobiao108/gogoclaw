@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -13,6 +12,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 )
 
 func TestHandleMessageSend_ForwardsMessageMetadata(t *testing.T) {
@@ -61,9 +61,14 @@ func TestLoadMessageDedupe_AcceptsSnapshotAndRecoversCorruptState(t *testing.T) 
 			t.Fatalf("NewPicoChannel: %v", err)
 		}
 		ch.dedupePath = filepath.Join(t.TempDir(), "pico-inbound.json")
-		if err := os.WriteFile(ch.dedupePath, []byte(state), 0o600); err != nil {
-			t.Fatalf("WriteFile: %v", err)
+		db, err := memory.NewSQLiteStore(ch.dedupePath)
+		if err != nil {
+			t.Fatal(err)
 		}
+		if err := db.SetAppState(nil, "pico", "inbound_dedupe", []byte(state)); err != nil {
+			t.Fatal(err)
+		}
+		db.Close()
 		return ch
 	}
 

@@ -6,14 +6,13 @@ import (
 )
 
 type Paths struct {
-	Workspace       string
-	RootDir         string
-	LearningRecords string
-	TaskRecords     string
-	PatternRecords  string
-	SkillDrafts     string
-	ProfilesDir     string
-	BackupsDir      string
+	Workspace      string
+	RootDir        string
+	TaskRecords    string
+	PatternRecords string
+	SkillDrafts    string
+	ProfilesDir    string
+	BackupsDir     string
 }
 
 func NewPaths(workspace, override string) Paths {
@@ -23,13 +22,12 @@ func NewPaths(workspace, override string) Paths {
 	}
 
 	return Paths{
-		Workspace:       workspace,
-		RootDir:         root,
-		LearningRecords: filepath.Join(root, "learning-records.jsonl"),
-		TaskRecords:     filepath.Join(root, "task-records.jsonl"),
-		PatternRecords:  filepath.Join(root, "pattern-records.jsonl"),
-		SkillDrafts:     filepath.Join(root, "skill-drafts.json"),
-		ProfilesDir:     filepath.Join(root, "profiles"),
-		BackupsDir:      filepath.Join(root, "backups"),
+		Workspace:      workspace,
+		RootDir:        root,
+		TaskRecords:    filepath.Join(root, "task-records.jsonl"),
+		PatternRecords: filepath.Join(root, "pattern-records.jsonl"),
+		SkillDrafts:    filepath.Join(root, "skill-drafts.json"),
+		ProfilesDir:    filepath.Join(root, "profiles"),
+		BackupsDir:     filepath.Join(root, "backups"),
 	}
 }

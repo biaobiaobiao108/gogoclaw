@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/skills"
 )
 
 func setClawHubBaseURL(cfg *config.Config, baseURL string) {
@@ -306,7 +307,7 @@ func TestHandleImportSkill(t *testing.T) {
 	if string(content) != expected {
 		t.Fatalf("saved skill content mismatch:\n%s", string(content))
 	}
-	metaContent, err := os.ReadFile(filepath.Join(workspace, "skills", "plain-skill", ".skill-origin.json"))
+	metaContent, err := skills.LoadOrigin(workspace, filepath.Join(workspace, "skills", "plain-skill"))
 	if err != nil {
 		t.Fatalf("ReadFile(origin metadata) error = %v", err)
 	}
@@ -1081,7 +1082,7 @@ func TestHandleInstallSkill(t *testing.T) {
 	if _, err := os.Stat(skillFile); err != nil {
 		t.Fatalf("installed skill file missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(workspace, "skills", "github", ".skill-origin.json")); err != nil {
+	if meta, err := skills.LoadOrigin(workspace, filepath.Join(workspace, "skills", "github")); err != nil || len(meta) == 0 {
 		t.Fatalf("origin metadata missing: %v", err)
 	}
 

@@ -96,11 +96,21 @@ func (p *unavailableLLMProvider) GetDefaultModel() string { return p.model }
 
 // NewAgentInstance creates an agent instance from config.
 func NewAgentInstance(
+	agentCfg *config.AgentConfig, defaults *config.AgentDefaults, cfg *config.Config, provider providers.LLMProvider,
+) *AgentInstance {
+	instance, err := newAgentInstance(agentCfg, defaults, cfg, provider)
+	if err != nil {
+		panic(err)
+	}
+	return instance
+}
+
+func newAgentInstance(
 	agentCfg *config.AgentConfig,
 	defaults *config.AgentDefaults,
 	cfg *config.Config,
 	provider providers.LLMProvider,
-) *AgentInstance {
+) (*AgentInstance, error) {
 	if cfg != nil {
 		// Keep the subprocess isolation runtime aligned with the latest loaded config
 		// before any tools or providers start spawning child processes.
@@ -108,7 +118,14 @@ func NewAgentInstance(
 	}
 
 	workspace := expandHome(defaults.Workspace)
-	os.MkdirAll(workspace, 0o755)
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		return nil, fmt.Errorf("create workspace: %w", err)
+	}
+	sessionsDir := filepath.Join(workspace, "sessions")
+	sessions, err := initSessionStore(sessionsDir)
+	if err != nil {
+		return nil, err
+	}
 
 	definition := loadAgentDefinition(workspace)
 
@@ -182,9 +199,6 @@ func NewAgentInstance(
 			toolsRegistry.Register(execTool)
 		}
 	}
-
-	sessionsDir := filepath.Join(workspace, "sessions")
-	sessions := initSessionStore(sessionsDir)
 
 	mcpDiscoveryActive := agentHasDiscoverableMCPServers(cfg, agentMCPServerAllowlist)
 	contextBuilder := NewContextBuilder(workspace).
@@ -380,7 +394,7 @@ func NewAgentInstance(
 		instance.usageLedger = store
 	}
 	instance.usageGuard = usage.NewGuard()
-	return instance
+	return instance, nil
 }
 
 func buildUsagePricing(cfg *config.Config) map[string]usage.CostRates {
@@ -822,16 +836,13 @@ func closeUnreferencedStatefulProviders(
 	closeUniqueStatefulProviders(removed...)
 }
 
-// initSessionStore creates the canonical SQLite session store. The legacy
-// file manager is used only when the database itself cannot open.
-func initSessionStore(dir string) session.SessionStore {
+// initSessionStore opens the durable session database.
+func initSessionStore(dir string) (session.SessionStore, error) {
 	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		logger.WarnCF("agent", "SQLite session store init failed; falling back to legacy sessions",
-			map[string]any{"error": err.Error()})
-		return session.NewSessionManager(dir)
+		return nil, fmt.Errorf("initialize session database: %w", err)
 	}
-	return session.NewStoreBackend(store)
+	return session.NewStoreBackend(store), nil
 }
 
 func expandHome(path string) string {

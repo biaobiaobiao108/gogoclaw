@@ -32,7 +32,6 @@ type Config struct {
 	AllowedCIDRs               []string        `json:"allowed_cidrs,omitempty"`
 	AllowLocalhostBypass       bool            `json:"allow_localhost_bypass"`
 	AllowLocalhostBypassSource BoolFieldSource `json:"-"`
-	DashboardPasswordHash      string          `json:"dashboard_password_hash,omitempty"`
 	// LegacyLauncherToken is read only for one-time migration from the removed
 	// token login flow. Save always clears it so new configs do not persist it.
 	LegacyLauncherToken string `json:"launcher_token,omitempty"`
@@ -194,7 +193,6 @@ func Load(path string, fallback Config) (Config, error) {
 		return Config{}, err
 	}
 	cfg.AllowedCIDRs = NormalizeCIDRs(cfg.AllowedCIDRs)
-	cfg.DashboardPasswordHash = strings.TrimSpace(cfg.DashboardPasswordHash)
 	cfg.LegacyLauncherToken = strings.TrimSpace(cfg.LegacyLauncherToken)
 	if err := Validate(cfg); err != nil {
 		return Config{}, err
@@ -223,7 +221,6 @@ func detectBoolFieldSource(data []byte, field string) BoolFieldSource {
 // Save writes launcher settings to disk.
 func Save(path string, cfg Config) error {
 	cfg.AllowedCIDRs = NormalizeCIDRs(cfg.AllowedCIDRs)
-	cfg.DashboardPasswordHash = strings.TrimSpace(cfg.DashboardPasswordHash)
 	cfg.LegacyLauncherToken = ""
 	if err := Validate(cfg); err != nil {
 		return err

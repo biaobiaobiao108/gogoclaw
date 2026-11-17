@@ -152,7 +152,7 @@ CLI `gogoclaw cron add --deliver` 标志使用此模式。
 Cron 作业存储在：
 
 ```text
-<workspace>/cron/jobs.json
+<workspace>/sessions/sessions.db
 ```
 
 默认工作区为：
@@ -167,7 +167,7 @@ Cron 作业存储在：
 $GOGOCLAW_HOME/workspace
 ```
 
-Gateway 和 `gogoclaw cron` CLI 子命令都会使用同一个 `cron/jobs.json` 文件。
+Gateway 和 `gogoclaw cron` CLI 子命令都会使用同一个 `sessions/sessions.db` 文件。
 
 注意事项：
 

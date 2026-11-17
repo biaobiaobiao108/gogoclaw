@@ -5,13 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
@@ -35,10 +32,6 @@ type CatalogEntry struct {
 // CatalogStore holds all saved model catalogs.
 type CatalogStore struct {
 	Entries map[string]*CatalogEntry `json:"entries"`
-}
-
-func catalogFilePath() string {
-	return filepath.Join(config.GetHome(), "model_catalogs.json")
 }
 
 // generateCatalogKey creates a deterministic key for a provider+base+key combination.
@@ -69,38 +62,55 @@ func maskAPIKeyValue(key string) string {
 	return key[:3] + "****" + key[len(key)-4:]
 }
 
-func loadCatalogs() (*CatalogStore, error) {
-	path := catalogFilePath()
-	data, err := os.ReadFile(path)
+func (h *Handler) loadCatalogs() (*CatalogStore, error) {
+	dir, err := h.sessionsDir()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return &CatalogStore{Entries: make(map[string]*CatalogEntry)}, nil
-		}
 		return nil, err
 	}
-	var store CatalogStore
-	if err := json.Unmarshal(data, &store); err != nil {
+	db, err := memory.NewSQLiteStore(dir)
+	if err != nil {
 		return nil, err
+	}
+	defer db.Close()
+	data, err := db.GetAppState(nil, "model_catalog", "entries")
+	if err != nil {
+		return nil, err
+	}
+	store := &CatalogStore{Entries: make(map[string]*CatalogEntry)}
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, store); err != nil {
+			return nil, err
+		}
 	}
 	if store.Entries == nil {
 		store.Entries = make(map[string]*CatalogEntry)
 	}
-	return &store, nil
+	return store, nil
 }
 
-func saveCatalogs(store *CatalogStore) error {
-	path := catalogFilePath()
-	data, err := json.MarshalIndent(store, "", "  ")
+func (h *Handler) saveCatalogs(store *CatalogStore) error {
+	data, err := json.Marshal(store)
 	if err != nil {
 		return err
 	}
-	return fileutil.WriteFileAtomic(path, data, 0o600)
+	dir, err := h.sessionsDir()
+	if err != nil {
+		return err
+	}
+	db, err := memory.NewSQLiteStore(dir)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.SetAppState(nil, "model_catalog", "entries", data)
 }
 
 // SaveCatalog persists a fetched model list for a given provider+key combination.
 // If a catalog with the same key already exists, it is updated.
-func SaveCatalog(provider, apiBase, apiKey string, models []CatalogModel) error {
-	store, err := loadCatalogs()
+func (h *Handler) SaveCatalog(provider, apiBase, apiKey string, models []CatalogModel) error {
+	h.catalogMu.Lock()
+	defer h.catalogMu.Unlock()
+	store, err := h.loadCatalogs()
 	if err != nil {
 		return err
 	}
@@ -114,14 +124,14 @@ func SaveCatalog(provider, apiBase, apiKey string, models []CatalogModel) error 
 		Models:     models,
 		FetchedAt:  time.Now().UTC().Format(time.RFC3339),
 	}
-	return saveCatalogs(store)
+	return h.saveCatalogs(store)
 }
 
 // handleListCatalogs returns all saved model catalogs.
 //
 //	GET /api/models/catalog
 func (h *Handler) handleListCatalogs(w http.ResponseWriter, r *http.Request) {
-	store, err := loadCatalogs()
+	store, err := h.loadCatalogs()
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to load catalogs: %v", err), http.StatusInternalServerError)
 		return
@@ -143,13 +153,15 @@ func (h *Handler) handleListCatalogs(w http.ResponseWriter, r *http.Request) {
 //
 //	DELETE /api/models/catalog/{id}
 func (h *Handler) handleDeleteCatalog(w http.ResponseWriter, r *http.Request) {
+	h.catalogMu.Lock()
+	defer h.catalogMu.Unlock()
 	id := r.PathValue("id")
 	if id == "" {
 		http.Error(w, "id is required", http.StatusBadRequest)
 		return
 	}
 
-	store, err := loadCatalogs()
+	store, err := h.loadCatalogs()
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to load catalogs: %v", err), http.StatusInternalServerError)
 		return
@@ -161,7 +173,7 @@ func (h *Handler) handleDeleteCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	delete(store.Entries, id)
-	if err := saveCatalogs(store); err != nil {
+	if err := h.saveCatalogs(store); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to save catalogs: %v", err), http.StatusInternalServerError)
 		return
 	}

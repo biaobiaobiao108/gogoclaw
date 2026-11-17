@@ -1,17 +1,14 @@
 package chatmeta
 
 import (
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
@@ -21,11 +18,9 @@ const (
 	maxBranchStoreBytes       = 64 << 20
 )
 
-var legacyMigrationMu sync.Mutex
-
 // BranchStore is the durable, web-only history needed to switch between
 // regenerated answers. Agent sessions remain the source of truth for the
-// active context; this file keeps the inactive snapshots available.
+// active context; the database keeps the inactive snapshots available.
 type BranchStore struct {
 	Version  int                      `json:"version"`
 	Sessions map[string]BranchSession `json:"sessions"`
@@ -50,81 +45,33 @@ type BranchVersion struct {
 	Messages  []providers.Message `json:"messages"`
 }
 
-func BranchStoreRoot(home string) string {
-	return filepath.Join(home, "state", "chat-branches")
-}
-
-func BranchStorePath(root, sessionID string) string {
-	sum := sha256.Sum256([]byte(sessionID))
-	return filepath.Join(root, fmt.Sprintf("%x.json", sum[:16]))
-}
-
-func LegacyBranchStorePath(sessionsDir string) string {
-	return filepath.Join(sessionsDir, ".gogoclaw", "chat-branches.json")
-}
-
-// MigrateLegacyBranches moves the old single-file store into per-session files.
-// The operation is idempotent and leaves existing session files untouched.
-func MigrateLegacyBranches(legacyPath, root string) error {
-	legacyMigrationMu.Lock()
-	defer legacyMigrationMu.Unlock()
-
-	data, err := os.ReadFile(legacyPath)
+func LoadBranches(dir, sessionID string) (BranchStore, error) {
+	result := BranchStore{Version: branchStoreVersion, Sessions: make(map[string]BranchSession)}
+	db, err := memory.OpenSQLiteStore(dir)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	var store BranchStore
-	if err := json.Unmarshal(data, &store); err != nil {
-		return err
-	}
-	if len(store.Sessions) == 0 {
-		return os.Remove(legacyPath)
-	}
-	for sessionID, session := range store.Sessions {
-		path := BranchStorePath(root, sessionID)
-		if _, err := os.Stat(path); err == nil {
-			continue
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		single := BranchStore{
-			Version: branchStoreVersion,
-			Sessions: map[string]BranchSession{
-				sessionID: session,
-			},
-		}
-		if err := SaveBranches(path, single); err != nil {
-			return err
-		}
-	}
-	return os.Remove(legacyPath)
-}
-
-func LoadBranches(path string) (BranchStore, error) {
-	store := BranchStore{Version: branchStoreVersion, Sessions: make(map[string]BranchSession)}
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return store, nil
+		return result, nil
 	}
 	if err != nil {
 		return BranchStore{}, err
 	}
-	if err := json.Unmarshal(data, &store); err != nil {
+	defer db.Close()
+	data, err := db.GetAppState(nil, "chat_branches", sessionID)
+	if err != nil {
 		return BranchStore{}, err
 	}
-	if store.Sessions == nil {
-		store.Sessions = make(map[string]BranchSession)
+	if len(data) == 0 {
+		return result, nil
 	}
-	if store.Version == 0 {
-		store.Version = branchStoreVersion
+	if err := json.Unmarshal(data, &result); err != nil {
+		return BranchStore{}, err
 	}
-	return store, nil
+	if result.Sessions == nil {
+		result.Sessions = make(map[string]BranchSession)
+	}
+	return result, nil
 }
 
-func SaveBranches(path string, store BranchStore) error {
+func SaveBranches(dir, sessionID string, store BranchStore) error {
 	if store.Version == 0 {
 		store.Version = branchStoreVersion
 	}
@@ -135,10 +82,12 @@ func SaveBranches(path string, store BranchStore) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	db, err := memory.NewSQLiteStore(dir)
+	if err != nil {
 		return err
 	}
-	return fileutil.WriteFileAtomic(path, data, 0o644)
+	defer db.Close()
+	return db.SetAppState(nil, "chat_branches", sessionID, data)
 }
 
 func marshalBranchesWithinLimit(store *BranchStore) ([]byte, error) {
@@ -193,27 +142,16 @@ func trimOldestBranchVersion(store *BranchStore) bool {
 	return true
 }
 
-func RemoveBranchSession(path, sessionID string) error {
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+func RemoveBranchSession(dir, sessionID string) error {
+	db, err := memory.OpenSQLiteStore(dir)
+	if errors.Is(err, os.ErrNotExist) {
 		return nil
-	} else if err != nil {
-		return err
 	}
-	store, err := LoadBranches(path)
 	if err != nil {
 		return err
 	}
-	if _, ok := store.Sessions[sessionID]; !ok {
-		return nil
-	}
-	delete(store.Sessions, sessionID)
-	if len(store.Sessions) == 0 {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		return nil
-	}
-	return SaveBranches(path, store)
+	defer db.Close()
+	return db.DeleteAppState(nil, "chat_branches", sessionID)
 }
 
 // UpsertVersion records one answer snapshot. Re-recording an existing answer

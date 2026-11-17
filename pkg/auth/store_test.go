@@ -116,7 +116,7 @@ func TestStoreFilePermissions(t *testing.T) {
 		t.Fatalf("SetCredential() error: %v", err)
 	}
 
-	path := filepath.Join(tmpDir, ".gogoclaw", "auth.json")
+	path := filepath.Join(tmpDir, ".gogoclaw", "workspace", "sessions", "sessions.db")
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("Stat() error: %v", err)
@@ -131,7 +131,7 @@ func TestStoreFilePermissions(t *testing.T) {
 }
 
 func TestStoreEncryptsTokensAtRest(t *testing.T) {
-	tmpDir := setTestAuthHome(t)
+	setTestAuthHome(t)
 
 	cred := &AuthCredential{
 		AccessToken:  "plain-access-token",
@@ -143,8 +143,7 @@ func TestStoreEncryptsTokensAtRest(t *testing.T) {
 		t.Fatalf("SetCredential() error: %v", err)
 	}
 
-	path := filepath.Join(tmpDir, ".gogoclaw", "auth.json")
-	data, err := os.ReadFile(path)
+	data, err := readAuthState()
 	if err != nil {
 		t.Fatalf("ReadFile() error: %v", err)
 	}
@@ -189,11 +188,11 @@ func TestStoreMigratesLegacyPlaintextOnSave(t *testing.T) {
     }
   }
 }`
-	path := filepath.Join(tmpDir, ".gogoclaw", "auth.json")
+	path := filepath.Join(tmpDir, ".gogoclaw", "workspace", "sessions", "sessions.db")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("MkdirAll() error: %v", err)
 	}
-	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+	if err := writeAuthState([]byte(legacy)); err != nil {
 		t.Fatalf("WriteFile() error: %v", err)
 	}
 
@@ -210,7 +209,7 @@ func TestStoreMigratesLegacyPlaintextOnSave(t *testing.T) {
 		t.Fatalf("SaveStore() error: %v", err)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := readAuthState()
 	if err != nil {
 		t.Fatalf("ReadFile() error: %v", err)
 	}
@@ -228,7 +227,7 @@ func TestStoreMigratesLegacyPlaintextOnSave(t *testing.T) {
 }
 
 func TestStoreWithoutPassphraseKeepsPlaintextCompatible(t *testing.T) {
-	tmpDir := setTestAuthHome(t)
+	setTestAuthHome(t)
 	t.Setenv(credential.PassphraseEnvVar, "")
 
 	if err := SetCredential("openai", &AuthCredential{
@@ -238,8 +237,7 @@ func TestStoreWithoutPassphraseKeepsPlaintextCompatible(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SetCredential() error: %v", err)
 	}
-	path := filepath.Join(tmpDir, ".gogoclaw", "auth.json")
-	data, err := os.ReadFile(path)
+	data, err := readAuthState()
 	if err != nil {
 		t.Fatalf("ReadFile() error: %v", err)
 	}
@@ -340,12 +338,12 @@ func TestGetCredentialCanonicalizesLegacyAntigravityProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal() error: %v", err)
 	}
-	path := filepath.Join(tmpDir, ".gogoclaw", "auth.json")
+	path := filepath.Join(tmpDir, ".gogoclaw", "workspace", "sessions", "sessions.db")
 	err = os.MkdirAll(filepath.Dir(path), 0o755)
 	if err != nil {
 		t.Fatalf("MkdirAll() error: %v", err)
 	}
-	err = os.WriteFile(path, data, 0o600)
+	err = writeAuthState(data)
 	if err != nil {
 		t.Fatalf("WriteFile() error: %v", err)
 	}
@@ -393,12 +391,12 @@ func TestLoadStoreMergesAntigravityAliasesPreferringNewerExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal() error: %v", err)
 	}
-	path := filepath.Join(tmpDir, ".gogoclaw", "auth.json")
+	path := filepath.Join(tmpDir, ".gogoclaw", "workspace", "sessions", "sessions.db")
 	err = os.MkdirAll(filepath.Dir(path), 0o755)
 	if err != nil {
 		t.Fatalf("MkdirAll() error: %v", err)
 	}
-	err = os.WriteFile(path, data, 0o600)
+	err = writeAuthState(data)
 	if err != nil {
 		t.Fatalf("WriteFile() error: %v", err)
 	}
@@ -459,12 +457,12 @@ func TestLoadStorePrefersCanonicalKeyWhenExpiryMatchesAlias(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal() error: %v", err)
 	}
-	path := filepath.Join(tmpDir, ".gogoclaw", "auth.json")
+	path := filepath.Join(tmpDir, ".gogoclaw", "workspace", "sessions", "sessions.db")
 	err = os.MkdirAll(filepath.Dir(path), 0o755)
 	if err != nil {
 		t.Fatalf("MkdirAll() error: %v", err)
 	}
-	err = os.WriteFile(path, data, 0o600)
+	err = writeAuthState(data)
 	if err != nil {
 		t.Fatalf("WriteFile() error: %v", err)
 	}
@@ -512,12 +510,12 @@ func TestSetCredentialReplacesLegacyAntigravityEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal() error: %v", err)
 	}
-	path := filepath.Join(tmpDir, ".gogoclaw", "auth.json")
+	path := filepath.Join(tmpDir, ".gogoclaw", "workspace", "sessions", "sessions.db")
 	err = os.MkdirAll(filepath.Dir(path), 0o755)
 	if err != nil {
 		t.Fatalf("MkdirAll() error: %v", err)
 	}
-	err = os.WriteFile(path, data, 0o600)
+	err = writeAuthState(data)
 	if err != nil {
 		t.Fatalf("WriteFile() error: %v", err)
 	}
@@ -569,12 +567,12 @@ func TestDeleteCredentialRemovesLegacyAntigravityAlias(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal() error: %v", err)
 	}
-	path := filepath.Join(tmpDir, ".gogoclaw", "auth.json")
+	path := filepath.Join(tmpDir, ".gogoclaw", "workspace", "sessions", "sessions.db")
 	err = os.MkdirAll(filepath.Dir(path), 0o755)
 	if err != nil {
 		t.Fatalf("MkdirAll() error: %v", err)
 	}
-	err = os.WriteFile(path, data, 0o600)
+	err = writeAuthState(data)
 	if err != nil {
 		t.Fatalf("WriteFile() error: %v", err)
 	}
@@ -634,5 +632,27 @@ func TestSetCredentialCanonicalizesTrimmedMixedCaseProvider(t *testing.T) {
 	}
 	if got.Provider != "google-antigravity" {
 		t.Fatalf("GetCredential provider = %q, want %q", got.Provider, "google-antigravity")
+	}
+}
+
+func TestCredentialsUseConfiguredWorkspaceDatabase(t *testing.T) {
+	setTestAuthHome(t)
+	workspace := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.Workspace = workspace
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(config.EnvConfig, configPath)
+	if err := SetCredential("openai", &AuthCredential{AccessToken: "secret", Provider: "openai"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "sessions", "sessions.db")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := GetCredential("openai")
+	if err != nil || got == nil || got.AccessToken != "secret" {
+		t.Fatalf("credential = %+v, %v", got, err)
 	}
 }

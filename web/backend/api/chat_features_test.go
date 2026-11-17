@@ -612,11 +612,10 @@ func TestDeleteSessionRemovesChatData(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(attachmentDir, "file.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	branchPath := chatmeta.BranchStorePath(chatmeta.BranchStoreRoot(config.GetHome()), "delete-chat-data")
 	branchStore := chatmeta.BranchStore{Sessions: map[string]chatmeta.BranchSession{
 		"delete-chat-data": {},
 	}}
-	if err := chatmeta.SaveBranches(branchPath, branchStore); err != nil {
+	if err := chatmeta.SaveBranches(dir, "delete-chat-data", branchStore); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.updateChatUISessionMeta(dir, "delete-chat-data", func(meta *chatUISessionMeta) error {
@@ -639,7 +638,7 @@ func TestDeleteSessionRemovesChatData(t *testing.T) {
 	if _, err := os.Stat(attachmentDir); !os.IsNotExist(err) {
 		t.Fatalf("attachment directory still exists: %v", err)
 	}
-	branches, err := chatmeta.LoadBranches(branchPath)
+	branches, err := chatmeta.LoadBranches(dir, "delete-chat-data")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -708,7 +707,6 @@ func TestBranchAttachmentsSurviveCleanupAndCannotBeDeleted(t *testing.T) {
 	if err := os.Chtimes(path, old, old); err != nil {
 		t.Fatal(err)
 	}
-	branchPath := chatmeta.BranchStorePath(chatmeta.BranchStoreRoot(config.GetHome()), sessionID)
 	branches := chatmeta.BranchStore{Sessions: map[string]chatmeta.BranchSession{
 		sessionID: {Groups: map[string]chatmeta.BranchGroup{
 			"root": {Versions: []chatmeta.BranchVersion{{ID: "old-answer", Messages: []providers.Message{{
@@ -716,7 +714,7 @@ func TestBranchAttachmentsSurviveCleanupAndCannotBeDeleted(t *testing.T) {
 			}}}}},
 		}},
 	}}
-	if err := chatmeta.SaveBranches(branchPath, branches); err != nil {
+	if err := chatmeta.SaveBranches(dir, sessionID, branches); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.cleanupOrphanedSessionAttachments(dir, sessionID, 24*time.Hour); err != nil {
@@ -730,9 +728,14 @@ func TestBranchAttachmentsSurviveCleanupAndCannotBeDeleted(t *testing.T) {
 		t.Fatalf("delete status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	// Unreadable branch data must not authorize deletion of its attachments.
-	if err := os.WriteFile(branchPath, []byte("invalid JSON"), 0o600); err != nil {
+	db, err := memory.OpenSQLiteStore(dir)
+	if err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SetAppState(nil, "chat_branches", sessionID, []byte("invalid JSON")); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
 	rec = performJSONRequest(t, mux, http.MethodDelete, "/api/uploads?session_id="+sessionID+"&id="+uploaded.ID, nil)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("corrupt branch delete status = %d", rec.Code)
