@@ -35,6 +35,11 @@ CREATE TABLE IF NOT EXISTS session_meta (
 	turn_history_json BLOB NOT NULL DEFAULT '[]'
 );
 
+CREATE TABLE IF NOT EXISTS chat_ui_meta (
+	session_id TEXT PRIMARY KEY,
+	metadata_json BLOB NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS session_messages (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	session_key TEXT NOT NULL REFERENCES session_meta(session_key) ON DELETE CASCADE,

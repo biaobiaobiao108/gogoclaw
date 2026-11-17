@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -454,47 +455,68 @@ func TestArchivedSessionSearchSeparatesResults(t *testing.T) {
 	}
 }
 
-func TestChatMetadataUpdatesMigrateLegacyFileFirst(t *testing.T) {
+func TestChatMetadataStoredInSessionsDatabase(t *testing.T) {
 	h, _, dir := setupChatFeatureTest(t)
-	legacy := chatUIMetaFile{
-		Version: 1,
-		Sessions: map[string]chatUISessionMeta{
-			"legacy-meta": {
-				Title:  "Kept title",
-				Pinned: true,
-				Feedback: map[string]string{
-					"message-1": "up",
-				},
-			},
-		},
-	}
-	data, err := json.Marshal(legacy)
-	if err != nil {
+	if err := h.updateChatUISessionMeta(dir, "session", func(meta *chatUISessionMeta) error {
+		meta.Title = "Kept title"
+		meta.Pinned = true
+		meta.Feedback = map[string]string{"message-1": "up"}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
-	legacyPath := chatUIMetaPath(dir)
-	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(legacyPath, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := h.updateChatUISessionMeta(dir, "legacy-meta", func(meta *chatUISessionMeta) error {
+	if err := h.updateChatUISessionMeta(dir, "session", func(meta *chatUISessionMeta) error {
 		meta.Archived = true
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
-		t.Fatalf("legacy metadata file still exists: %v", err)
+	meta, err := NewHandler(h.configPath).loadChatUIMeta(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := meta.Sessions["session"]
+	if got.Title != "Kept title" || !got.Pinned || !got.Archived || got.Feedback["message-1"] != "up" {
+		t.Fatalf("metadata = %+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".gogoclaw", "chat-ui")); !os.IsNotExist(err) {
+		t.Fatalf("chat UI metadata directory should not exist: %v", err)
+	}
+}
+
+func TestChatMetadataConcurrentUpdates(t *testing.T) {
+	h, _, dir := setupChatFeatureTest(t)
+	seedChatFeatureSession(t, dir, "session")
+	const count = 12
+	var wg sync.WaitGroup
+	errs := make(chan error, count)
+	for i := 0; i < count; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			handler := NewHandler(h.configPath)
+			errs <- handler.updateChatUISessionMeta(dir, "session", func(meta *chatUISessionMeta) error {
+				if meta.Feedback == nil {
+					meta.Feedback = make(map[string]string)
+				}
+				meta.Feedback[strconv.Itoa(i)] = "up"
+				return nil
+			})
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	meta, err := h.loadChatUIMeta(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := meta.Sessions["legacy-meta"]
-	if got.Title != "Kept title" || !got.Pinned || !got.Archived || got.Feedback["message-1"] != "up" {
-		t.Fatalf("migrated metadata = %+v", got)
+	if len(meta.Sessions["session"].Feedback) != count {
+		t.Fatalf("feedback updates lost: %+v", meta.Sessions["session"].Feedback)
 	}
 }
 

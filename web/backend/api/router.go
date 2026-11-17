@@ -33,7 +33,6 @@ type Handler struct {
 	sessionListCache    map[string]cachedSessionListItem
 	sessionRefCache     map[string]cachedSessionRefs
 	sessionIndexRead    map[string]bool
-	sessionMetaMu       sync.Mutex
 	attachmentMu        sync.Mutex
 	attachmentCleanupAt map[string]time.Time
 }

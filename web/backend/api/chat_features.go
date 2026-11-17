@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -25,8 +24,8 @@ import (
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/chatmeta"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
@@ -85,154 +84,73 @@ type sessionBranchItem struct {
 	CreatedAt string `json:"created_at,omitempty"`
 }
 
-func chatUIMetaPath(dir string) string {
-	return filepath.Join(dir, ".gogoclaw", "chat-ui.json")
-}
-
-func chatUIMetaDir(dir string) string {
-	return filepath.Join(dir, ".gogoclaw", "chat-ui")
-}
-
-func chatUISessionMetaPath(dir, sessionID string) string {
-	sum := sha256.Sum256([]byte(sessionID))
-	return filepath.Join(chatUIMetaDir(dir), fmt.Sprintf("%x.json", sum[:16]))
-}
-
 func newChatUIMeta() chatUIMetaFile {
 	return chatUIMetaFile{Version: chatUIMetaVersion, Sessions: make(map[string]chatUISessionMeta)}
 }
 
 func (h *Handler) loadChatUIMeta(dir string) (chatUIMetaFile, error) {
 	meta := newChatUIMeta()
-	if err := h.migrateLegacyChatUIMeta(dir); err != nil {
-		return chatUIMetaFile{}, err
-	}
-	entries, err := os.ReadDir(chatUIMetaDir(dir))
+	store, err := memory.OpenSQLiteStore(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return meta, nil
 	}
 	if err != nil {
-		return chatUIMetaFile{}, err
+		return meta, err
 	}
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
-			continue
-		}
-		path := filepath.Join(chatUIMetaDir(dir), entry.Name())
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return chatUIMetaFile{}, err
-		}
-		var item struct {
-			SessionID string            `json:"session_id"`
-			Meta      chatUISessionMeta `json:"meta"`
-		}
+	defer store.Close()
+	entries, err := store.ListChatUIMeta(context.Background())
+	if err != nil {
+		return meta, err
+	}
+	for id, data := range entries {
+		var item chatUISessionMeta
 		if err := json.Unmarshal(data, &item); err != nil {
-			return chatUIMetaFile{}, err
+			return meta, fmt.Errorf("decode chat metadata for %s: %w", id, err)
 		}
-		if item.SessionID != "" {
-			meta.Sessions[item.SessionID] = item.Meta
-		}
+		meta.Sessions[id] = item
 	}
 	return meta, nil
 }
 
-func (h *Handler) migrateLegacyChatUIMeta(dir string) error {
-	legacyPath := chatUIMetaPath(dir)
-	data, err := os.ReadFile(legacyPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
+func (h *Handler) updateChatUISessionMeta(dir, sessionID string, update func(*chatUISessionMeta) error) error {
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
 		return err
 	}
-	var legacy chatUIMetaFile
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return err
-	}
-	for sessionID, meta := range legacy.Sessions {
-		path := chatUISessionMetaPath(dir, sessionID)
-		if _, err := os.Stat(path); err == nil {
-			continue
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return err
+	defer store.Close()
+	return store.UpdateChatUIMeta(context.Background(), sessionID, func(data []byte) ([]byte, error) {
+		var meta chatUISessionMeta
+		if len(data) > 0 {
+			if err := json.Unmarshal(data, &meta); err != nil {
+				return nil, err
+			}
 		}
-		if err := writeChatUISessionMeta(path, sessionID, meta); err != nil {
-			return err
+		if err := update(&meta); err != nil {
+			return nil, err
 		}
-	}
-	return os.Remove(legacyPath)
-}
-
-func writeChatUISessionMeta(path, sessionID string, meta chatUISessionMeta) error {
-	if strings.TrimSpace(meta.Title) == "" && meta.TitleSource == "" && !meta.Pinned && !meta.Archived && len(meta.Feedback) == 0 {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
+		if strings.TrimSpace(meta.Title) == "" && meta.TitleSource == "" && !meta.Pinned && !meta.Archived && len(meta.Feedback) == 0 {
+			return nil, nil
 		}
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	data, err := json.Marshal(struct {
-		SessionID string            `json:"session_id"`
-		Meta      chatUISessionMeta `json:"meta"`
-	}{
-		SessionID: sessionID,
-		Meta:      meta,
+		return json.Marshal(meta)
 	})
-	if err != nil {
-		return err
-	}
-	return fileutil.WriteFileAtomic(path, data, 0o644)
-}
-
-func (h *Handler) updateChatUISessionMeta(
-	dir, sessionID string,
-	update func(*chatUISessionMeta) error,
-) error {
-	h.sessionMetaMu.Lock()
-	defer h.sessionMetaMu.Unlock()
-	if err := h.migrateLegacyChatUIMeta(dir); err != nil {
-		return err
-	}
-	path := chatUISessionMetaPath(dir, sessionID)
-	var item struct {
-		SessionID string            `json:"session_id"`
-		Meta      chatUISessionMeta `json:"meta"`
-	}
-	data, err := os.ReadFile(path)
-	if err == nil {
-		if err := json.Unmarshal(data, &item); err != nil {
-			return err
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err := update(&item.Meta); err != nil {
-		return err
-	}
-	return writeChatUISessionMeta(path, sessionID, item.Meta)
 }
 
 func (h *Handler) removeChatUISessionMeta(dir, sessionID string) error {
-	h.sessionMetaMu.Lock()
-	defer h.sessionMetaMu.Unlock()
-	if err := h.migrateLegacyChatUIMeta(dir); err != nil {
-		return err
-	}
-	err := os.Remove(chatUISessionMetaPath(dir, sessionID))
+	store, err := memory.OpenSQLiteStore(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	return store.UpdateChatUIMeta(context.Background(), sessionID, func([]byte) ([]byte, error) { return nil, nil })
 }
 
 func (h *Handler) readChatUIMeta(dir string) chatUIMetaFile {
-	h.sessionMetaMu.Lock()
-	defer h.sessionMetaMu.Unlock()
 	meta, err := h.loadChatUIMeta(dir)
 	if err != nil {
+		logger.Warnf("failed to read chat metadata: %v", err)
 		return newChatUIMeta()
 	}
 	return meta
