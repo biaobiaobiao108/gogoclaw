@@ -1,0 +1,38 @@
+name: Reliability stress
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "47 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reliability-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  restart-stress:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Exercise concurrent sessions across restarts
+        env:
+          GOGOCLAW_HARNESS_RESTART_ROUNDS: 50
+        run: |
+          mkdir -p build/reliability
+          set -o pipefail
+          go test -tags goolm,stdjson ./pkg/harness -run '^TestProductFlowConcurrentSessionsSurviveRestarts$' -count=1 -timeout=35m -v 2>&1 | tee build/reliability/restart.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: reliability-${{ github.sha }}
+          path: build/reliability/restart.txt
+          if-no-files-found: warn
+          retention-days: 30
