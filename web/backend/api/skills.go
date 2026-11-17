@@ -294,8 +294,8 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req installSkillRequest
-	if decodeErr := json.NewDecoder(r.Body).Decode(&req); decodeErr != nil {
-		http.Error(w, fmt.Sprintf("Invalid JSON: %v", decodeErr), http.StatusBadRequest)
+	if decodeErr := decodeJSONRequest(w, r, &req); decodeErr != nil {
+		writeJSONDecodeError(w, decodeErr)
 		return
 	}
 

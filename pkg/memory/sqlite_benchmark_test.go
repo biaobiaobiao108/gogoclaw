@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
@@ -51,6 +52,45 @@ func BenchmarkSQLiteStoreTranscriptPage10000(b *testing.B) {
 		}
 		if len(page.Messages) != 50 || !page.HasMore {
 			b.Fatalf("unexpected page: messages=%d has_more=%v", len(page.Messages), page.HasMore)
+		}
+	}
+}
+
+func BenchmarkSQLiteListSessionMeta(b *testing.B) {
+	store, err := NewSQLiteStore(b.TempDir())
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer store.Close()
+
+	const sessions = 1000
+	const messagesPerSession = 10
+	ctx := context.Background()
+	for sessionIndex := 0; sessionIndex < sessions; sessionIndex++ {
+		key := fmt.Sprintf("session-%04d", sessionIndex)
+		messages := make([]providers.Message, messagesPerSession)
+		for messageIndex := range messages {
+			messages[messageIndex] = providers.Message{
+				Role:    "user",
+				Content: fmt.Sprintf("message-%d-%d", sessionIndex, messageIndex),
+			}
+		}
+		if err := store.SetHistory(ctx, key, messages); err != nil {
+			b.Fatal(err)
+		}
+		if err := store.UpsertSessionMeta(ctx, key, nil, []string{key + "-alias"}); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		metas, err := store.ListSessionMeta(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(metas) != sessions {
+			b.Fatalf("len(metas) = %d, want %d", len(metas), sessions)
 		}
 	}
 }

@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -224,6 +225,43 @@ func TestSQLiteStoreAliasesAndTurnCheckpoints(t *testing.T) {
 	}
 	if previous.Usage.TaskInputTokens != 150 || previous.Usage.SummaryInputTokens != 20 {
 		t.Fatalf("previous usage = %+v", previous.Usage)
+	}
+}
+
+func TestSQLiteStoreListSessionMetaIncludesCountsAndAliases(t *testing.T) {
+	ctx := context.Background()
+	store := newSQLiteTestStore(t)
+
+	for i, key := range []string{"first", "second", "third"} {
+		for messageIndex := 0; messageIndex <= i; messageIndex++ {
+			if err := store.AddMessage(ctx, key, "user", fmt.Sprintf("%s-%d", key, messageIndex)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := store.UpsertSessionMeta(ctx, key, nil, []string{key + "-alias"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	metas, err := store.ListSessionMeta(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(metas) != 3 {
+		t.Fatalf("len(metas) = %d, want 3", len(metas))
+	}
+	byKey := make(map[string]SessionMeta, len(metas))
+	for _, meta := range metas {
+		byKey[meta.Key] = meta
+	}
+	for key, wantCount := range map[string]int{"first": 1, "second": 2, "third": 3} {
+		meta := byKey[key]
+		if meta.Count != wantCount {
+			t.Fatalf("%s Count = %d, want %d", key, meta.Count, wantCount)
+		}
+		if len(meta.Aliases) != 1 || meta.Aliases[0] != key+"-alias" {
+			t.Fatalf("%s Aliases = %v", key, meta.Aliases)
+		}
 	}
 }
 

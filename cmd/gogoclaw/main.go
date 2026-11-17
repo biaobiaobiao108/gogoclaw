@@ -1,4 +1,4 @@
-// GoGoClaw - Ultra-lightweight personal AI agent
+// GoGoClaw - Single-host personal AI agent and agent harness
 // Inspired by and based on nanobot: https://github.com/HKUDS/nanobot
 // License: MIT
 //
@@ -53,7 +53,7 @@ func earlyColorDisabled() bool {
 
 func NewGogoclawCommand() *cobra.Command {
 	short := fmt.Sprintf("%s GoGoClaw — personal AI assistant", internal.Logo)
-	long := fmt.Sprintf(`%s GoGoClaw is a lightweight personal AI assistant.
+	long := fmt.Sprintf(`%s GoGoClaw is a single-host personal AI assistant and agent harness.
 
 Version: %s`, internal.Logo, config.FormatVersion())
 

@@ -1,6 +1,6 @@
 # 可复现的性能基准
 
-仓库提供 `make benchmark`，用固定的基准集合、重复次数和运行时元数据生成可比较的报告。它覆盖 Agent 消息构建、JSONL 会话存储、Seahorse 记忆检索与 BM25 搜索。
+仓库提供 `make benchmark`，用固定的基准集合、重复次数和运行时元数据生成可比较的报告。它覆盖 Agent 消息构建、SQLite 会话持久化、1,000 个会话与 10,000 条消息下的会话列表元数据、Seahorse 记忆检索与 BM25 搜索。
 
 ```bash
 make benchmark

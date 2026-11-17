@@ -159,6 +159,10 @@ function ToolCard({
   const isDisabled = tool.status === "disabled"
   const isBlocked = tool.status === "blocked"
   const isWebSearchTool = tool.name === "web_search"
+  const description = t(
+    `pages.agent.tools.descriptions.${tool.name}`,
+    tool.description,
+  )
 
   return (
     <Card
@@ -212,7 +216,7 @@ function ToolCard({
         </div>
 
         <p className="text-muted-foreground/80 flex-1 text-[14px] leading-relaxed">
-          {tool.description}
+          {description}
         </p>
 
         {reasonText && (
@@ -259,7 +263,7 @@ function LibraryEmptyState({ allToolsCount }: { allToolsCount: number }) {
       </h3>
       {allToolsCount !== 0 && (
         <p className="text-muted-foreground text-sm">
-          Try adjusting your search criteria or status filters.
+          {t("pages.agent.tools.no_results_hint")}
         </p>
       )}
     </div>

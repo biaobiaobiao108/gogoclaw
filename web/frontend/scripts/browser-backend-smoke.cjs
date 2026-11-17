@@ -124,6 +124,25 @@ async function main() {
       .getByText("browser-test-model", { exact: true })
       .first()
       .waitFor()
+    await page.goto(`${base}/usage`)
+    await page
+      .getByText(/No usage in this range|所选区间没有用量/)
+      .waitFor()
+      .catch(async () => {
+        const detail = await page.evaluate(async () => ({
+          body: document.body.innerText,
+          usage: await fetch("/api/usage?days=30").then(async (response) => ({
+            status: response.status,
+            body: await response.text(),
+          })),
+        }))
+        throw new Error(
+          `Usage empty state missing at ${page.url()}: ${JSON.stringify(detail)}`,
+        )
+      })
+    const usageText = await page.locator("body").innerText()
+    if (/\busage\.[A-Za-z]/.test(usageText))
+      throw new Error("Usage page renders raw translation keys")
     const preset = await page.evaluate(
       async () =>
         (
@@ -223,7 +242,7 @@ async function main() {
       throw new Error("Mobile page overflows")
     if (errors.length) throw new Error(`Browser errors: ${errors.join(", ")}`)
     console.log(
-      "Real-backend browser smoke passed: setup, login, model persistence and approval settings",
+      "Real-backend browser smoke passed: setup, login, model persistence, usage localization and approval settings",
     )
   } finally {
     if (browser) await browser.close()

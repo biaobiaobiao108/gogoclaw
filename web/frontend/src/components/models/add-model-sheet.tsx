@@ -101,6 +101,7 @@ const EMPTY_ADD_FORM: AddForm = {
 interface AddModelSheetProps {
   open: boolean
   onClose: () => void
+  returnFocusTo?: HTMLElement | null
   onSaved: () => void
   onMutationStarted?: () => void
   onMutationSettled?: () => void
@@ -112,6 +113,7 @@ interface AddModelSheetProps {
 export function AddModelSheet({
   open,
   onClose,
+  returnFocusTo,
   onSaved,
   onMutationStarted,
   onMutationSettled,
@@ -122,7 +124,7 @@ export function AddModelSheet({
   const { t } = useTranslation()
   const [form, setForm] = useState<AddForm>(EMPTY_ADD_FORM)
   const [saving, setSaving] = useState(false)
-  const [setAsDefault, setSetAsDefault] = useState(false)
+  const [setAsDefault, setSetAsDefault] = useState(!hasDefaultModel)
   const [fieldErrors, setFieldErrors] = useState<
     Partial<Record<keyof AddForm, string>>
   >({})
@@ -135,6 +137,7 @@ export function AddModelSheet({
   const [catalogModels, setCatalogModels] = useState<string[]>([])
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const initialSetAsDefaultRef = useRef(!hasDefaultModel)
   const providerMap = getProviderCatalogMap(providerOptions)
 
   const apiKeyPlaceholder = maskedSecretPlaceholder(
@@ -142,12 +145,15 @@ export function AddModelSheet({
     t("models.field.apiKeyPlaceholder"),
   )
   const isDirty =
-    JSON.stringify(form) !== JSON.stringify(EMPTY_ADD_FORM) || setAsDefault
+    JSON.stringify(form) !== JSON.stringify(EMPTY_ADD_FORM) ||
+    setAsDefault !== initialSetAsDefaultRef.current
 
   useEffect(() => {
     if (open) {
+      const initialSetAsDefault = !hasDefaultModel
+      initialSetAsDefaultRef.current = initialSetAsDefault
       setForm(EMPTY_ADD_FORM)
-      setSetAsDefault(!hasDefaultModel)
+      setSetAsDefault(initialSetAsDefault)
       setFieldErrors({})
       setServerError("")
       setModelValidation(null)
@@ -448,6 +454,11 @@ export function AddModelSheet({
         <SheetContent
           side="right"
           className="flex flex-col gap-0 p-0 data-[side=right]:!w-full data-[side=right]:sm:!w-[560px] data-[side=right]:sm:!max-w-[560px]"
+          onCloseAutoFocus={(event) => {
+            if (!returnFocusTo?.isConnected) return
+            event.preventDefault()
+            returnFocusTo.focus()
+          }}
         >
           <SheetHeader className="border-b-muted border-b px-6 py-5">
             <SheetTitle className="text-base">

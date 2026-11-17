@@ -610,7 +610,7 @@ GoGoClaw supports encrypting API keys in the security file for additional protec
 
 1. Set a passphrase via environment variable:
 ```bash
-export GOGOCLAW_CREDENTIAL_PASSPHRASE="your-secure-passphrase"
+export GOGOCLAW_KEY_PASSPHRASE="your-secure-passphrase"
 ```
 
 2. When saving config, API keys will be encrypted automatically:

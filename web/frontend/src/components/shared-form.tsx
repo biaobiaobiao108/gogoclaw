@@ -1,5 +1,6 @@
 import { IconChevronDown, IconEye, IconEyeOff } from "@tabler/icons-react"
 import {
+  Children,
   cloneElement,
   isValidElement,
   type ReactElement,
@@ -45,25 +46,26 @@ export function Field({
   const errorId = error ? `${generatedId}-error` : undefined
 
   const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined
-  const control = isValidElement(children)
-    ? cloneElement(children as ReactElement<Record<string, unknown>>, {
-        id:
-          (children.props as Record<string, unknown>).id ??
-          `${generatedId}-control`,
-        "aria-labelledby":
-          (children.props as Record<string, unknown>)["aria-labelledby"] ??
-          labelId,
-        "aria-describedby":
-          [
-            (children.props as Record<string, unknown>)["aria-describedby"],
-            describedBy,
-          ]
-            .filter(Boolean)
-            .join(" ") || undefined,
-        "aria-required": required || undefined,
-        "aria-invalid": error ? true : undefined,
-      })
-    : children
+  let linkedControl = false
+  const control = Children.map(children, (child) => {
+    if (linkedControl || !isValidElement(child)) return child
+    linkedControl = true
+    return cloneElement(child as ReactElement<Record<string, unknown>>, {
+      id:
+        (child.props as Record<string, unknown>).id ?? `${generatedId}-control`,
+      "aria-labelledby":
+        (child.props as Record<string, unknown>)["aria-labelledby"] ?? labelId,
+      "aria-describedby":
+        [
+          (child.props as Record<string, unknown>)["aria-describedby"],
+          describedBy,
+        ]
+          .filter(Boolean)
+          .join(" ") || undefined,
+      "aria-required": required || undefined,
+      "aria-invalid": error ? true : undefined,
+    })
+  })
 
   if (layout === "setting-row") {
     return (

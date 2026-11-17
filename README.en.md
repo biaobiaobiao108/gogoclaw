@@ -3,7 +3,7 @@
 
 <h1>GoGoClaw</h1>
 
-<p>A lightweight general-purpose agent harness and web console written in Go</p>
+<p>A single-host general-purpose agent harness and web console written in Go</p>
 
 <p>
   <img src="https://img.shields.io/badge/Go-1.27.4+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">

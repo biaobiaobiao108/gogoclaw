@@ -1,6 +1,6 @@
 # Reproducible Performance Benchmarks
 
-The repository provides `make benchmark` to generate comparable reports using a fixed benchmark set, repetition count, and runtime metadata. It covers Agent message construction, JSONL session storage, Seahorse memory retrieval, and BM25 search.
+The repository provides `make benchmark` to generate comparable reports using a fixed benchmark set, repetition count, and runtime metadata. It covers Agent message construction, SQLite session persistence, session-list metadata over 1,000 sessions and 10,000 messages, Seahorse memory retrieval, and BM25 search.
 
 ```bash
 make benchmark

@@ -70,7 +70,7 @@ sub-turn 事件已接入 runtime event bus。
 
 ### 一个关键现实
 
-`#1316` 文案里提到“只读并行、写入串行”的工具执行策略，但当前 `runTurn()` 实现已经先收敛成“顺序执行 + 每个工具后检查 steering / interrupt”。因此 hook 设计不应依赖未来的并行模型，而应该先兼容当前顺序执行，再为以后增加 `ReadOnlyIndicator` 留口子。
+`#1316` 文案里提到“只读并行、写入串行”。当前主 turn 采用混合策略：当同一批工具全部只读且幂等、没有活跃 hook、审批要求和重复调用时，`runTurn()` 会以最多 4 个 worker 预执行，并按原顺序处理结果；只要批次中包含写入、有状态或受保护的工具，就退回顺序执行，并在每个工具后检查 steering / interrupt。Hook 设计必须同时兼容这两种路径，不能假设所有工具都串行，也不能绕过审批或 steering 时机。
 
 ## 设计原则
 
@@ -435,7 +435,6 @@ V1 不做复杂自动发现。
 - hook 自动发现
 - Unix socket / named pipe transport
 - sub-turn hook 生命周期
-- read-only 并行分组
 - webhook 到 inbound message 的映射入口
 
 ## 分阶段落地
@@ -458,8 +457,8 @@ V1 不做复杂自动发现。
 
 ### Phase 4
 
-- 视需求补 `ReadOnlyIndicator`
-- 在主 turn 和 sub-turn 上统一只读并行策略
+- 为更多只读工具补充 `ReadOnlyIndicator`
+- 在主 turn 和 sub-turn 上统一只读并行策略；主 turn 已有受审批和幂等策略约束的有限并行预执行
 
 ## 最终结论
 

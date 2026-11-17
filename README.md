@@ -3,7 +3,7 @@
 
 <h1>GoGoClaw</h1>
 
-<p>用 Go 构建的轻量级通用 Agent Harness 与 Web 控制台</p>
+<p>用 Go 构建、面向单机长期运行的通用 Agent Harness 与 Web 控制台</p>
 
 <p>
   <img src="https://img.shields.io/badge/Go-1.27.4+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">

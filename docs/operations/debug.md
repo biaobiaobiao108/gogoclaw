@@ -1,6 +1,19 @@
 # Debugging GoGoClaw
 
 GoGoClaw performs multiple complex interactions under the hood for every single request it receives—from routing messages and evaluating complexity, to executing tools and adapting to model failures. Being able to see exactly what is happening is crucial, not just for troubleshooting potential issues, but also for truly understanding how the agent operates.
+
+## File Logging And Rotation
+
+Set `GOGOCLAW_LOG_FILE` to write logs to a file. File logs rotate automatically and are also written to the console unless console logging is disabled by the runtime.
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `GOGOCLAW_LOG_MAX_SIZE_MB` | `10` | Rotate after the active file reaches this size. `0` disables size rotation |
+| `GOGOCLAW_LOG_ROTATE_HOURS` | `24` | Rotate the active file after this many hours. `0` disables time rotation |
+| `GOGOCLAW_LOG_MAX_BACKUPS` | `5` | Number of rotated files to retain |
+| `GOGOCLAW_LOG_MAX_AGE_DAYS` | `30` | Delete rotated files older than this many days |
+
+The defaults keep the active log below roughly 10 MB and retain at most five recent backups for up to 30 days.
 ## Starting GoGoClaw in Debug Mode
 
 To get detailed information about what the agent is doing (LLM requests, tool calls, message routing), you can start the GoGoClaw gateway with the debug flag:

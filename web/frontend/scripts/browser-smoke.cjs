@@ -2,7 +2,12 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE)
 
 async function main() {
-  const browser = await chromium.launch({ headless: true })
+  const browser = await chromium.launch({
+    headless: true,
+    ...(process.env.GOGOCLAW_BROWSER_EXECUTABLE
+      ? { executablePath: process.env.GOGOCLAW_BROWSER_EXECUTABLE }
+      : {}),
+  })
   try {
     const page = await browser.newPage({
       viewport: { width: 1280, height: 800 },
@@ -11,15 +16,22 @@ async function main() {
     const flows = []
     let authenticated = false
     let authServiceFailure = false
+    let usageFailuresRemaining = 0
+    let expectUsageFailure = false
     let chatMessage = ""
     page.on("pageerror", (error) => errors.push(error.message))
     page.on("console", (message) => {
       const text = message.text()
       const expectedAuthFailure = authServiceFailure && text.includes("503")
+      const expectedUsageFailure =
+        expectUsageFailure &&
+        text.includes("500") &&
+        message.location().url.includes("/api/usage")
       if (
         message.type() === "error" &&
         !text.includes("401") &&
-        !expectedAuthFailure
+        !expectedAuthFailure &&
+        !expectedUsageFailure
       ) {
         errors.push(message.text())
       }
@@ -70,6 +82,22 @@ async function main() {
         body = { gateway_status: "running" }
       } else if (path === "/api/models") {
         body = {
+          total: 1,
+          default_model: "test",
+          default_provider: "openai",
+          provider_options: [
+            {
+              id: "openai",
+              display_name: "OpenAI",
+              default_api_base: "https://api.openai.com/v1",
+              empty_api_key_allowed: false,
+              create_allowed: true,
+              default_model_allowed: true,
+              supports_fetch: true,
+              default_auth_method: "api_key",
+              common_models: ["test"],
+            },
+          ],
           models: [
             {
               index: 0,
@@ -81,7 +109,30 @@ async function main() {
               is_default: true,
             },
           ],
-          default_model: "test",
+        }
+      } else if (path === "/api/usage") {
+        if (usageFailuresRemaining > 0) {
+          usageFailuresRemaining--
+          status = 500
+          body = { error: "usage unavailable" }
+        } else {
+          body = {
+            days: 30,
+            from: "2026-01-01",
+            to: "2026-01-30",
+            totals: zeroUsage(),
+            today: zeroUsage(),
+            daily: [],
+            by_provider: [],
+            by_model: [],
+            by_channel: [],
+            by_agent: [],
+            governance: {
+              session_token_budget: 0,
+              daily_token_budget: 0,
+              on_budget_exceeded: "warn",
+            },
+          }
         }
       } else if (path === "/api/sessions") {
         body = { items: [], has_more: false }
@@ -122,9 +173,75 @@ async function main() {
     if (mobileOverflow) throw new Error("Chat overflows the mobile viewport")
 
     await page.keyboard.press("Escape")
+    await page.setViewportSize({ width: 320, height: 800 })
     await page.getByRole("button", { name: /更多操作|More actions/i }).click()
     await page.getByRole("menuitem", { name: "简体中文" }).click()
     await page.waitForFunction(() => document.documentElement.lang === "zh-CN")
+
+    usageFailuresRemaining = 2
+    expectUsageFailure = true
+    await page.goto(`${base}/usage`)
+    const usageTitle = page.getByRole("heading", { name: "用量与成本" })
+    await usageTitle.waitFor()
+    await page.getByText("用量数据加载失败", { exact: true }).waitFor()
+    await page.getByRole("button", { name: "重试", exact: true }).click()
+    await page.getByText("所选区间没有用量", { exact: true }).waitFor()
+    expectUsageFailure = false
+    const usageBody = await page.locator("body").innerText()
+    if (/\busage\.[A-Za-z]/.test(usageBody))
+      throw new Error("Usage page renders raw translation keys")
+    const usageLayout = await usageTitle.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: innerWidth,
+    }))
+    if (usageLayout.scrollWidth > usageLayout.clientWidth + 1)
+      throw new Error("Usage title is truncated at 320px")
+    if (usageLayout.documentWidth > usageLayout.viewportWidth)
+      throw new Error("Usage page overflows the 320px viewport")
+
+    await page.goto(`${base}/models`)
+    const addModelButton = page.getByRole("button", {
+      name: "添加模型",
+      exact: true,
+    })
+    await addModelButton.waitFor()
+    await addModelButton.click()
+    const addModelSheet = page.getByRole("dialog")
+    await addModelSheet.waitFor()
+    await page.getByRole("button", { name: "关闭", exact: true }).waitFor()
+    if (
+      (await page
+        .getByText("当前修改尚未保存，保存后才会写入模型配置。", {
+          exact: true,
+        })
+        .count()) !== 0
+    )
+      throw new Error("Add model sheet starts in a dirty state")
+    const modelNameInput = addModelSheet.locator("input").first()
+    const modelNameLabel = await modelNameInput.evaluate((element) => {
+      const labelledBy = element.getAttribute("aria-labelledby")
+      return labelledBy
+        ? document.getElementById(labelledBy)?.textContent?.trim()
+        : ""
+    })
+    if (modelNameLabel !== "模型别名")
+      throw new Error("Add model name input has no localized accessible label")
+    await modelNameInput.fill("browser-model")
+    await page
+      .getByText("当前修改尚未保存，保存后才会写入模型配置。", {
+        exact: true,
+      })
+      .waitFor()
+    await page.keyboard.press("Escape")
+    await addModelSheet.waitFor({ state: "detached" })
+    const focusAfterClose = await page.evaluate(() =>
+      document.activeElement?.getAttribute("aria-label"),
+    )
+    if (focusAfterClose !== "添加模型")
+      throw new Error("Add model sheet did not restore focus to its trigger")
+
     await page.getByRole("button", { name: "更多操作" }).click()
     await page.getByRole("menuitem", { name: "English" }).click()
     await page.waitForFunction(() => document.documentElement.lang === "en")
@@ -168,10 +285,21 @@ async function main() {
 
     if (errors.length) throw new Error(`Browser errors: ${errors.join(", ")}`)
     console.log(
-      "Browser smoke passed: login, mobile chat, language switching, auth error dismissal and OAuth message origin",
+      "Browser smoke passed: login, mobile chat, usage states, model form focus, language switching, auth error dismissal and OAuth message origin",
     )
   } finally {
     await browser.close()
+  }
+}
+
+function zeroUsage() {
+  return {
+    calls: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+    cost_nanos: 0,
+    cost_usd: 0,
   }
 }
 

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -933,10 +932,6 @@ func TestRuntime_RunColdPathOnce_FirstApplyFailureDoesNotCreateGhostProfile(t *t
 }
 
 func TestRuntime_RunColdPathOnce_DraftSaveFailureRollsBackAppliedSkill(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("directory permission behavior differs on Windows")
-	}
-
 	root := t.TempDir()
 	paths := evolution.NewPaths(root, "")
 	store := evolution.NewStore(paths)
@@ -954,12 +949,20 @@ func TestRuntime_RunColdPathOnce_DraftSaveFailureRollsBackAppliedSkill(t *testin
 		t.Fatalf("AppendLearningRecords: %v", err)
 	}
 
-	if err := os.Chmod(paths.RootDir, 0o555); err != nil {
-		t.Fatalf("Chmod(root read-only): %v", err)
+	db, err := sql.Open("sqlite", filepath.Join(root, "sessions", "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		_ = os.Chmod(paths.RootDir, 0o755)
-	})
+	defer db.Close()
+	if _, err := db.Exec(`
+		CREATE TRIGGER fail_draft_save
+		BEFORE INSERT ON app_state
+		WHEN NEW.namespace = 'evolution' AND NEW.state_key = 'skill-drafts.json'
+		BEGIN
+			SELECT RAISE(ABORT, 'draft save failure');
+		END`); err != nil {
+		t.Fatal(err)
+	}
 
 	rt, err := evolution.NewRuntime(evolution.RuntimeOptions{
 		Config: config.EvolutionConfig{Enabled: true, Mode: "apply"},

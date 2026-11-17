@@ -371,6 +371,7 @@ func TestAppendFields_ErrorUsesErrorString(t *testing.T) {
 }
 
 func TestDisableConsole(t *testing.T) {
+	t.Cleanup(EnableConsole)
 	DisableConsole()
 	Info("this should go to nowhere")
 }
@@ -386,6 +387,7 @@ func TestConfigureFromEnv(t *testing.T) {
 
 	os.Setenv("GOGOCLAW_LOG_FILE", tmpFile)
 	defer os.Unsetenv("GOGOCLAW_LOG_FILE")
+	t.Cleanup(DisableFileLogging)
 
 	ConfigureFromEnv()
 

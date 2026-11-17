@@ -68,7 +68,7 @@ The gaps at the time of the early design included HookManager, Before/After LLM,
 
 ### A Key Reality
 
-The `#1316` description mentions a tool execution strategy of "parallel reads, serial writes", but the current `runTurn()` implementation has already converged on "sequential execution + checking steering / interrupt after each tool". Therefore, the hook design should not depend on a future parallel model; it should first be compatible with the current sequential execution and leave room for adding a `ReadOnlyIndicator` later.
+The `#1316` description mentions a tool execution strategy of "parallel reads, serial writes". The current main turn uses a hybrid strategy: when every tool in a batch is read-only and idempotent, with no active hooks, approval requirements, or duplicate calls, `runTurn()` pre-executes the batch with up to four workers and processes results in original order. If any write, stateful, or protected tool is present, execution falls back to the sequential path and checks steering / interrupt after each tool. Hook design must support both paths and must not assume every tool is sequential or bypass approval and steering timing.
 
 ## Design Principles
 
@@ -433,7 +433,6 @@ Reasons:
 - Hook automatic discovery
 - Unix socket / named pipe transport
 - Sub-turn hook lifecycle
-- Read-only parallel grouping
 - Mapping entry point from webhooks to inbound messages
 
 ## Phased Implementation
@@ -456,8 +455,8 @@ Reasons:
 
 ### Phase 4
 
-- Add `ReadOnlyIndicator` as needed
-- Use a unified read-only parallel strategy for both the main turn and sub-turns
+- Add `ReadOnlyIndicator` to more read-only tools
+- Use a unified read-only parallel strategy for both the main turn and sub-turns; the main turn already supports bounded parallel pre-execution under idempotency and approval constraints
 
 ## Final Conclusion
 

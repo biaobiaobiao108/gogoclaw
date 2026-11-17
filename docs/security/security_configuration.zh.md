@@ -610,7 +610,7 @@ GoGoClaw 支持加密安全文件中的 API 密钥，以提供额外保护。
 
 1. 通过环境变量设置口令：
 ```bash
-export GOGOCLAW_CREDENTIAL_PASSPHRASE="your-secure-passphrase"
+export GOGOCLAW_KEY_PASSPHRASE="your-secure-passphrase"
 ```
 
 2. 保存配置时，API 密钥会自动加密：

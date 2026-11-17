@@ -211,8 +211,8 @@ func (h *Handler) handleUpdateToolState(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req toolStateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+	if err := decodeJSONRequest(w, r, &req); err != nil {
+		writeJSONDecodeError(w, err)
 		return
 	}
 
@@ -389,8 +389,8 @@ func (h *Handler) handleUpdateWebSearchConfig(w http.ResponseWriter, r *http.Req
 	}
 
 	var req webSearchConfigRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+	if err := decodeJSONRequest(w, r, &req); err != nil {
+		writeJSONDecodeError(w, err)
 		return
 	}
 

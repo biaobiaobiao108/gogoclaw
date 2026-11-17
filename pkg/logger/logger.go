@@ -37,7 +37,7 @@ var (
 
 	currentLevel  = INFO
 	logger        zerolog.Logger
-	logFile       *os.File
+	logFile       *rotatingFileWriter
 	once          sync.Once
 	mu            sync.RWMutex
 	writers       []io.Writer
@@ -177,27 +177,24 @@ func EnableFileLogging(filePath string) error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
-		return fmt.Errorf("failed to create log directory: %w", err)
-	}
-
-	newFile, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	newFile, err := newRotatingFileWriter(filePath, rotationConfigFromEnv())
 	if err != nil {
-		return fmt.Errorf("failed to open log file: %w", err)
+		return err
 	}
 
-	// Close old file if exists
 	if logFile != nil {
-		logFile.Close()
+		_ = logFile.Close()
 	}
 
 	logFile = newFile
 
-	if len(writers) != 1 {
-		return fmt.Errorf("failed to configure file logging: %w", err)
+	if len(writers) == 0 {
+		_ = newFile.Close()
+		logFile = nil
+		return fmt.Errorf("failed to configure file logging: console writer is missing")
 	}
 
-	writers = append(writers, logFile)
+	writers = append(writers[:1], logFile)
 	logger = logger.Output(io.MultiWriter(writers...))
 
 	return nil
@@ -208,7 +205,7 @@ func DisableFileLogging() {
 	defer mu.Unlock()
 
 	if logFile != nil {
-		logFile.Close()
+		_ = logFile.Close()
 		logFile = nil
 	}
 	if len(writers) > 1 {

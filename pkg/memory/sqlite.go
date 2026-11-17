@@ -653,29 +653,79 @@ func sqliteAliases(ctx context.Context, q sqliteQueryer, sessionKey string) ([]s
 // ListSessionMeta returns all session metadata for management and UI reads.
 func (s *SQLiteStore) ListSessionMeta(ctx context.Context) ([]SessionMeta, error) {
 	ctx = sqliteContext(ctx)
-	rows, err := s.db.QueryContext(ctx, `SELECT session_key FROM session_meta ORDER BY updated_at DESC, session_key`)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT m.session_key, m.summary, m.skip_count, m.created_at, m.updated_at,
+		       m.scope_json, m.turn_json, m.turn_history_json,
+		       (SELECT COUNT(*) FROM session_messages msg WHERE msg.session_key = m.session_key)
+		FROM session_meta m
+		ORDER BY m.updated_at DESC, m.session_key`)
 	if err != nil {
 		return nil, fmt.Errorf("memory: list sessions: %w", err)
 	}
-	var keys []string
+	metas := make([]SessionMeta, 0)
 	for rows.Next() {
-		var key string
-		if err := rows.Scan(&key); err != nil {
+		var createdAt, updatedAt int64
+		var scope, turn, turnHistory []byte
+		meta := SessionMeta{}
+		if err := rows.Scan(
+			&meta.Key,
+			&meta.Summary,
+			&meta.Skip,
+			&createdAt,
+			&updatedAt,
+			&scope,
+			&turn,
+			&turnHistory,
+			&meta.Count,
+		); err != nil {
 			rows.Close()
-			return nil, fmt.Errorf("memory: scan session key: %w", err)
+			return nil, fmt.Errorf("memory: scan session metadata: %w", err)
 		}
-		keys = append(keys, key)
+		meta.CreatedAt = time.Unix(0, createdAt)
+		meta.UpdatedAt = time.Unix(0, updatedAt)
+		meta.Scope = cloneRawJSON(scope)
+		meta.Turn = cloneRawJSON(turn)
+		if len(turnHistory) > 0 {
+			if err := json.Unmarshal(turnHistory, &meta.TurnHistory); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("memory: decode turn history: %w", err)
+			}
+		}
+		metas = append(metas, meta)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
 	}
-	metas := make([]SessionMeta, 0, len(keys))
-	for _, key := range keys {
-		meta, err := s.GetSessionMeta(ctx, key)
-		if err != nil {
-			return nil, err
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("memory: iterate session metadata: %w", err)
+	}
+	if len(metas) == 0 {
+		return metas, nil
+	}
+
+	rows, err = s.db.QueryContext(ctx, `
+		SELECT session_key, alias
+		FROM session_aliases
+		ORDER BY session_key, alias`)
+	if err != nil {
+		return nil, fmt.Errorf("memory: list session aliases: %w", err)
+	}
+	defer rows.Close()
+	aliasIndex := make(map[string]int, len(metas))
+	for i := range metas {
+		aliasIndex[metas[i].Key] = i
+	}
+	for rows.Next() {
+		var sessionKey, alias string
+		if err := rows.Scan(&sessionKey, &alias); err != nil {
+			return nil, fmt.Errorf("memory: scan session alias: %w", err)
 		}
-		metas = append(metas, meta)
+		if index, ok := aliasIndex[sessionKey]; ok {
+			metas[index].Aliases = append(metas[index].Aliases, alias)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("memory: iterate session aliases: %w", err)
 	}
 	return metas, nil
 }
