@@ -86,7 +86,7 @@ func ResolveAPIBase(cfg *config.ModelConfig) string {
 // CreateProviderFromConfig creates a provider based on the ModelConfig.
 // It uses ExtractProtocol to determine which provider to create.
 // Supported protocol families include OpenAI-compatible prefixes (e.g., openai, openrouter, groq),
-// Azure OpenAI, Amazon Bedrock, Anthropic (including messages), and various CLI/compatibility shims.
+// Azure OpenAI, Amazon Bedrock, Anthropic (including messages), and compatible protocols.
 // See the switch on protocol in this function for the authoritative list.
 // Returns the provider, the effective model ID from ExtractProtocol, and any error.
 func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, error) {
@@ -352,35 +352,6 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 
 	case "antigravity":
 		return finalizeProviderFromConfig(NewAntigravityProvider(), modelID, cfg)
-
-	case "claude-cli":
-		workspace := cfg.Workspace
-		if workspace == "" {
-			workspace = "."
-		}
-		return finalizeProviderFromConfig(NewClaudeCliProvider(workspace), modelID, cfg)
-
-	case "codex-cli":
-		workspace := cfg.Workspace
-		if workspace == "" {
-			workspace = "."
-		}
-		return finalizeProviderFromConfig(NewCodexCliProvider(workspace), modelID, cfg)
-
-	case "github-copilot":
-		apiBase := cfg.APIBase
-		if apiBase == "" {
-			apiBase = "localhost:4321"
-		}
-		connectMode := cfg.ConnectMode
-		if connectMode == "" {
-			connectMode = "grpc"
-		}
-		provider, err := NewGitHubCopilotProvider(apiBase, connectMode, modelID)
-		if err != nil {
-			return nil, "", err
-		}
-		return finalizeProviderFromConfig(provider, modelID, cfg)
 
 	default:
 		return nil, "", fmt.Errorf("unknown protocol %q in model %q", protocol, cfg.Model)

@@ -157,8 +157,8 @@ Credential patterns in GoGoClaw are:
 
 - `model_list[].api_keys` for most hosted APIs
 - `gogoclaw auth login --provider ...` for the built-in auth helper flows (`openai`, `anthropic`, `antigravity`)
+- external platform credentials for providers like `bedrock` and `azure`
 - local or self-hosted endpoints for providers like `ollama`, `lmstudio`, `vllm`, and `litellm`
-- external platform credentials for providers like `bedrock`, `azure`, and `github-copilot`
 
 `gogoclaw auth login` does **not** cover every provider. For most providers, the normal path is adding a `model_list` entry with `provider`, `model`, and `api_keys`.
 
@@ -184,13 +184,10 @@ Credential patterns in GoGoClaw are:
 | Azure OpenAI | `azure` | `api_key` in `model_list`, or Microsoft Entra ID if built with `azidentity` support |
 | AWS Bedrock | `bedrock` | AWS credentials plus Bedrock-enabled build (`go build -tags bedrock`) |
 | Antigravity | `antigravity` | OAuth helper via `gogoclaw auth login --provider antigravity` |
-| GitHub Copilot | `github-copilot` | External Copilot gRPC endpoint, default `localhost:4321` |
 | Ollama | `ollama` | Local endpoint, no API key required |
 | LM Studio | `lmstudio` | Local endpoint, API key optional |
 | vLLM | `vllm` | Local OpenAI-compatible endpoint |
 | LiteLLM | `litellm` | Proxy endpoint and whichever credential model the proxy expects |
-| Claude CLI | `claude-cli` | Local Claude CLI provider, configured by workspace/runtime |
-| Codex CLI | `codex-cli` | Local Codex CLI provider, configured by workspace/runtime |
 
 ### Additional OpenAI-Compatible Vendors
 

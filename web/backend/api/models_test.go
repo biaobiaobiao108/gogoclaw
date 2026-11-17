@@ -15,17 +15,13 @@ import (
 func resetModelProbeHooks(t *testing.T) {
 	t.Helper()
 
-	origTCPProbe := probeTCPServiceFunc
 	origOllamaProbe := probeOllamaModelFunc
 	origOpenAIProbe := probeOpenAICompatibleModelFunc
-	origCommandProbe := probeCommandAvailableFunc
 	origNow := modelProbeNowFunc
 	resetModelProbeCache()
 	t.Cleanup(func() {
-		probeTCPServiceFunc = origTCPProbe
 		probeOllamaModelFunc = origOllamaProbe
 		probeOpenAICompatibleModelFunc = origOpenAIProbe
-		probeCommandAvailableFunc = origCommandProbe
 		modelProbeNowFunc = origNow
 		resetModelProbeCache()
 	})

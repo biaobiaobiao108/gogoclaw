@@ -201,48 +201,6 @@ func TestResolveModelConfigPrefersCustomAPIBaseTemplate(t *testing.T) {
 	}
 }
 
-func TestCreateProviderReturnsCodexCliProviderForCodexCode(t *testing.T) {
-	cfg := config.DefaultConfig()
-	cfg.Agents.Defaults.ModelName = "test-codex"
-	cfg.ModelList = []*config.ModelConfig{
-		{
-			ModelName: "test-codex",
-			Model:     "codex-cli/codex-model",
-			Workspace: "/tmp/workspace",
-		},
-	}
-
-	provider, _, err := CreateProvider(cfg)
-	if err != nil {
-		t.Fatalf("CreateProvider() error = %v", err)
-	}
-
-	if _, ok := provider.(*CodexCliProvider); !ok {
-		t.Fatalf("provider type = %T, want *CodexCliProvider", provider)
-	}
-}
-
-func TestCreateProviderReturnsClaudeCliProviderForClaudeCli(t *testing.T) {
-	cfg := config.DefaultConfig()
-	cfg.Agents.Defaults.ModelName = "test-claude-cli"
-	cfg.ModelList = []*config.ModelConfig{
-		{
-			ModelName: "test-claude-cli",
-			Model:     "claude-cli/claude-sonnet",
-			Workspace: "/tmp/workspace",
-		},
-	}
-
-	provider, _, err := CreateProvider(cfg)
-	if err != nil {
-		t.Fatalf("CreateProvider() error = %v", err)
-	}
-
-	if _, ok := provider.(*ClaudeCliProvider); !ok {
-		t.Fatalf("provider type = %T, want *ClaudeCliProvider", provider)
-	}
-}
-
 func TestCreateProviderReturnsClaudeProviderForAnthropicOAuth(t *testing.T) {
 	originalGetCredential := getCredential
 	t.Cleanup(func() { getCredential = originalGetCredential })

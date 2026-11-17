@@ -24,7 +24,6 @@ That distinction matters:
 
 If a test should actively protect merges between PRs, it should be reachable from [`scripts/run-integration-tests.sh`](../scripts/run-integration-tests.sh), either by extending an existing suite or by adding a new one.
 
-Some integration-tagged tests are intentionally opt-in and not part of the Docker suites. For example, real CLI smoke tests under `pkg/providers/cli/` depend on external binaries being installed locally. Those are useful for manual verification, but they do not gate PR merges.
 
 ## What CI Runs
 

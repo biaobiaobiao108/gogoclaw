@@ -362,37 +362,6 @@ func TestHandleAddModel_NormalizesExplicitElevenLabsUnsupportedModelID(t *testin
 	}
 }
 
-func TestHandleAddModel_RejectsMissingCLIProviderCommand(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
-	defer cleanup()
-	resetOAuthHooks(t)
-	resetModelProbeHooks(t)
-
-	probeCommandAvailableFunc = func(command string) bool {
-		return false
-	}
-
-	h := NewHandler(configPath)
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/models", bytes.NewBufferString(`{
-		"model_name":"claude-cli-model",
-		"provider":"claude-cli",
-		"model":"claude-cli"
-	}`))
-	req.Header.Set("Content-Type", "application/json")
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), `provider "claude-cli" is not available for new models`) {
-		t.Fatalf("body = %q, want missing cli command error", rec.Body.String())
-	}
-}
-
 func TestHandleAddModel_DefaultsAntigravityToOAuth(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

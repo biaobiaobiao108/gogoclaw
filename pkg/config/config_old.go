@@ -385,24 +385,6 @@ func v0ProvidersMapToModelList(providers map[string]any, userProvider, userModel
 			},
 		},
 		{
-			jsonKeys: []string{"github_copilot", "copilot"},
-			protocol: "github-copilot",
-			defModel: "github-copilot/gpt-5.4",
-			extractFn: func(prov map[string]any) map[string]any {
-				entry := make(map[string]any)
-				if v, ok := prov["api_key"]; ok && v != "" {
-					entry["api_key"] = v
-				}
-				if v, ok := prov["api_base"]; ok && v != "" {
-					entry["api_base"] = v
-				}
-				if v, ok := prov["connect_mode"]; ok && v != "" {
-					entry["connect_mode"] = v
-				}
-				return entry
-			},
-		},
-		{
 			jsonKeys: []string{"antigravity"},
 			protocol: "antigravity",
 			defModel: "antigravity/gemini-2.0-flash",

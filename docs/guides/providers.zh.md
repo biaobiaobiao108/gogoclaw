@@ -71,7 +71,6 @@
 | **ModelScope (魔搭)**| `modelscope`     | `https://api-inference.modelscope.cn/v1`            | OpenAI    | [获取 Token](https://modelscope.cn/my/tokens)                     |
 | **小米 MiMo**       | `mimo`            | `https://api.xiaomimimo.com/v1`                     | OpenAI    | [获取密钥](https://platform.xiaomimimo.com)                       |
 | **Antigravity**     | `antigravity`     | Google Cloud                                        | 自定义    | 仅 OAuth                                                          |
-| **GitHub Copilot**  | `github-copilot`  | `localhost:4321`                                    | gRPC      | -                                                                 |
 
 #### 基础配置示例
 

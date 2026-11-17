@@ -73,9 +73,6 @@ func TestNormalizeProvider(t *testing.T) {
 		{"google-antigravity", "antigravity"},
 		{"groq", "groq"},
 		{"azure-openai", "azure"},
-		{"claudecli", "claude-cli"},
-		{"codexcli", "codex-cli"},
-		{"copilot", "github-copilot"},
 		{"g4f", "gpt4free"},
 		// Alibaba Coding Plan aliases
 		{"alibaba-coding", "alibaba-coding"},

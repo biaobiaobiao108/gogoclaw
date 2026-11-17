@@ -9,7 +9,6 @@
 当前生效范围是子进程启动链路：
 
 - `exec` 工具
-- `claude-cli`、`codex-cli` 等 CLI provider
 - 进程型 hooks
 - MCP `stdio` server
 

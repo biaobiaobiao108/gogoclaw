@@ -41,7 +41,6 @@ pkg/
 | `TestConvertProvidersToModelList_Anthropic` | Anthropic config conversion | US-003 |
 | `TestConvertProvidersToModelList_MultipleProviders` | Multiple provider conversion | US-003 |
 | `TestConvertProvidersToModelList_EmptyProviders` | Empty providers handling | US-003 |
-| `TestConvertProvidersToModelList_GitHubCopilot` | GitHub Copilot conversion | US-003 |
 | `TestConvertProvidersToModelList_Antigravity` | Antigravity conversion | US-003 |
 | `TestGenerateModelName_*` | Model name generation | US-003 |
 | `TestHasProvidersConfig_*` | Detect old config existence | US-003 |
@@ -72,9 +71,6 @@ pkg/
 | `TestCreateProviderFromConfig_OpenAIDefault` | Default openai protocol | US-004 |
 | `TestCreateProviderFromConfig_Anthropic` | Create Anthropic provider | US-004 |
 | `TestCreateProviderFromConfig_Antigravity` | Create Antigravity provider | US-004 |
-| `TestCreateProviderFromConfig_ClaudeCLI` | Create Claude CLI provider | US-004 |
-| `TestCreateProviderFromConfig_CodexCLI` | Create Codex CLI provider | US-004 |
-| `TestCreateProviderFromConfig_GitHubCopilot` | Create GitHub Copilot provider | US-004 |
 | `TestCreateProviderFromConfig_UnknownProtocol` | Unknown protocol error handling | US-004 |
 | `TestCreateProviderFromConfig_MissingAPIKey` | Missing API key error | US-004 |
 | `TestExtractProtocol` | Protocol prefix extraction | US-004 |
@@ -94,7 +90,6 @@ pkg/
 | `TestE2E_ErrorHandling_InvalidAPIBase` | Invalid API base | FR-30 |
 | `TestE2E_ToolCalls_OpenAICompatible` | Tool call support | - |
 | `TestE2E_AntigravityProvider` | Antigravity provider | US-004 |
-| `TestE2E_ClaudeCLIProvider` | Claude CLI provider | US-004 |
 
 ### 6. Performance Tests
 

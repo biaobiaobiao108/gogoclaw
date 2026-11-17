@@ -536,18 +536,6 @@ func TestProbeOllamaModelBlocksLinkLocalTargets(t *testing.T) {
 	}
 }
 
-func TestProbeTCPServiceBlocksLinkLocalTargets(t *testing.T) {
-	if probeTCPService("http://169.254.1.1:4321") {
-		t.Fatal("expected link-local TCP target to be blocked")
-	}
-
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	defer server.Close()
-	if !probeTCPService(server.URL) {
-		t.Fatal("expected loopback TCP target to be allowed")
-	}
-}
-
 func TestFetchOpenAICompatibleModelsRejectsOversizedResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

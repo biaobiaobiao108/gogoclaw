@@ -23,7 +23,6 @@ func TestHandleListModels_AvailabilityUsesRuntimeProbesForLocalModels(t *testing
 	var mu sync.Mutex
 	var openAIProbes []string
 	var ollamaProbes []string
-	var tcpProbes []string
 
 	probeOpenAICompatibleModelFunc = func(apiBase, modelID, apiKey string) bool {
 		mu.Lock()
@@ -36,12 +35,6 @@ func TestHandleListModels_AvailabilityUsesRuntimeProbesForLocalModels(t *testing
 		ollamaProbes = append(ollamaProbes, apiBase+"|"+modelID)
 		mu.Unlock()
 		return apiBase == "http://localhost:11434/v1" && modelID == "llama3"
-	}
-	probeTCPServiceFunc = func(apiBase string) bool {
-		mu.Lock()
-		tcpProbes = append(tcpProbes, apiBase)
-		mu.Unlock()
-		return apiBase == "http://127.0.0.1:4321"
 	}
 
 	cfg, err := config.LoadConfig(configPath)
@@ -68,12 +61,6 @@ func TestHandleListModels_AvailabilityUsesRuntimeProbesForLocalModels(t *testing
 			Model:     "vllm/custom-model",
 			APIBase:   "https://models.example.com/v1",
 			APIKeys:   config.SimpleSecureStrings("remote-key"),
-		},
-		{
-			ModelName:  "copilot-gpt-5.4",
-			Model:      "github-copilot/gpt-5.4",
-			APIBase:    "http://127.0.0.1:4321",
-			AuthMethod: "oauth",
 		},
 	}
 	cfg.Agents.Defaults.ModelName = "openai-oauth"
@@ -121,9 +108,6 @@ func TestHandleListModels_AvailabilityUsesRuntimeProbesForLocalModels(t *testing
 	if !gotAvailable["vllm-remote"] {
 		t.Fatalf("remote vllm model available = false, want true with api_key")
 	}
-	if !gotAvailable["copilot-gpt-5.4"] {
-		t.Fatalf("copilot model available = false, want true when local bridge probe succeeds")
-	}
 	if gotStatus["openai-oauth"] != modelStatusUnconfigured {
 		t.Fatalf("openai oauth model status = %q, want %q", gotStatus["openai-oauth"], modelStatusUnconfigured)
 	}
@@ -136,17 +120,11 @@ func TestHandleListModels_AvailabilityUsesRuntimeProbesForLocalModels(t *testing
 	if gotStatus["vllm-remote"] != modelStatusAvailable {
 		t.Fatalf("remote vllm model status = %q, want %q", gotStatus["vllm-remote"], modelStatusAvailable)
 	}
-	if gotStatus["copilot-gpt-5.4"] != modelStatusAvailable {
-		t.Fatalf("copilot model status = %q, want %q", gotStatus["copilot-gpt-5.4"], modelStatusAvailable)
-	}
 	if len(openAIProbes) != 1 || openAIProbes[0] != "http://127.0.0.1:8000/v1|custom-model|" {
 		t.Fatalf("openAI probes = %#v, want only local vllm probe", openAIProbes)
 	}
 	if len(ollamaProbes) != 1 || ollamaProbes[0] != "http://localhost:11434/v1|llama3" {
 		t.Fatalf("ollama probes = %#v, want default local probe", ollamaProbes)
-	}
-	if len(tcpProbes) != 1 || tcpProbes[0] != "http://127.0.0.1:4321" {
-		t.Fatalf("tcp probes = %#v, want only local copilot probe", tcpProbes)
 	}
 }
 
@@ -334,97 +312,20 @@ func TestHandleListModels_BedrockUsesAmbientCredentialStatus(t *testing.T) {
 }
 
 func TestHandleListModels_ExposesOnlyGeneralProtocols(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
-	defer cleanup()
-	resetOAuthHooks(t)
-	resetModelProbeHooks(t)
-
-	probeCommandAvailableFunc = func(command string) bool {
-		switch command {
-		case "claude":
-			return false
-		case "codex":
-			return true
-		default:
-			return false
+	options := modelProviderOptionsForResponse()
+	if len(options) != 4 {
+		t.Fatalf("provider options count = %d, want 4", len(options))
+	}
+	for _, id := range []string{"codex-cli", "claude-cli", "github-copilot"} {
+		model := &config.ModelConfig{Provider: id, Model: "model", APIKeys: config.SimpleSecureStrings("key")}
+		if status := modelConfigurationStatus(model); status.Available {
+			t.Fatalf("removed provider %s marked available", id)
 		}
 	}
-
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
-	cfg.ModelList = []*config.ModelConfig{
-		{
-			ModelName: "claude-cli-model",
-			Provider:  "claude-cli",
-			Model:     "claude-cli",
-		},
-		{
-			ModelName: "codex-cli-model",
-			Provider:  "codex-cli",
-			Model:     "codex-cli",
-		},
-	}
-	err = config.SaveConfig(configPath, cfg)
-	if err != nil {
-		t.Fatalf("SaveConfig() error = %v", err)
-	}
-
-	h := NewHandler(configPath)
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/models", nil)
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-
-	var resp struct {
-		Models          []modelResponse                 `json:"models"`
-		ProviderOptions []providers.ModelProviderOption `json:"provider_options"`
-	}
-	err = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if err != nil {
-		t.Fatalf("Unmarshal() error = %v", err)
-	}
-
-	modelsByName := make(map[string]modelResponse, len(resp.Models))
-	for _, model := range resp.Models {
-		modelsByName[model.ModelName] = model
-	}
-	if model := modelsByName["claude-cli-model"]; model.Available || model.Status != modelStatusUnreachable {
-		t.Fatalf(
-			"claude-cli status = (%t, %q), want (%t, %q)",
-			model.Available,
-			model.Status,
-			false,
-			modelStatusUnreachable,
-		)
-	}
-	if model := modelsByName["codex-cli-model"]; !model.Available || model.Status != modelStatusAvailable {
-		t.Fatalf(
-			"codex-cli status = (%t, %q), want (%t, %q)",
-			model.Available,
-			model.Status,
-			true,
-			modelStatusAvailable,
-		)
-	}
-
-	optionsByID := make(map[string]providers.ModelProviderOption, len(resp.ProviderOptions))
-	for _, option := range resp.ProviderOptions {
-		optionsByID[option.ID] = option
-	}
-	if len(optionsByID) != 4 {
-		t.Fatalf("provider_options count = %d, want 4", len(optionsByID))
-	}
-	for _, providerID := range []string{"openai", "openai-responses", "anthropic-messages", "gemini"} {
-		if _, ok := optionsByID[providerID]; !ok {
-			t.Fatalf("%s provider option missing", providerID)
+	for _, option := range options {
+		switch option.ID {
+		case "claude-cli", "codex-cli", "github-copilot":
+			t.Fatalf("removed provider is still exposed: %s", option.ID)
 		}
 	}
 }

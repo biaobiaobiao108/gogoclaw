@@ -70,28 +70,6 @@ export function ModelAdvancedFields({
       </Field>
 
       <Field
-        label={t("models.field.connectMode")}
-        hint={t("models.field.connectModeHint")}
-      >
-        <Input
-          value={value.connectMode}
-          onChange={(event) => onChange("connectMode", event.target.value)}
-          placeholder="stdio"
-        />
-      </Field>
-
-      <Field
-        label={t("models.field.workspace")}
-        hint={t("models.field.workspaceHint")}
-      >
-        <Input
-          value={value.workspace}
-          onChange={(event) => onChange("workspace", event.target.value)}
-          placeholder="/path/to/workspace"
-        />
-      </Field>
-
-      <Field
         label={t("models.field.requestTimeout")}
         hint={t("models.field.requestTimeoutHint")}
       >

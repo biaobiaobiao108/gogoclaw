@@ -559,7 +559,6 @@ Agent 读取 HEARTBEAT.md
 | **LongCat**             | `longcat`         | `https://api.longcat.chat/openai`                   | OpenAI    | [获取](https://longcat.chat/platform)                            |
 | **ModelScope (魔搭)**   | `modelscope`      | `https://api-inference.modelscope.cn/v1`            | OpenAI    | [获取](https://modelscope.cn/my/tokens)                          |
 | **Antigravity**         | `antigravity`     | Google Cloud                                        | Custom    | 仅 OAuth                                                         |
-| **GitHub Copilot**      | `github-copilot`  | `localhost:4321`                                    | gRPC      | —                                                                |
 
 #### 基础配置
 

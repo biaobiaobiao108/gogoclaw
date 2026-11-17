@@ -114,22 +114,9 @@ func createAllowedForProvider(provider string) bool {
 		// Keep it creatable in the catalog and let provider construction/runtime
 		// return the concrete AWS error when the environment is incomplete.
 		return true
-	case "claude-cli", "codex-cli":
-		return cliProviderCreateAllowedFromCurrentStatus(normalized)
 	default:
 		return providers.IsCreatableModelProvider(normalized)
 	}
-}
-
-// cliProviderCreateAllowedFromCurrentStatus intentionally reuses the existing
-// local model status pipeline so provider catalog gating follows the same CLI
-// executable probe used by launcher readiness.
-func cliProviderCreateAllowedFromCurrentStatus(provider string) bool {
-	status := modelConfigurationStatus(&config.ModelConfig{
-		Provider: provider,
-		Model:    provider,
-	})
-	return status.Available
 }
 
 func modelProviderOptionsForResponse() []providers.ModelProviderOption {

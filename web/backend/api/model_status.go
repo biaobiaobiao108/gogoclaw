@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,10 +45,8 @@ type modelConfigurationSummary struct {
 }
 
 var (
-	probeTCPServiceFunc            = probeTCPService
 	probeOllamaModelFunc           = probeOllamaModel
 	probeOpenAICompatibleModelFunc = probeOpenAICompatibleModel
-	probeCommandAvailableFunc      = probeCommandAvailable
 	modelProbeNowFunc              = time.Now
 	modelProbeState                = newModelProbeCacheState()
 )
@@ -165,7 +162,7 @@ func providerUsesAmbientCredentials(protocol string) bool {
 }
 
 func modelConfigurationStatus(m *config.ModelConfig) modelConfigurationSummary {
-	if !hasModelConfiguration(m) {
+	if !providers.IsSupportedModelProvider(modelProtocol(m)) || !hasModelConfiguration(m) {
 		return modelConfigurationSummary{Available: false, Status: modelStatusUnconfigured}
 	}
 	if requiresRuntimeProbe(m) {
@@ -184,11 +181,6 @@ func requiresRuntimeProbe(m *config.ModelConfig) bool {
 	}
 
 	protocol := modelProtocol(m)
-
-	switch protocol {
-	case "claude-cli", "codex-cli", "github-copilot":
-		return true
-	}
 
 	if providers.IsHTTPAPIProtocol(protocol) && providers.IsEmptyAPIKeyAllowedForProtocol(protocol) {
 		apiBase := strings.TrimSpace(m.APIBase)
@@ -241,23 +233,12 @@ func runLocalModelProbe(m *config.ModelConfig) bool {
 		return probeOllamaModelFunc(apiBase, modelID)
 	case "vllm", "lmstudio", "gpt4free":
 		return probeOpenAICompatibleModelFunc(apiBase, modelID, m.APIKey())
-	case "github-copilot":
-		return probeTCPServiceFunc(apiBase)
-	case "claude-cli":
-		return probeCommandAvailableFunc("claude")
-	case "codex-cli":
-		return probeCommandAvailableFunc("codex")
 	default:
 		if hasLocalAPIBase(apiBase) {
 			return probeOpenAICompatibleModelFunc(apiBase, modelID, m.APIKey())
 		}
 		return false
 	}
-}
-
-func probeCommandAvailable(command string) bool {
-	_, err := exec.LookPath(command)
-	return err == nil
 }
 
 func modelProbeCacheKey(m *config.ModelConfig) string {
@@ -462,12 +443,7 @@ func modelProbeAPIBase(m *config.ModelConfig) string {
 		return normalizeModelProbeAPIBase(defaultBase)
 	}
 
-	switch protocol {
-	case "github-copilot":
-		return "localhost:4321"
-	default:
-		return ""
-	}
+	return ""
 }
 
 func normalizeModelProbeAPIBase(raw string) string {
@@ -540,27 +516,6 @@ func hasLocalAPIBase(raw string) bool {
 		return ip.IsLoopback() || ip.IsPrivate()
 	}
 	return false
-}
-
-func probeTCPService(raw string) bool {
-	hostPort, err := hostPortFromAPIBase(raw)
-	if err != nil {
-		return false
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), modelProbeTimeout)
-	defer cancel()
-
-	dialer := &net.Dialer{Timeout: modelProbeTimeout}
-	dialContext := utils.NewSafeDialContext(dialer, nil, func() bool {
-		return hasLocalAPIBase(raw)
-	})
-	conn, err := dialContext(ctx, "tcp", hostPort)
-	if err != nil {
-		return false
-	}
-	_ = conn.Close()
-	return true
 }
 
 func probeOllamaModel(apiBase, modelID string) bool {
@@ -669,23 +624,6 @@ func apiRootFromAPIBase(raw string) (string, error) {
 		return "", err
 	}
 	return (&url.URL{Scheme: u.Scheme, Host: u.Host}).String(), nil
-}
-
-func hostPortFromAPIBase(raw string) (string, error) {
-	u, err := parseAPIBase(raw)
-	if err != nil {
-		return "", err
-	}
-
-	if port := u.Port(); port != "" {
-		return u.Host, nil
-	}
-	switch strings.ToLower(u.Scheme) {
-	case "https":
-		return net.JoinHostPort(u.Hostname(), "443"), nil
-	default:
-		return net.JoinHostPort(u.Hostname(), "80"), nil
-	}
 }
 
 func parseAPIBase(raw string) (*url.URL, error) {

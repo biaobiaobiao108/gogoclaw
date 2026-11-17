@@ -905,12 +905,6 @@ func probeModelConnectivity(m *config.ModelConfig) bool {
 		return probeOllamaModel(apiBase, modelID)
 	case "vllm", "lmstudio", "gpt4free":
 		return probeOpenAICompatibleModel(apiBase, modelID, m.APIKey())
-	case "github-copilot":
-		return probeTCPService(apiBase)
-	case "claude-cli":
-		return probeCommandAvailable("claude")
-	case "codex-cli":
-		return probeCommandAvailable("codex")
 	default:
 		// For remote providers (OpenAI, Anthropic, Gemini, DeepSeek, etc.),
 		// make a real GET /models request to verify connectivity and credentials.

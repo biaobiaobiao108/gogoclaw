@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
@@ -91,16 +90,5 @@ func TestSessionTitleRespectsConcurrentChanges(t *testing.T) {
 				t.Fatalf("metadata = %+v", meta)
 			}
 		})
-	}
-}
-
-func TestTitleSkipsAutonomousProviders(t *testing.T) {
-	for _, model := range []string{"codex-cli/gpt", "claude-cli/sonnet", "github-copilot/gpt"} {
-		if !titleUsesAgentProvider(&config.ModelConfig{Model: model}, nil, "") {
-			t.Fatalf("%s must not be used for titles", model)
-		}
-	}
-	if titleUsesAgentProvider(&config.ModelConfig{Model: "openai/gpt"}, nil, "") {
-		t.Fatal("ordinary API model was skipped")
 	}
 }

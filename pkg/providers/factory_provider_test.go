@@ -678,42 +678,6 @@ func TestCreateProviderFromConfig_GeminiCustomAPIBaseWithoutKey(t *testing.T) {
 	}
 }
 
-func TestCreateProviderFromConfig_ClaudeCLI(t *testing.T) {
-	cfg := &config.ModelConfig{
-		ModelName: "test-claude-cli",
-		Model:     "claude-cli/claude-sonnet-4.6",
-	}
-
-	provider, modelID, err := CreateProviderFromConfig(cfg)
-	if err != nil {
-		t.Fatalf("CreateProviderFromConfig() error = %v", err)
-	}
-	if provider == nil {
-		t.Fatal("CreateProviderFromConfig() returned nil provider")
-	}
-	if modelID != "claude-sonnet-4.6" {
-		t.Errorf("modelID = %q, want %q", modelID, "claude-sonnet-4.6")
-	}
-}
-
-func TestCreateProviderFromConfig_CodexCLI(t *testing.T) {
-	cfg := &config.ModelConfig{
-		ModelName: "test-codex-cli",
-		Model:     "codex-cli/codex",
-	}
-
-	provider, modelID, err := CreateProviderFromConfig(cfg)
-	if err != nil {
-		t.Fatalf("CreateProviderFromConfig() error = %v", err)
-	}
-	if provider == nil {
-		t.Fatal("CreateProviderFromConfig() returned nil provider")
-	}
-	if modelID != "codex" {
-		t.Errorf("modelID = %q, want %q", modelID, "codex")
-	}
-}
-
 func TestCreateProviderFromConfig_OpenAIMixedCaseAuthMethodUsesOAuthBranch(t *testing.T) {
 	origGetCredential := getCredential
 	getCredential = func(provider string) (*auth.AuthCredential, error) {
@@ -1466,10 +1430,10 @@ func TestCreateProviderFromConfig_BedrockWithEndpointURL(t *testing.T) {
 
 func TestCreateProviderFromConfig_ToolSchemaTransformWrapsProvider(t *testing.T) {
 	cfg := &config.ModelConfig{
-		ModelName:           "claude-cli-test",
-		Provider:            "claude-cli",
-		Model:               "claude-sonnet-4.6",
-		Workspace:           t.TempDir(),
+		ModelName:           "openai-test",
+		Provider:            "openai",
+		Model:               "gpt-4.1",
+		APIKeys:             config.SimpleSecureStrings("test-key"),
 		ToolSchemaTransform: "simple",
 	}
 
@@ -1477,20 +1441,20 @@ func TestCreateProviderFromConfig_ToolSchemaTransformWrapsProvider(t *testing.T)
 	if err != nil {
 		t.Fatalf("CreateProviderFromConfig() error = %v", err)
 	}
-	if modelID != "claude-sonnet-4.6" {
-		t.Fatalf("modelID = %q, want %q", modelID, "claude-sonnet-4.6")
+	if modelID != "gpt-4.1" {
+		t.Fatalf("modelID = %q, want %q", modelID, "gpt-4.1")
 	}
-	if _, ok := provider.(*toolSchemaTransformProvider); !ok {
-		t.Fatalf("provider = %T, want *toolSchemaTransformProvider", provider)
+	if _, ok := provider.(*toolSchemaStreamingProvider); !ok {
+		t.Fatalf("provider = %T, want *toolSchemaStreamingProvider", provider)
 	}
 }
 
 func TestCreateProviderFromConfig_InvalidToolSchemaTransform(t *testing.T) {
 	cfg := &config.ModelConfig{
-		ModelName:           "claude-cli-test",
-		Provider:            "claude-cli",
-		Model:               "claude-sonnet-4.6",
-		Workspace:           t.TempDir(),
+		ModelName:           "openai-test",
+		Provider:            "openai",
+		Model:               "gpt-4.1",
+		APIKeys:             config.SimpleSecureStrings("test-key"),
 		ToolSchemaTransform: "invalid",
 	}
 
@@ -1500,5 +1464,22 @@ func TestCreateProviderFromConfig_InvalidToolSchemaTransform(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "tool_schema_transform") {
 		t.Fatalf("error = %v, want mention tool_schema_transform", err)
+	}
+}
+
+func TestRemovedAgentProvidersAreRejected(t *testing.T) {
+	for _, provider := range []string{"codex-cli", "claude-cli", "github-copilot"} {
+		t.Run(provider, func(t *testing.T) {
+			_, _, err := CreateProviderFromConfig(&config.ModelConfig{Provider: provider, Model: "model", APIKeys: config.SimpleSecureStrings("key")})
+			if err == nil || !strings.Contains(err.Error(), "unknown protocol") {
+				t.Fatalf("error = %v, want unknown protocol", err)
+			}
+			cfg := config.DefaultConfig()
+			cfg.Agents.Defaults.ModelName = "removed"
+			cfg.ModelList = []*config.ModelConfig{{ModelName: "removed", Provider: provider, Model: "model", APIKeys: config.SimpleSecureStrings("key")}}
+			if _, _, err := CreateProvider(cfg); err == nil {
+				t.Fatal("removed model unexpectedly resolved")
+			}
+		})
 	}
 }

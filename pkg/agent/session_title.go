@@ -7,35 +7,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
 
-// CLI agents may invoke their own tools even when no tools are supplied.
-// Do not start an autonomous agent to generate a title.
-func titleUsesAgentProvider(modelCfg *config.ModelConfig, candidates []providers.FallbackCandidate, model string) bool {
-	names := []string{model}
-	if modelCfg != nil {
-		names = append(names, modelCfg.Provider, modelCfg.Model)
-	}
-	if len(candidates) > 0 {
-		names = append(names, candidates[0].Provider, candidates[0].Model)
-	}
-	for _, name := range names {
-		protocol := strings.ToLower(strings.TrimSpace(strings.SplitN(name, "/", 2)[0]))
-		if protocol == "codex-cli" || protocol == "claude-cli" || protocol == "github-copilot" {
-			return true
-		}
-	}
-	return false
-}
-
 // startSessionTitle runs only for the first persisted message in a Web session.
 func (al *AgentLoop) startSessionTitle(ts *turnState, exec *turnExecution) {
-	if ts.channel != "pico" || ts.depth != 0 || ts.opts.NoHistory || ts.initialHistoryLength != 0 || strings.TrimSpace(ts.userMessage) == "" || !strings.HasPrefix(ts.chatID, "pico:") || exec.activeProvider == nil || titleUsesAgentProvider(exec.activeModelConfig, exec.activeCandidates, exec.activeModel) {
+	if ts.channel != "pico" || ts.depth != 0 || ts.opts.NoHistory || ts.initialHistoryLength != 0 || strings.TrimSpace(ts.userMessage) == "" || !strings.HasPrefix(ts.chatID, "pico:") || exec.activeProvider == nil {
 		return
 	}
 	transcript, err := session.TranscriptChecked(ts.agent.Sessions, ts.sessionKey)
