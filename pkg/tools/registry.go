@@ -196,6 +196,14 @@ func (r *ToolRegistry) toolAllowedLocked(name string) bool {
 	return ok
 }
 
+// Allows reports whether the agent's allowlist permits a tool, including
+// provider-native implementations that are not registered locally.
+func (r *ToolRegistry) Allows(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.toolAllowedLocked(name)
+}
+
 // HasRegistered reports whether a tool name is present in the registry,
 // including hidden tools whose TTL is currently zero.
 func (r *ToolRegistry) HasRegistered(name string) bool {

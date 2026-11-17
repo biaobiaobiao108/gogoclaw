@@ -320,7 +320,7 @@ type AgentConfig struct {
 	Instructions string            `json:"instructions,omitempty"`
 	Tools        []string          `json:"tools"`
 	Model        *AgentModelConfig `json:"model,omitempty"`
-	Skills       []string          `json:"skills,omitempty"`
+	Skills       []string          `json:"skills"`
 	Subagents    *SubagentsConfig  `json:"subagents,omitempty"`
 }
 

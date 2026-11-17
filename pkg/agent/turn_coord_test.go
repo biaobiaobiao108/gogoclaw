@@ -773,6 +773,29 @@ func TestPipeline_CallLLM_UsesNativeSearchWithoutClientWebSearchTool(t *testing.
 	}
 }
 
+func TestPipeline_NativeSearchRespectsAgentAllowlist(t *testing.T) {
+	provider := &nativeSearchCaptureProvider{}
+	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+	agent.Tools.SetAllowlist([]string{})
+	al.cfg.Tools.Web.Enabled = true
+	al.cfg.Tools.Web.PreferNative = true
+	pipeline := NewPipeline(al)
+	ts := newTurnState(agent, makeTestProcessOpts("test-session"), turnEventScope{
+		turnID: "turn-1", context: newTurnContext(nil, nil, nil),
+	})
+	exec, err := pipeline.SetupTurn(context.Background(), ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pipeline.CallLLM(context.Background(), context.Background(), ts, exec, 1); err != nil {
+		t.Fatal(err)
+	}
+	if provider.lastOpts["native_search"] != nil {
+		t.Fatalf("native search enabled: %#v", provider.lastOpts)
+	}
+}
+
 func TestPipeline_CallLLM_TimeoutRetry(t *testing.T) {
 	errorPrv := &errorProvider{errType: "timeout"}
 	al, agent, cleanup := newTurnCoordTestLoop(t, errorPrv)

@@ -61,7 +61,7 @@ func (p *Pipeline) CallLLM(
 	}
 
 	// Native web search support
-	webSearchEnabled := p.Cfg.Tools.IsToolEnabled("web") && turnProfileToolAllowed(ts.profile, "web_search")
+	webSearchEnabled := p.Cfg.Tools.IsToolEnabled("web") && ts.toolRegistry().Allows("web_search") && turnProfileToolAllowed(ts.profile, "web_search")
 	exec.useNativeSearch = webSearchEnabled && p.Cfg.Tools.Web.PreferNative &&
 		func() bool {
 			if ns, ok := exec.activeProvider.(providers.NativeSearchCapable); ok {

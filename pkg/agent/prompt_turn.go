@@ -26,6 +26,7 @@ func promptBuildRequestForTurn(
 		SenderID:          ts.opts.Dispatch.SenderID(),
 		SenderDisplayName: ts.opts.SenderDisplayName,
 		ActiveSkills:      activeSkillNames(ts.agent, ts.opts),
+		AllowedSkills:     allowedAgentSkills(ts.agent, ts.profile),
 		Overlays:          promptOverlaysForOptions(ts.opts),
 	}
 	hasCallableTools := true
@@ -44,9 +45,6 @@ func promptBuildRequestForTurn(
 	if turnProfileSkillsOff(ts.profile) {
 		req.SuppressSkillContext = true
 	}
-	if turnProfileCustomSkills(ts.profile) {
-		req.AllowedSkills = append([]string(nil), ts.profile.AllowedSkills...)
-	}
 	if ts.profile.Enabled && ts.profile.ToolsMode == config.TurnProfileModeCustom {
 		req.AllowedTools = append([]string(nil), ts.profile.AllowedTools...)
 	}
@@ -64,7 +62,7 @@ func turnProfileNativeSearchCallable(
 	if !cfg.Tools.IsToolEnabled("web") || !cfg.Tools.Web.PreferNative {
 		return false
 	}
-	if !turnProfileToolAllowed(profile, "web_search") {
+	if agent.Tools == nil || !agent.Tools.Allows("web_search") || !turnProfileToolAllowed(profile, "web_search") {
 		return false
 	}
 	nativeProvider, ok := agent.Provider.(providers.NativeSearchCapable)
@@ -89,6 +87,7 @@ func promptBuildRequestForProcessOptions(
 		SenderID:          opts.SenderID,
 		SenderDisplayName: opts.SenderDisplayName,
 		ActiveSkills:      activeSkillNames(agent, opts),
+		AllowedSkills:     allowedAgentSkills(agent, opts.TurnProfile),
 		Overlays:          promptOverlaysForOptions(opts),
 	}
 	profile := opts.TurnProfile
@@ -107,13 +106,24 @@ func promptBuildRequestForProcessOptions(
 	if turnProfileSkillsOff(profile) {
 		req.SuppressSkillContext = true
 	}
-	if turnProfileCustomSkills(profile) {
-		req.AllowedSkills = append([]string(nil), profile.AllowedSkills...)
-	}
 	if profile.Enabled && profile.ToolsMode == config.TurnProfileModeCustom {
 		req.AllowedTools = append([]string(nil), profile.AllowedTools...)
 	}
 	return req
+}
+
+func allowedAgentSkills(agent *AgentInstance, profile config.EffectiveTurnProfile) []string {
+	var allowed []string
+	if agent != nil && agent.SkillsFilter != nil {
+		allowed = append([]string{}, agent.SkillsFilter...)
+	}
+	if turnProfileCustomSkills(profile) {
+		if allowed == nil {
+			return append([]string{}, profile.AllowedSkills...)
+		}
+		return append([]string{}, filterNamesByTurnProfile(allowed, profile.AllowedSkills)...)
+	}
+	return allowed
 }
 
 func promptOverlaysForOptions(opts processOptions) []PromptPart {

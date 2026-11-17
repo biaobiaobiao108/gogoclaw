@@ -400,7 +400,7 @@ func (cb *ContextBuilder) buildSystemPromptForRequest(
 
 	useDefaultCache := !req.SuppressSkillContext &&
 		!req.SuppressToolUseRule &&
-		len(req.AllowedSkills) == 0 &&
+		req.AllowedSkills == nil &&
 		len(req.AllowedTools) == 0
 	if useDefaultCache {
 		staticPrompt := cb.BuildSystemPromptWithCache()
@@ -446,7 +446,7 @@ func (cb *ContextBuilder) buildSkillsSummary(allowed []string) string {
 	if cb.skillsLoader == nil {
 		return ""
 	}
-	if len(allowed) == 0 {
+	if allowed == nil {
 		return cb.skillsLoader.BuildSkillsSummary()
 	}
 	allowedSet := cleanAllowedSet(allowed)
@@ -894,7 +894,7 @@ func (cb *ContextBuilder) BuildMessagesFromPrompt(req PromptBuildRequest) []prov
 	promptParts := append([]PromptPart(nil), req.Overlays...)
 	if !req.SuppressDefaultSystemPrompt && !req.SuppressSkillContext {
 		activeSkills := append([]string(nil), req.ActiveSkills...)
-		if len(req.AllowedSkills) > 0 {
+		if req.AllowedSkills != nil {
 			activeSkills = filterNamesByTurnProfile(activeSkills, req.AllowedSkills)
 		}
 		promptParts = append(promptParts, cb.buildActiveSkillsPromptParts(activeSkills)...)
