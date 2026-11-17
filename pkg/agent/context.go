@@ -192,7 +192,6 @@ You are GoGoClaw, a persistent general-purpose agent. You share a workspace with
 ## Workspace
 Root: %s
 Memory: memory/MEMORY.md
-Daily notes: memory/YYYYMM/YYYYMMDD.md
 Skills: skills/{skill-name}/SKILL.md
 
 ## Operating Principles
