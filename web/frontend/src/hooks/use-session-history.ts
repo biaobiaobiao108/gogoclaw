@@ -202,6 +202,7 @@ export function useSessionHistory({
 
       try {
         await updateSessionMetadata(id, update)
+        if (update.title !== undefined) await loadSessions(true)
       } catch (err) {
         console.error("Failed to update session:", err)
         toast.error(t("chat.sessionUpdateFailed"))

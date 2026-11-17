@@ -318,6 +318,10 @@ export function handlePicoMessage(
         options.onTurnSettled?.()
       break
     }
+    case "session.title": {
+      window.dispatchEvent(new Event("session-title-updated"))
+      break
+    }
     case "branch.updated": {
       updateChatStore({
         isBranchSwitching: false,

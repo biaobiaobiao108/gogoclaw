@@ -28,12 +28,31 @@ func (s *SQLiteStore) ListChatUIMeta(ctx context.Context) (map[string][]byte, er
 
 // UpdateChatUIMeta serializes the read-modify-write cycle across connections.
 func (s *SQLiteStore) UpdateChatUIMeta(ctx context.Context, sessionID string, update func([]byte) ([]byte, error)) error {
+	return s.updateChatUIMeta(ctx, "", sessionID, update)
+}
+
+// UpdateChatUIMetaForSession only updates metadata while the session still exists.
+func (s *SQLiteStore) UpdateChatUIMetaForSession(ctx context.Context, sessionKey, sessionID string, update func([]byte) ([]byte, error)) error {
+	return s.updateChatUIMeta(ctx, sessionKey, sessionID, update)
+}
+
+func (s *SQLiteStore) updateChatUIMeta(ctx context.Context, sessionKey, sessionID string, update func([]byte) ([]byte, error)) error {
 	ctx = sqliteContext(ctx)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("memory: begin chat metadata update: %w", err)
 	}
 	defer tx.Rollback()
+	if sessionKey != "" {
+		var exists int
+		err := tx.QueryRowContext(ctx, `SELECT 1 FROM session_meta WHERE session_key = ?`, sessionKey).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("memory: check session for chat metadata: %w", err)
+		}
+	}
 	var data []byte
 	err = tx.QueryRowContext(ctx, `SELECT metadata_json FROM chat_ui_meta WHERE session_id = ?`, sessionID).Scan(&data)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {

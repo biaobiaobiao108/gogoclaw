@@ -430,6 +430,19 @@ func TestEnsureSessionTitlePersistsWithoutOverwritingManualTitle(t *testing.T) {
 	if meta.Title != "manual title" || meta.TitleSource != "manual" {
 		t.Fatalf("manual title metadata = %+v", meta)
 	}
+
+	if err := h.updateChatUISessionMeta(dir, "auto-session", func(meta *chatUISessionMeta) error {
+		meta.Title = "generated title"
+		meta.TitleSource = "generated"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.ensureSessionTitle(dir, "auto-session", &item, h.readChatUIMeta(dir))
+	meta = h.readChatUIMeta(dir).Sessions["auto-session"]
+	if meta.Title != "generated title" || meta.TitleSource != "generated" {
+		t.Fatalf("generated title metadata = %+v", meta)
+	}
 }
 
 func TestApplySessionMetaKeepsDerivedTitleWhenStoredTitleIsAutomatic(t *testing.T) {
@@ -440,6 +453,14 @@ func TestApplySessionMetaKeepsDerivedTitleWhenStoredTitleIsAutomatic(t *testing.
 	})
 	if item.Title != "edited first question" {
 		t.Fatalf("title = %q, want derived title", item.Title)
+	}
+
+	applySessionMeta(&item, chatUISessionMeta{
+		Title:       "generated title",
+		TitleSource: "generated",
+	})
+	if item.Title != "generated title" {
+		t.Fatalf("title = %q, want generated title", item.Title)
 	}
 
 	applySessionMeta(&item, chatUISessionMeta{

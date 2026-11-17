@@ -42,6 +42,11 @@ func outboundMessageFinalizesTrackedToolFeedback(msg bus.OutboundMessage) bool {
 		!outboundMessageIsToolCalls(msg)
 }
 
+// SendSessionTitleUpdate tells connected clients to reload session metadata.
+func (c *PicoChannel) SendSessionTitleUpdate(chatID string) error {
+	return c.broadcastToSession(chatID, newMessage("session.title", nil))
+}
+
 // Send implements Channel — sends a message to the appropriate WebSocket connection.
 func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, error) {
 	if !c.IsRunning() {

@@ -177,6 +177,7 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 	exec.llmModelName = activeModelName
 	exec.activeProvider = activeProvider
 	exec.usedLight = usedLight
+	p.al.startSessionTitle(ts, exec)
 
 	return exec, nil
 }

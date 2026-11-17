@@ -586,3 +586,16 @@ func newTestPicoWebSocket(t *testing.T) (*websocket.Conn, <-chan PicoMessage, fu
 	defer resp.Body.Close()
 	return clientConn, received, cleanup
 }
+
+func TestSessionTitleNotification(t *testing.T) {
+	ch := newTestPicoChannel(t)
+	conn, received, cleanup := newTestPicoWebSocket(t)
+	defer cleanup()
+	ch.addConnForTest(&picoConn{id: "title-conn", conn: conn, sessionID: "title-session"})
+	if err := ch.SendSessionTitleUpdate("pico:title-session"); err != nil {
+		t.Fatal(err)
+	}
+	if msg := mustReceivePicoMessage(t, received); msg.Type != "session.title" {
+		t.Fatalf("notification = %+v", msg)
+	}
+}

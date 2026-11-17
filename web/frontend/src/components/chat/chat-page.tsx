@@ -259,6 +259,12 @@ export function ChatPage() {
     void loadSessions(true)
   }, [activeSessionId, Boolean(activeTurn), isTyping, showingArchived])
 
+  useEffect(() => {
+    const refresh = () => void loadSessions(true)
+    window.addEventListener("session-title-updated", refresh)
+    return () => window.removeEventListener("session-title-updated", refresh)
+  }, [loadSessions])
+
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const el = scrollRef.current
     if (!el) return
