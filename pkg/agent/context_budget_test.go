@@ -749,6 +749,20 @@ func TestEstimateMessageTokens_SystemParts(t *testing.T) {
 	}
 }
 
+func TestBoundSessionSummary(t *testing.T) {
+	start := "User goal: preserve the complete account history."
+	middle := strings.Repeat("repeated progress detail ", 1000)
+	end := "Remaining work: verify the final export."
+	summary := start + "\n" + middle + "\n" + end
+	bound := boundSessionSummary(summary, 4096)
+	if EstimateMessageTokens(providers.Message{Content: bound}) > activeSummaryReserve(4096)+12 {
+		t.Fatalf("bounded summary is still too large: %d tokens", EstimateMessageTokens(providers.Message{Content: bound}))
+	}
+	if !strings.HasPrefix(bound, "User goal:") || !strings.HasSuffix(bound, end) {
+		t.Fatalf("bounded summary lost its leading or trailing context: %q", bound)
+	}
+}
+
 // --- EstimateToolDefsTokens tests ---
 
 func TestEstimateToolDefsTokens(t *testing.T) {

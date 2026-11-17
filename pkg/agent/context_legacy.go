@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,7 +39,7 @@ func (m *legacyContextManager) Assemble(_ context.Context, req *AssembleRequest)
 	}
 	return &AssembleResponse{
 		History: history,
-		Summary: summary,
+		Summary: boundSessionSummary(summary, agent.ContextWindow),
 	}, nil
 }
 
@@ -179,14 +180,14 @@ func (m *legacyContextManager) forceCompression(sessionKey string) (compressionR
 	if err != nil {
 		return compressionResult{}, false, err
 	}
-	compressionNote := fmt.Sprintf(
-		"[Emergency compression dropped %d oldest messages due to context limit]",
-		droppedCount,
-	)
-	if existingSummary != "" {
-		compressionNote = existingSummary + "\n\n" + compressionNote
+	summary := strings.TrimSpace(existingSummary)
+	if summary == "" {
+		summary = fmt.Sprintf(
+			"[Emergency compression dropped %d oldest messages due to context limit]",
+			droppedCount,
+		)
 	}
-	if err := session.SetSummaryChecked(agent.Sessions, sessionKey, compressionNote); err != nil {
+	if err := session.SetSummaryChecked(agent.Sessions, sessionKey, boundSessionSummary(summary, agent.ContextWindow)); err != nil {
 		return compressionResult{}, false, err
 	}
 	if err := session.SetHistoryChecked(agent.Sessions, sessionKey, keptHistory); err != nil {
@@ -247,6 +248,7 @@ func (m *legacyContextManager) summarizeSession(agent *AgentInstance, sessionKey
 		fail(err)
 		return
 	}
+	summary = boundSessionSummary(summary, agent.ContextWindow)
 	store, ok := agent.Sessions.(session.SummaryCommitStore)
 	if !ok {
 		fail(fmt.Errorf("session store does not support atomic summary commits"))

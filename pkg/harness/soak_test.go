@@ -34,6 +34,7 @@ func TestProductSoak(t *testing.T) {
 	if reportPath == "" {
 		reportPath = filepath.Join(workspace, "soak.csv")
 	}
+	reportPath = resolveSoakReportPath(reportPath)
 	if err := os.MkdirAll(filepath.Dir(reportPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -133,6 +134,28 @@ func TestProductSoak(t *testing.T) {
 		t.Fatal("soak duration ended before any round completed")
 	}
 	t.Logf("soak complete: duration=%s rounds=%d report=%s", time.Since(started).Round(time.Second), round, reportPath)
+}
+
+func resolveSoakReportPath(path string) string {
+	if path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		return path
+	}
+	return filepath.Join(filepath.Dir(source), "..", "..", path)
+}
+
+func TestResolveSoakReportPath(t *testing.T) {
+	got := resolveSoakReportPath("build/soak/report.csv")
+	if !filepath.IsAbs(got) || !strings.HasSuffix(filepath.ToSlash(got), "/build/soak/report.csv") {
+		t.Fatalf("resolved path = %q, want absolute path under the repository root", got)
+	}
+	abs := filepath.Join(t.TempDir(), "report.csv")
+	if resolveSoakReportPath(abs) != abs {
+		t.Fatal("absolute report path was changed")
+	}
 }
 
 type soakMetrics struct {

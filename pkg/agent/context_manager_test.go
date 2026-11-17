@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -347,6 +348,36 @@ func TestLegacyCompact_Overflow(t *testing.T) {
 	}
 	if payload.Reason != ContextCompressReasonRetry {
 		t.Fatalf("expected retry reason, got %q", payload.Reason)
+	}
+}
+
+func TestLegacyCompact_DoesNotGrowExistingSummary(t *testing.T) {
+	cfg := testConfig(t)
+	al := newCMTestAgentLoop(cfg)
+	agent := al.registry.GetDefaultAgent()
+	if agent == nil {
+		t.Fatal("expected default agent")
+	}
+
+	const sessionKey = "session-stable-summary"
+	const originalSummary = "Stable summary of completed work and remaining steps."
+	agent.Sessions.SetSummary(sessionKey, originalSummary)
+	for i := 0; i < 20; i++ {
+		agent.Sessions.SetHistory(sessionKey, []providers.Message{
+			{Role: "user", Content: fmt.Sprintf("old question %d", i)},
+			{Role: "assistant", Content: "old answer"},
+			{Role: "user", Content: "current question"},
+			{Role: "assistant", Content: "current answer"},
+		})
+		if err := al.contextManager.Compact(context.Background(), &CompactRequest{
+			SessionKey: sessionKey,
+			Reason:     ContextCompressReasonRetry,
+		}); err != nil {
+			t.Fatalf("compression %d: %v", i, err)
+		}
+		if got := agent.Sessions.GetSummary(sessionKey); got != originalSummary {
+			t.Fatalf("summary grew after compression %d: %q", i, got)
+		}
 	}
 }
 

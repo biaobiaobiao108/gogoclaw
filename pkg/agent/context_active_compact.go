@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/tokenizer"
 )
 
 // compactActiveTurn summarizes completed work without changing stored history.
@@ -166,6 +167,26 @@ func summarizeTaskTranscript(ctx context.Context, provider providers.LLMProvider
 
 func activeSummaryReserve(window int) int {
 	return min(1024, max(128, window/16))
+}
+
+// boundSessionSummary keeps persisted summaries from crowding out the system
+// prompt on long-lived sessions. Preserve both ends because user goals tend to
+// lead and current state or remaining work tends to trail a summary.
+func boundSessionSummary(summary string, window int) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return ""
+	}
+	budget := activeSummaryReserve(window)
+	if tokenizer.EstimateTextTokens(summary) <= budget {
+		return summary
+	}
+	notice := "\n\n[Earlier summary compacted to protect the context budget.]\n\n"
+	contentBudget := max(2, budget-tokenizer.EstimateTextTokens(notice))
+	headBudget := max(1, contentBudget/3)
+	tailBudget := max(1, contentBudget-headBudget)
+	return truncateHeadToTokenBudget(summary, headBudget) + notice +
+		truncateTailToTokenBudget(summary, tailBudget)
 }
 
 func formatCompactionTranscript(messages []providers.Message) string {
