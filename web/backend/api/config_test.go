@@ -28,9 +28,9 @@ func TestHandlePatchConfig_PersistsApprovalWithoutLosingPolicy(t *testing.T) {
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 	for _, enabled := range []bool{true, false} {
-		body := `{"tools":{"approval":{"enabled":false}}}`
+		body := `{"tools":{"approval":{"enabled":false,"yolo":false}}}`
 		if enabled {
-			body = `{"tools":{"approval":{"enabled":true}}}`
+			body = `{"tools":{"approval":{"enabled":true,"yolo":true}}}`
 		}
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/api/config", strings.NewReader(body)))
@@ -42,7 +42,7 @@ func TestHandlePatchConfig_PersistsApprovalWithoutLosingPolicy(t *testing.T) {
 			t.Fatal(err)
 		}
 		policy := updated.Tools.Approval
-		if policy.Enabled != enabled || strings.Join(policy.Tools, ",") != "exec" || policy.TimeoutSeconds != 123 {
+		if policy.Enabled != enabled || policy.YOLO != enabled || strings.Join(policy.Tools, ",") != "exec" || policy.TimeoutSeconds != 123 {
 			t.Fatalf("approval after patch: %+v", policy)
 		}
 	}

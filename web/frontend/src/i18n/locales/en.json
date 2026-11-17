@@ -959,6 +959,8 @@
       "tool_feedback_max_args_length": "Tool Args Preview Length",
       "tool_feedback_max_args_length_hint": "Maximum number of characters shown in each tool argument preview. Set to 0 to use the default.",
       "exec_enabled": "Allow Commands",
+      "approval_yolo": "YOLO mode",
+      "approval_yolo_hint": "Skip human approval for tool calls on all channels, including requests from public mode and hooks. Tool restrictions and explicit hook denials still apply. Changes take effect after gateway reload.",
       "approval_enabled": "Tool approval",
       "approval_enabled_hint": "Require approval for configured tools. By default this includes commands, file changes, agents, skill installation and messages. Changes take effect after gateway reload.",
       "exec_enabled_hint": "Enable or disable command execution for the app. When disabled, no command requests will run.",

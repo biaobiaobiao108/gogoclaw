@@ -676,6 +676,9 @@ toolLoop:
 				continue
 			}
 		}
+		if cfg.Tools.Approval.YOLO {
+			humanApprovalRequired = false
+		}
 		if humanApprovalRequired {
 			ts.markToolItemAwaitingApproval(toolBatchID, i, toolName, toolArgs)
 			if !ts.opts.NoHistory {

@@ -193,6 +193,34 @@ func TestPublicExposureApprovesExecutionButNotReads(t *testing.T) {
 	}
 }
 
+func TestYOLOSkipsHumanApprovalForAnyChannel(t *testing.T) {
+	for _, channel := range []string{"telegram", "pico", "discord"} {
+		t.Run(channel, func(t *testing.T) {
+			provider := &sequenceProvider{responses: []*providers.LLMResponse{
+				{ToolCalls: []providers.ToolCall{{ID: "exec-1", Name: "exec", Arguments: map[string]any{"command": "printf safe"}}}},
+				{Content: "done"},
+			}}
+			al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+			defer cleanup()
+			al.cfg.Tools.Approval.Enabled = true
+			al.cfg.Tools.Approval.YOLO = true
+			al.publicExposure = true
+			execTool := &countingHarnessTool{name: "exec", result: func(map[string]any) *tools.ToolResult { return tools.SilentResult("safe") }}
+			agent.Tools.Register(execTool)
+			al.SetApprovalNotifier(func(context.Context, approval.Request) error { t.Error("unexpected approval request"); return nil })
+			opts := makeTestProcessOpts("yolo-" + channel)
+			opts.Channel = channel
+			ts := newTurnState(agent, opts, turnEventScope{turnID: "yolo-" + channel, context: newTurnContext(nil, nil, nil)})
+			if _, err := al.runTurn(context.Background(), ts, NewPipeline(al)); err != nil {
+				t.Fatal(err)
+			}
+			if execTool.calls != 1 {
+				t.Fatalf("exec calls = %d, want 1", execTool.calls)
+			}
+		})
+	}
+}
+
 func TestExecuteToolsStopsRepeatedEmptyRetrieval(t *testing.T) {
 	responses := make([]*providers.LLMResponse, 0, 6)
 	for i := 0; i < 5; i++ {

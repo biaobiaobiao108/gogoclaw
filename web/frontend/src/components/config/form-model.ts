@@ -8,6 +8,7 @@ export interface CoreConfigForm {
   toolFeedbackMaxArgsLength: string
   toolFeedbackSeparateMessages: boolean
   approvalEnabled: boolean
+  approvalYolo: boolean
   execEnabled: boolean
   allowRemote: boolean
   enableDenyPatterns: boolean
@@ -117,6 +118,7 @@ export const EMPTY_FORM: CoreConfigForm = {
   toolFeedbackMaxArgsLength: "300",
   toolFeedbackSeparateMessages: false,
   approvalEnabled: false,
+  approvalYolo: false,
   execEnabled: true,
   allowRemote: true,
   enableDenyPatterns: true,
@@ -318,6 +320,7 @@ export function buildFormFromConfig(config: unknown): CoreConfigForm {
         ? EMPTY_FORM.toolFeedbackSeparateMessages
         : asBool(toolFeedback.separate_messages),
     approvalEnabled: asBool(approval.enabled),
+    approvalYolo: asBool(approval.yolo),
     execEnabled:
       exec.enabled === undefined
         ? EMPTY_FORM.execEnabled

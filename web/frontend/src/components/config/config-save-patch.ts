@@ -294,7 +294,7 @@ export function buildConfigPatch(
       cold_path_times: parseMultilineList(form.evolutionColdPathTimesText),
     },
     tools: {
-      approval: { enabled: form.approvalEnabled },
+      approval: { enabled: form.approvalEnabled, yolo: form.approvalYolo },
       cron: {
         allow_command: form.allowCommand,
         exec_timeout_minutes: cronExecTimeoutMinutes,

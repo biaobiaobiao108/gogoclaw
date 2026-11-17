@@ -1072,6 +1072,7 @@ type ToolsConfig struct {
 // ApprovalConfig controls which tools pause for a human decision.
 // Approval is opt-in so existing headless deployments keep their behavior.
 type ApprovalConfig struct {
+	YOLO           bool     `json:"yolo,omitempty" yaml:"yolo,omitempty"`
 	Enabled        bool     `json:"enabled,omitempty"`
 	Tools          []string `json:"tools,omitempty"`
 	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`

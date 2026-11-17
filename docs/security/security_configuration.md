@@ -402,7 +402,7 @@ GoGoClaw treats the following deployments as publicly exposed:
 
 The launcher passes `GOGOCLAW_PUBLIC_EXPOSURE=true` to the managed gateway. A standalone gateway can set the same variable explicitly.
 
-In public mode, high-risk state-changing tools require human approval even when `tools.approval` is disabled or does not list them. This includes `exec`, file mutations, subagents, file delivery, skill installation, cron, messaging, and unknown or destructive tools. The normal final response is not an approval request.
+In public mode, unless `tools.approval.yolo` is enabled, high-risk state-changing tools require human approval even when `tools.approval` is disabled or does not list them. This includes `exec`, file mutations, subagents, file delivery, skill installation, cron, messaging, and unknown or destructive tools. The normal final response is not an approval request.
 
 The launcher logs the detected exposure posture and passes the public-mode flag to the managed gateway. Public mode is a guardrail, not a replacement for the container boundary.
 
