@@ -105,3 +105,19 @@ jobs:
           trap 'kill $! 2>/dev/null || true' EXIT
           timeout 60 bash -c 'until curl -fsS http://127.0.0.1:5173/ >/dev/null; do sleep 1; done'
           PLAYWRIGHT_MODULE="$(bun pm bin -g)/../install/global/node_modules/playwright" bun ./scripts/browser-smoke.cjs
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Exercise browser against real launcher
+        run: |
+          bun run build:backend
+          cd ../..
+          mkdir -p build
+          go build -tags goolm,stdjson -o build/browser-cli ./cmd/gogoclaw
+          go build -tags goolm,stdjson -o build/browser-launcher ./web/backend
+          cd web/frontend
+          PLAYWRIGHT_MODULE="$(bun pm bin -g)/../install/global/node_modules/playwright" \
+            GOGOCLAW_TEST_CLI="$GITHUB_WORKSPACE/build/browser-cli" \
+            GOGOCLAW_TEST_LAUNCHER="$GITHUB_WORKSPACE/build/browser-launcher" \
+            bun ./scripts/browser-backend-smoke.cjs

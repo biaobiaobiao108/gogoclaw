@@ -13,6 +13,41 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 )
 
+func TestHandlePatchConfig_PersistsApprovalWithoutLosingPolicy(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Tools.Approval = config.ApprovalConfig{Tools: []string{"exec"}, TimeoutSeconds: 123}
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	for _, enabled := range []bool{true, false} {
+		body := `{"tools":{"approval":{"enabled":false}}}`
+		if enabled {
+			body = `{"tools":{"approval":{"enabled":true}}}`
+		}
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/api/config", strings.NewReader(body)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("patch status %d: %s", rec.Code, rec.Body.String())
+		}
+		updated, err := config.LoadConfig(configPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		policy := updated.Tools.Approval
+		if policy.Enabled != enabled || strings.Join(policy.Tools, ",") != "exec" || policy.TimeoutSeconds != 123 {
+			t.Fatalf("approval after patch: %+v", policy)
+		}
+	}
+}
+
 func TestHandlePatchConfig_PreservesTurnProfile(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

@@ -563,6 +563,7 @@ export function ConfigPage() {
             ),
           },
           tools: {
+            approval: { enabled: form.approvalEnabled },
             cron: {
               allow_command: form.allowCommand,
               exec_timeout_minutes: cronExecTimeoutMinutes,

@@ -208,10 +208,14 @@ func (h *Handler) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 
 	// Restore security fields (tokens/keys) from the loaded config before validation,
 	// because private fields are lost during JSON round-trip.
+	// Approval is present in the security YAML as well as the main config.
+	// Preserve the merged policy so the previous YAML value cannot undo a patch.
+	approvalPolicy := newCfg.Tools.Approval
 	if err = newCfg.SecurityCopyFrom(h.configPath); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to apply security config: %v", err), http.StatusInternalServerError)
 		return
 	}
+	newCfg.Tools.Approval = approvalPolicy
 	applyConfigSecretsFromMap(&newCfg, base)
 
 	if errs := validateConfig(&newCfg); len(errs) > 0 {

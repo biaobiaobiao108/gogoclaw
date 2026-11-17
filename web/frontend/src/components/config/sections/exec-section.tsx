@@ -70,6 +70,13 @@ export function ExecSection({ form, onFieldChange }: ExecSectionProps) {
   return (
     <ConfigSectionCard title={t("pages.config.sections.exec")}>
       <SwitchCardField
+        label={t("pages.config.approval_enabled")}
+        hint={t("pages.config.approval_enabled_hint")}
+        layout="setting-row"
+        checked={form.approvalEnabled}
+        onCheckedChange={(checked) => onFieldChange("approvalEnabled", checked)}
+      />
+      <SwitchCardField
         label={t("pages.config.exec_enabled")}
         hint={t("pages.config.exec_enabled_hint")}
         layout="setting-row"

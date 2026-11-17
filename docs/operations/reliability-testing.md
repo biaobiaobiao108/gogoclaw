@@ -12,6 +12,8 @@ The Reliability stress workflow runs 50 rounds weekly and can also be started ma
 
 The standalone gateway Compose health check uses `/ready`, which indicates that gateway startup completed. `/health` only indicates that the HTTP process responds. The launcher check only tests its authentication endpoint. Neither check proves that a model or external channel is reachable; inspect the dashboard and send a test message to verify those dependencies.
 
-`TestStoppedDataBackupRestoresSessionAndWorkspace` exercises a stopped-store copy into a fresh directory. For deployment backups follow the stopped-container procedure in [Docker deployment](../guides/docker.md); the test does not replace an actual container restore drill.
+`TestStoppedDataBackupRestoresSessionAndWorkspace` exercises a stopped-store copy into a fresh directory, checking the transcript, workspace file, scheduled job, model configuration and encrypted credential with its test key. For deployment backups follow the stopped-container procedure in [Docker deployment](../guides/docker.md); the test does not replace an actual container restore drill or test a key stored outside the data directory.
+
+The CI browser job also starts a real launcher with a temporary data directory and checks first-time setup, rejected and successful login, model persistence, and the approval setting. The model is created through the real API and verified in the UI after reload; the approval switch is changed in the UI and checked against the persisted custom policy. This test does not start a model or exercise chat delivery.
 
 The central application logger masks common credential formats and sensitive structured field names. This is best effort: unknown credential formats, standard-library and other programs' logs, and data without a recognizable label may still contain secrets. Limit log access and review diagnostic output before sharing it.
