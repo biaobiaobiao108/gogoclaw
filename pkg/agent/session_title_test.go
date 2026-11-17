@@ -22,6 +22,62 @@ type titleTestProvider struct {
 	release chan struct{}
 }
 
+type titleRetryProvider struct {
+	limits []int
+	levels []any
+}
+
+func (p *titleRetryProvider) GetDefaultModel() string { return "model" }
+func (p *titleRetryProvider) SupportsThinking() bool  { return true }
+func (p *titleRetryProvider) Chat(_ context.Context, _ []providers.Message, _ []providers.ToolDefinition, _ string, opts map[string]any) (*providers.LLMResponse, error) {
+	limit := opts["max_tokens"].(int)
+	p.limits = append(p.limits, limit)
+	p.levels = append(p.levels, opts["thinking_level"])
+	if limit == 2048 {
+		return &providers.LLMResponse{FinishReason: "length"}, nil
+	}
+	return &providers.LLMResponse{Content: "重试标题"}, nil
+}
+
+func TestSessionTitleRetriesEmptyResponse(t *testing.T) {
+	root := t.TempDir()
+	store, err := memory.NewSQLiteStore(filepath.Join(root, "sessions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	key := "agent:main:pico:direct:pico:test"
+	if err := store.AddFullMessage(context.Background(), key, providers.Message{ID: "turn-user", Role: "user", Content: "测试"}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &titleRetryProvider{}
+	agent := &AgentInstance{ID: "main", Workspace: root, Sessions: session.NewStoreBackend(store)}
+	al := &AgentLoop{}
+	al.startSessionTitle(&turnState{agent: agent, agentID: "main", sessionKey: key, turnID: "turn", channel: "pico", chatID: "pico:test", userMessage: "测试"}, &turnExecution{activeProvider: provider, activeModel: "model"})
+	if !al.waitForBackgroundWorkers(5 * time.Second) {
+		t.Fatal("background timeout")
+	}
+	if len(provider.limits) != 2 || provider.limits[0] != 2048 || provider.limits[1] != 8192 {
+		t.Fatalf("limits = %v", provider.limits)
+	}
+	if provider.levels[0] != "low" || provider.levels[1] != "low" {
+		t.Fatalf("thinking levels = %v", provider.levels)
+	}
+	meta, err := store.ListChatUIMeta(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal(meta["test"], &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Title != "重试标题" {
+		t.Fatalf("title = %q", result.Title)
+	}
+}
+
 func (p *titleTestProvider) GetDefaultModel() string { return "model" }
 func (p *titleTestProvider) Chat(ctx context.Context, messages []providers.Message, _ []providers.ToolDefinition, _ string, _ map[string]any) (*providers.LLMResponse, error) {
 	close(p.started)

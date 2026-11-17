@@ -56,6 +56,10 @@ func (p *ClaudeProvider) GetDefaultModel() string {
 	return p.delegate.GetDefaultModel()
 }
 
+func (p *ClaudeProvider) SupportsThinking() bool {
+	return p.delegate.SupportsThinking()
+}
+
 func CreateClaudeTokenSource(getCredential func(string) (*auth.AuthCredential, error)) func() (string, error) {
 	return func() (string, error) {
 		cred, err := getCredential("anthropic")
