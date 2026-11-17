@@ -421,7 +421,11 @@ func buildRequestBody(
 func applyThinkingOptions(result map[string]any, maxTokens int, options map[string]any) {
 	level, _ := options["thinking_level"].(string)
 	level = strings.ToLower(strings.TrimSpace(level))
-	if level == "" || level == "off" {
+	if level == "" {
+		return
+	}
+	if level == "off" {
+		result["thinking"] = map[string]any{"type": "disabled"}
 		return
 	}
 

@@ -13,6 +13,18 @@ import (
 	"testing"
 )
 
+func TestBuildRequestBodyExplicitlyDisablesThinking(t *testing.T) {
+	result, err := buildRequestBody([]Message{{Role: "user", Content: "hello"}}, nil, "test", map[string]any{
+		"max_tokens": 64, "thinking_level": "off",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(result["thinking"], map[string]any{"type": "disabled"}) {
+		t.Fatalf("thinking = %#v, want disabled", result["thinking"])
+	}
+}
+
 func TestBuildRequestBody(t *testing.T) {
 	tests := []struct {
 		name     string

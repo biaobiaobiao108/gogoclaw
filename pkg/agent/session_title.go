@@ -81,6 +81,7 @@ func (al *AgentLoop) startSessionTitle(ts *turnState, exec *turnExecution) {
 			return
 		}
 		if response == nil {
+			logger.Warnf("failed to generate session title: model returned no response")
 			return
 		}
 		title := strings.Trim(strings.TrimSpace(strings.SplitN(response.Content, "\n", 2)[0]), " \t\"'“”‘’`#")
@@ -89,6 +90,7 @@ func (al *AgentLoop) startSessionTitle(ts *turnState, exec *turnExecution) {
 			title = string(runes[:60])
 		}
 		if title == "" {
+			logger.Warnf("failed to generate session title: model returned an empty title")
 			return
 		}
 		store, err := memory.OpenSQLiteStore(dir)

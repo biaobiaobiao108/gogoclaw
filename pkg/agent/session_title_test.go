@@ -3,13 +3,18 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
+	"github.com/biaobiaobiao108/gogoclaw/web/backend/api"
 )
 
 type titleTestProvider struct {
@@ -91,4 +96,51 @@ func TestSessionTitleRespectsConcurrentChanges(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSessionTitleThroughPicoTurn(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{Agents: config.AgentsConfig{Defaults: config.AgentDefaults{Workspace: root, ModelName: "test-model", MaxTokens: 4096, MaxToolIterations: 10, ContextManager: "seahorse"}}}
+	p := &simpleMockProvider{response: "生成的标题"}
+	al := NewAgentLoop(cfg, bus.NewMessageBus(), p)
+	defer al.Close()
+	ctx := bus.InboundContext{Channel: "pico", ChatID: "pico:sample", ChatType: "direct", SenderID: "pico-user", MessageID: "first-id"}
+	_, err := al.processMessage(context.Background(), bus.InboundMessage{Context: ctx, Content: "测试第一个问题"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !al.waitForBackgroundWorkers(5 * time.Second) {
+		t.Fatal("background timeout")
+	}
+	store, err := memory.OpenSQLiteStore(filepath.Join(root, "sessions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	meta, err := store.ListChatUIMeta(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(meta["sample"]) == 0 {
+		t.Fatalf("missing title metadata: %#v", meta)
+	}
+	configPath := filepath.Join(root, "config.json")
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	api.NewHandler(configPath).RegisterRoutes(mux)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
+	var items []struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Title != "生成的标题" {
+		t.Fatalf("sessions = %s", rec.Body.String())
+	}
+
 }
