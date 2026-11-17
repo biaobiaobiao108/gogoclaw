@@ -37,9 +37,7 @@ func TestEvaluatePublicExposure(t *testing.T) {
 
 	cfg.Channels["telegram"].AllowFrom = config.FlexibleStringSlice{"user-1"}
 	status = EvaluatePublicExposure(cfg, PublicExposureInput{
-		LauncherExposed:      true,
-		AllowedCIDRs:         []string{"10.0.0.0/8"},
-		AllowLocalhostBypass: true,
+		LauncherExposed: true,
 	})
 	if !status.Public || !status.Launcher {
 		t.Fatalf("launcher exposure status = %+v", status)

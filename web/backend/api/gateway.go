@@ -412,8 +412,6 @@ func (h *Handler) gatewayStatusData() map[string]any {
 			data["config_default_model"] = configDefaultModel
 		}
 	}
-	data["security_exposure"] = EvaluatePublicExposure(cfg, h.publicExposureInput)
-
 	// Primary detection: read PID file and check if process is alive.
 	pidData := h.sanitizeGatewayPidData(ppid.ReadPidFileWithCheck(globalConfigDir()), cfg)
 	if pidData != nil {

@@ -695,10 +695,8 @@ func main() {
 	apiHandler = api.NewHandler(absPath)
 	apiHandler.SetDebug(debug)
 	exposureInput := api.PublicExposureInput{
-		LauncherExposed:      launcherBindMayExposeBeyondLoopback(hostInput, effectivePublic),
-		PublicURL:            externalAccessCfg.PublicURL,
-		AllowedCIDRs:         launcherCfg.AllowedCIDRs,
-		AllowLocalhostBypass: launcherCfg.AllowLocalhostBypass,
+		LauncherExposed: launcherBindMayExposeBeyondLoopback(hostInput, effectivePublic),
+		PublicURL:       externalAccessCfg.PublicURL,
 	}
 	apiHandler.SetPublicExposureInput(exposureInput)
 	if startupCfg, loadErr := config.LoadConfig(absPath); loadErr == nil {

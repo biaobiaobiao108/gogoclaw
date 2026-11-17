@@ -10,10 +10,8 @@ import (
 // PublicExposureInput contains launcher listener properties that are not part
 // of the gateway configuration.
 type PublicExposureInput struct {
-	LauncherExposed      bool
-	PublicURL            string
-	AllowedCIDRs         []string
-	AllowLocalhostBypass bool
+	LauncherExposed bool
+	PublicURL       string
 }
 
 // PublicExposureStatus describes why the instance is considered exposed and
@@ -25,18 +23,14 @@ type PublicExposureStatus struct {
 	PublicChannels          []string `json:"public_channels,omitempty"`
 	UnapprovedHighRiskTools []string `json:"unapproved_high_risk_tools,omitempty"`
 	ExecGuardDisabled       bool     `json:"exec_guard_disabled,omitempty"`
-	AllowedCIDRs            []string `json:"allowed_cidrs,omitempty"`
-	AllowLocalhostBypass    bool     `json:"allow_localhost_bypass,omitempty"`
 }
 
 // EvaluatePublicExposure derives the effective exposure posture from listener
 // settings and the current gateway configuration.
 func EvaluatePublicExposure(cfg *config.Config, input PublicExposureInput) PublicExposureStatus {
 	status := PublicExposureStatus{
-		Launcher:             input.LauncherExposed,
-		PublicURL:            strings.TrimSpace(input.PublicURL) != "",
-		AllowedCIDRs:         append([]string(nil), input.AllowedCIDRs...),
-		AllowLocalhostBypass: input.AllowLocalhostBypass,
+		Launcher:  input.LauncherExposed,
+		PublicURL: strings.TrimSpace(input.PublicURL) != "",
 	}
 	if cfg != nil {
 		for name, channel := range cfg.Channels {
@@ -65,8 +59,6 @@ func EvaluatePublicExposure(cfg *config.Config, input PublicExposureInput) Publi
 	if !status.Public {
 		status.UnapprovedHighRiskTools = nil
 		status.ExecGuardDisabled = false
-		status.AllowedCIDRs = nil
-		status.AllowLocalhostBypass = false
 	}
 	return status
 }

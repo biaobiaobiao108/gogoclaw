@@ -62,20 +62,6 @@
     "budgetStatus": "Today: {{used}} / {{limit}} tokens. When the limit is exceeded, the gateway will {{mode}}.",
     "trendRow": "{{day}}, {{tokens}} tokens"
   },
-  "security": {
-    "exposure": {
-      "banner": "Public access is enabled",
-      "review": "Review risks",
-      "title": "Public exposure risks",
-      "description": "This instance is reachable beyond the local machine. Confirm that every exposed channel and management surface is intentionally public.",
-      "launcher": "The management console is exposed through a non-loopback listener or public URL.",
-      "channels": "These channels allow any sender: {{channels}}.",
-      "unapprovedTools": "The saved policy does not list these high-risk tools: {{tools}}. Public mode still forces approval for them.",
-      "execGuardDisabled": "The shell command deny-pattern guard is disabled.",
-      "approvalHint": "Public mode requires human approval for high-risk state-changing tools even when the persisted approval list is empty.",
-      "openConfig": "Open tool settings"
-    }
-  },
   "launcherLogin": {
     "title": "Sign in",
     "description": "Enter the dashboard password to continue.",

@@ -95,14 +95,6 @@ async function main() {
           gateway_status: "running",
           can_start: true,
           restart_required: false,
-          security_exposure: {
-            public: true,
-            launcher: true,
-            public_url: false,
-            public_channels: ["telegram"],
-            unapproved_high_risk_tools: ["exec", "write_file"],
-            exec_guard_disabled: true,
-          },
         }
       } else if (path === "/api/gateway/logs" && method === "GET") {
         body = {
@@ -267,33 +259,6 @@ async function main() {
         )
       })
 
-    const exposureStrip = page.getByRole("status").filter({
-      hasText: "已启用公开访问",
-    })
-    await exposureStrip.waitFor()
-    const review = exposureStrip.getByRole("button", { name: "查看风险" })
-    await review.focus()
-    await page.keyboard.press("Enter")
-    const exposureDialog = page.getByRole("dialog")
-    await exposureDialog
-      .getByRole("heading", { name: "公开访问风险" })
-      .waitFor()
-    await exposureDialog.getByText(/telegram/).waitFor()
-    await exposureDialog.getByText(/exec, write_file/).waitFor()
-    await page.keyboard.press("Escape")
-    await exposureDialog.waitFor({ state: "detached" })
-    await page
-      .waitForFunction(
-        () => document.activeElement?.textContent?.trim() === "查看风险",
-        null,
-        { timeout: 2000 },
-      )
-      .catch(async () => {
-        throw new Error(
-          `Public exposure dialog did not restore focus: ${await page.evaluate(() => document.activeElement?.outerHTML)}`,
-        )
-      })
-
     const composer = page.locator('textarea:not([aria-hidden="true"])')
     const attach = page.getByRole("button", { name: "添加附件" })
     let chooserPromise = page.waitForEvent("filechooser")
@@ -304,7 +269,12 @@ async function main() {
       mimeType: "text/plain",
       buffer: Buffer.from("0123456789"),
     })
-    await page.getByText(/超过了 8 B 限制|attachmentTooLarge/).waitFor()
+    const tooLargeToast = page
+      .locator("[data-sonner-toast]")
+      .filter({ hasText: "too-large.txt" })
+    await tooLargeToast.waitFor()
+    await page.mouse.move(0, 0)
+    await tooLargeToast.waitFor({ state: "detached" })
 
     chooserPromise = page.waitForEvent("filechooser")
     await attach.click()
@@ -482,7 +452,7 @@ async function main() {
 
     if (errors.length) throw new Error(`Browser errors: ${errors.join(", ")}`)
     console.log(
-      `${browserName} console smoke passed: exposure, upload, approval, config, channel, skills, sessions, logs, focus, axe, text scaling and mobile reflow`,
+      `${browserName} console smoke passed: upload, approval, config, channel, skills, sessions, logs, focus, axe, text scaling and mobile reflow`,
     )
   } finally {
     await browser.close()

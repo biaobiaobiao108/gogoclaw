@@ -404,9 +404,9 @@ The launcher passes `GOGOCLAW_PUBLIC_EXPOSURE=true` to the managed gateway. A st
 
 In public mode, high-risk state-changing tools require human approval even when `tools.approval` is disabled or does not list them. This includes `exec`, file mutations, subagents, file delivery, skill installation, cron, messaging, and unknown or destructive tools. The normal final response is not an approval request.
 
-The `/api/gateway/status` response includes a `security_exposure` object. The console shows a persistent warning strip and a dialog listing the exposed launcher, wildcard channels, saved approval gaps, and disabled exec deny patterns. Public mode is a guardrail, not a replacement for the container boundary.
+The launcher logs the detected exposure posture and passes the public-mode flag to the managed gateway. Public mode is a guardrail, not a replacement for the container boundary.
 
-Expose channels and the launcher only when intended, keep `allow_from` narrow, retain exec deny patterns, and inspect the console warning before inviting untrusted users.
+Expose channels and the launcher only when intended, keep `allow_from` narrow, retain exec deny patterns, and review the security logs before inviting untrusted users.
 
 ## Security Best Practices
 

@@ -404,9 +404,9 @@ Launcher 会向受管 gateway 传递 `GOGOCLAW_PUBLIC_EXPOSURE=true`。独立运
 
 公开模式下，高风险、会改变状态的工具即使未在 `tools.approval` 中启用也必须经过人工审批，包括 `exec`、文件修改、子代理、文件发送、技能安装、Cron、消息发送以及未知或破坏性工具。正常的最终回复不会触发审批。
 
-`/api/gateway/status` 会返回 `security_exposure` 对象。控制台会显示常驻警告条，并在对话框中列出公开的 Launcher、通配频道、已保存审批策略的缺口和已关闭的 exec 拒绝规则。公开模式是护栏，不能替代容器隔离边界。
+Launcher 会把检测到的暴露状态写入日志，并向受管 gateway 传递公开模式标志。公开模式是护栏，不能替代容器隔离边界。
 
-仅在确有需要时公开频道或 Launcher；保持 `allow_from` 尽可能窄，保留 exec 拒绝规则，并在允许不受信任用户访问前检查控制台警告。
+仅在确有需要时公开频道或 Launcher；保持 `allow_from` 尽可能窄，保留 exec 拒绝规则，并在允许不受信任用户访问前检查安全日志。
 
 ## 安全最佳实践
 
