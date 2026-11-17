@@ -1079,6 +1079,22 @@ type ApprovalConfig struct {
 }
 
 func (c ApprovalConfig) Requires(tool string) bool {
+	return c.RequiresHuman(tool)
+}
+
+// SkipsAllApproval reports whether this policy turns off every human approval
+// gate, including public-exposure and hook approval requests.
+func (c ApprovalConfig) SkipsAllApproval() bool {
+	return c.YOLO
+}
+
+// RequiresHuman reports whether a tool must pause for a human decision after
+// applying the full approval policy. YOLO mode disables every approval gate,
+// including public-exposure and hook approval gates.
+func (c ApprovalConfig) RequiresHuman(tool string) bool {
+	if c.YOLO {
+		return false
+	}
 	if !c.Enabled {
 		return false
 	}

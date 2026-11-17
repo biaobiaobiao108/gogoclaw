@@ -630,7 +630,7 @@ toolLoop:
 			}
 		}
 
-		humanApprovalRequired := cfg.Tools.Approval.Requires(toolName)
+		humanApprovalRequired := cfg.Tools.Approval.RequiresHuman(toolName)
 		humanApprovalReason := ""
 		if !humanApprovalRequired && al.publicExposure {
 			humanApprovalReason = tools.PublicExposureApprovalReason(toolName, toolArgs)
@@ -676,7 +676,8 @@ toolLoop:
 				continue
 			}
 		}
-		if cfg.Tools.Approval.YOLO {
+		// Applied after hook deny handling so explicit denials still win.
+		if cfg.Tools.Approval.SkipsAllApproval() {
 			humanApprovalRequired = false
 		}
 		if humanApprovalRequired {

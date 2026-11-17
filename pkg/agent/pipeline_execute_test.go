@@ -221,6 +221,46 @@ func TestYOLOSkipsHumanApprovalForAnyChannel(t *testing.T) {
 	}
 }
 
+type requiresHumanApprovalHook struct{}
+
+func (h *requiresHumanApprovalHook) ApproveTool(context.Context, *ToolApprovalRequest) (ApprovalDecision, error) {
+	return ApprovalDecision{
+		Approved:      true,
+		RequiresHuman: true,
+		Reason:        "hook requires human review",
+	}, nil
+}
+
+func TestYOLOSkipsHookAndPublicExposureApproval(t *testing.T) {
+	provider := &sequenceProvider{responses: []*providers.LLMResponse{
+		{ToolCalls: []providers.ToolCall{{ID: "write-1", Name: "write_file", Arguments: map[string]any{"path": "notes.md", "content": "hello"}}}},
+		{Content: "done"},
+	}}
+	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+	al.cfg.Tools.Approval.YOLO = true
+	al.publicExposure = true
+	writeTool := &countingHarnessTool{name: "write_file", result: func(map[string]any) *tools.ToolResult { return tools.SilentResult("written") }}
+	agent.Tools.Register(writeTool)
+	if err := al.MountHook(NamedHook("require-human", &requiresHumanApprovalHook{})); err != nil {
+		t.Fatal(err)
+	}
+	al.SetApprovalNotifier(func(context.Context, approval.Request) error {
+		t.Error("unexpected approval request")
+		return nil
+	})
+	ts := newTurnState(agent, makeTestProcessOpts("yolo-hook"), turnEventScope{
+		turnID: "yolo-hook", context: newTurnContext(nil, nil, nil),
+	})
+
+	if _, err := al.runTurn(context.Background(), ts, NewPipeline(al)); err != nil {
+		t.Fatal(err)
+	}
+	if writeTool.calls != 1 {
+		t.Fatalf("write calls = %d, want 1", writeTool.calls)
+	}
+}
+
 func TestExecuteToolsStopsRepeatedEmptyRetrieval(t *testing.T) {
 	responses := make([]*providers.LLMResponse, 0, 6)
 	for i := 0; i < 5; i++ {

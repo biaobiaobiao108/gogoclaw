@@ -49,7 +49,7 @@ func EvaluatePublicExposure(cfg *config.Config, input PublicExposureInput) Publi
 			}
 		}
 		for _, name := range tools.PublicExposureHighRiskTools() {
-			if cfg.Tools.Approval.YOLO || !cfg.Tools.Approval.Requires(name) {
+			if !cfg.Tools.Approval.RequiresHuman(name) {
 				status.UnapprovedHighRiskTools = append(status.UnapprovedHighRiskTools, name)
 			}
 		}

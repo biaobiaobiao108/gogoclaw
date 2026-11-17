@@ -110,4 +110,13 @@ describe("buildFormFromConfig", () => {
     })
     expect(form.heartbeatEnabled).toBe(EMPTY_FORM.heartbeatEnabled)
   })
+
+  test("maps approval Yolo state from nested config", () => {
+    const form = buildFormFromConfig({
+      tools: { approval: { enabled: true, yolo: true } },
+    })
+
+    expect(form.approvalEnabled).toBe(true)
+    expect(form.approvalYolo).toBe(true)
+  })
 })

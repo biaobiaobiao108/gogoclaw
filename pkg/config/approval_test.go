@@ -30,6 +30,14 @@ func TestApprovalConfigRequires(t *testing.T) {
 	if (ApprovalConfig{Enabled: true, Tools: []string{"*"}}).Requires("read_file") != true {
 		t.Fatal("wildcard approval policy should require every tool")
 	}
+
+	yolo := ApprovalConfig{YOLO: true, Enabled: true, Tools: []string{"*"}}
+	if yolo.RequiresHuman("exec") {
+		t.Fatal("YOLO mode must bypass every configured approval gate")
+	}
+	if !yolo.SkipsAllApproval() {
+		t.Fatal("YOLO mode must report that all approval gates are skipped")
+	}
 }
 
 func TestApprovalConfigTimeout(t *testing.T) {

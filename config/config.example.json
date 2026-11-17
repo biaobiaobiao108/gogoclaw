@@ -203,6 +203,7 @@
     "allow_read_paths": null,
     "allow_write_paths": null,
     "approval": {
+      "yolo": false,
       "enabled": false,
       "tools": ["exec", "write_file", "edit_file", "append_file", "spawn", "subagent", "install_skill"],
       "timeout_seconds": 1800

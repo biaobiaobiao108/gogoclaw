@@ -22,7 +22,7 @@ GoGoClaw is a single-host, private-deployment agent harness for long-running per
 
 GoGoClaw treats one trusted instance as its runtime boundary. It does not provide multi-tenancy, RBAC, or horizontal scaling, and only one GoGoClaw instance should manage a data directory.
 
-Production deployment is supported through the container image only. The container is the runtime security boundary, and tool approval is disabled by default.
+Production deployment is supported through the container image only. The container is the runtime security boundary, and tool approval is disabled by default. For personal-use deployments, `tools.approval.yolo` can skip human approval for tool calls on all channels. It takes precedence over the approval tool list, public-exposure guardrails, and hook approval requests; tool-level disables and explicit hook denials still apply.
 
 ## Highlights
 

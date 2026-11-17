@@ -35,6 +35,12 @@ func TestEvaluatePublicExposure(t *testing.T) {
 		t.Fatalf("approved tools still reported: %v", status.UnapprovedHighRiskTools)
 	}
 
+	cfg.Tools.Approval.YOLO = true
+	status = EvaluatePublicExposure(cfg, PublicExposureInput{})
+	if len(status.UnapprovedHighRiskTools) == 0 {
+		t.Fatal("YOLO mode should report high-risk tools as approvals skipped")
+	}
+
 	cfg.Channels["telegram"].AllowFrom = config.FlexibleStringSlice{"user-1"}
 	status = EvaluatePublicExposure(cfg, PublicExposureInput{
 		LauncherExposed: true,
