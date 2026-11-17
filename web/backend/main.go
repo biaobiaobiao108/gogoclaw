@@ -438,6 +438,10 @@ func launcherAllowlistBypassLogPolicy(
 	return launcherAllowlistBypassLogDecision{}
 }
 
+func setLauncherConfigPath(path string) error {
+	return os.Setenv(config.EnvConfig, path)
+}
+
 func main() {
 	port := flag.String("port", "18800", "Port to listen on")
 	host := flag.String("host", "", "Host to listen on (overrides -public when set)")
@@ -496,6 +500,9 @@ func main() {
 	absPath, err := filepath.Abs(configPath)
 	if err != nil {
 		logger.Fatalf("Failed to resolve config path: %v", err)
+	}
+	if err := setLauncherConfigPath(absPath); err != nil {
+		logger.Fatalf("Failed to set config path: %v", err)
 	}
 	err = utils.EnsureOnboarded(absPath)
 	if err != nil {

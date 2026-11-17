@@ -168,6 +168,7 @@ $GOGOCLAW_HOME/workspace
 ```
 
 Gateway 和 `gogoclaw cron` CLI 子命令都会使用同一个 `sessions/sessions.db` 文件。
+运行中的 Gateway 大约每秒检查一次 CLI 的修改。
 
 注意事项：
 

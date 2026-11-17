@@ -28,6 +28,11 @@ func (s *SQLiteStore) SetAppState(ctx context.Context, namespace, key string, va
 	return nil
 }
 
+// BeginAppStateUpdate holds SQLite's write lock across a state read and update.
+func (s *SQLiteStore) BeginAppStateUpdate(ctx context.Context) (*sql.Tx, error) {
+	return s.db.BeginTx(sqliteContext(ctx), nil)
+}
+
 func (s *SQLiteStore) DeleteAppState(ctx context.Context, namespace, key string) error {
 	_, err := s.db.ExecContext(sqliteContext(ctx), `DELETE FROM app_state WHERE namespace = ? AND state_key = ?`, namespace, key)
 	if err != nil {

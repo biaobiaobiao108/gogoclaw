@@ -8,7 +8,69 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 )
+
+func TestExternalChangesAreScheduledAndPreserved(t *testing.T) {
+	path := t.TempDir()
+	ran := make(chan struct{}, 1)
+	gateway := NewCronService(path, func(*CronJob) (string, error) { ran <- struct{}{}; return "", nil })
+	if err := gateway.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer gateway.Stop()
+	cli := NewCronService(path, nil)
+	at := time.Now().Add(200 * time.Millisecond).UnixMilli()
+	if _, err := cli.AddJob("external", CronSchedule{Kind: "at", AtMS: &at}, "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	awaitSignal(t, ran)
+	other := NewCronService(path, nil)
+	every := int64(60000)
+	if _, err := cli.AddJob("first", CronSchedule{Kind: "every", EveryMS: &every}, "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.AddJob("second", CronSchedule{Kind: "every", EveryMS: &every}, "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := cli.Load(); err != nil {
+		t.Fatal(err)
+	}
+	jobs := cli.ListJobs(true)
+	found := map[string]bool{}
+	for _, job := range jobs {
+		found[job.Name] = true
+	}
+	if !found["first"] || !found["second"] {
+		t.Fatalf("external changes lost: %+v", jobs)
+	}
+}
+
+func TestInvalidStoreCannotBeOverwritten(t *testing.T) {
+	path := t.TempDir()
+	db, err := memory.NewSQLiteStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	invalid := []byte("{invalid")
+	if err := db.SetAppState(nil, "cron", "jobs", invalid); err != nil {
+		t.Fatal(err)
+	}
+	cs := NewCronService(path, nil)
+	if err := cs.Load(); err == nil {
+		t.Fatal("expected load error")
+	}
+	every := int64(60000)
+	if _, err := cs.AddJob("new", CronSchedule{Kind: "every", EveryMS: &every}, "", "", ""); err == nil {
+		t.Fatal("expected add error")
+	}
+	got, err := db.GetAppState(nil, "cron", "jobs")
+	if err != nil || string(got) != string(invalid) {
+		t.Fatalf("store overwritten: %q, %v", got, err)
+	}
+}
 
 func awaitSignal(t *testing.T, ch <-chan struct{}) {
 	t.Helper()
@@ -167,7 +229,13 @@ func TestFailedOneShotIsRetained(t *testing.T) {
 		t.Fatal(err)
 	}
 	cs.mu.Lock()
+	if err := cs.beginUpdate(); err != nil {
+		t.Fatal(err)
+	}
 	cs.store.Jobs[0].State.NextRunAtMS = nil
+	if err := cs.saveStoreUnsafe(); err != nil {
+		t.Fatal(err)
+	}
 	cs.mu.Unlock()
 	cs.executeJobByID(job.ID)
 	got, ok := cs.GetJob(job.ID)
@@ -185,6 +253,9 @@ func TestRestartMarksInterruptedOneShotUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 	cs.mu.Lock()
+	if err := cs.beginUpdate(); err != nil {
+		t.Fatal(err)
+	}
 	cs.store.Jobs[0].State.LastStatus = "running"
 	cs.store.Jobs[0].State.NextRunAtMS = nil
 	if err := cs.saveStoreUnsafe(); err != nil {

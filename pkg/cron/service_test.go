@@ -191,7 +191,13 @@ func TestCronService_UpdateJobPreservesRunStateOnPayloadOnlyChange(t *testing.T)
 	job.State.LastStatus = "ok"
 	job.State.LastError = "previous"
 	cs.mu.Lock()
+	if err := cs.beginUpdate(); err != nil {
+		t.Fatal(err)
+	}
 	cs.store.Jobs[0].State = job.State
+	if err := cs.saveStoreUnsafe(); err != nil {
+		t.Fatal(err)
+	}
 	cs.mu.Unlock()
 	if job.State.NextRunAtMS == nil {
 		t.Fatal("expected next run before update")

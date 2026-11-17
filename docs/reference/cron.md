@@ -172,6 +172,7 @@ $GOGOCLAW_HOME/workspace
 ```
 
 Both the gateway and `gogoclaw cron` CLI subcommands use the same `sessions/sessions.db` file.
+The running gateway checks for CLI changes approximately once per second.
 
 Notes:
 

@@ -7,13 +7,16 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/cron"
 )
 
-func cronListCmd(storePath string) {
+func cronListCmd(storePath string) error {
 	cs := cron.NewCronService(storePath, nil)
+	if err := cs.Load(); err != nil {
+		return fmt.Errorf("load scheduled jobs: %w", err)
+	}
 	jobs := cs.ListJobs(true) // Show all jobs, including disabled
 
 	if len(jobs) == 0 {
 		fmt.Println("No scheduled jobs.")
-		return
+		return nil
 	}
 
 	fmt.Println("\nScheduled Jobs:")
@@ -50,32 +53,33 @@ func cronListCmd(storePath string) {
 			fmt.Printf("    Last error: %s\n", job.State.LastError)
 		}
 	}
+	return nil
 }
 
-func cronRemoveCmd(storePath, jobID string) {
+func cronRemoveCmd(storePath, jobID string) error {
 	cs := cron.NewCronService(storePath, nil)
 	removed, err := cs.RemoveJob(jobID)
 	if err != nil {
-		fmt.Printf("✗ Failed to remove job: %v\n", err)
-		return
+		return fmt.Errorf("remove job: %w", err)
 	}
 	if removed {
 		fmt.Printf("✓ Removed job %s\n", jobID)
 	} else {
 		fmt.Printf("✗ Job %s not found\n", jobID)
 	}
+	return nil
 }
 
-func cronSetJobEnabled(storePath, jobID string, enabled bool) {
+func cronSetJobEnabled(storePath, jobID string, enabled bool) error {
 	cs := cron.NewCronService(storePath, nil)
 	job, err := cs.EnableJob(jobID, enabled)
 	if err != nil {
-		fmt.Printf("✗ Failed to change job: %v\n", err)
-		return
+		return fmt.Errorf("change job: %w", err)
 	}
 	if job != nil {
 		fmt.Printf("✓ Job '%s' enabled\n", job.Name)
 	} else {
 		fmt.Printf("✗ Job %s not found\n", jobID)
 	}
+	return nil
 }
