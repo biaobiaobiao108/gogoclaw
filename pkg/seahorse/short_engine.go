@@ -406,6 +406,19 @@ func (e *Engine) ClearSession(ctx context.Context, sessionKey string) error {
 	return e.store.ClearConversation(ctx, conv.ConversationID)
 }
 
+// ClearSessionBefore runs beforeCommit after clearing the index but before
+// committing it, so a failed canonical deletion leaves the index unchanged.
+func (e *Engine) ClearSessionBefore(ctx context.Context, sessionKey string, beforeCommit func() error) error {
+	conv, err := e.store.GetConversationBySessionKey(ctx, sessionKey)
+	if err != nil {
+		return err
+	}
+	if conv == nil {
+		return beforeCommit()
+	}
+	return e.store.clearConversation(ctx, conv.ConversationID, beforeCommit)
+}
+
 // Bootstrap reconciles a session's messages with the database.
 // Called on first use of a session after startup.
 // Bootstrap reconciles JSONL history with SQLite by ingesting only the delta.

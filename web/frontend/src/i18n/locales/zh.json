@@ -1,5 +1,9 @@
 {
   "sessionManagement": {
+    "reasoning": "思考过程",
+    "toolCall": "工具调用",
+    "attachment": "附件",
+    "media": "媒体",
     "stopGateway": "请先停止 Gateway，再删除会话。",
     "title": "会话管理",
     "refresh": "刷新",

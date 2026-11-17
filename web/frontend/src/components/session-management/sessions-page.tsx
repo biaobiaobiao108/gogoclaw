@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { launcherFetch } from "@/api/http"
@@ -28,7 +28,23 @@ type Item = {
     values?: Record<string, string>
   }
 }
-type Message = { role: string; content: string; created_at?: string }
+type Message = {
+  role: string
+  content: string
+  created_at?: string
+  reasoning_content?: string
+  media?: string[]
+  attachments?: {
+    type?: string
+    url?: string
+    ref?: string
+    filename?: string
+  }[]
+  tool_calls?: {
+    id?: string
+    function?: { name?: string; arguments?: string }
+  }[]
+}
 type Page = {
   messages: Message[] | null
   next_cursor: number
@@ -52,6 +68,12 @@ export function SessionsPage() {
   const [loading, setLoading] = useState(true)
   const [pending, setPending] = useState(false)
   const [confirm, setConfirm] = useState(false)
+  const selectionVersion = useRef(0)
+  const select = (item: Item | null) => {
+    selectionVersion.current++
+    setPending(false)
+    setSelected(item)
+  }
   const load = useCallback(async () => {
     setLoading(true)
     setError("")
@@ -89,22 +111,25 @@ export function SessionsPage() {
   }, [selected])
   const older = async () => {
     if (!selected) return
+    const version = selectionVersion.current
     setPending(true)
     try {
       const page = await request<Page>(
         `/api/session-management/${selected.id}?before=${cursor}`,
       )
+      if (version !== selectionVersion.current) return
       setMessages((current) => [...(page.messages ?? []), ...current])
       setCursor(page.next_cursor)
       setMore(page.has_more)
     } catch (e) {
-      setError(String(e))
+      if (version === selectionVersion.current) setError(String(e))
     } finally {
-      setPending(false)
+      if (version === selectionVersion.current) setPending(false)
     }
   }
   const remove = async () => {
     if (!selected) return
+    const version = selectionVersion.current
     setPending(true)
     setError("")
     try {
@@ -112,15 +137,16 @@ export function SessionsPage() {
         method: "DELETE",
       })
       setItems((current) => current.filter((item) => item.id !== selected.id))
-      setSelected(null)
+      if (version === selectionVersion.current) select(null)
     } catch (e) {
+      if (version !== selectionVersion.current) return
       setError(
         String(e).includes("stop gateway before deleting sessions")
           ? t("sessionManagement.stopGateway")
           : String(e),
       )
     } finally {
-      setPending(false)
+      if (version === selectionVersion.current) setPending(false)
       setConfirm(false)
     }
   }
@@ -159,7 +185,7 @@ export function SessionsPage() {
               filtered.map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => setSelected(item)}
+                  onClick={() => select(item)}
                   className={`hover:bg-muted w-full rounded-md p-3 text-left text-sm ${selected?.id === item.id ? "bg-muted" : ""}`}
                 >
                   <div className="truncate font-medium">
@@ -230,9 +256,67 @@ export function SessionsPage() {
                           ? ` · ${new Date(message.created_at).toLocaleString()}`
                           : ""}
                       </div>
-                      <div className="text-sm break-words whitespace-pre-wrap">
-                        {message.content || "—"}
-                      </div>
+                      {message.content && (
+                        <div className="text-sm break-words whitespace-pre-wrap">
+                          {message.content}
+                        </div>
+                      )}
+                      {message.reasoning_content && (
+                        <details className="mt-2 text-sm">
+                          <summary>{t("sessionManagement.reasoning")}</summary>
+                          <div className="break-words whitespace-pre-wrap">
+                            {message.reasoning_content}
+                          </div>
+                        </details>
+                      )}
+                      {message.tool_calls?.map((call, i) => (
+                        <div key={call.id || i} className="mt-2 text-sm">
+                          <div className="font-mono">
+                            {call.function?.name ||
+                              t("sessionManagement.toolCall")}
+                          </div>
+                          {call.function?.arguments && (
+                            <pre className="overflow-auto break-words whitespace-pre-wrap">
+                              {call.function.arguments}
+                            </pre>
+                          )}
+                        </div>
+                      ))}
+                      {message.attachments?.map((attachment, i) => (
+                        <div key={i} className="mt-2 text-sm break-all">
+                          {attachment.url &&
+                          /^(https?:\/\/|\/(?!\/)|data:image\/)/i.test(
+                            attachment.url,
+                          ) ? (
+                            <a
+                              className="underline"
+                              href={attachment.url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {attachment.filename ||
+                                attachment.type ||
+                                t("sessionManagement.attachment")}
+                            </a>
+                          ) : (
+                            attachment.filename ||
+                            attachment.ref ||
+                            attachment.type ||
+                            t("sessionManagement.attachment")
+                          )}
+                        </div>
+                      ))}
+                      {message.media?.map((ref, i) => (
+                        <div key={i} className="mt-2 text-sm break-all">
+                          {t("sessionManagement.media")}: {ref}
+                        </div>
+                      ))}
+                      {!message.content &&
+                        !message.reasoning_content &&
+                        !message.tool_calls?.length &&
+                        !message.attachments?.length &&
+                        !message.media?.length &&
+                        "—"}
                     </article>
                   ))}
                 </div>

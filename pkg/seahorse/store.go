@@ -899,6 +899,10 @@ func (s *Store) DeleteMessagesAfterID(ctx context.Context, convID int64, afterID
 // message_parts, and messages. FTS entries are handled automatically by triggers.
 // Uses a transaction for atomicity.
 func (s *Store) ClearConversation(ctx context.Context, convID int64) error {
+	return s.clearConversation(ctx, convID, nil)
+}
+
+func (s *Store) clearConversation(ctx context.Context, convID int64, beforeCommit func() error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -942,6 +946,11 @@ func (s *Store) ClearConversation(ctx context.Context, convID int64) error {
 		return fmt.Errorf("messages: %w", err)
 	}
 
+	if beforeCommit != nil {
+		if err := beforeCommit(); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
 

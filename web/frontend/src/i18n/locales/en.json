@@ -1,5 +1,9 @@
 {
   "sessionManagement": {
+    "reasoning": "Reasoning",
+    "toolCall": "Tool call",
+    "attachment": "Attachment",
+    "media": "Media",
     "stopGateway": "Stop the gateway before deleting sessions.",
     "title": "Sessions",
     "refresh": "Refresh",

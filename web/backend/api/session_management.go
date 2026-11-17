@@ -12,6 +12,7 @@ import (
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/seahorse"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
 
@@ -111,6 +112,16 @@ func (h *Handler) getManagedSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to read session", 500)
 		return
 	}
+	if pico, ok := sessionRefFromMeta(meta); ok {
+		for i := range page.Messages {
+			for j := range page.Messages[i].Attachments {
+				attachment := &page.Messages[i].Attachments[j]
+				if url, ok := sessionAttachmentURL(pico.ID, *attachment); ok {
+					attachment.URL = url
+				}
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"messages": page.Messages, "next_cursor": page.NextCursor, "has_more": page.HasMore})
 }
@@ -142,17 +153,33 @@ func (h *Handler) deleteManagedSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session not found", 404)
 		return
 	}
-	if err = clearSessionSQLite(r, ref.Dir, ref.Key); err != nil {
-		http.Error(w, "failed to clear search index", 500)
-		return
+	deleteCanonical := func() error {
+		removed, err := store.DeleteSession(r.Context(), ref.Key)
+		if err != nil {
+			return err
+		}
+		if !removed {
+			return errors.New("session not found")
+		}
+		return nil
 	}
-	removed, err := store.DeleteSession(r.Context(), ref.Key)
+	dbPath := filepath.Join(ref.Dir, "seahorse.db")
+	_, statErr := os.Stat(dbPath)
+	if errors.Is(statErr, os.ErrNotExist) {
+		err = deleteCanonical()
+	} else if statErr == nil {
+		var engine *seahorse.Engine
+		engine, err = seahorse.NewEngine(seahorse.Config{DBPath: dbPath}, nil)
+		if err == nil {
+			err = engine.ClearSessionBefore(r.Context(), ref.Key, deleteCanonical)
+			err = errors.Join(err, engine.Close())
+		}
+	} else {
+		err = statErr
+	}
 	if err != nil {
-		http.Error(w, "failed to delete session", 500)
-		return
-	}
-	if !removed {
-		http.Error(w, "session not found", 404)
+		logger.Warnf("failed to delete session %s: %v", ref.Key, err)
+		http.Error(w, "failed to delete session", http.StatusInternalServerError)
 		return
 	}
 	if pico, ok := sessionRefFromMeta(meta); ok {
