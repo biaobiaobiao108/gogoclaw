@@ -171,9 +171,11 @@ cursor, so edits do not depend on JSONL line numbers. `session_meta.skip_count`
 marks the start of the active model context while the complete transcript stays
 available for the Web history, exports, branches, attachments, and search.
 
-`sessions/seahorse.db` remains a derived retrieval and summary index. It can be
-rebuilt from the canonical session transcript; it is not the source of truth for
-chat history.
+The same `sessions/sessions.db` also holds Seahorse's derived retrieval and
+summary tables. Each agent uses its workspace database; cross-conversation
+retrieval is limited to that workspace. Raw session messages remain the source
+of truth for chat history, and session deletion removes both sets of data in one
+SQLite transaction.
 
 Legacy `.json` and `.jsonl` files are read-only compatibility input for the Web
 console. New writes always go to `sessions.db`; there is no automatic migration.

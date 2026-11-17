@@ -1583,10 +1583,6 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "stop the active task before deleting this session", http.StatusConflict)
 			return
 		}
-		if err := clearSessionSQLite(r, dir, ref.Key); err != nil {
-			http.Error(w, "failed to delete session context", http.StatusInternalServerError)
-			return
-		}
 		if ref.Storage == "sqlite" {
 			store, openErr := memory.OpenSQLiteStore(dir)
 			if openErr != nil {
@@ -1600,6 +1596,10 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		} else {
+			if err := clearSessionSQLite(r, dir, ref.Key); err != nil {
+				http.Error(w, "failed to delete session context", http.StatusInternalServerError)
+				return
+			}
 			for _, path := range []string{base + ".jsonl", base + ".meta.json"} {
 				if err := os.Remove(path); err != nil {
 					if os.IsNotExist(err) {
@@ -1787,7 +1787,7 @@ func (h *Handler) saveSessionIndex(dir string, valid map[string]struct{}) {
 }
 
 func clearSessionSQLite(r *http.Request, dir, key string) error {
-	dbPath := filepath.Join(dir, "seahorse.db")
+	dbPath := filepath.Join(dir, "sessions.db")
 	if _, err := os.Stat(dbPath); err != nil {
 		if os.IsNotExist(err) {
 			return nil

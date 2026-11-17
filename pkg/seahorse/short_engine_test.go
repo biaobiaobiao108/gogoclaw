@@ -2067,24 +2067,3 @@ func TestSelectShallowestCondensationWithNonConsecutiveDepths(t *testing.T) {
 		}
 	}
 }
-
-func TestClearSessionBeforeRollsBackOnFailure(t *testing.T) {
-	engine := newTestEngine(t)
-	ctx := context.Background()
-	conv, _ := prepareBootstrapRepairConversation(t, engine, ctx, "session")
-	err := engine.ClearSessionBefore(ctx, "session", func() error { return fmt.Errorf("delete failed") })
-	if err == nil {
-		t.Fatal("expected deletion failure")
-	}
-	count, err := engine.store.GetMessageCount(ctx, conv.ConversationID)
-	if err != nil || count != 2 {
-		t.Fatalf("rollback lost indexed messages: count=%d, err=%v", count, err)
-	}
-	if err := engine.ClearSessionBefore(ctx, "session", func() error { return nil }); err != nil {
-		t.Fatal(err)
-	}
-	count, err = engine.store.GetMessageCount(ctx, conv.ConversationID)
-	if err != nil || count != 0 {
-		t.Fatalf("successful deletion retained indexed messages: count=%d, err=%v", count, err)
-	}
-}

@@ -17,6 +17,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/messageutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/seahorse/indexstore"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/usage"
 )
 
@@ -1125,6 +1126,9 @@ func (s *SQLiteStore) DeleteSession(ctx context.Context, sessionKey string) (boo
 		return false, fmt.Errorf("memory: begin delete session: %w", err)
 	}
 	defer tx.Rollback()
+	if err := indexstore.ClearSession(ctx, tx, sessionKey); err != nil {
+		return false, fmt.Errorf("memory: delete session index: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM usage_session WHERE session_key = ?`, sessionKey); err != nil {
 		return false, fmt.Errorf("memory: delete session usage: %w", err)
 	}

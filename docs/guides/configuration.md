@@ -55,7 +55,7 @@ GoGoClaw stores data in your configured workspace (default: `~/.gogoclaw/workspa
 
 ```
 ~/.gogoclaw/workspace/
-├── sessions/          # sessions.db, Seahorse index, attachments
+├── sessions/          # sessions.db (sessions and search index), attachments
 ├── memory/           # Long-term memory (MEMORY.md)
 ├── state/            # Persistent state (last channel, etc.)
 ├── cron/             # Scheduled jobs database

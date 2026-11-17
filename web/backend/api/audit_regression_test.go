@@ -24,7 +24,7 @@ func TestRegressionDeleteClearsSQLiteContext(t *testing.T) {
 	if err := store.AddFullMessage(context.Background(), key, providers.Message{Role: "user", Content: "private deleted content"}); err != nil {
 		t.Fatal(err)
 	}
-	engine, err := seahorse.NewEngine(seahorse.Config{DBPath: filepath.Join(dir, "seahorse.db")}, nil)
+	engine, err := seahorse.NewEngine(seahorse.Config{DBPath: filepath.Join(dir, "sessions.db")}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

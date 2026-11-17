@@ -76,7 +76,7 @@ func TestManagedDeleteFailurePreservesIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.Close()
-	engine, err := seahorse.NewEngine(seahorse.Config{DBPath: filepath.Join(dir, "seahorse.db")}, nil)
+	engine, err := seahorse.NewEngine(seahorse.Config{DBPath: filepath.Join(dir, "sessions.db")}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestManagedDeleteFailurePreservesIndex(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
 	}
-	index, err := sql.Open("sqlite", filepath.Join(dir, "seahorse.db"))
+	index, err := sql.Open("sqlite", filepath.Join(dir, "sessions.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

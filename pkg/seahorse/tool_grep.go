@@ -45,7 +45,7 @@ Parameters:
 - scope: "both" (default), "summary", or "message" - what to search
 - role: "user", "assistant", or omit for all - filter by message role
 - last: Time shortcut like "6h", "7d", "2w", "1m" (hours/days/weeks/months)
-- all_conversations: Search all conversations (default: current only)
+- all_conversations: Search all conversations in the current workspace (default: current only)
 - since: ISO8601 timestamp, content after this time
 - before: ISO8601 timestamp, content before this time
 - limit: Max results (default: 20)
@@ -96,7 +96,7 @@ func (t *GrepTool) Parameters() map[string]any {
 			},
 			"all_conversations": map[string]any{
 				"type":        "boolean",
-				"description": "Search across all conversations (default: searches current conversation only)",
+				"description": "Search conversations in the current workspace (default: current conversation only)",
 			},
 			"since": map[string]any{
 				"type":        "string",

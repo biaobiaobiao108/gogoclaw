@@ -12,7 +12,6 @@ import (
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/seahorse"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
 
@@ -153,33 +152,14 @@ func (h *Handler) deleteManagedSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session not found", 404)
 		return
 	}
-	deleteCanonical := func() error {
-		removed, err := store.DeleteSession(r.Context(), ref.Key)
-		if err != nil {
-			return err
-		}
-		if !removed {
-			return errors.New("session not found")
-		}
-		return nil
-	}
-	dbPath := filepath.Join(ref.Dir, "seahorse.db")
-	_, statErr := os.Stat(dbPath)
-	if errors.Is(statErr, os.ErrNotExist) {
-		err = deleteCanonical()
-	} else if statErr == nil {
-		var engine *seahorse.Engine
-		engine, err = seahorse.NewEngine(seahorse.Config{DBPath: dbPath}, nil)
-		if err == nil {
-			err = engine.ClearSessionBefore(r.Context(), ref.Key, deleteCanonical)
-			err = errors.Join(err, engine.Close())
-		}
-	} else {
-		err = statErr
-	}
+	removed, err := store.DeleteSession(r.Context(), ref.Key)
 	if err != nil {
 		logger.Warnf("failed to delete session %s: %v", ref.Key, err)
 		http.Error(w, "failed to delete session", http.StatusInternalServerError)
+		return
+	}
+	if !removed {
+		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
 	if pico, ok := sessionRefFromMeta(meta); ok {

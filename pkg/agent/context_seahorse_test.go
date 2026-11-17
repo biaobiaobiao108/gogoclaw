@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/protocoltypes"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/seahorse"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 )
 
 // seahorseTestProvider implements providers.LLMProvider for seahorse tests.
@@ -1216,5 +1218,109 @@ func TestSeahorseSummarizeSkipsCondensedWhenBelowThreshold(t *testing.T) {
 
 	if tokensBefore < threshold && condensedCount > 0 {
 		t.Errorf("BUG: condensed created when tokens (%d) < threshold (%d)", tokensBefore, threshold)
+	}
+}
+
+func TestSeahorseUsesOwningWorkspaceDatabase(t *testing.T) {
+	root := t.TempDir()
+	mainDir, supportDir := filepath.Join(root, "main"), filepath.Join(root, "support")
+	cfg := &config.Config{Agents: config.AgentsConfig{
+		Defaults: config.AgentDefaults{Workspace: mainDir, ModelName: "test-model", MaxTokens: 4096, MaxToolIterations: 10, ContextManager: "seahorse"},
+		List:     []config.AgentConfig{{ID: "main", Default: true}, {ID: "support", Workspace: supportDir}},
+	}}
+	al := NewAgentLoop(cfg, bus.NewMessageBus(), &simpleMockProvider{response: "ok"})
+	t.Cleanup(al.Close)
+	support, ok := al.registry.GetAgent("support")
+	if !ok {
+		t.Fatal("support agent missing")
+	}
+	key := session.BuildOpaqueSessionKey("agent:support:cli:direct")
+	scope := &session.SessionScope{Version: session.ScopeVersionV1, AgentID: "support", Channel: "cli"}
+	support.Sessions.(session.MetadataAwareSessionStore).EnsureSessionMetadata(key, scope, nil)
+	support.Sessions.AddMessage(key, "user", "unique support text")
+	manager := al.contextManager.(*seahorseContextManager)
+	ctx := context.Background()
+	if _, err := manager.Assemble(ctx, &AssembleRequest{SessionKey: key, Budget: 8000, MaxTokens: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := manager.engineForSession(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if engine == manager.engine {
+		t.Fatal("support session used default workspace index")
+	}
+	tool := &workspaceRetrievalTool{Tool: seahorse.NewGrepTool(manager.engine.GetRetrieval()), manager: manager, grep: true}
+	toolCtx := tools.WithToolSessionContext(ctx, "support", key, scope)
+	result := tool.Execute(toolCtx, map[string]any{"pattern": "%unique support text%", "scope": "message"})
+	if result.IsError || !strings.Contains(result.ForLLM, "unique support text") {
+		t.Fatalf("support retrieval: %+v", result)
+	}
+	store, err := memory.OpenSQLiteStore(filepath.Join(supportDir, "sessions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if removed, err := store.DeleteSession(ctx, key); err != nil || !removed {
+		t.Fatalf("delete: %v %v", removed, err)
+	}
+	result = tool.Execute(toolCtx, map[string]any{"pattern": "%unique support text%", "scope": "message"})
+	if result.IsError || strings.Contains(result.ForLLM, "unique support text") {
+		t.Fatalf("deleted index remains searchable: %+v", result)
+	}
+}
+
+func TestUnifiedSessionAndIndexConcurrentWrites(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	engine, err := seahorse.NewEngine(seahorse.Config{DBPath: filepath.Join(dir, "sessions.db")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	ctx := context.Background()
+	errs := make(chan error, 4)
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			key := fmt.Sprintf("concurrent-%d", i)
+			for j := 0; j < 10; j++ {
+				text := fmt.Sprintf("message-%d", j)
+				if err := store.AddMessage(ctx, key, "user", text); err != nil {
+					errs <- err
+					return
+				}
+				if _, err := engine.Ingest(ctx, key, []seahorse.Message{{Role: "user", Content: text}}); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+	for i := 0; i < 4; i++ {
+		key := fmt.Sprintf("concurrent-%d", i)
+		messages, err := store.GetTranscript(ctx, key)
+		if err != nil || len(messages) != 10 {
+			t.Fatalf("transcript %s: %d, %v", key, len(messages), err)
+		}
+		conv, err := engine.GetRetrieval().Store().GetConversationBySessionKey(ctx, key)
+		if err != nil || conv == nil {
+			t.Fatalf("conversation %s: %+v, %v", key, conv, err)
+		}
+		count, err := engine.GetRetrieval().Store().GetMessageCount(ctx, conv.ConversationID)
+		if err != nil || count != 10 {
+			t.Fatalf("index %s: %d, %v", key, count, err)
+		}
 	}
 }

@@ -108,7 +108,12 @@ func NewEngine(config Config, completeFn CompleteFn) (*Engine, error) {
 	}
 
 	// Connection-local PRAGMAs must run for every connection opened by sql.DB.
-	params := url.Values{"_pragma": {"busy_timeout(5000)", "synchronous(NORMAL)"}}
+	params := url.Values{
+		"_pragma": {"busy_timeout(5000)", "synchronous(NORMAL)"},
+		// Index transactions share a WAL database with session writes. Acquire
+		// the writer lock before reading to avoid snapshot-upgrade failures.
+		"_txlock": {"immediate"},
+	}
 	separator := "?"
 	if strings.Contains(config.DBPath, "?") {
 		separator = "&"
@@ -404,19 +409,6 @@ func (e *Engine) ClearSession(ctx context.Context, sessionKey string) error {
 		return nil // session never ingested, nothing to clear
 	}
 	return e.store.ClearConversation(ctx, conv.ConversationID)
-}
-
-// ClearSessionBefore runs beforeCommit after clearing the index but before
-// committing it, so a failed canonical deletion leaves the index unchanged.
-func (e *Engine) ClearSessionBefore(ctx context.Context, sessionKey string, beforeCommit func() error) error {
-	conv, err := e.store.GetConversationBySessionKey(ctx, sessionKey)
-	if err != nil {
-		return err
-	}
-	if conv == nil {
-		return beforeCommit()
-	}
-	return e.store.clearConversation(ctx, conv.ConversationID, beforeCommit)
 }
 
 // Bootstrap reconciles a session's messages with the database.

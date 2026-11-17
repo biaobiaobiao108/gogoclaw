@@ -170,7 +170,7 @@ dispatch 匹配和 session 分配都会使用这套映射，因此同一个人�
 `session_meta.skip_count` 只标记模型活动上下文的起点，完整 transcript 仍供 Web
 历史、导出、分支、附件和搜索使用。
 
-`sessions/seahorse.db` 保留为可重建的检索与摘要索引，不再是聊天记录的事实来源。
+Seahorse 的检索与摘要表也保存在同一个 `sessions/sessions.db` 中。每个 Agent 使用自己工作区的数据库，跨会话检索限于该工作区。聊天记录以原始会话消息为准；删除会话时，事实数据和索引在同一 SQLite 事务中删除。
 
 旧 `.json` / `.jsonl` 文件只作为 Web 控制台的只读兼容输入；新写入全部进入
 `sessions.db`，启动时不会自动迁移旧数据。
