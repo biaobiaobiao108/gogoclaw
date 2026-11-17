@@ -172,8 +172,8 @@ marks the start of the active model context while the complete transcript stays
 available for the Web history, exports, branches, attachments, and search.
 
 The same `sessions/sessions.db` also holds Seahorse's derived retrieval and
-summary tables. Each agent uses its workspace database; cross-conversation
-retrieval is limited to that workspace. Raw session messages remain the source
+summary tables. All agents use the same workspace and database; cross-conversation retrieval
+uses that shared workspace, subject to the existing channel restrictions. Raw session messages remain the source
 of truth for chat history, and session deletion removes both sets of data in one
 SQLite transaction.
 

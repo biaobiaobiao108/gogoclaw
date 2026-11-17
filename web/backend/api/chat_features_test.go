@@ -498,7 +498,7 @@ func TestChatMetadataUpdatesMigrateLegacyFileFirst(t *testing.T) {
 	}
 }
 
-func TestSessionDirsMatchesRoutedAgentWorkspaces(t *testing.T) {
+func TestSessionDirsUsesSharedWorkspace(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 	testHome := filepath.Dir(configPath)
@@ -510,7 +510,7 @@ func TestSessionDirsMatchesRoutedAgentWorkspaces(t *testing.T) {
 	cfg.Agents.Defaults.Workspace = "~/default-workspace"
 	cfg.Agents.List = []config.AgentConfig{
 		{ID: "Support Agent"},
-		{ID: "custom", Workspace: "~/custom-workspace"},
+		{ID: "custom"},
 	}
 	if err := config.SaveConfig(configPath, cfg); err != nil {
 		t.Fatal(err)
@@ -520,24 +520,14 @@ func TestSessionDirsMatchesRoutedAgentWorkspaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{
-		filepath.Clean(filepath.Join(testHome, "default-workspace", "sessions")):       false,
-		filepath.Clean(filepath.Join(testHome, "workspace-support-agent", "sessions")): false,
-		filepath.Clean(filepath.Join(testHome, "custom-workspace", "sessions")):        false,
+	want := filepath.Clean(filepath.Join(testHome, "default-workspace", "sessions"))
+	if len(dirs) != 1 || filepath.Clean(dirs[0]) != want {
+		t.Fatalf("session dirs = %+v, want %s", dirs, want)
 	}
-	for _, dir := range dirs {
-		if _, ok := want[filepath.Clean(dir)]; ok {
-			want[filepath.Clean(dir)] = true
-		}
-	}
-	for path, found := range want {
-		if !found {
-			t.Fatalf("session dirs = %+v, missing %s", dirs, path)
-		}
-	}
+
 }
 
-func TestDeleteUploadRemovesDuplicateManagedFilesAcrossAgents(t *testing.T) {
+func TestDeleteUploadTouchesOnlySharedWorkspace(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 	cfg, err := config.LoadConfig(configPath)
@@ -548,8 +538,8 @@ func TestDeleteUploadRemovesDuplicateManagedFilesAcrossAgents(t *testing.T) {
 	supportWorkspace := filepath.Join(filepath.Dir(configPath), "support-workspace")
 	cfg.Agents.Defaults.Workspace = mainWorkspace
 	cfg.Agents.List = []config.AgentConfig{
-		{ID: "main", Default: true, Workspace: mainWorkspace},
-		{ID: "support", Workspace: supportWorkspace},
+		{ID: "main", Default: true},
+		{ID: "support"},
 	}
 	if err := config.SaveConfig(configPath, cfg); err != nil {
 		t.Fatal(err)
@@ -581,10 +571,11 @@ func TestDeleteUploadRemovesDuplicateManagedFilesAcrossAgents(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	for _, path := range paths {
-		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Fatalf("duplicate attachment still exists at %s: %v", path, err)
-		}
+	if _, err := os.Stat(paths[0]); !os.IsNotExist(err) {
+		t.Fatalf("shared attachment still exists: %v", err)
+	}
+	if _, err := os.Stat(paths[1]); err != nil {
+		t.Fatalf("unrelated attachment was removed: %v", err)
 	}
 }
 

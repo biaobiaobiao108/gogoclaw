@@ -9,6 +9,30 @@ GoGoClaw 里用户能直接感知到的“路由”主要有两部分：
 
 这份文档面向真实部署中的配置使用场景。
 
+## 多 Agent 与共享工作区
+
+所有 Agent 共享 `agents.defaults.workspace`，包括工作区文件和 `sessions/sessions.db`。子 Agent 仍使用自己的会话上下文，并可分别配置角色、模型和工具：
+
+```json
+{
+  "agents": {
+    "list": [
+      { "id": "main", "default": true },
+      {
+        "id": "support",
+        "name": "Support",
+        "description": "处理支持请求",
+        "instructions": "专注排查和回答用户问题。",
+        "model": "support-model",
+        "tools": ["read_file", "list_dir"]
+      }
+    ]
+  }
+}
+```
+
+`instructions` 会加入该 Agent 的系统提示词。`model` 引用已配置的模型名；未指定时使用共享默认值。`tools` 未配置或为 `null` 时继承共享限制，空数组表示不开放工具，非空数组还会受到工作区 `AGENT.md` 中工具限制的约束。工作区的 `AGENT.md` 和技能对所有 Agent 共享，各 Agent 的技能配置仍可进一步收窄范围。旧的 `agents.list[].workspace` 不再支持，配置中存在该字段且非空时会报错；请删除该字段。
+
 ## 快速开始
 
 ### 把一个 Telegram 群路由给 support agent

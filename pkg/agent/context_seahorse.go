@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -16,7 +15,6 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/seahorse"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/tokenizer"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 )
 
 // seahorseContextManager adapts seahorse.Engine to agent.ContextManager.
@@ -26,8 +24,6 @@ type seahorseContextManager struct {
 	al           *AgentLoop           // for resolving the agent that owns a session
 	bootstrapMu  sync.Mutex
 	bootstrapped map[string]struct{}
-	enginesMu    sync.Mutex
-	engines      map[string]*seahorse.Engine
 }
 
 // Close releases the SQLite engine and its background compaction workers.
@@ -35,16 +31,7 @@ func (m *seahorseContextManager) Close() error {
 	if m == nil || m.engine == nil {
 		return nil
 	}
-	m.enginesMu.Lock()
-	defer m.enginesMu.Unlock()
-	var errs []error
-	for _, engine := range m.engines {
-		if engine != m.engine {
-			errs = append(errs, engine.Close())
-		}
-	}
-	errs = append(errs, m.engine.Close())
-	return errors.Join(errs...)
+	return m.engine.Close()
 }
 
 // newSeahorseContextManager creates a seahorse-backed ContextManager.
@@ -73,59 +60,14 @@ func newSeahorseContextManager(_ json.RawMessage, al *AgentLoop) (ContextManager
 		engine:   engine,
 		sessions: agent.Sessions,
 		al:       al,
-		engines:  map[string]*seahorse.Engine{filepath.Clean(dbPath): engine},
 	}
 
 	// Register seahorse tools with the agent's tool registry
 	retrieval := mgr.engine.GetRetrieval()
-	al.RegisterTool(&workspaceRetrievalTool{Tool: seahorse.NewGrepTool(retrieval), manager: mgr, grep: true})
-	al.RegisterTool(&workspaceRetrievalTool{Tool: seahorse.NewExpandTool(retrieval), manager: mgr})
+	al.RegisterTool(seahorse.NewGrepTool(retrieval))
+	al.RegisterTool(seahorse.NewExpandTool(retrieval))
 
 	return mgr, nil
-}
-
-// engineForSession keeps the derived index beside its owning session store.
-func (m *seahorseContextManager) engineForSession(sessionKey string) (*seahorse.Engine, error) {
-	if m.al == nil {
-		return m.engine, nil
-	}
-	agent := m.al.agentForSession(sessionKey)
-	if agent == nil {
-		return m.engine, nil
-	}
-	path := filepath.Clean(filepath.Join(agent.Workspace, "sessions", "sessions.db"))
-	m.enginesMu.Lock()
-	defer m.enginesMu.Unlock()
-	if engine := m.engines[path]; engine != nil {
-		return engine, nil
-	}
-	engine, err := seahorse.NewEngine(seahorse.Config{DBPath: path}, providerToCompleteFn(agent.Provider, agent.Model))
-	if err != nil {
-		return nil, err
-	}
-	if m.engines == nil {
-		m.engines = make(map[string]*seahorse.Engine)
-	}
-	m.engines[path] = engine
-	return engine, nil
-}
-
-type workspaceRetrievalTool struct {
-	tools.Tool
-	manager *seahorseContextManager
-	grep    bool
-}
-
-func (t *workspaceRetrievalTool) Policy() tools.ToolPolicy { return tools.ReadPolicy() }
-func (t *workspaceRetrievalTool) Execute(ctx context.Context, args map[string]any) *tools.ToolResult {
-	engine, err := t.manager.engineForSession(tools.ToolSessionKey(ctx))
-	if err != nil {
-		return tools.ErrorResult("open session index: " + err.Error())
-	}
-	if t.grep {
-		return seahorse.NewGrepTool(engine.GetRetrieval()).Execute(ctx, args)
-	}
-	return seahorse.NewExpandTool(engine.GetRetrieval()).Execute(ctx, args)
 }
 
 // providerToCompleteFn wraps providers.LLMProvider as a seahorse.CompleteFn.
@@ -199,11 +141,7 @@ func (m *seahorseContextManager) Assemble(ctx context.Context, req *AssembleRequ
 		effectiveBudget = budget / 2
 	}
 
-	engine, err := m.engineForSession(req.SessionKey)
-	if err != nil {
-		return nil, err
-	}
-	result, err := engine.Assemble(ctx, req.SessionKey, seahorse.AssembleInput{
+	result, err := m.engine.Assemble(ctx, req.SessionKey, seahorse.AssembleInput{
 		Budget: effectiveBudget,
 	})
 	if err != nil {
@@ -225,18 +163,14 @@ func (m *seahorseContextManager) Compact(ctx context.Context, req *CompactReques
 		return nil
 	}
 
-	engine, err := m.engineForSession(req.SessionKey)
-	if err != nil {
-		return err
-	}
 	// For retry (LLM overflow), use aggressive CompactUntilUnder to guarantee
 	// context shrinks below budget (spec lines ~1410).
 	if req.Reason == ContextCompressReasonRetry && req.Budget > 0 {
-		_, err := engine.CompactUntilUnder(ctx, req.SessionKey, req.Budget)
+		_, err := m.engine.CompactUntilUnder(ctx, req.SessionKey, req.Budget)
 		return err
 	}
 
-	_, err = engine.Compact(ctx, req.SessionKey, seahorse.CompactInput{
+	_, err := m.engine.Compact(ctx, req.SessionKey, seahorse.CompactInput{
 		Force:  req.Reason == ContextCompressReasonRetry,
 		Budget: &req.Budget,
 	})
@@ -249,12 +183,8 @@ func (m *seahorseContextManager) Ingest(ctx context.Context, req *IngestRequest)
 		return nil
 	}
 
-	engine, err := m.engineForSession(req.SessionKey)
-	if err != nil {
-		return err
-	}
 	msg := providerToSeahorseMessage(req.Message)
-	_, err = engine.Ingest(ctx, req.SessionKey, []seahorse.Message{msg})
+	_, err := m.engine.Ingest(ctx, req.SessionKey, []seahorse.Message{msg})
 	return err
 }
 
@@ -263,11 +193,7 @@ func (m *seahorseContextManager) Clear(ctx context.Context, sessionKey string) e
 	m.bootstrapMu.Lock()
 	delete(m.bootstrapped, sessionKey)
 	m.bootstrapMu.Unlock()
-	engine, err := m.engineForSession(sessionKey)
-	if err != nil {
-		return err
-	}
-	if err := engine.ClearSession(ctx, sessionKey); err != nil {
+	if err := m.engine.ClearSession(ctx, sessionKey); err != nil {
 		return err
 	}
 	// The session may belong to a routed agent, so clear the owner's store.
@@ -313,11 +239,7 @@ func (m *seahorseContextManager) ensureBootstrapped(ctx context.Context, session
 		msgs[i] = providerToSeahorseMessage(h)
 	}
 
-	engine, err := m.engineForSession(sessionKey)
-	if err != nil {
-		return err
-	}
-	if err := engine.Bootstrap(ctx, sessionKey, msgs); err != nil {
+	if err := m.engine.Bootstrap(ctx, sessionKey, msgs); err != nil {
 		return fmt.Errorf("bootstrap seahorse: %w", err)
 	}
 	if m.bootstrapped == nil {

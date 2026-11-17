@@ -9,6 +9,30 @@ In GoGoClaw, routing has two user-facing parts:
 
 This guide explains how to configure both for real deployments.
 
+## Multiple agents and the shared workspace
+
+All agents share `agents.defaults.workspace`, including workspace files and `sessions/sessions.db`. A subagent still has its own conversation context, and each agent can configure its own role, model, and tools:
+
+```json
+{
+  "agents": {
+    "list": [
+      { "id": "main", "default": true },
+      {
+        "id": "support",
+        "name": "Support",
+        "description": "Handle support requests",
+        "instructions": "Focus on investigating and answering user questions.",
+        "model": "support-model",
+        "tools": ["read_file", "list_dir"]
+      }
+    ]
+  }
+}
+```
+
+`instructions` is added to the agent's system prompt. `model` references a configured model name; otherwise the shared default is used. If `tools` is absent or `null`, the agent inherits the shared restrictions; an empty array grants no tools, and a nonempty array remains subject to the workspace `AGENT.md` tool restrictions. The workspace `AGENT.md` and skills are shared, while an agent's skills configuration can further narrow access. The old `agents.list[].workspace` setting is no longer supported: a nonempty value causes a configuration error and must be removed.
+
 ## Quick Start
 
 ### Route one Telegram group to a support agent

@@ -1221,12 +1221,12 @@ func TestSeahorseSummarizeSkipsCondensedWhenBelowThreshold(t *testing.T) {
 	}
 }
 
-func TestSeahorseUsesOwningWorkspaceDatabase(t *testing.T) {
+func TestSeahorseUsesSharedWorkspaceDatabase(t *testing.T) {
 	root := t.TempDir()
-	mainDir, supportDir := filepath.Join(root, "main"), filepath.Join(root, "support")
+	mainDir := filepath.Join(root, "main")
 	cfg := &config.Config{Agents: config.AgentsConfig{
 		Defaults: config.AgentDefaults{Workspace: mainDir, ModelName: "test-model", MaxTokens: 4096, MaxToolIterations: 10, ContextManager: "seahorse"},
-		List:     []config.AgentConfig{{ID: "main", Default: true}, {ID: "support", Workspace: supportDir}},
+		List:     []config.AgentConfig{{ID: "main", Default: true}, {ID: "support"}},
 	}}
 	al := NewAgentLoop(cfg, bus.NewMessageBus(), &simpleMockProvider{response: "ok"})
 	t.Cleanup(al.Close)
@@ -1243,20 +1243,16 @@ func TestSeahorseUsesOwningWorkspaceDatabase(t *testing.T) {
 	if _, err := manager.Assemble(ctx, &AssembleRequest{SessionKey: key, Budget: 8000, MaxTokens: 1000}); err != nil {
 		t.Fatal(err)
 	}
-	engine, err := manager.engineForSession(key)
-	if err != nil {
-		t.Fatal(err)
+	if support.Workspace != mainDir {
+		t.Fatalf("workspace = %q, want %q", support.Workspace, mainDir)
 	}
-	if engine == manager.engine {
-		t.Fatal("support session used default workspace index")
-	}
-	tool := &workspaceRetrievalTool{Tool: seahorse.NewGrepTool(manager.engine.GetRetrieval()), manager: manager, grep: true}
+	tool := seahorse.NewGrepTool(manager.engine.GetRetrieval())
 	toolCtx := tools.WithToolSessionContext(ctx, "support", key, scope)
 	result := tool.Execute(toolCtx, map[string]any{"pattern": "%unique support text%", "scope": "message"})
 	if result.IsError || !strings.Contains(result.ForLLM, "unique support text") {
 		t.Fatalf("support retrieval: %+v", result)
 	}
-	store, err := memory.OpenSQLiteStore(filepath.Join(supportDir, "sessions"))
+	store, err := memory.OpenSQLiteStore(filepath.Join(mainDir, "sessions"))
 	if err != nil {
 		t.Fatal(err)
 	}

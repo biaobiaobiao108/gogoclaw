@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -21,12 +22,12 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/usage"
 )
 
-// AgentInstance represents a fully configured agent with its own workspace,
-// session manager, context builder, and tool registry.
+// AgentInstance represents a configured agent using the shared workspace.
 type AgentInstance struct {
 	modelMu                   *sync.RWMutex
 	ID                        string
 	Name                      string
+	Description               string
 	Model                     string
 	Fallbacks                 []string
 	Workspace                 string
@@ -106,7 +107,7 @@ func NewAgentInstance(
 		isolation.Configure(cfg)
 	}
 
-	workspace := resolveAgentWorkspace(agentCfg, defaults)
+	workspace := expandHome(defaults.Workspace)
 	os.MkdirAll(workspace, 0o755)
 
 	definition := loadAgentDefinition(workspace)
@@ -121,6 +122,20 @@ func NewAgentInstance(
 	allowReadPaths := buildAllowReadPatterns(cfg)
 	allowWritePaths := compilePatterns(cfg.Tools.AllowWritePaths)
 	agentToolAllowlist := resolveAgentToolAllowlist(definition)
+	if agentCfg != nil && agentCfg.Tools != nil {
+		allowed := make(map[string]bool, len(agentToolAllowlist))
+		for _, name := range agentToolAllowlist {
+			allowed[name] = true
+		}
+		selected := make([]string, 0, len(agentCfg.Tools))
+		for _, name := range agentCfg.Tools {
+			name = strings.ToLower(strings.TrimSpace(name))
+			if name != "" && (agentToolAllowlist == nil || allowed[name]) {
+				selected = append(selected, name)
+			}
+		}
+		agentToolAllowlist = selected
+	}
 	agentMCPServerAllowlist := resolveAgentMCPServerAllowlist(definition)
 
 	toolsRegistry := tools.NewToolRegistry()
@@ -180,11 +195,14 @@ func NewAgentInstance(
 	agentName := ""
 	var subagents *config.SubagentsConfig
 	var skillsFilter []string
+	var agentDescription string
 
 	if agentCfg != nil {
 		agentID = routing.NormalizeAgentID(agentCfg.ID)
 		agentName = agentCfg.Name
-		if definition.Agent != nil && strings.TrimSpace(definition.Agent.Frontmatter.Name) != "" {
+		agentDescription = agentCfg.Description
+		contextBuilder.roleInstructions = agentCfg.Instructions
+		if agentName == "" && (agentCfg.Default || agentID == routing.DefaultAgentID) && definition.Agent != nil && strings.TrimSpace(definition.Agent.Frontmatter.Name) != "" {
 			agentName = strings.TrimSpace(definition.Agent.Frontmatter.Name)
 		}
 		subagents = agentCfg.Subagents
@@ -328,6 +346,7 @@ func NewAgentInstance(
 		modelMu:                   &sync.RWMutex{},
 		ID:                        agentID,
 		Name:                      agentName,
+		Description:               agentDescription,
 		Model:                     model,
 		Fallbacks:                 fallbacks,
 		Workspace:                 workspace,
@@ -635,32 +654,17 @@ func resolvePrimaryProviderForCandidate(
 	return resolvedProvider
 }
 
-// resolveAgentWorkspace determines the workspace directory for an agent.
-func resolveAgentWorkspace(agentCfg *config.AgentConfig, defaults *config.AgentDefaults) string {
-	if agentCfg != nil && strings.TrimSpace(agentCfg.Workspace) != "" {
-		return expandHome(strings.TrimSpace(agentCfg.Workspace))
-	}
-	// Use the configured default workspace (respects GOGOCLAW_HOME)
-	if agentCfg == nil || agentCfg.Default || agentCfg.ID == "" ||
-		routing.NormalizeAgentID(agentCfg.ID) == "main" {
-		return expandHome(defaults.Workspace)
-	}
-	// For named agents without explicit workspace, use default workspace with agent ID suffix
-	id := routing.NormalizeAgentID(agentCfg.ID)
-	return filepath.Join(expandHome(defaults.Workspace), "..", "workspace-"+id)
-}
-
 // resolveAgentModel resolves the primary model for an agent.
 func resolveAgentModel(
 	agentCfg *config.AgentConfig,
 	defaults *config.AgentDefaults,
 	definition AgentContextDefinition,
 ) string {
-	if definition.Agent != nil && strings.TrimSpace(definition.Agent.Frontmatter.Model) != "" {
-		return strings.TrimSpace(definition.Agent.Frontmatter.Model)
-	}
 	if agentCfg != nil && agentCfg.Model != nil && strings.TrimSpace(agentCfg.Model.Primary) != "" {
 		return strings.TrimSpace(agentCfg.Model.Primary)
+	}
+	if definition.Agent != nil && strings.TrimSpace(definition.Agent.Frontmatter.Model) != "" {
+		return strings.TrimSpace(definition.Agent.Frontmatter.Model)
 	}
 	return defaults.GetModelName()
 }
@@ -673,17 +677,24 @@ func resolveAgentFallbacks(agentCfg *config.AgentConfig, defaults *config.AgentD
 	return defaults.ModelFallbacks
 }
 
-func resolveAgentSkillsFilter(
-	agentCfg *config.AgentConfig,
-	definition AgentContextDefinition,
-) []string {
+func resolveAgentSkillsFilter(agentCfg *config.AgentConfig, definition AgentContextDefinition) []string {
+	var global []string
 	if definition.Agent != nil && definition.Agent.Frontmatter.Skills != nil {
-		return append([]string(nil), definition.Agent.Frontmatter.Skills...)
+		global = definition.Agent.Frontmatter.Skills
 	}
 	if agentCfg == nil || agentCfg.Skills == nil {
-		return nil
+		if global == nil {
+			return nil
+		}
+		return append(make([]string, 0, len(global)), global...)
 	}
-	return append([]string(nil), agentCfg.Skills...)
+	selected := make([]string, 0, len(agentCfg.Skills))
+	for _, skill := range agentCfg.Skills {
+		if global == nil || slices.Contains(global, skill) {
+			selected = append(selected, skill)
+		}
+	}
+	return selected
 }
 
 func (a *AgentInstance) AllowsMCPServer(serverName string) bool {

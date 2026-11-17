@@ -312,13 +312,16 @@ func (m AgentModelConfig) MarshalJSON() ([]byte, error) {
 }
 
 type AgentConfig struct {
-	ID        string            `json:"id"`
-	Default   bool              `json:"default,omitempty"`
-	Name      string            `json:"name,omitempty"`
-	Workspace string            `json:"workspace,omitempty"`
-	Model     *AgentModelConfig `json:"model,omitempty"`
-	Skills    []string          `json:"skills,omitempty"`
-	Subagents *SubagentsConfig  `json:"subagents,omitempty"`
+	ID           string            `json:"id"`
+	Default      bool              `json:"default,omitempty"`
+	Name         string            `json:"name,omitempty"`
+	Workspace    string            `json:"workspace,omitempty"`
+	Description  string            `json:"description,omitempty"`
+	Instructions string            `json:"instructions,omitempty"`
+	Tools        []string          `json:"tools"`
+	Model        *AgentModelConfig `json:"model,omitempty"`
+	Skills       []string          `json:"skills,omitempty"`
+	Subagents    *SubagentsConfig  `json:"subagents,omitempty"`
 }
 
 type SubagentsConfig struct {
@@ -1461,6 +1464,9 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 	applySkillsRegistryEnvCompat(cfg)
+	if err := cfg.ValidateAgentWorkspaces(); err != nil {
+		return nil, err
+	}
 
 	if err = InitChannelList(cfg.Channels); err != nil {
 		return nil, err
@@ -1628,7 +1634,20 @@ func toNameIndex(list []*ModelConfig) []string {
 	return nameList
 }
 
+// ValidateAgentWorkspaces rejects obsolete per-agent directories explicitly.
+func (c *Config) ValidateAgentWorkspaces() error {
+	for _, agent := range c.Agents.List {
+		if strings.TrimSpace(agent.Workspace) != "" {
+			return fmt.Errorf("agents.list[%s].workspace is no longer supported; use agents.defaults.workspace", agent.ID)
+		}
+	}
+	return nil
+}
+
 func SaveConfig(path string, cfg *Config) error {
+	if err := cfg.ValidateAgentWorkspaces(); err != nil {
+		return err
+	}
 	if cfg.Version < CurrentVersion {
 		cfg.Version = CurrentVersion
 	}

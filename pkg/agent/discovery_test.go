@@ -35,9 +35,10 @@ Handle support tickets carefully.
 
 	cfg := testCfg([]config.AgentConfig{
 		{ID: "main", Default: true, Name: "Configured Main", Workspace: mainWorkspace},
-		{ID: "support", Workspace: supportWorkspace},
+		{ID: "support", Name: "Support Frontmatter Name", Description: "Support frontmatter description"},
 	})
 
+	cfg.Agents.Defaults.Workspace = mainWorkspace
 	registry := NewAgentRegistry(cfg, &mockRegistryProvider{})
 
 	descriptors := registry.ListAgents(mainWorkspace)
@@ -48,8 +49,8 @@ Handle support tickets carefully.
 	if descriptors[0].ID != "main" {
 		t.Fatalf("expected current workspace agent first, got %q", descriptors[0].ID)
 	}
-	if descriptors[0].Name != "Main Frontmatter Name" {
-		t.Fatalf("expected frontmatter name to drive discovery, got %q", descriptors[0].Name)
+	if descriptors[0].Name != "Configured Main" {
+		t.Fatalf("expected configured name to drive discovery, got %q", descriptors[0].Name)
 	}
 	if descriptors[0].Description != "Structured main agent" {
 		t.Fatalf("expected frontmatter description, got %q", descriptors[0].Description)
@@ -161,9 +162,10 @@ Handle restricted work.
 				AllowAgents: []string{"research"},
 			},
 		},
-		{ID: "research", Workspace: researchWorkspace},
-		{ID: "restricted", Workspace: restrictedWorkspace},
+		{ID: "research", Name: "Research Agent", Description: "Research specialist"},
+		{ID: "restricted", Name: "Restricted Agent", Description: "Restricted specialist"},
 	})
+	cfg.Agents.Defaults.Workspace = mainWorkspace
 	cfg.Tools.ReadFile.Enabled = true
 	cfg.Tools.WriteFile.Enabled = true
 	cfg.Tools.Spawn.Enabled = true
@@ -238,8 +240,9 @@ Investigate deeply.
 
 	cfg := testCfg([]config.AgentConfig{
 		{ID: "main", Default: true, Workspace: mainWorkspace},
-		{ID: "research", Workspace: researchWorkspace},
+		{ID: "research", Name: "Research Agent", Description: "Research specialist"},
 	})
+	cfg.Agents.Defaults.Workspace = mainWorkspace
 	cfg.Tools.ReadFile.Enabled = true
 	cfg.Tools.Spawn.Enabled = true
 	cfg.Tools.Subagent.Enabled = true
@@ -308,8 +311,9 @@ Investigate deeply.
 				AllowAgents: []string{"research"},
 			},
 		},
-		{ID: "research", Workspace: researchWorkspace},
+		{ID: "research", Name: "Research Agent", Description: "Research specialist"},
 	})
+	cfg.Agents.Defaults.Workspace = mainWorkspace
 	cfg.Tools.ReadFile.Enabled = true
 	cfg.Tools.Spawn.Enabled = true
 	cfg.Tools.Subagent.Enabled = true
@@ -360,6 +364,7 @@ Generalist.
 	cfg := testCfg([]config.AgentConfig{
 		{ID: "main", Default: true, Workspace: mainWorkspace},
 	})
+	cfg.Agents.Defaults.Workspace = mainWorkspace
 	cfg.Tools.ReadFile.Enabled = true
 	cfg.Tools.Spawn.Enabled = true
 	cfg.Tools.Subagent.Enabled = true
@@ -409,6 +414,7 @@ Second line.
 		{ID: "research", Default: true, Workspace: workspace},
 	})
 
+	cfg.Agents.Defaults.Workspace = workspace
 	registry := NewAgentRegistry(cfg, &mockRegistryProvider{})
 	descriptor, ok := registry.GetAgentDescriptor("research")
 	if !ok || descriptor == nil {

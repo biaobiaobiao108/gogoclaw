@@ -336,6 +336,10 @@ func (h *Handler) handleTestCommandPatterns(w http.ResponseWriter, r *http.Reque
 func validateConfig(cfg *config.Config) []string {
 	var errs []string
 
+	if err := cfg.ValidateAgentWorkspaces(); err != nil {
+		errs = append(errs, err.Error())
+	}
+
 	// Validate model_list entries
 	if err := cfg.ValidateModelList(); err != nil {
 		errs = append(errs, err.Error())

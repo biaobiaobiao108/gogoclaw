@@ -204,7 +204,7 @@ func TestNormalChatReplyDoesNotCreateBranchSnapshot(t *testing.T) {
 	}
 }
 
-func TestEnsureBranchStoreMigratesEveryAgentWorkspace(t *testing.T) {
+func TestEnsureBranchStoreMigratesSharedWorkspace(t *testing.T) {
 	t.Setenv("GOGOCLAW_HOME", t.TempDir())
 	root := t.TempDir()
 	mainWorkspace := filepath.Join(root, "workspace")
@@ -223,7 +223,7 @@ func TestEnsureBranchStoreMigratesEveryAgentWorkspace(t *testing.T) {
 	}
 	al := NewAgentLoop(cfg, bus.NewMessageBus(), &mockProvider{})
 
-	legacyPath := chatmeta.LegacyBranchStorePath(filepath.Join(supportWorkspace, "sessions"))
+	legacyPath := chatmeta.LegacyBranchStorePath(filepath.Join(mainWorkspace, "sessions"))
 	legacy := chatmeta.BranchStore{
 		Version: 1,
 		Sessions: map[string]chatmeta.BranchSession{
@@ -244,7 +244,7 @@ func TestEnsureBranchStoreMigratesEveryAgentWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, ok := store.Sessions["migrated-session"]; !ok {
-		t.Fatal("support workspace branch was not migrated")
+		t.Fatal("shared workspace branch was not migrated")
 	}
 }
 

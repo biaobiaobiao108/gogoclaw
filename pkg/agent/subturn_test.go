@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -2119,19 +2118,23 @@ func TestSubTurn_IndependentContext(t *testing.T) {
 
 // modelRecordingProvider captures the model passed to Chat for test assertions.
 type modelRecordingProvider struct {
-	mu        sync.Mutex
-	lastModel string
+	mu           sync.Mutex
+	lastModel    string
+	lastMessages []providers.Message
+	lastTools    []providers.ToolDefinition
 }
 
 func (rp *modelRecordingProvider) Chat(
 	_ context.Context,
-	_ []providers.Message,
-	_ []providers.ToolDefinition,
+	messages []providers.Message,
+	availableTools []providers.ToolDefinition,
 	model string,
 	_ map[string]any,
 ) (*providers.LLMResponse, error) {
 	rp.mu.Lock()
 	rp.lastModel = model
+	rp.lastMessages = append([]providers.Message(nil), messages...)
+	rp.lastTools = append([]providers.ToolDefinition(nil), availableTools...)
 	rp.mu.Unlock()
 	return &providers.LLMResponse{Content: "Mock response"}, nil
 }
@@ -2153,11 +2156,6 @@ func newMultiAgentLoop(t *testing.T, provider providers.LLMProvider) (*AgentLoop
 		t.Fatalf("create temp dir: %v", err)
 	}
 
-	alphaDir := filepath.Join(tmpDir, "alpha")
-	betaDir := filepath.Join(tmpDir, "beta")
-	os.MkdirAll(alphaDir, 0o755)
-	os.MkdirAll(betaDir, 0o755)
-
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
@@ -2168,23 +2166,25 @@ func newMultiAgentLoop(t *testing.T, provider providers.LLMProvider) (*AgentLoop
 			},
 			List: []config.AgentConfig{
 				{
-					ID:        "alpha",
-					Workspace: alphaDir,
-					Model:     &config.AgentModelConfig{Primary: "model-alpha"},
+					ID:    "alpha",
+					Model: &config.AgentModelConfig{Primary: "model-alpha"},
 				},
 				{
-					ID:        "beta",
-					Workspace: betaDir,
-					Model:     &config.AgentModelConfig{Primary: "model-beta"},
+					ID:           "beta",
+					Model:        &config.AgentModelConfig{Primary: "model-beta"},
+					Instructions: "Beta is the review specialist.",
+					Tools:        []string{"read_file", "delegate"},
 				},
 			},
 		},
 	}
 
+	cfg.Tools.ReadFile.Enabled = true
+	cfg.Tools.ListDir.Enabled = true
 	msgBus := bus.NewMessageBus()
 	al := NewAgentLoop(cfg, msgBus, provider)
 
-	return al, func() { os.RemoveAll(tmpDir) }
+	return al, func() { al.Close(); os.RemoveAll(tmpDir) }
 }
 
 func TestSpawnSubTurn_TargetAgentID_UsesTargetAgent(t *testing.T) {
@@ -2225,6 +2225,29 @@ func TestSpawnSubTurn_TargetAgentID_UsesTargetAgent(t *testing.T) {
 	// used beta's model, not alpha's.
 	if got := rp.getLastModel(); got != "model-beta" {
 		t.Errorf("child turn used model %q, want %q", got, "model-beta")
+	}
+	rp.mu.Lock()
+	defer rp.mu.Unlock()
+	var prompt string
+	for _, msg := range rp.lastMessages {
+		if msg.Role == "system" {
+			prompt += msg.Content
+		}
+	}
+	if !strings.Contains(prompt, "Beta is the review specialist.") {
+		t.Fatalf("target role missing from child prompt: %s", prompt)
+	}
+	foundRead := false
+	for _, tool := range rp.lastTools {
+		if tool.Function.Name == "read_file" {
+			foundRead = true
+		}
+		if tool.Function.Name == "list_dir" {
+			t.Fatal("target tool allowlist was not applied")
+		}
+	}
+	if !foundRead {
+		t.Fatal("target read_file tool was not supplied")
 	}
 }
 

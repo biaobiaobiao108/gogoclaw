@@ -143,6 +143,10 @@ Task: %s`,
 
 	// Use spawner if available (direct SpawnSubTurn call)
 	if t.spawner != nil {
+		model := t.defaultModel
+		if targetAgentID != "" {
+			model = ""
+		}
 		var trackedTask *SubagentTask
 		if t.manager != nil {
 			trackedTask = t.manager.beginTask(
@@ -151,7 +155,7 @@ Task: %s`,
 		}
 		run := func() {
 			result, err := t.spawner.SpawnSubTurn(ctx, SubTurnConfig{
-				Model:         t.defaultModel,
+				Model:         model,
 				Tools:         nil, // Will inherit from parent via context
 				SystemPrompt:  systemPrompt,
 				MaxTokens:     t.maxTokens,

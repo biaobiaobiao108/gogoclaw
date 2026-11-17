@@ -3259,3 +3259,42 @@ func testChannelsConfigWithTokens() ChannelsConfig {
 	}
 	return channels
 }
+
+func TestRejectPerAgentWorkspace(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Agents.List = []AgentConfig{{ID: "support", Workspace: "/old/support"}}
+	if err := cfg.ValidateAgentWorkspaces(); err == nil || !strings.Contains(err.Error(), "agents.defaults.workspace") {
+		t.Fatalf("validation error = %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "config.json")
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfig(path); err == nil || !strings.Contains(err.Error(), "agents.defaults.workspace") {
+		t.Fatalf("load error = %v", err)
+	}
+	if err := SaveConfig(path, cfg); err == nil {
+		t.Fatal("saving obsolete agent workspace succeeded")
+	}
+}
+
+func TestAgentToolAllowlistJSONRoundTrip(t *testing.T) {
+	for _, tools := range [][]string{nil, {}} {
+		before := AgentConfig{ID: "support", Tools: tools}
+		data, err := json.Marshal(before)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var after AgentConfig
+		if err := json.Unmarshal(data, &after); err != nil {
+			t.Fatal(err)
+		}
+		if (before.Tools == nil) != (after.Tools == nil) {
+			t.Fatalf("nil vs empty changed: %s", data)
+		}
+	}
+}

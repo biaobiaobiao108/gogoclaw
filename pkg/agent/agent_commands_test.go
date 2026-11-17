@@ -13,6 +13,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
 
@@ -368,10 +369,11 @@ func TestProcessMessage_ClearCommandClearsRoutedAgentSession(t *testing.T) {
 	}
 	sessionKey := al.allocateRouteSession(route, msg).SessionKey
 
+	mainKey := session.BuildOpaqueSessionKey("agent:main:dingtalk:chat1")
 	mainHistory := []providers.Message{{Role: "user", Content: "main history"}}
 	supportHistory := []providers.Message{{Role: "user", Content: "support history"}}
-	mainAgent.Sessions.SetHistory(sessionKey, mainHistory)
-	mainAgent.Sessions.SetSummary(sessionKey, "main summary")
+	mainAgent.Sessions.SetHistory(mainKey, mainHistory)
+	mainAgent.Sessions.SetSummary(mainKey, "main summary")
 	supportAgent.Sessions.SetHistory(sessionKey, supportHistory)
 	supportAgent.Sessions.SetSummary(sessionKey, "support summary")
 
@@ -389,14 +391,14 @@ func TestProcessMessage_ClearCommandClearsRoutedAgentSession(t *testing.T) {
 	if got := supportAgent.Sessions.GetSummary(sessionKey); got != "" {
 		t.Fatalf("support summary = %q, want empty", got)
 	}
-	if got := mainAgent.Sessions.GetHistory(sessionKey); len(got) != len(mainHistory) {
+	if got := mainAgent.Sessions.GetHistory(mainKey); len(got) != len(mainHistory) {
 		t.Fatalf("main history len = %d, want %d", len(got), len(mainHistory))
 	} else if got[0].Role != mainHistory[0].Role {
 		t.Fatalf("main history[0].Role = %q, want %q", got[0].Role, mainHistory[0].Role)
 	} else if got[0].Content != mainHistory[0].Content {
 		t.Fatalf("main history[0].Content = %q, want %q", got[0].Content, mainHistory[0].Content)
 	}
-	if got := mainAgent.Sessions.GetSummary(sessionKey); got != "main summary" {
+	if got := mainAgent.Sessions.GetSummary(mainKey); got != "main summary" {
 		t.Fatalf("main summary = %q, want %q", got, "main summary")
 	}
 }

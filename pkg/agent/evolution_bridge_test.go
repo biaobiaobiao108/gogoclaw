@@ -1105,7 +1105,7 @@ func TestEvolutionBridge_ScheduledColdPathSeedsConfiguredAgentWorkspaces(t *test
 	defer bridge.Close()
 
 	got := bridge.scheduledColdPathWorkspaces()
-	want := []string{defaultWorkspace, workerWorkspace}
+	want := []string{defaultWorkspace}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("scheduled workspaces = %v, want %v", got, want)
 	}

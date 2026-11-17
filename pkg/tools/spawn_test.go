@@ -92,6 +92,9 @@ func TestSpawnTool_Execute_ValidTask(t *testing.T) {
 		t.Error("SpawnTool should return async result")
 	}
 	<-spawner.done
+	if spawner.lastConfig.Model != "" {
+		t.Fatalf("target agent model overridden: %q", spawner.lastConfig.Model)
+	}
 	if spawner.lastConfig.TargetAgentID != "research" {
 		t.Errorf("TargetAgentID = %q, want research", spawner.lastConfig.TargetAgentID)
 	}

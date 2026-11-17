@@ -64,7 +64,7 @@ The launcher starts and supervises its gateway. Use either the `launcher` profil
 
 GoGoClaw takes an operating-system lock in its home directory. The launcher itself does not take this lock; its managed gateway does, so the supported launcher-plus-gateway setup uses one lock. A standalone gateway or CLI Agent that tries to use an already locked home exits with an “already using this data directory” error. If the launcher starts while a standalone gateway or Agent holds the lock, its managed gateway will fail to start until that process exits. The lock is released automatically when the owning process exits, including after a crash; the `.gogoclaw.instance.lock` file may remain in the home directory and should not be removed while GoGoClaw is running.
 
-`GOGOCLAW_HOME` selects the shared GoGoClaw home for the launcher, gateway, and CLI. `GOGOCLAW_CONFIG` changes the config file path but does not change the home directory used for locking. Workspace paths are not locked separately. If separate installations use different homes while pointing `agents.defaults.workspace` or an agent's `workspace` to the same external directory, the home locks cannot detect that overlap; do not run those installations at the same time.
+`GOGOCLAW_HOME` selects the shared GoGoClaw home for the launcher, gateway, and CLI. `GOGOCLAW_CONFIG` changes the config file path but does not change the home directory used for locking. Workspace paths are not locked separately. If separate installations use different homes while pointing `agents.defaults.workspace` to the same external directory, the home locks cannot detect that overlap; do not run those installations at the same time.
 
 ## Direct Docker Run On A NAS
 

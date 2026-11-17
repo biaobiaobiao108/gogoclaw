@@ -213,8 +213,7 @@ func TestMigration_Integration_PreservesAllAgentsFields(t *testing.T) {
 				{
 					"id": "special-agent",
 					"default": false,
-					"name": "Special Agent",
-					"workspace": "/special/workspace"
+					"name": "Special Agent"
 				}
 			]
 		},
@@ -304,9 +303,6 @@ func TestMigration_Integration_PreservesAllAgentsFields(t *testing.T) {
 	}
 	if cfg.Agents.List[0].ID != "special-agent" {
 		t.Errorf("Agent.ID = %q, want %q", cfg.Agents.List[0].ID, "special-agent")
-	}
-	if cfg.Agents.List[0].Workspace != "/special/workspace" {
-		t.Errorf("Agent.Workspace = %q, want %q", cfg.Agents.List[0].Workspace, "/special/workspace")
 	}
 
 	// Workspace should have default since it was empty in legacy config

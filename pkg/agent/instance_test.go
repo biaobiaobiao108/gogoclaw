@@ -1126,11 +1126,11 @@ Use frontmatter identity.
 		Skills: []string{"config-skill"},
 	}, &cfg.Agents.Defaults, cfg, &mockProvider{})
 
-	if agent.Model != "frontmatter-model" {
-		t.Fatalf("agent.Model = %q, want frontmatter-model", agent.Model)
+	if agent.Model != "config-model" {
+		t.Fatalf("agent.Model = %q, want config-model", agent.Model)
 	}
-	if len(agent.SkillsFilter) != 1 || agent.SkillsFilter[0] != "frontmatter-skill" {
-		t.Fatalf("agent.SkillsFilter = %v, want [frontmatter-skill]", agent.SkillsFilter)
+	if len(agent.SkillsFilter) != 0 {
+		t.Fatalf("agent.SkillsFilter = %v, want intersection to be empty", agent.SkillsFilter)
 	}
 	if !agent.AllowsMCPServer("github") {
 		t.Fatal("expected github MCP server to be allowed from frontmatter")

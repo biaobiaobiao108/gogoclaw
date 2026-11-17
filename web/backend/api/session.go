@@ -22,7 +22,6 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/messageutil"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/routing"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/seahorse"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
@@ -1173,38 +1172,11 @@ func (h *Handler) sessionsDir() (string, error) {
 }
 
 func (h *Handler) sessionDirs() ([]string, error) {
-	cfg, err := config.LoadConfig(h.configPath)
+	dir, err := h.sessionsDir()
 	if err != nil {
 		return nil, err
 	}
-	defaultWorkspace := resolveWorkspacePath(cfg.Agents.Defaults.Workspace)
-	workspaces := []string{defaultWorkspace}
-	for _, agentCfg := range cfg.Agents.List {
-		workspace := strings.TrimSpace(agentCfg.Workspace)
-		if workspace == "" {
-			id := routing.NormalizeAgentID(agentCfg.ID)
-			if strings.TrimSpace(agentCfg.ID) == "" || id == routing.DefaultAgentID || agentCfg.Default {
-				workspace = defaultWorkspace
-			} else {
-				workspace = filepath.Join(defaultWorkspace, "..", "workspace-"+id)
-			}
-		} else {
-			workspace = resolveWorkspacePath(workspace)
-		}
-		workspaces = append(workspaces, workspace)
-	}
-	seen := make(map[string]struct{}, len(workspaces))
-	dirs := make([]string, 0, len(workspaces))
-	for _, workspace := range workspaces {
-		dir := resolveSessionsDir(workspace)
-		clean := filepath.Clean(dir)
-		if _, ok := seen[clean]; ok {
-			continue
-		}
-		seen[clean] = struct{}{}
-		dirs = append(dirs, clean)
-	}
-	return dirs, nil
+	return []string{filepath.Clean(dir)}, nil
 }
 
 func (h *Handler) sessionDirForSession(sessionID string) (string, error) {

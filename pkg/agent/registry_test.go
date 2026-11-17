@@ -253,8 +253,8 @@ Research agent.
 	cfg := testCfg([]config.AgentConfig{
 		{ID: "main", Default: true, Workspace: mainWorkspace},
 		{
-			ID:        "research",
-			Workspace: researchWorkspace,
+			ID:    "research",
+			Tools: []string{"read_file", "write_file", "web_search", "web_fetch", "message"},
 		},
 	})
 	cfg.Agents.Defaults.Workspace = mainWorkspace
@@ -310,8 +310,8 @@ Research agent.
 	cfg := testCfg([]config.AgentConfig{
 		{ID: "main", Default: true, Workspace: mainWorkspace},
 		{
-			ID:        "research",
-			Workspace: researchWorkspace,
+			ID:    "research",
+			Tools: []string{"web"},
 		},
 	})
 	cfg.Agents.Defaults.Workspace = mainWorkspace

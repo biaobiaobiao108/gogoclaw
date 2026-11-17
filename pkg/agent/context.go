@@ -26,6 +26,7 @@ import (
 
 type ContextBuilder struct {
 	workspace           string
+	roleInstructions    string
 	skillsLoader        *skills.SkillsLoader
 	memory              *MemoryStore
 	splitOnMarker       bool
@@ -269,6 +270,15 @@ func (cb *ContextBuilder) buildSystemPromptParts(opts systemPromptBuildOptions) 
 			Content: bootstrapContent,
 			Stable:  true,
 			Cache:   PromptCacheEphemeral,
+		})
+	}
+
+	if instructions := strings.TrimSpace(cb.roleInstructions); instructions != "" {
+		add(PromptPart{
+			ID: "instruction.agent_role", Layer: PromptLayerInstruction, Slot: PromptSlotWorkspace,
+			Source: PromptSource{ID: PromptSourceWorkspace, Name: "agent:role"},
+			Title:  "agent role", Content: "# Agent role\n\n" + instructions,
+			Stable: true, Cache: PromptCacheEphemeral,
 		})
 	}
 
