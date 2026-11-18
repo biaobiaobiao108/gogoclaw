@@ -18,6 +18,7 @@ type ToolEntry struct {
 	Tool   Tool
 	IsCore bool
 	TTL    int
+	used   bool
 }
 
 type ToolRegistry struct {
@@ -147,6 +148,10 @@ func (r *ToolRegistry) SetMediaStore(store media.MediaStore) {
 // PromoteTools atomically sets the TTL for multiple non-core tools.
 // This prevents a concurrent TickTTL from decrementing between promotions.
 func (r *ToolRegistry) PromoteTools(names []string, ttl int) {
+	r.promoteTools(names, ttl, false)
+}
+
+func (r *ToolRegistry) promoteTools(names []string, ttl int, used bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	promoted := 0
@@ -154,6 +159,7 @@ func (r *ToolRegistry) PromoteTools(names []string, ttl int) {
 		if entry, exists := r.tools[name]; exists && r.toolAllowedLocked(name) {
 			if !entry.IsCore {
 				entry.TTL = ttl
+				entry.used = entry.used || used
 				promoted++
 			}
 		}
@@ -165,23 +171,21 @@ func (r *ToolRegistry) PromoteTools(names []string, ttl int) {
 	)
 }
 
-// RestoreDiscoveredTools exposes previously discovered tools that are still
-// registered and allowed. Their definitions come from this registry.
-func (r *ToolRegistry) RestoreDiscoveredTools(names []string) {
+// RestoreUsedDiscoveredTools loads the current definitions for previously used tools.
+func (r *ToolRegistry) RestoreUsedDiscoveredTools(names []string) {
 	if len(names) > 0 {
-		r.PromoteTools(names, taskToolLifetime)
+		r.promoteTools(names, taskToolLifetime, true)
 	}
 }
 
-// DiscoveredTools returns the names that can be restored in another turn.
-// Tools promoted with a limited TTL stay local to this turn.
-func (r *ToolRegistry) DiscoveredTools() []string {
+// UsedDiscoveredTools returns the names eligible for reuse in another turn.
+func (r *ToolRegistry) UsedDiscoveredTools() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	var names []string
 	for name, entry := range r.tools {
-		if !entry.IsCore && entry.TTL == taskToolLifetime && r.toolAllowedLocked(name) {
+		if entry.used && entry.TTL == taskToolLifetime && r.toolAllowedLocked(name) {
 			names = append(names, name)
 		}
 	}
@@ -274,17 +278,22 @@ func (r *ToolRegistry) SnapshotHiddenTools() HiddenToolSnapshot {
 }
 
 func (r *ToolRegistry) Get(name string) (Tool, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	entry, ok := r.tools[name]
-	if !ok {
-		return nil, false
-	}
-	// Hidden tools with expired TTL are not callable.
-	if !entry.IsCore && entry.TTL == 0 {
+	entry := r.getVisibleEntry(name)
+	if entry == nil {
 		return nil, false
 	}
 	return entry.Tool, true
+}
+
+func (r *ToolRegistry) getVisibleEntry(name string) *ToolEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entry := r.tools[name]
+	// Hidden tools with expired TTL are not callable.
+	if entry == nil || (!entry.IsCore && entry.TTL == 0) {
+		return nil
+	}
+	return entry
 }
 
 func (r *ToolRegistry) Execute(ctx context.Context, name string, args map[string]any) *ToolResult {
@@ -307,8 +316,8 @@ func (r *ToolRegistry) ExecuteWithContext(
 			"tool": name,
 		})
 
-	tool, ok := r.Get(name)
-	if !ok {
+	entry := r.getVisibleEntry(name)
+	if entry == nil {
 		message := fmt.Sprintf("tool %q not found", name)
 		if r.HasRegistered(name) {
 			message = fmt.Sprintf("tool %q has not been discovered for this task. Use tool_search with this tool name, then retry using the advertised schema. If discovery fails, report that this tool provided no result.", name)
@@ -322,12 +331,19 @@ func (r *ToolRegistry) ExecuteWithContext(
 		return result
 	}
 
+	tool := entry.Tool
 	// Validate arguments against the tool's declared schema.
 	if err := validateToolArgs(tool.Parameters(), args); err != nil {
 		logger.WarnCF("tool", "Tool argument validation failed",
 			map[string]any{"tool": name, "error": err.Error()})
 		return ErrorResult(fmt.Sprintf("invalid arguments for tool %q: %s", name, err)).
 			WithError(fmt.Errorf("argument validation failed: %w", err))
+	}
+
+	if !entry.IsCore {
+		r.mu.Lock()
+		entry.used = true
+		r.mu.Unlock()
 	}
 
 	// Inject channel/chatID into ctx so tools read them via ToolChannel(ctx)/ToolChatID(ctx).
@@ -543,6 +559,7 @@ func (r *ToolRegistry) Clone() *ToolRegistry {
 			Tool:   tool,
 			IsCore: entry.IsCore,
 			TTL:    entry.TTL,
+			used:   entry.used,
 		}
 	}
 	return clone

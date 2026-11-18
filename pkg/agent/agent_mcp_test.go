@@ -51,7 +51,13 @@ func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 				StructuredContent: map[string]any{"id": "note-123", "version": 7},
 			}, nil, nil
 		})
+	archiveTool := &sdkmcp.Tool{Name: "search_notes_archive", Description: "Search archived notes"}
+	sdkmcp.AddTool(server, archiveTool,
+		func(_ context.Context, _ *sdkmcp.CallToolRequest, _ map[string]any) (*sdkmcp.CallToolResult, any, error) {
+			return &sdkmcp.CallToolResult{}, nil, nil
+		})
 	toolName := agenttools.NewMCPTool(nil, "象映笔记", &sdkmcp.Tool{Name: "search_notes"}).Name()
+	archiveName := agenttools.NewMCPTool(nil, "象映笔记", archiveTool).Name()
 	httpServer := httptest.NewServer(sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server }, &sdkmcp.StreamableHTTPOptions{JSONResponse: true}))
 	defer httpServer.Close()
 	provider := &mcpResultCaptureProvider{sequenceProvider: sequenceProvider{responses: []*providers.LLMResponse{
@@ -59,6 +65,7 @@ func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 		{ToolCalls: []providers.ToolCall{{ID: "search", Name: agenttools.BM25SearchToolName, Arguments: map[string]any{"query": "search notes"}}}},
 		{ToolCalls: []providers.ToolCall{{ID: "echo", Name: toolName, Arguments: map[string]any{"query": "常熟阿诺"}}}},
 		{Content: "done"},
+		{Content: "unrelated reply"},
 		{ToolCalls: []providers.ToolCall{{ID: "follow-up", Name: toolName, Arguments: map[string]any{"query": "follow-up"}}}},
 		{Content: "done"},
 	}}}
@@ -76,6 +83,14 @@ func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	requestHasTool := func(request int, name string) bool {
+		return slices.ContainsFunc(provider.toolDefs[request], func(def providers.ToolDefinition) bool {
+			return def.Function.Name == name
+		})
+	}
+	if !requestHasTool(2, archiveName) {
+		t.Fatal("search candidate should be available in the current turn")
+	}
 	records := ts.toolExecutionsSnapshot()
 	if len(records) != 3 || records[0].Name != toolName || records[0].Success ||
 		!strings.Contains(records[0].ErrorSummary, "tool_search") || records[2].Name != toolName || !records[2].Success {
@@ -88,8 +103,8 @@ func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 	if checkpoint.Status != "completed" || checkpoint.EndReason != string(TurnEndReasonCompleted) || result.finalContent != "done" {
 		t.Fatalf("status = %q, reason = %q, response = %q", checkpoint.Status, checkpoint.EndReason, result.finalContent)
 	}
-	if !slices.Equal(checkpoint.DiscoveredTools, []string{toolName}) {
-		t.Fatalf("discovered tools = %v, want [%s]", checkpoint.DiscoveredTools, toolName)
+	if !slices.Equal(checkpoint.UsedDiscoveredTools, []string{toolName}) {
+		t.Fatalf("used discovered tools = %v, want [%s]", checkpoint.UsedDiscoveredTools, toolName)
 	}
 	found := false
 	for _, msg := range agent.Sessions.GetHistory(ts.sessionKey) {
@@ -111,15 +126,16 @@ func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 		if _, err := al.runTurn(context.Background(), next, NewPipeline(al)); err != nil {
 			t.Fatal(err)
 		}
-		pos := slices.IndexFunc(provider.toolDefs[firstRequest], func(def providers.ToolDefinition) bool {
-			return def.Function.Name == toolName
-		})
-		if (pos >= 0) != wantTool {
-			t.Fatalf("turn %s: tool exposure = %t, want %t", turnID, pos >= 0, wantTool)
+		if visible := requestHasTool(firstRequest, toolName); visible != wantTool {
+			t.Fatalf("turn %s: tool exposure = %t, want %t", turnID, visible, wantTool)
+		}
+		if requestHasTool(firstRequest, archiveName) {
+			t.Fatalf("turn %s: unused search candidate was carried over", turnID)
 		}
 		return next
 	}
 
+	runNextTurn("real-mcp", "mcp-unrelated-turn", true)
 	followUp := runNextTurn("real-mcp", "mcp-follow-up", true)
 	if records := followUp.toolExecutionsSnapshot(); len(records) != 1 || records[0].Name != toolName || !records[0].Success {
 		t.Fatalf("follow-up should call the discovered tool directly: %+v", records)
@@ -132,8 +148,8 @@ func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(checkpoint.DiscoveredTools) != 0 {
-		t.Fatalf("removed tool remained in the checkpoint: %v", checkpoint.DiscoveredTools)
+	if len(checkpoint.UsedDiscoveredTools) != 0 {
+		t.Fatalf("removed tool remained in the checkpoint: %v", checkpoint.UsedDiscoveredTools)
 	}
 }
 

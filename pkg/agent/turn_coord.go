@@ -559,9 +559,9 @@ func (ts *turnState) saveTurnCheckpoint(status, tool string) error {
 		starting := status == "running" && checkpoint.Iteration == 0
 		if ts.tools != nil {
 			if starting {
-				ts.tools.RestoreDiscoveredTools(previous.DiscoveredTools)
+				ts.tools.RestoreUsedDiscoveredTools(previous.UsedDiscoveredTools)
 			}
-			checkpoint.DiscoveredTools = ts.tools.DiscoveredTools()
+			checkpoint.UsedDiscoveredTools = ts.tools.UsedDiscoveredTools()
 		}
 		if previous.TurnID == ts.turnID && !starting {
 			checkpoint.Events = append(checkpoint.Events, previous.Events...)
