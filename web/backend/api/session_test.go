@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
@@ -111,11 +112,12 @@ func TestHandleListSessions_SQLiteStorage(t *testing.T) {
 	if items[0].MessageCount != 2 {
 		t.Fatalf("items[0].MessageCount = %d, want 2", items[0].MessageCount)
 	}
-	if items[0].Title != "Explain why the history API is empty after migration." {
+	expectedTitle := session.FallbackTitle("Explain why the history API is empty after migration.")
+	if items[0].Title != expectedTitle {
 		t.Fatalf(
 			"items[0].Title = %q, want %q",
 			items[0].Title,
-			"Explain why the history API is empty after migration.",
+			expectedTitle,
 		)
 	}
 	if items[0].Preview != "Explain why the history API is empty after migration." {
@@ -336,12 +338,28 @@ func TestHandleListSessions_TitleUsesFirstUserMessage(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("len(items) = %d, want 1", len(items))
 	}
-	expectedTitle := truncateRunes("fallback preview", maxSessionTitleRunes)
+	expectedTitle := session.FallbackTitle("fallback preview")
 	if items[0].Title != expectedTitle {
 		t.Fatalf("items[0].Title = %q", items[0].Title)
 	}
 	if items[0].Preview != "fallback preview" {
 		t.Fatalf("items[0].Preview = %q, want %q", items[0].Preview, "fallback preview")
+	}
+}
+
+func TestBuildSessionListItemUsesCompactFallbackTitle(t *testing.T) {
+	message := "请帮我看看 Bun 前端构建迁移后样式和开发服务器不一致的问题，并给出修复方案"
+	item := buildSessionListItem("test", sessionFile{
+		Messages: []providers.Message{{Role: "user", Content: message}},
+	}, 0)
+	if utf8.RuneCountInString(item.Title) > session.MaxTitleRunes {
+		t.Fatalf("title has %d runes, want at most %d: %q", utf8.RuneCountInString(item.Title), session.MaxTitleRunes, item.Title)
+	}
+	if strings.HasPrefix(item.Title, "请帮我") {
+		t.Fatalf("title retained request framing: %q", item.Title)
+	}
+	if item.Preview != message {
+		t.Fatalf("preview = %q, want original message", item.Preview)
 	}
 }
 
@@ -442,6 +460,32 @@ func TestEnsureSessionTitlePersistsWithoutOverwritingManualTitle(t *testing.T) {
 	meta = h.readChatUIMeta(dir).Sessions["auto-session"]
 	if meta.Title != "generated title" || meta.TitleSource != "generated" {
 		t.Fatalf("generated title metadata = %+v", meta)
+	}
+}
+
+func TestSessionMetadataPreservesGeneratedTitleVersion(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	h := NewHandler(configPath)
+	if err := h.updateChatUISessionMeta(dir, "versioned-session", func(meta *chatUISessionMeta) error {
+		meta.Title = "Bun 前端构建迁移"
+		meta.TitleSource = "generated"
+		meta.TitleVersion = session.TitleVersion
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.updateChatUISessionMeta(dir, "versioned-session", func(meta *chatUISessionMeta) error {
+		meta.Pinned = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	meta := h.readChatUIMeta(dir).Sessions["versioned-session"]
+	if meta.TitleVersion != session.TitleVersion {
+		t.Fatalf("title version = %d, want %d", meta.TitleVersion, session.TitleVersion)
 	}
 }
 

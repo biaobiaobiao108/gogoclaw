@@ -11,27 +11,31 @@ import (
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/messageutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
 
 func buildSessionListItem(sessionID string, sess sessionFile, toolFeedbackMaxArgsLength int) sessionListItem {
 	transcript := visibleSessionMessages(sessionID, sess.Messages, toolFeedbackMaxArgsLength)
 
-	preview := ""
+	previewText := ""
 	for _, msg := range transcript {
 		if msg.Role == "user" {
-			preview = sessionChatMessagePreview(msg)
+			previewText = sessionChatMessagePreview(msg)
 		}
-		if preview != "" {
+		if previewText != "" {
 			break
 		}
 	}
-	preview = truncateRunes(preview, maxSessionTitleRunes)
+	preview := truncateRunes(previewText, maxSessionPreviewRunes)
 
 	if preview == "" {
 		preview = "(empty)"
 	}
-	title := preview
+	title := session.FallbackTitle(previewText)
+	if title == "" {
+		title = preview
+	}
 
 	return sessionListItem{
 		ID:           sessionID,
@@ -77,9 +81,13 @@ func (h *Handler) readJSONLSessionListItem(dir, key, id string, maxArgs int) (se
 				if msg.Role != "user" {
 					continue
 				}
-				preview := truncateRunes(sessionChatMessagePreview(msg), maxSessionTitleRunes)
+				previewText := sessionChatMessagePreview(msg)
+				preview := truncateRunes(previewText, maxSessionPreviewRunes)
 				if preview != "" {
-					item.Title = preview
+					item.Title = session.FallbackTitle(previewText)
+					if item.Title == "" {
+						item.Title = preview
+					}
 					item.Preview = preview
 					hasTitle = true
 					break

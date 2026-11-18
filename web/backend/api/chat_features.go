@@ -43,11 +43,12 @@ type chatUIMetaFile struct {
 }
 
 type chatUISessionMeta struct {
-	Title       string            `json:"title,omitempty"`
-	TitleSource string            `json:"title_source,omitempty"`
-	Pinned      bool              `json:"pinned,omitempty"`
-	Archived    bool              `json:"archived,omitempty"`
-	Feedback    map[string]string `json:"feedback,omitempty"`
+	Title        string            `json:"title,omitempty"`
+	TitleSource  string            `json:"title_source,omitempty"`
+	TitleVersion int               `json:"title_version,omitempty"`
+	Pinned       bool              `json:"pinned,omitempty"`
+	Archived     bool              `json:"archived,omitempty"`
+	Feedback     map[string]string `json:"feedback,omitempty"`
 }
 
 type sessionChatSource struct {
@@ -293,6 +294,7 @@ func (h *Handler) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 		if body.Title != nil {
 			item.Title = strings.TrimSpace(*body.Title)
 			item.TitleSource = "manual"
+			item.TitleVersion = 0
 		}
 		if body.Pinned != nil {
 			item.Pinned = *body.Pinned

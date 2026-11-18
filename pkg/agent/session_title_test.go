@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
@@ -23,20 +25,35 @@ type titleTestProvider struct {
 }
 
 type titleRetryProvider struct {
-	limits []int
-	levels []any
+	limits   []int
+	levels   []any
+	messages []providers.Message
 }
 
 func (p *titleRetryProvider) GetDefaultModel() string { return "model" }
 func (p *titleRetryProvider) SupportsThinking() bool  { return true }
-func (p *titleRetryProvider) Chat(_ context.Context, _ []providers.Message, _ []providers.ToolDefinition, _ string, opts map[string]any) (*providers.LLMResponse, error) {
+func (p *titleRetryProvider) Chat(_ context.Context, messages []providers.Message, _ []providers.ToolDefinition, _ string, opts map[string]any) (*providers.LLMResponse, error) {
 	limit := opts["max_tokens"].(int)
 	p.limits = append(p.limits, limit)
 	p.levels = append(p.levels, opts["thinking_level"])
+	p.messages = messages
 	if limit == 2048 {
 		return &providers.LLMResponse{FinishReason: "length"}, nil
 	}
 	return &providers.LLMResponse{Content: "重试标题"}, nil
+}
+
+type staticTitleProvider struct {
+	response string
+	calls    int
+	messages []providers.Message
+}
+
+func (p *staticTitleProvider) GetDefaultModel() string { return "model" }
+func (p *staticTitleProvider) Chat(_ context.Context, messages []providers.Message, _ []providers.ToolDefinition, _ string, _ map[string]any) (*providers.LLMResponse, error) {
+	p.calls++
+	p.messages = append([]providers.Message(nil), messages...)
+	return &providers.LLMResponse{Content: p.response}, nil
 }
 
 func TestSessionTitleRetriesEmptyResponse(t *testing.T) {
@@ -63,18 +80,154 @@ func TestSessionTitleRetriesEmptyResponse(t *testing.T) {
 	if provider.levels[0] != "low" || provider.levels[1] != "low" {
 		t.Fatalf("thinking levels = %v", provider.levels)
 	}
+	if len(provider.messages) != 2 || provider.messages[1].Content != "测试" {
+		t.Fatalf("title messages = %+v", provider.messages)
+	}
+	if !strings.Contains(provider.messages[0].Content, "Chinese 8-20 characters") ||
+		!strings.Contains(provider.messages[0].Content, "English 2-6 words") {
+		t.Fatalf("title prompt = %q", provider.messages[0].Content)
+	}
 	meta, err := store.ListChatUIMeta(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	var result struct {
-		Title string `json:"title"`
+		Title   string `json:"title"`
+		Version int    `json:"title_version"`
 	}
 	if err := json.Unmarshal(meta["test"], &result); err != nil {
 		t.Fatal(err)
 	}
 	if result.Title != "重试标题" {
 		t.Fatalf("title = %q", result.Title)
+	}
+	if result.Version != session.TitleVersion {
+		t.Fatalf("title version = %d, want %d", result.Version, session.TitleVersion)
+	}
+}
+
+func TestSessionTitleUsesFirstMessageAndNormalizesOutput(t *testing.T) {
+	root := t.TempDir()
+	store, err := memory.NewSQLiteStore(filepath.Join(root, "sessions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	key, id := "agent:main:pico:direct:pico:test", "test"
+	firstMessage := "请帮我看看 Bun 前端构建迁移后样式和开发服务器不一致的问题"
+	if err := store.AddFullMessage(context.Background(), key, providers.Message{ID: "turn-user", Role: "user", Content: firstMessage}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &staticTitleProvider{response: "标题：这是一个非常长而且不应该完整显示的自动生成标题。"}
+	agent := &AgentInstance{ID: "main", Workspace: root, Sessions: session.NewStoreBackend(store)}
+	al := &AgentLoop{}
+	al.startSessionTitle(
+		&turnState{agent: agent, agentID: "main", sessionKey: key, turnID: "turn", channel: "pico", chatID: "pico:" + id, userMessage: "当前轮消息不应作为标题输入"},
+		&turnExecution{activeProvider: provider, activeModel: "model"},
+	)
+	if !al.waitForBackgroundWorkers(5 * time.Second) {
+		t.Fatal("background timeout")
+	}
+	if provider.calls != 1 || len(provider.messages) != 2 || provider.messages[1].Content != firstMessage {
+		t.Fatalf("title provider calls = %d, messages = %+v", provider.calls, provider.messages)
+	}
+	data, err := store.ChatUIMeta(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta storedSessionTitle
+	if err := json.Unmarshal(data, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.Source != "generated" || meta.Version != session.TitleVersion {
+		t.Fatalf("title metadata = %+v", meta)
+	}
+	if utf8.RuneCountInString(meta.Title) > session.MaxTitleRunes {
+		t.Fatalf("title has %d runes, want at most %d: %q", utf8.RuneCountInString(meta.Title), session.MaxTitleRunes, meta.Title)
+	}
+}
+
+func TestSessionTitleRefreshesOlderGeneratedTitleFromFirstMessage(t *testing.T) {
+	root := t.TempDir()
+	store, err := memory.NewSQLiteStore(filepath.Join(root, "sessions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	key, id := "agent:main:pico:direct:pico:test", "test"
+	firstMessage := "请帮我排查 Bun 开发服务器代理问题"
+	for _, message := range []providers.Message{
+		{ID: "first", Role: "user", Content: firstMessage},
+		{ID: "answer", Role: "assistant", Content: "我先检查代理配置"},
+		{ID: "second", Role: "user", Content: "继续排查"},
+	} {
+		if err := store.AddFullMessage(context.Background(), key, message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.UpdateChatUIMeta(context.Background(), id, func([]byte) ([]byte, error) {
+		return []byte(`{"title":"一个旧版本生成的很长很长而且不合适的标题","title_source":"generated","title_version":1}`), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &staticTitleProvider{response: "Bun 开发代理排查"}
+	agent := &AgentInstance{ID: "main", Workspace: root, Sessions: session.NewStoreBackend(store)}
+	al := &AgentLoop{}
+	al.startSessionTitle(
+		&turnState{agent: agent, agentID: "main", sessionKey: key, turnID: "turn", channel: "pico", chatID: "pico:" + id, userMessage: "继续排查"},
+		&turnExecution{activeProvider: provider, activeModel: "model"},
+	)
+	if !al.waitForBackgroundWorkers(5 * time.Second) {
+		t.Fatal("background timeout")
+	}
+	if provider.calls != 1 || len(provider.messages) != 2 || provider.messages[1].Content != firstMessage {
+		t.Fatalf("title provider calls = %d, messages = %+v", provider.calls, provider.messages)
+	}
+	data, err := store.ChatUIMeta(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta storedSessionTitle
+	if err := json.Unmarshal(data, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.Title != "Bun 开发代理排查" || meta.Version != session.TitleVersion {
+		t.Fatalf("title metadata = %+v", meta)
+	}
+}
+
+func TestSessionTitleSkipsCurrentGeneratedVersion(t *testing.T) {
+	root := t.TempDir()
+	store, err := memory.NewSQLiteStore(filepath.Join(root, "sessions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	key, id := "agent:main:pico:direct:pico:test", "test"
+	for _, message := range []providers.Message{
+		{ID: "first", Role: "user", Content: "第一条消息"},
+		{ID: "answer", Role: "assistant", Content: "回复"},
+		{ID: "second", Role: "user", Content: "第二条消息"},
+	} {
+		if err := store.AddFullMessage(context.Background(), key, message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.UpdateChatUIMeta(context.Background(), id, func([]byte) ([]byte, error) {
+		body, _ := json.Marshal(storedSessionTitle{Title: "当前标题", Source: "generated", Version: session.TitleVersion})
+		return body, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &staticTitleProvider{response: "不应生成"}
+	agent := &AgentInstance{ID: "main", Workspace: root, Sessions: session.NewStoreBackend(store)}
+	al := &AgentLoop{}
+	al.startSessionTitle(
+		&turnState{agent: agent, agentID: "main", sessionKey: key, turnID: "turn", channel: "pico", chatID: "pico:" + id, userMessage: "第二条消息"},
+		&turnExecution{activeProvider: provider, activeModel: "model"},
+	)
+	if provider.calls != 0 {
+		t.Fatalf("title provider calls = %d, want 0", provider.calls)
 	}
 }
 

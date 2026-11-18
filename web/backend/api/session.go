@@ -123,7 +123,7 @@ const (
 	// Upper bound for legacy JSONL compatibility reads. SQLite sessions do not
 	// use line scanning and are not subject to this limit.
 	maxSessionJSONLLineSize = 64 * 1024 * 1024
-	maxSessionTitleRunes    = 60
+	maxSessionPreviewRunes  = 60
 
 	handledToolResponseSummaryText = "Requested output delivered via tool attachment."
 )

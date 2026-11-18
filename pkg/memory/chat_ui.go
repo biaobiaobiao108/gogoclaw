@@ -26,6 +26,23 @@ func (s *SQLiteStore) ListChatUIMeta(ctx context.Context) (map[string][]byte, er
 	return result, rows.Err()
 }
 
+// ChatUIMeta returns the UI metadata for one public session ID.
+func (s *SQLiteStore) ChatUIMeta(ctx context.Context, sessionID string) ([]byte, error) {
+	var data []byte
+	err := s.db.QueryRowContext(
+		sqliteContext(ctx),
+		`SELECT metadata_json FROM chat_ui_meta WHERE session_id = ?`,
+		sessionID,
+	).Scan(&data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("memory: read chat metadata: %w", err)
+	}
+	return data, nil
+}
+
 // UpdateChatUIMeta serializes the read-modify-write cycle across connections.
 func (s *SQLiteStore) UpdateChatUIMeta(ctx context.Context, sessionID string, update func([]byte) ([]byte, error)) error {
 	return s.updateChatUIMeta(ctx, "", sessionID, update)

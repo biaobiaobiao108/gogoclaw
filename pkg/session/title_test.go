@@ -1,0 +1,60 @@
+package session
+
+import (
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
+
+func TestNormalizeTitle(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "plain", raw: "Bun 前端工具链迁移", want: "Bun 前端工具链迁移"},
+		{name: "first line only", raw: "标题：Bun 构建迁移\n这里是解释", want: "Bun 构建迁移"},
+		{name: "markdown and quotes", raw: "### \"Bun HMR 调研\"。", want: "Bun HMR 调研"},
+		{name: "english label", raw: "Title: Bun build migration", want: "Bun build migration"},
+		{name: "collapses whitespace", raw: "  Bun   前端\t迁移  ", want: "Bun 前端 迁移"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NormalizeTitle(tt.raw); got != tt.want {
+				t.Fatalf("NormalizeTitle(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeTitleTruncatesToSidebarLimit(t *testing.T) {
+	got := NormalizeTitle("这是一个非常长而且不适合显示在会话侧边栏中的自动生成标题，它应该被截断")
+	if utf8.RuneCountInString(got) > MaxTitleRunes {
+		t.Fatalf("title has %d runes, want at most %d: %q", utf8.RuneCountInString(got), MaxTitleRunes, got)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Fatalf("truncated title = %q, want ellipsis", got)
+	}
+}
+
+func TestNormalizeTitleDoesNotSplitEnglishWord(t *testing.T) {
+	got := NormalizeTitle("Investigate inconsistent frontend production build behavior")
+	if got != "Investigate…" {
+		t.Fatalf("truncated title = %q, want a word-boundary truncation", got)
+	}
+}
+
+func TestFallbackTitleRemovesRequestFraming(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want string
+	}{
+		{raw: "请帮我看看 Bun 构建后的样式问题", want: "Bun 构建后的样式问题"},
+		{raw: "Please help me investigate the Bun build issue", want: "investigate the Bun…"},
+	}
+	for _, tt := range tests {
+		if got := FallbackTitle(tt.raw); got != tt.want {
+			t.Fatalf("FallbackTitle(%q) = %q, want %q", tt.raw, got, tt.want)
+		}
+	}
+}
