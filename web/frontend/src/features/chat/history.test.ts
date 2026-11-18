@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test"
 
-import { loadSessionHistory, mergeHistoryMessages } from "./history"
+import {
+  loadSessionHistory,
+  mergeHistoryMessages,
+  refreshPaginatedMessages,
+} from "./history"
 
 describe("mergeHistoryMessages", () => {
   test("reconciles messages received during a disconnect without duplicates", () => {
@@ -81,4 +85,30 @@ test("persisted complete answer replaces a disconnected stream prefix", () => {
       [{ ...saved, content: "comp", timestamp: 1 }],
     ),
   ).toEqual([saved])
+})
+
+test("refresh keeps older pages while replacing the overlapping latest page", () => {
+  const earlier = {
+    id: "older",
+    role: "user" as const,
+    content: "old",
+    timestamp: 1,
+  }
+  const recent = {
+    id: "recent",
+    role: "user" as const,
+    content: "new",
+    timestamp: 2,
+  }
+  const answer = {
+    id: "answer",
+    role: "assistant" as const,
+    content: "finished",
+    timestamp: 3,
+  }
+  const draft = { ...answer, id: "draft", content: "fin" }
+
+  expect(
+    refreshPaginatedMessages([recent, answer], [earlier, recent, draft]),
+  ).toEqual([earlier, recent, answer])
 })

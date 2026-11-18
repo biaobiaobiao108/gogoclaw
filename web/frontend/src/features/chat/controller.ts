@@ -16,6 +16,7 @@ import {
   loadOlderSessionHistory,
   loadSessionHistory,
   mergeHistoryMessages,
+  refreshPaginatedMessages,
 } from "@/features/chat/history"
 import { handlePicoMessage, type PicoMessage } from "@/features/chat/protocol"
 import {
@@ -232,8 +233,12 @@ export async function connectChat() {
               recentPlan: history.plan,
               turnHistory: history.turnHistory,
               branches: history.branches ?? [],
-              historyCursor: history.nextCursor,
-              hasOlderHistory: history.hasOlder,
+              historyCursor: prev.hasLoadedOlderHistory
+                ? prev.historyCursor
+                : history.nextCursor,
+              hasOlderHistory: prev.hasLoadedOlderHistory
+                ? prev.hasOlderHistory
+                : history.hasOlder,
             }))
           })
           .catch((error) => {
@@ -267,7 +272,7 @@ export async function connectChat() {
         const deliveryId = handlePicoMessage(message, sessionId, {
           onBranchUpdated: () => {
             clearBranchSwitchTimer()
-            void refreshActiveSessionHistory(sessionId)
+            void refreshActiveSessionHistory(sessionId, true)
           },
           onRequestError: (requestId) => {
             if (requestId.startsWith("branch-")) clearBranchSwitchTimer()
@@ -280,7 +285,10 @@ export async function connectChat() {
             if (wasActive) pendingStatusWatchUntil = 0
             pendingOptimisticActions.clear()
             if (wasActive || hadPendingOptimisticAction)
-              void refreshActiveSessionHistory(sessionId)
+              void refreshActiveSessionHistory(
+                sessionId,
+                hadPendingOptimisticAction,
+              )
           },
         })
         if (deliveryId && socket.readyState === WebSocket.OPEN) {
@@ -707,10 +715,17 @@ export function retryChatMessage(id: string) {
   }
 }
 
-export async function refreshActiveSessionHistory(sessionId?: string) {
+export async function refreshActiveSessionHistory(
+  sessionId?: string,
+  replaceHistory = false,
+) {
   const expectedSessionId = sessionId ?? activeSessionIdRef
   const selection = sessionSelectionGeneration
   const refresh = ++historyRefreshGeneration
+  if (replaceHistory) {
+    historyGeneration += 1
+    updateChatStore({ isLoadingOlderHistory: false })
+  }
   const initialState = getChatState()
   try {
     const history = await loadSessionHistory(expectedSessionId)
@@ -727,15 +742,25 @@ export async function refreshActiveSessionHistory(sessionId?: string) {
     ) {
       return
     }
+    const preservePagination = !replaceHistory && current.hasLoadedOlderHistory
     updateChatStore({
-      messages: history.messages,
+      messages: preservePagination
+        ? refreshPaginatedMessages(history.messages, current.messages)
+        : history.messages,
       ...(history.contextUsage ? { contextUsage: history.contextUsage } : {}),
       recentActivities: history.activities,
       recentPlan: history.plan,
       turnHistory: history.turnHistory,
       branches: history.branches ?? [],
-      historyCursor: history.nextCursor,
-      hasOlderHistory: history.hasOlder,
+      historyCursor: preservePagination
+        ? current.historyCursor
+        : history.nextCursor,
+      hasOlderHistory: preservePagination
+        ? current.hasOlderHistory
+        : history.hasOlder,
+      ...(replaceHistory
+        ? { hasLoadedOlderHistory: false, isLoadingOlderHistory: false }
+        : {}),
       isTyping: false,
       activeTurn: undefined,
       pendingApproval: undefined,
@@ -861,6 +886,7 @@ export async function loadOlderChatHistory(): Promise<boolean> {
       messages: mergeHistoryMessages(history.messages, prev.messages),
       historyCursor: history.nextCursor,
       hasOlderHistory: history.hasOlder,
+      hasLoadedOlderHistory: true,
       historyError: false,
       isLoadingOlderHistory: false,
     }))
@@ -950,6 +976,7 @@ export async function switchChatSession(sessionId: string, title?: string) {
       contextUsage: history.contextUsage,
       historyCursor: history.nextCursor,
       hasOlderHistory: history.hasOlder,
+      hasLoadedOlderHistory: false,
       isLoadingOlderHistory: false,
       historyError: false,
     })
@@ -983,6 +1010,7 @@ export async function newChatSession() {
     contextUsage: undefined,
     historyCursor: undefined,
     hasOlderHistory: false,
+    hasLoadedOlderHistory: false,
     isLoadingOlderHistory: false,
     historyError: false,
   })

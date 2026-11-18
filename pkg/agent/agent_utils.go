@@ -8,6 +8,7 @@ import (
 	"maps"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -688,7 +689,7 @@ func (al *AgentLoop) waitForProviderIdle(
 	if al.activeReqCond == nil {
 		al.activeReqCond = sync.NewCond(&al.activeReqMu)
 	}
-	if al.activeReqCount == 0 && al.providerRefs[provider] == 0 {
+	if al.providerRefs[provider] == 0 {
 		al.activeReqMu.Unlock()
 		return true
 	}
@@ -713,13 +714,13 @@ func (al *AgentLoop) waitForProviderIdle(
 		})
 		defer stopWatch()
 	}
-	for al.activeReqCount > 0 || al.providerRefs[provider] > 0 {
+	for al.providerRefs[provider] > 0 {
 		if timedOut || (waitCtx != nil && waitCtx.Err() != nil) {
 			break
 		}
 		al.activeReqCond.Wait()
 	}
-	result := al.activeReqCount == 0 && al.providerRefs[provider] == 0
+	result := al.providerRefs[provider] == 0
 	al.activeReqMu.Unlock()
 	return result
 }
@@ -756,33 +757,36 @@ func (al *AgentLoop) waitForActiveRequests(ctx context.Context, timeout time.Dur
 	return result
 }
 
-func (al *AgentLoop) closeReloadedProvider(ctx context.Context, provider providers.StatefulProvider) {
-	waitCtx := ctx
-	if waitCtx == nil {
-		waitCtx = context.Background()
-	}
-
-	drained := al.waitForProviderIdle(waitCtx, provider, providerReloadGracePeriod)
-	if !drained {
-		fields := map[string]any{"grace_period": providerReloadGracePeriod.String()}
-		if err := waitCtx.Err(); err != nil {
-			fields["error"] = err.Error()
-			logger.WarnCF("agent", "Provider reload interrupted while waiting for in-flight requests", fields)
-		} else {
-			logger.WarnCF("agent", "Provider reload grace period expired with in-flight requests still running", fields)
-		}
-		if !al.startBackground(func() {
-			if !al.waitForProviderIdle(al.backgroundContext(), provider, 10*time.Minute) {
-				logger.WarnCF("agent", "Closing reloaded provider after maximum idle wait", nil)
-			}
-			provider.Close()
-		}) {
-			provider.Close()
-		}
+// Retired registries own their session stores and providers until their users exit.
+func (al *AgentLoop) retireRegistry(ctx context.Context, registry *AgentRegistry) {
+	if registry == nil {
 		return
 	}
-
-	provider.Close()
+	retained := al.GetRegistry().providers()
+	done := make(chan struct{})
+	cleanup := func() {
+		defer close(done)
+		registry.users.Wait()
+		for _, provider := range registry.providers() {
+			if !providerRefComparable(provider) || slices.ContainsFunc(retained, func(current providers.LLMProvider) bool {
+				return providerRefComparable(current) && current == provider
+			}) {
+				continue
+			}
+			al.waitForProviderIdle(context.Background(), provider, 0)
+		}
+		registry.closeExcept(append(retained, al.GetRegistry().providers()...))
+	}
+	if !al.startBackground(cleanup) {
+		go cleanup()
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, providerReloadGracePeriod)
+	defer cancel()
+	select {
+	case <-done:
+	case <-waitCtx.Done():
+		logger.Warnf("retired registry is still draining: %v", waitCtx.Err())
+	}
 }
 
 func makePendingTurnID(sessionKey string, seq uint64) string {
@@ -832,16 +836,4 @@ func filterClientWebSearch(tools []providers.ToolDefinition) []providers.ToolDef
 		result = append(result, t)
 	}
 	return result
-}
-
-func extractProvider(registry *AgentRegistry) (providers.LLMProvider, bool) {
-	if registry == nil {
-		return nil, false
-	}
-	// Get any agent to access the provider
-	defaultAgent := registry.GetDefaultAgent()
-	if defaultAgent == nil {
-		return nil, false
-	}
-	return defaultAgent.Provider, true
 }

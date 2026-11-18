@@ -141,6 +141,14 @@ func (cs *CronService) Stop() {
 	}
 	cs.mu.Unlock()
 	cs.workers.Wait()
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	if cs.db != nil {
+		if err := cs.db.Close(); err != nil {
+			log.Printf("[cron] failed to close store: %v", err)
+		}
+		cs.db = nil
+	}
 }
 
 func (cs *CronService) runLoop(stopChan chan struct{}) {
@@ -510,7 +518,7 @@ func (cs *CronService) recomputeNextRuns() {
 			// Enabled one-shot jobs are still pending, including those due during downtime.
 			if job.Schedule.Kind == "at" {
 				job.State.NextRunAtMS = job.Schedule.AtMS
-			} else {
+			} else if job.State.NextRunAtMS == nil {
 				job.State.NextRunAtMS = cs.computeNextRun(&job.Schedule, now)
 			}
 		}

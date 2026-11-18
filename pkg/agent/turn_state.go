@@ -175,7 +175,10 @@ func newTurnExecution(
 // =============================================================================
 
 type turnState struct {
-	mu sync.RWMutex
+	mu                 sync.RWMutex
+	pendingReceipt     *bus.InboundReceipt
+	pendingStop        atomic.Bool
+	pendingReplacement atomic.Pointer[turnState]
 
 	agent   *AgentInstance
 	tools   *tools.ToolRegistry
@@ -298,7 +301,14 @@ func newTurnState(agent *AgentInstance, opts processOptions, scope turnEventScop
 }
 
 func (al *AgentLoop) registerActiveTurn(ts *turnState) {
-	al.activeTurnStates.Store(ts.sessionKey, ts)
+	if previous, replaced := al.activeTurnStates.Swap(ts.sessionKey, ts); replaced {
+		if pending, ok := previous.(*turnState); ok && strings.HasPrefix(pending.turnID, pendingTurnPrefix) {
+			pending.pendingReplacement.Store(ts)
+			if pending.pendingStop.Load() {
+				_ = ts.requestHardAbort()
+			}
+		}
+	}
 }
 
 func (al *AgentLoop) clearActiveTurn(ts *turnState) {
@@ -310,9 +320,7 @@ func (al *AgentLoop) releaseSessionTurnState(sessionKey string, expected *turnSt
 		al.activeTurnStates.Delete(sessionKey)
 		return
 	}
-	if actual, ok := al.activeTurnStates.Load(sessionKey); ok && actual == expected {
-		al.activeTurnStates.Delete(sessionKey)
-	}
+	al.activeTurnStates.CompareAndDelete(sessionKey, expected)
 }
 
 func (al *AgentLoop) getActiveTurnState(sessionKey string) *turnState {

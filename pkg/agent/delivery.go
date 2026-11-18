@@ -457,7 +457,9 @@ func (al *AgentLoop) retryPendingDelivery(ctx context.Context) {
 	if al == nil || al.bus == nil {
 		return
 	}
-	registry := al.GetRegistry()
+	runtime, release := al.retainRuntime()
+	defer release()
+	registry := runtime.registry
 	if registry == nil {
 		return
 	}
@@ -470,7 +472,25 @@ func (al *AgentLoop) retryPendingDelivery(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		for _, sessionKey := range agent.Sessions.ListSessions() {
+		var keys []string
+		if scheduled, ok := agent.Sessions.(interface {
+			DueDeliverySessions(context.Context, time.Time) ([]string, error)
+		}); ok {
+			var err error
+			keys, err = scheduled.DueDeliverySessions(ctx, time.Now())
+			if err != nil {
+				if ctx.Err() == nil {
+					logger.Warnf("query pending deliveries: %v", err)
+				}
+				continue
+			}
+		} else {
+			keys = agent.Sessions.ListSessions()
+		}
+		for _, sessionKey := range keys {
+			if ctx.Err() != nil {
+				return
+			}
 			checkpoint, err := store.GetTurnCheckpoint(sessionKey)
 			if err != nil {
 				continue
@@ -609,7 +629,9 @@ func (al *AgentLoop) AcknowledgeDelivery(ctx context.Context, channel, chatID, d
 	default:
 	}
 
-	registry := al.GetRegistry()
+	runtime, release := al.retainRuntime()
+	defer release()
+	registry := runtime.registry
 	if registry == nil {
 		return fmt.Errorf("agent registry is unavailable")
 	}

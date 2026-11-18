@@ -294,3 +294,20 @@ export function mergeHistoryMessages(
       comparableTimestamp(right.timestamp),
   )
 }
+
+export function refreshPaginatedMessages(
+  latest: ChatMessage[],
+  loaded: ChatMessage[],
+): ChatMessage[] {
+  const latestIds = new Set(latest.map((message) => message.id))
+  const latestSignatures = new Set(latest.map(messageSignature))
+  const firstOverlap = loaded.findIndex(
+    (message) =>
+      latestIds.has(message.id) ||
+      latestSignatures.has(messageSignature(message)),
+  )
+  return mergeHistoryMessages(
+    latest,
+    firstOverlap < 0 ? loaded : loaded.slice(0, firstOverlap),
+  )
+}

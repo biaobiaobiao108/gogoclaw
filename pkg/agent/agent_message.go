@@ -84,7 +84,9 @@ func (al *AgentLoop) ProcessHeartbeat(
 		return "", err
 	}
 
-	agent := al.GetRegistry().GetDefaultAgent()
+	runtime, release := al.retainRuntime()
+	defer release()
+	agent := runtime.registry.GetDefaultAgent()
 	if agent == nil {
 		return "", fmt.Errorf("no default agent for heartbeat")
 	}
@@ -107,6 +109,7 @@ func (al *AgentLoop) ProcessHeartbeat(
 		SendResponse:         false,
 		SuppressToolFeedback: true,
 		NoHistory:            true, // Don't load session history for heartbeat
+		runtime:              &runtime,
 	})
 	return result.content, err
 }
@@ -163,7 +166,8 @@ func (al *AgentLoop) processMessageResult(
 	msg bus.InboundMessage,
 	sessionClaimed bool,
 ) (processMessageResult, error) {
-	runtime := al.runtimeSnapshot()
+	runtime, release := al.retainRuntime()
+	defer release()
 	msg = al.prepareInboundMessageForAgentWithRuntime(ctx, msg, runtime)
 
 	logger.InfoCF(

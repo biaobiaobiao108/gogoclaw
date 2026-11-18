@@ -552,6 +552,7 @@ func TestCallTool_ReconnectsWhenHTTPServerLosesSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newScriptedServerConnection(stale) error = %v", err)
 	}
+	staleConn.Tools[0].Annotations = &sdkmcp.ToolAnnotations{ReadOnlyHint: true}
 	freshConn, freshTransport, err := newScriptedServerConnection(
 		"session-2",
 		&sdkmcp.CallToolResult{
@@ -621,6 +622,49 @@ func TestClose_IdempotentOnEmptyManager(t *testing.T) {
 	}
 	if err := mgr.Close(); err != nil {
 		t.Fatalf("second close should be idempotent, got: %v", err)
+	}
+}
+
+func TestCallToolDoesNotReplayUnverifiedEffects(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		callErr    error
+		reconnects int
+		readOnly   bool
+	}{
+		{"application error", fmt.Errorf("application session not found"), 0, true},
+		{"transport lost during write", sdkmcp.ErrSessionMissing, 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stale, _, err := newScriptedServerConnection("old", nil, tc.callErr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stale.Tools[0].Annotations = &sdkmcp.ToolAnnotations{ReadOnlyHint: tc.readOnly}
+			fresh, transport, err := newScriptedServerConnection("new", &sdkmcp.CallToolResult{}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				_ = stale.Session.Close()
+				_ = fresh.Session.Close()
+			})
+			reconnects := 0
+			original := connectServerFunc
+			t.Cleanup(func() { connectServerFunc = original })
+			connectServerFunc = func(context.Context, string, config.MCPServerConfig, func(context.Context, string, *sdkmcp.ClientSession)) (*ServerConnection, error) {
+				reconnects++
+				return fresh, nil
+			}
+			mgr := NewManager()
+			mgr.servers["flaky"] = stale
+			if _, err := mgr.CallTool(context.Background(), "flaky", "echo", nil); err == nil {
+				t.Fatal("expected the unverified tool call to return an error")
+			}
+			if reconnects != tc.reconnects || transport.toolCallCalls != 0 {
+				t.Fatalf("got %d reconnects and %d repeated calls", reconnects, transport.toolCallCalls)
+			}
+		})
 	}
 }
 

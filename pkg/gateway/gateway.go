@@ -861,13 +861,12 @@ func setupConfigWatcherPolling(configPath string, debug bool) (chan *config.Conf
 	configChan := make(chan *config.Config, 1)
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
+	lastModTime := getFileModTime(configPath)
+	lastSize := getFileSize(configPath)
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-
-		lastModTime := getFileModTime(configPath)
-		lastSize := getFileSize(configPath)
 
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
@@ -903,11 +902,12 @@ func setupConfigWatcherPolling(configPath string, debug bool) (chan *config.Conf
 
 					logger.Info("✓ Config file validated and loaded")
 
+					// Replace any version the Gateway has not picked up yet.
 					select {
-					case configChan <- newCfg:
+					case <-configChan:
 					default:
-						logger.Warn("⚠ Previous config reload still in progress, skipping")
 					}
+					configChan <- newCfg
 				}
 			case <-stop:
 				return

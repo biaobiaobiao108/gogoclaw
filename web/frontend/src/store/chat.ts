@@ -177,6 +177,7 @@ export interface ChatStoreState {
   isLoadingOlderHistory?: boolean
   historyCursor?: string
   hasOlderHistory?: boolean
+  hasLoadedOlderHistory?: boolean
   contextUsage?: ContextUsage
   branches?: ChatBranchGroup[]
   isBranchSwitching?: boolean

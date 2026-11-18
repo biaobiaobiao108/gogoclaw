@@ -1,6 +1,10 @@
 package protocoltypes
 
-import "time"
+import (
+	"time"
+
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+)
 
 type ToolCall struct {
 	ID               string         `json:"id"`
@@ -86,18 +90,19 @@ type Attachment struct {
 }
 
 type Message struct {
-	ID               string         `json:"message_id,omitempty"`
-	SteeringTurnID   string         `json:"steering_turn_id,omitempty"`
-	Role             string         `json:"role"`
-	Content          string         `json:"content"`
-	ModelName        string         `json:"model_name,omitempty"`
-	CreatedAt        *time.Time     `json:"created_at,omitempty"`
-	Media            []string       `json:"media,omitempty"`
-	Attachments      []Attachment   `json:"attachments,omitempty"`
-	ReasoningContent string         `json:"reasoning_content,omitempty"`
-	SystemParts      []ContentBlock `json:"system_parts,omitempty"` // structured system blocks for cache-aware adapters
-	ToolCalls        []ToolCall     `json:"tool_calls,omitempty"`
-	ToolCallID       string         `json:"tool_call_id,omitempty"`
+	InboundReceipt   *bus.InboundReceipt `json:"-"`
+	ID               string              `json:"message_id,omitempty"`
+	SteeringTurnID   string              `json:"steering_turn_id,omitempty"`
+	Role             string              `json:"role"`
+	Content          string              `json:"content"`
+	ModelName        string              `json:"model_name,omitempty"`
+	CreatedAt        *time.Time          `json:"created_at,omitempty"`
+	Media            []string            `json:"media,omitempty"`
+	Attachments      []Attachment        `json:"attachments,omitempty"`
+	ReasoningContent string              `json:"reasoning_content,omitempty"`
+	SystemParts      []ContentBlock      `json:"system_parts,omitempty"` // structured system blocks for cache-aware adapters
+	ToolCalls        []ToolCall          `json:"tool_calls,omitempty"`
+	ToolCallID       string              `json:"tool_call_id,omitempty"`
 
 	// Prompt metadata is internal to the agent runtime. It records where a
 	// message or system part came from without changing provider/session JSON.

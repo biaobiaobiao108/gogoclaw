@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
@@ -131,14 +132,18 @@ func (b *StoreBackend) GetTurnCheckpoint(key string) (TurnCheckpoint, error) {
 	if err != nil {
 		return checkpoint, err
 	}
-	meta, err := store.GetSessionMeta(context.Background(), key)
-	if err != nil {
+	var raw json.RawMessage
+	if sqlite, ok := b.store.(*memory.SQLiteStore); ok {
+		raw, err = sqlite.ReadTurn(context.Background(), key)
+	} else {
+		var meta memory.SessionMeta
+		meta, err = store.GetSessionMeta(context.Background(), key)
+		raw = meta.Turn
+	}
+	if err != nil || len(raw) == 0 {
 		return checkpoint, err
 	}
-	if len(meta.Turn) == 0 {
-		return checkpoint, nil
-	}
-	err = json.Unmarshal(meta.Turn, &checkpoint)
+	err = json.Unmarshal(raw, &checkpoint)
 	return checkpoint, err
 }
 
@@ -400,7 +405,29 @@ func (b *StoreBackend) Close() error {
 	return b.store.Close()
 }
 
+func (b *StoreBackend) AppendPicoSteering(ctx context.Context, key string, msg providers.Message) (bool, error) {
+	store, ok := b.store.(*memory.SQLiteStore)
+	if !ok {
+		return false, fmt.Errorf("session store does not support Pico steering")
+	}
+	if msg.InboundReceipt.Store != store.DBPath() {
+		return false, fmt.Errorf("Pico inbox and session history use different workspaces")
+	}
+	resolved, err := b.resolveSessionKeyChecked(key)
+	if err != nil {
+		return false, err
+	}
+	return store.AppendPicoSteering(ctx, msg.InboundReceipt.ID, resolved, msg)
+}
+
 // ListSessions returns all known session keys.
 func (b *StoreBackend) ListSessions() []string {
 	return b.store.ListSessions()
+}
+
+func (b *StoreBackend) DueDeliverySessions(ctx context.Context, now time.Time) ([]string, error) {
+	if store, ok := b.store.(*memory.SQLiteStore); ok {
+		return store.DueDeliverySessions(ctx, now)
+	}
+	return b.ListSessions(), nil
 }

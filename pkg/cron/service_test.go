@@ -1,6 +1,7 @@
 package cron
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,30 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"time"
 )
+
+func TestCronRestartPreservesNextRunAndReleasesStore(t *testing.T) {
+	cs := NewCronService(t.TempDir(), nil)
+	job, err := cs.AddJob("periodic", CronSchedule{Kind: "every", EveryMS: int64Ptr(60000)}, "hello", "cli", "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := *job.State.NextRunAtMS
+	// Move the wall clock past the original scheduling instant.
+	time.Sleep(10 * time.Millisecond)
+	if err := cs.Start(); err != nil {
+		t.Fatal(err)
+	}
+	db := cs.db
+	defer cs.Stop()
+	after, ok := cs.GetJob(job.ID)
+	if !ok || after.State.NextRunAtMS == nil || *after.State.NextRunAtMS != before {
+		t.Fatalf("start changed persisted schedule: %+v", after)
+	}
+	cs.Stop()
+	if _, err := db.GetSessionMeta(context.Background(), "unused"); err == nil {
+		t.Fatal("stopped Cron service still has an open SQLite store")
+	}
+}
 
 func TestSaveStore_FilePermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {

@@ -17,6 +17,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/routing"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
@@ -1065,6 +1066,30 @@ func TestAgentLoop_Run_PendingStopStillContinuesQueuedFollowUp(t *testing.T) {
 		ChatType: "direct",
 		SenderID: "user1",
 	}
+	inbox, err := memory.NewSQLiteStore(filepath.Join(cfg.WorkspacePath(), "sessions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inbox.Close()
+	queue := func(requestID string) (bus.InboundReceipt, func(context.Context) (bool, error)) {
+		t.Helper()
+		ctx := context.Background()
+		if _, err := inbox.QueuePicoInbound(ctx, targetCtx.ChatID, requestID,
+			bus.InboundMessage{Channel: "pico", Content: requestID}); err != nil {
+			t.Fatal(err)
+		}
+		items, err := inbox.PendingPicoInbound(ctx, "pico", 0)
+		if err != nil || len(items) != 1 {
+			t.Fatalf("pending inbox: %v (%v)", items, err)
+		}
+		id := items[0].ID
+		return bus.InboundReceipt{
+			ID:      id,
+			Store:   inbox.DBPath(),
+			Release: func() {},
+			Cancel:  func(ctx context.Context) (bool, error) { return inbox.CancelPicoInbound(ctx, id) },
+		}, func(ctx context.Context) (bool, error) { return inbox.ClaimPicoInbound(ctx, id) }
+	}
 
 	if err := msgBus.PublishInbound(context.Background(), bus.InboundMessage{
 		Context:    blockerCtx,
@@ -1080,10 +1105,13 @@ func TestAgentLoop_Run_PendingStopStillContinuesQueuedFollowUp(t *testing.T) {
 		t.Fatal("timeout waiting for blocker turn to start")
 	}
 
+	canceledReceipt, claimCanceled := queue("canceled")
 	if err := msgBus.PublishInbound(context.Background(), bus.InboundMessage{
 		Context:    targetCtx,
 		Content:    "skip this turn",
 		SessionKey: targetSessionKey,
+		Receipt:    &canceledReceipt,
+		Claim:      claimCanceled,
 	}); err != nil {
 		t.Fatalf("PublishInbound(target start) error = %v", err)
 	}
@@ -1123,10 +1151,13 @@ func TestAgentLoop_Run_PendingStopStillContinuesQueuedFollowUp(t *testing.T) {
 		}
 	}
 
+	followUpReceipt, claimFollowUp := queue("follow-up")
 	if err := msgBus.PublishInbound(context.Background(), bus.InboundMessage{
 		Context:    targetCtx,
 		Content:    "run this instead",
 		SessionKey: targetSessionKey,
+		Receipt:    &followUpReceipt,
+		Claim:      claimFollowUp,
 	}); err != nil {
 		t.Fatalf("PublishInbound(follow-up) error = %v", err)
 	}
@@ -1137,6 +1168,11 @@ func TestAgentLoop_Run_PendingStopStillContinuesQueuedFollowUp(t *testing.T) {
 			t.Fatal("timeout waiting for follow-up to enter scoped steering queue")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	pending, err := inbox.PendingPicoInbound(context.Background(), "pico", 0)
+	if err != nil || len(pending) != 1 || pending[0].ID != followUpReceipt.ID {
+		close(provider.releaseFirstCall)
+		t.Fatalf("steering must remain pending until committed: %v (%v)", pending, err)
 	}
 
 	close(provider.releaseFirstCall)
@@ -1188,6 +1224,10 @@ func TestAgentLoop_Run_PendingStopStillContinuesQueuedFollowUp(t *testing.T) {
 	}
 	if !foundFollowUp {
 		t.Fatal("expected queued follow-up to be processed after pending stop")
+	}
+	pending, err = inbox.PendingPicoInbound(context.Background(), "pico", 0)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("completed inbox entries should not replay: %v (%v)", pending, err)
 	}
 }
 

@@ -9,12 +9,15 @@ import (
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
 type PicoInboxMessage struct {
 	ID      int64
 	Message bus.InboundMessage
 }
+
+var ErrPicoInboundInFlight = errors.New("Pico request already claimed")
 
 // QueuePicoInbound persists the payload and deduplication key in the same row.
 func (s *SQLiteStore) QueuePicoInbound(ctx context.Context, sessionID, requestID string, msg bus.InboundMessage) (string, error) {
@@ -89,6 +92,40 @@ func (s *SQLiteStore) ClaimPicoInbound(ctx context.Context, id int64) (bool, err
 func (s *SQLiteStore) FinishPicoInbound(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, "UPDATE pico_inbox SET state = 'done', payload = NULL WHERE id = ? AND state = 'processing'", id)
 	return err
+}
+
+func (s *SQLiteStore) CancelPicoInbound(ctx context.Context, id int64) (bool, error) {
+	result, err := s.db.ExecContext(ctx,
+		"UPDATE pico_inbox SET state = 'done', payload = NULL WHERE id = ? AND state = 'pending'", id)
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	return count == 1, err
+}
+
+// AppendPicoSteering hands a pending request to the transcript atomically.
+// A cancellation or another consumer may have already taken the request.
+func (s *SQLiteStore) AppendPicoSteering(ctx context.Context, id int64, sessionKey string, msg providers.Message) (bool, error) {
+	ctx = sqliteContext(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx,
+		"UPDATE pico_inbox SET state = 'done', payload = NULL WHERE id = ? AND state = 'pending'", id)
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil || count == 0 {
+		return false, err
+	}
+	if err := appendSQLiteMessage(ctx, tx, sessionKey, msg); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
 }
 
 // MigratePicoInbox keeps old deduplication keys as uncertain deliveries, since

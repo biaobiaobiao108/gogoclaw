@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 )
@@ -85,6 +86,15 @@ func (c *PicoChannel) publishInbox(ctx context.Context, store *memory.SQLiteStor
 				continue
 			}
 			msg := item.Message
+			msg.Receipt = &bus.InboundReceipt{
+				ID:      item.ID,
+				Store:   store.DBPath(),
+				Release: func() { queued.Delete(item.ID) },
+				Cancel: func(runCtx context.Context) (bool, error) {
+					defer queued.Delete(item.ID)
+					return store.CancelPicoInbound(runCtx, item.ID)
+				},
+			}
 			msg.Claim = func(runCtx context.Context) (bool, error) {
 				defer queued.Delete(item.ID)
 				if ctx.Err() != nil {

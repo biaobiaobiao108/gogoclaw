@@ -411,6 +411,35 @@ func TestStartScheduledServicesReturnsNoPartialServices(t *testing.T) {
 	}
 }
 
+func TestConfigWatcherKeepsLatestPendingVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.DefaultConfig()
+	save := func(port int) {
+		t.Helper()
+		cfg.Gateway.Port = port
+		if err := config.SaveConfig(path, cfg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save(18790)
+	updates, stop := setupConfigWatcherPolling(path, false)
+	defer stop()
+	save(18791)
+	deadline := time.Now().Add(5 * time.Second)
+	for len(updates) == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(updates) == 0 {
+		t.Fatal("first configuration never reached the pending queue")
+	}
+	save(18792)
+	// Give the watcher a full poll interval and its write debounce.
+	time.Sleep(2600 * time.Millisecond)
+	if latest := (<-updates).Gateway.Port; latest != 18792 {
+		t.Fatalf("queued configuration version = %d, want 18792", latest)
+	}
+}
+
 func receiveGatewayRuntimeEvent(t *testing.T, ch <-chan runtimeevents.Event) runtimeevents.Event {
 	t.Helper()
 

@@ -1104,15 +1104,19 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "failed to open session store", http.StatusInternalServerError)
 				return
 			}
-			removed, openErr = store.DeleteSession(r.Context(), ref.Key)
+			removed, openErr = store.DeletePicoSession(r.Context(), ref.Key, sessionID, h.gatewayAvailableForProxy())
 			closeErr := store.Close()
+			if errors.Is(openErr, memory.ErrPicoInboundInFlight) {
+				http.Error(w, "stop the gateway before deleting a session with an in-flight request", http.StatusConflict)
+				return
+			}
 			if openErr != nil || closeErr != nil {
 				http.Error(w, "failed to delete session", http.StatusInternalServerError)
 				return
 			}
 		} else {
-			if err := clearSessionSQLite(r, dir, ref.Key); err != nil {
-				http.Error(w, "failed to delete session context", http.StatusInternalServerError)
+			if err := clearSessionSQLite(r, dir, ref.Key, sessionID, h.gatewayAvailableForProxy()); err != nil {
+				writeSessionCleanupError(w, err)
 				return
 			}
 			for _, path := range []string{base + ".jsonl", base + ".meta.json"} {
@@ -1138,8 +1142,8 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "stop the active task before deleting this session", http.StatusConflict)
 			return
 		}
-		if err := clearSessionSQLite(r, dir, legacy.Key); err != nil {
-			http.Error(w, "failed to delete session context", http.StatusInternalServerError)
+		if err := clearSessionSQLite(r, dir, legacy.Key, sessionID, h.gatewayAvailableForProxy()); err != nil {
+			writeSessionCleanupError(w, err)
 			return
 		}
 		if err := os.Remove(legacyRef.Path); err != nil {

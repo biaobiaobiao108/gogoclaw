@@ -175,7 +175,8 @@ func (h *Handler) deleteManagedSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session not found", 404)
 		return
 	}
-	removed, err := store.DeleteSession(r.Context(), ref.Key)
+	pico, isPico := sessionRefFromMeta(meta)
+	removed, err := store.DeletePicoSession(r.Context(), ref.Key, pico.ID, false)
 	if err != nil {
 		logger.Warnf("failed to delete session %s: %v", ref.Key, err)
 		http.Error(w, "failed to delete session", http.StatusInternalServerError)
@@ -185,7 +186,7 @@ func (h *Handler) deleteManagedSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
-	if pico, ok := sessionRefFromMeta(meta); ok {
+	if isPico {
 		if err := h.cleanupDeletedSessionData(ref.Dir, pico.ID); err != nil {
 			logger.Warnf("failed to clean chat data for deleted session %s: %v", pico.ID, err)
 			h.pruneSessionListCache(nil, ref.Dir)

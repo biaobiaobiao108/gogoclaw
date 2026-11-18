@@ -593,8 +593,15 @@ func (m *Manager) CallTool(
 		return nil, fmt.Errorf("manager is closed")
 	}
 	conn, ok := m.servers[serverName]
+	replaySafe := false
 	if ok {
 		m.wg.Add(1) // Add to WaitGroup while holding the lock
+		for _, tool := range conn.Tools {
+			if tool != nil && tool.Name == toolName && tool.Annotations != nil {
+				replaySafe = tool.Annotations.ReadOnlyHint || tool.Annotations.IdempotentHint
+				break
+			}
+		}
 	}
 	m.mu.RUnlock()
 
@@ -619,6 +626,9 @@ func (m *Manager) CallTool(
 				})
 
 			reconnectedConn, reconnectErr := m.reconnectServer(ctx, serverName, conn)
+			if !replaySafe {
+				return nil, fmt.Errorf("MCP session lost during tool call; tool effects are unknown: %w", errors.Join(err, reconnectErr))
+			}
 			if reconnectErr != nil {
 				return nil, fmt.Errorf("failed to recover lost MCP session: %w", reconnectErr)
 			}
@@ -668,13 +678,7 @@ func listServerTools(
 }
 
 func shouldReconnectCallError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, mcp.ErrSessionMissing) {
-		return true
-	}
-	return strings.Contains(strings.ToLower(err.Error()), mcp.ErrSessionMissing.Error())
+	return errors.Is(err, mcp.ErrSessionMissing)
 }
 
 func (m *Manager) reconnectServer(

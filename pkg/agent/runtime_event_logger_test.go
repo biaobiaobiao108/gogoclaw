@@ -12,6 +12,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
 
 func TestRuntimeEventLoggerFiltering(t *testing.T) {
@@ -244,6 +245,7 @@ func TestReloadProviderAndConfigWaitsForInFlightRequestsBeforeClosingOldProvider
 	}
 	al := NewAgentLoop(cfg, bus.NewMessageBus(), oldProvider)
 	defer al.Close()
+	oldStore := al.GetRegistry().GetDefaultAgent().Sessions
 
 	msg := testInboundMessage(bus.InboundMessage{
 		Channel:  "test",
@@ -303,6 +305,9 @@ func TestReloadProviderAndConfigWaitsForInFlightRequestsBeforeClosingOldProvider
 	case <-oldProvider.closeCalled:
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for old provider close")
+	}
+	if _, err := session.HistoryChecked(oldStore, "retired"); err == nil {
+		t.Fatal("the retired registry still has an open session store")
 	}
 }
 

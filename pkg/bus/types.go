@@ -48,6 +48,15 @@ type InboundAttachment struct {
 	ContentType string `json:"content_type,omitempty"`
 }
 
+// InboundReceipt identifies a pending SQLite inbox row while the agent
+// holds it for steering or cancellation.
+type InboundReceipt struct {
+	ID      int64
+	Store   string
+	Release func()
+	Cancel  func(context.Context) (bool, error)
+}
+
 type InboundMessage struct {
 	Context     InboundContext      `json:"context"`
 	Sender      SenderInfo          `json:"sender"`
@@ -58,8 +67,9 @@ type InboundMessage struct {
 	SessionKey  string              `json:"session_key"`
 
 	// Claim and Finish connect messages from a durable inbox to the consumer.
-	Claim  func(context.Context) (bool, error) `json:"-"`
-	Finish func(context.Context)               `json:"-"`
+	Claim   func(context.Context) (bool, error) `json:"-"`
+	Finish  func(context.Context)               `json:"-"`
+	Receipt *InboundReceipt                     `json:"-"`
 
 	// Convenience mirrors derived from Context for runtime consumers.
 	Channel   string `json:"channel"`

@@ -17,6 +17,7 @@ type AgentRegistry struct {
 	agents   map[string]*AgentInstance
 	resolver *routing.RouteResolver
 	mu       sync.RWMutex
+	users    sync.WaitGroup
 }
 
 // NewAgentRegistry creates a registry from config, instantiating all agents.
@@ -181,10 +182,52 @@ func (r *AgentRegistry) ForEachTool(name string, fn func(tools.Tool)) {
 
 // Close releases resources held by all registered agents.
 func (r *AgentRegistry) Close() {
+	r.closeExcept(nil)
+}
+
+func (r *AgentRegistry) providers() []providers.LLMProvider {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []providers.LLMProvider
+	for _, agent := range r.agents {
+		modelMu := agent.modelStateMutex()
+		modelMu.RLock()
+		result = append(result, agent.Provider, agent.LightProvider)
+		for _, provider := range agent.CandidateProviders {
+			result = append(result, provider)
+		}
+		modelMu.RUnlock()
+	}
+	return result
+}
+
+func (r *AgentRegistry) closeExcept(retained []providers.LLMProvider) {
+	if r == nil {
+		return
+	}
+	kept := make(map[providers.LLMProvider]struct{})
+	for _, provider := range retained {
+		if providerRefComparable(provider) {
+			kept[provider] = struct{}{}
+		}
+	}
+	var closing []providers.LLMProvider
+	for _, provider := range r.providers() {
+		if providerRefComparable(provider) {
+			if _, ok := kept[provider]; ok {
+				continue
+			}
+		}
+		closing = append(closing, provider)
+	}
+	closeUniqueStatefulProviders(closing...)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, agent := range r.agents {
-		if err := agent.Close(); err != nil {
+		if agent.Sessions == nil {
+			continue
+		}
+		if err := agent.Sessions.Close(); err != nil {
 			logger.WarnCF("agent", "Failed to close agent",
 				map[string]any{"agent_id": agent.ID, "error": err.Error()})
 		}

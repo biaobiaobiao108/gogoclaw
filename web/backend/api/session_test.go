@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
@@ -1877,6 +1878,7 @@ func TestHandleDeleteSession_SQLiteStorage(t *testing.T) {
 	}
 
 	sessionKey := legacyPicoSessionPrefix + "delete-jsonl"
+	defer store.Close()
 	if err := store.AddFullMessage(nil, sessionKey, providers.Message{
 		Role:    "user",
 		Content: "delete me",
@@ -1885,6 +1887,12 @@ func TestHandleDeleteSession_SQLiteStorage(t *testing.T) {
 	}
 	if err := store.SetSummary(nil, sessionKey, "delete summary"); err != nil {
 		t.Fatalf("SetSummary() error = %v", err)
+	}
+	for _, sessionID := range []string{"delete-jsonl", "keep-inbox"} {
+		if _, err := store.QueuePicoInbound(context.Background(), sessionID, "request",
+			bus.InboundMessage{Channel: "pico", Content: sessionID}); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	h := NewHandler(configPath)
@@ -1899,6 +1907,10 @@ func TestHandleDeleteSession_SQLiteStorage(t *testing.T) {
 		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
 	}
 
+	pending, err := store.PendingPicoInbound(context.Background(), "pico", 0)
+	if err != nil || len(pending) != 1 || pending[0].Message.Content != "keep-inbox" {
+		t.Fatalf("unexpected inbox after session deletion: %v (%v)", pending, err)
+	}
 	base := filepath.Join(dir, sanitizeSessionKey(sessionKey))
 	for _, path := range []string{base + ".jsonl", base + ".meta.json"} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {

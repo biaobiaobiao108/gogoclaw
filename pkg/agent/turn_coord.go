@@ -95,10 +95,6 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		media.Unpin(mediaStore, refs)
 	}()
 
-	if al.takePendingStop(ts.sessionKey) {
-		_ = ts.requestHardAbort()
-	}
-
 	defer func() {
 		if retErr != nil {
 			ts.setEndReason(TurnEndReasonError)
@@ -246,6 +242,7 @@ turnLoop:
 			exec.pendingMessages = nil
 			if iteration == 1 && !ts.opts.SkipInitialSteeringPoll {
 				if steerMsgs := al.dequeueSteeringMessagesForScopeWithFallback(ts.sessionKey); len(steerMsgs) > 0 {
+					defer releaseSteeringReceipts(steerMsgs)
 					pendingMessages = append(pendingMessages, steerMsgs...)
 				}
 			}
@@ -278,13 +275,33 @@ turnLoop:
 							pm.SteeringTurnID = ts.opts.ResumeReplyTurnID
 						}
 					}
-					messages = append(messages, resolvedPending[i])
-					totalContentLen += len(pm.Content)
-					if !ts.opts.NoHistory {
+					if pm.InboundReceipt != nil {
+						if ts.opts.NoHistory {
+							continue
+						}
+						store, ok := ts.agent.Sessions.(*session.StoreBackend)
+						if !ok {
+							return turnResult{}, fmt.Errorf("durable steering requires a SQLite session store")
+						}
+						appended, err := store.AppendPicoSteering(turnCtx, ts.sessionKey, pm)
+						if err != nil {
+							turnStatus = TurnEndStatusError
+							return turnResult{}, fmt.Errorf("commit steering message: %w", err)
+						}
+						if !appended {
+							continue
+						}
+					} else if !ts.opts.NoHistory {
 						if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, pm); err != nil {
 							turnStatus = TurnEndStatusError
 							return turnResult{}, fmt.Errorf("write steering message: %w", err)
 						}
+					}
+					resolvedPending[i].InboundReceipt = nil
+					messages = append(messages, resolvedPending[i])
+					totalContentLen += len(pm.Content)
+					if !ts.opts.NoHistory {
+						pm.InboundReceipt = nil
 						ts.recordPersistedMessage(pm)
 						if err := ts.ingestMessage(turnCtx, al, pm); err != nil {
 							turnStatus = TurnEndStatusError

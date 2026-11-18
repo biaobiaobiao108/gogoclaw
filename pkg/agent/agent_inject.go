@@ -32,6 +32,21 @@ func (al *AgentLoop) runtimeSnapshot() runtimeSnapshot {
 	}
 	al.mu.RLock()
 	defer al.mu.RUnlock()
+	return al.runtimeSnapshotLocked()
+}
+
+func (al *AgentLoop) retainRuntime() (runtimeSnapshot, func()) {
+	al.mu.RLock()
+	defer al.mu.RUnlock()
+	runtime := al.runtimeSnapshotLocked()
+	if runtime.registry == nil {
+		return runtime, func() {}
+	}
+	runtime.registry.users.Add(1)
+	return runtime, runtime.registry.users.Done
+}
+
+func (al *AgentLoop) runtimeSnapshotLocked() runtimeSnapshot {
 	return runtimeSnapshot{
 		bus:            al.bus,
 		cfg:            al.cfg,

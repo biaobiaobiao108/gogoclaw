@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -346,20 +347,34 @@ func (al *AgentLoop) pendingSteeringCountForScope(scope string) int {
 	return al.steering.lenScope(scope)
 }
 
-func (al *AgentLoop) clearSteeringMessagesForScope(scope string) int {
+func (al *AgentLoop) clearSteeringMessagesForScope(ctx context.Context, scope string) (int, error) {
 	if al.steering == nil {
-		return 0
+		return 0, nil
 	}
 	msgs := al.steering.clearScope(scope)
 	mediaStore := al.runtimeSnapshot().mediaStore
+	var err error
 	for _, msg := range msgs {
+		if receipt := msg.InboundReceipt; receipt != nil {
+			_, cancelErr := receipt.Cancel(ctx)
+			err = errors.Join(err, cancelErr)
+		}
 		media.Unpin(mediaStore, msg.Media)
 	}
-	return len(msgs)
+	return len(msgs), err
+}
+
+func releaseSteeringReceipts(messages []providers.Message) {
+	for _, msg := range messages {
+		if receipt := msg.InboundReceipt; receipt != nil {
+			receipt.Release()
+		}
+	}
 }
 
 func (al *AgentLoop) continueWithSteeringMessages(
 	ctx context.Context,
+	runtime runtimeSnapshot,
 	agent *AgentInstance,
 	sessionKey, channel, chatID string,
 	scope *session.SessionScope,
@@ -383,6 +398,7 @@ func (al *AgentLoop) continueWithSteeringMessages(
 		SendResponse:            false,
 		InitialSteeringMessages: steeringMsgs,
 		SkipInitialSteeringPoll: true,
+		runtime:                 &runtime,
 	})
 }
 
@@ -448,6 +464,7 @@ func (al *AgentLoop) Continue(ctx context.Context, sessionKey, channel, chatID s
 	}
 
 	steeringMsgs := al.dequeueSteeringMessagesForScopeWithFallback(sessionKey)
+	defer releaseSteeringReceipts(steeringMsgs)
 	if len(steeringMsgs) == 0 && al.followUpQueue != nil {
 		steeringMsgs = al.followUpQueue.dequeueScopeWithFallback(sessionKey)
 	}
@@ -462,7 +479,9 @@ func (al *AgentLoop) Continue(ctx context.Context, sessionKey, channel, chatID s
 		return "", nil
 	}
 
-	agent := al.agentForSession(sessionKey)
+	runtime, release := al.retainRuntime()
+	defer release()
+	agent := al.agentForSessionWithRuntime(sessionKey, runtime)
 	if agent == nil {
 		al.activeTurnStates.Delete(sessionKey)
 		return "", fmt.Errorf("no agent available for session %q", sessionKey)
@@ -479,7 +498,7 @@ func (al *AgentLoop) Continue(ctx context.Context, sessionKey, channel, chatID s
 		scope = metaStore.GetSessionScope(sessionKey)
 	}
 
-	return al.continueWithSteeringMessages(ctx, agent, sessionKey, channel, chatID, scope, steeringMsgs)
+	return al.continueWithSteeringMessages(ctx, runtime, agent, sessionKey, channel, chatID, scope, steeringMsgs)
 }
 
 func (al *AgentLoop) InterruptGraceful(hint string) error {

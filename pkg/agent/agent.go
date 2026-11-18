@@ -62,7 +62,6 @@ type AgentLoop struct {
 	steering       *steeringQueue
 	followUpQueue  *steeringQueue
 	pendingSkills  sync.Map
-	pendingStops   sync.Map
 	mu             sync.RWMutex
 
 	// workerSem limits concurrent turn processing workers.
@@ -240,15 +239,19 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 			// during turn setup. Each placeholder has a unique turnID to prevent
 			// cross-worker cleanup issues.
 			placeholder := &turnState{
-				turnID:     makePendingTurnID(sessionKey, al.turnSeq.Add(1)),
-				lifecycle:  newTurnLifecycleAt(TurnPhaseSetup),
-				channel:    msg.Channel,
-				chatID:     msg.ChatID,
-				sessionKey: sessionKey,
-				agentID:    agentID,
+				turnID:         makePendingTurnID(sessionKey, al.turnSeq.Add(1)),
+				lifecycle:      newTurnLifecycleAt(TurnPhaseSetup),
+				channel:        msg.Channel,
+				chatID:         msg.ChatID,
+				sessionKey:     sessionKey,
+				agentID:        agentID,
+				pendingReceipt: msg.Receipt,
 			}
 			if _, loaded := al.activeTurnStates.LoadOrStore(sessionKey, placeholder); loaded {
-				if !claimInboundMessage(runCtx, msg) {
+				command, _ := commands.CommandName(msg.Content)
+				isBranchAction := isChatBranchMutation(msg) || msg.Context.Raw["task_action"] == "resume_answer"
+				durableSteering := msg.Receipt != nil && command != "stop" && !isBranchAction
+				if !durableSteering && !claimInboundMessage(runCtx, msg) {
 					media.Unpin(mediaStore, msg.Media)
 					continue
 				}
@@ -271,7 +274,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 						media.Unpin(mediaStore, []string{ref})
 					}
 				}
-				if isChatBranchMutation(msg) || msg.Context.Raw["task_action"] == "resume_answer" {
+				if isBranchAction {
 					finishInboundMessage(runCtx, msg)
 					media.Unpin(mediaStore, msg.Media)
 					al.maybePublishError(
@@ -286,12 +289,18 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 
 				// Another turn is already active (or reserved) for this session — enqueue
 				if err := al.enqueueSteeringMessage(sessionKey, agentID, providers.Message{
-					ID:          msg.Context.MessageID,
-					Role:        "user",
-					Content:     msg.Content,
-					Media:       append([]string(nil), msg.Media...),
-					Attachments: providerAttachmentsFromInbound(msg.Attachments),
+					ID:             msg.Context.MessageID,
+					Role:           "user",
+					Content:        msg.Content,
+					Media:          append([]string(nil), msg.Media...),
+					Attachments:    providerAttachmentsFromInbound(msg.Attachments),
+					InboundReceipt: msg.Receipt,
 				}); err != nil {
+					if durableSteering {
+						if _, cancelErr := msg.Receipt.Cancel(runCtx); cancelErr != nil {
+							logger.Warnf("cancel rejected inbound message: %v", cancelErr)
+						}
+					}
 					media.Unpin(mediaStore, msg.Media)
 					logger.WarnCF("agent", "Failed to enqueue steering message",
 						map[string]any{
@@ -310,7 +319,9 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				} else {
 					media.Unpin(mediaStore, msg.Media)
 				}
-				finishInboundMessage(runCtx, msg)
+				if !durableSteering {
+					finishInboundMessage(runCtx, msg)
+				}
 				continue
 			}
 
@@ -382,8 +393,18 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 					defer channelManager.InvokeTypingStop(m.Channel, m.ChatID)
 				}
 
-				if al.takePendingStop(sessionKey) {
-					al.releaseSessionTurnState(sessionKey, nil)
+				if !ph.pendingStop.Load() && claimInboundMessage(runCtx, m) {
+					al.runTurnWithSteering(runCtx, m)
+					finishInboundMessage(runCtx, m)
+					return
+				}
+				if ph.pendingStop.Load() {
+					if m.Receipt != nil {
+						if _, err := m.Receipt.Cancel(runCtx); err != nil && runCtx.Err() == nil {
+							logger.Warnf("cancel stopped inbound message: %v", err)
+						}
+					}
+					al.releaseSessionTurnState(sessionKey, ph)
 					target := &continuationTarget{
 						SessionKey: sessionKey,
 						Channel:    m.Channel,
@@ -397,12 +418,6 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 					if continued != "" {
 						al.PublishResponseIfNeeded(runCtx, target.Channel, target.ChatID, target.SessionKey, continued)
 					}
-					return
-				}
-
-				if claimInboundMessage(runCtx, m) {
-					al.runTurnWithSteering(runCtx, m)
-					finishInboundMessage(runCtx, m)
 				}
 			}(msg, placeholder, mediaStore, channelManager)
 
@@ -536,6 +551,7 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 
 	// Check context again before proceeding
 	if err := ctx.Err(); err != nil {
+		registry.closeExcept(append(al.GetRegistry().providers(), provider))
 		return fmt.Errorf("context canceled after registry creation: %w", err)
 	}
 
@@ -602,13 +618,7 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 			map[string]any{"error": err.Error()})
 	}
 
-	// Close old provider after releasing the lock
-	// This prevents blocking readers while closing
-	if oldProvider, ok := extractProvider(oldRegistry); ok {
-		if stateful, ok := oldProvider.(providers.StatefulProvider); ok {
-			al.closeReloadedProvider(ctx, stateful)
-		}
-	}
+	al.retireRegistry(ctx, oldRegistry)
 
 	logger.InfoCF("agent", "Provider and config reloaded successfully",
 		map[string]any{
@@ -671,7 +681,8 @@ func (al *AgentLoop) runAgentLoopResult(
 	opts processOptions,
 ) (agentLoopResult, error) {
 	opts = normalizeProcessOptions(opts)
-	runtime := al.runtimeSnapshot()
+	runtime, release := al.retainRuntime()
+	defer release()
 	if opts.runtime != nil {
 		runtime = *opts.runtime
 	}

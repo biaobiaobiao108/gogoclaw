@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS pico_inbox (
     UNIQUE(channel, session_id, request_id)
 );
 CREATE INDEX IF NOT EXISTS idx_pico_inbox_state ON pico_inbox(channel, state, id);
+CREATE INDEX IF NOT EXISTS idx_pico_inbox_session ON pico_inbox(session_id, state);
 CREATE INDEX IF NOT EXISTS idx_pico_inbox_expiry ON pico_inbox(received_at) WHERE state != 'pending';
 CREATE TABLE IF NOT EXISTS app_state (
 	namespace TEXT NOT NULL,
@@ -115,7 +116,7 @@ CREATE TABLE IF NOT EXISTS usage_session (
 	cost_nanos INTEGER NOT NULL DEFAULT 0
 );
 
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;
 `
 
 // SQLiteStore persists session state in a single SQLite database. Logical
@@ -256,8 +257,15 @@ func (s *SQLiteStore) initialize() error {
 		return fmt.Errorf("memory: begin sessions schema transaction: %w", err)
 	}
 	defer tx.Rollback()
+	var schemaVersion int
+	if err := tx.QueryRow("PRAGMA user_version").Scan(&schemaVersion); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(sqliteSessionSchema); err != nil {
 		return fmt.Errorf("memory: initialize sessions schema: %w", err)
+	}
+	if err := initializeDeliverySchedule(tx, schemaVersion); err != nil {
+		return fmt.Errorf("memory: initialize delivery schedule: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("memory: commit sessions schema: %w", err)
@@ -276,6 +284,21 @@ func (s *SQLiteStore) AddFullMessage(ctx context.Context, sessionKey string, msg
 	if messageutil.IsTransientAssistantThoughtMessage(msg) {
 		return nil
 	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("memory: begin add message: %w", err)
+	}
+	defer tx.Rollback()
+	if err := appendSQLiteMessage(ctx, tx, sessionKey, msg); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("memory: commit message: %w", err)
+	}
+	return nil
+}
+
+func appendSQLiteMessage(ctx context.Context, tx *sql.Tx, sessionKey string, msg providers.Message) error {
 	now := time.Now()
 	if msg.CreatedAt == nil {
 		msg.CreatedAt = &now
@@ -285,11 +308,6 @@ func (s *SQLiteStore) AddFullMessage(ctx context.Context, sessionKey string, msg
 		return fmt.Errorf("memory: marshal message: %w", err)
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("memory: begin add message: %w", err)
-	}
-	defer tx.Rollback()
 	if err := ensureSQLiteSession(ctx, tx, sessionKey, now); err != nil {
 		return err
 	}
@@ -304,9 +322,6 @@ func (s *SQLiteStore) AddFullMessage(ctx context.Context, sessionKey string, msg
 		now.UnixNano(), sessionKey,
 	); err != nil {
 		return fmt.Errorf("memory: update session timestamp: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("memory: commit message: %w", err)
 	}
 	return nil
 }
@@ -1002,17 +1017,18 @@ func (s *SQLiteStore) SetTurn(ctx context.Context, key string, turn json.RawMess
 	if err := ensureSQLiteSession(ctx, tx, key, now); err != nil {
 		return err
 	}
-	meta, err := s.getSessionMeta(ctx, tx, key)
-	if err != nil {
+	var previous []byte
+	var turnHistory any
+	if err := tx.QueryRowContext(ctx, "SELECT turn_json FROM session_meta WHERE session_key = ?", key).Scan(&previous); err != nil {
 		return err
 	}
 	turn = cloneRawJSON(turn)
-	if len(meta.Turn) > 0 {
+	if len(previous) > 0 {
 		var old, next struct {
 			TurnID string            `json:"turn_id"`
 			Usage  *bus.ContextUsage `json:"usage"`
 		}
-		if err := json.Unmarshal(meta.Turn, &old); err != nil {
+		if err := json.Unmarshal(previous, &old); err != nil {
 			return err
 		}
 		if err := json.Unmarshal(turn, &next); err != nil {
@@ -1033,19 +1049,37 @@ func (s *SQLiteStore) SetTurn(ctx context.Context, key string, turn json.RawMess
 			}
 		}
 		if old.TurnID != "" && old.TurnID != next.TurnID {
-			meta.TurnHistory = append(meta.TurnHistory, cloneRawJSON(meta.Turn))
-			if overflow := len(meta.TurnHistory) - maxStoredTurnHistory; overflow > 0 {
-				meta.TurnHistory = append([]json.RawMessage(nil), meta.TurnHistory[overflow:]...)
+			var archived map[string]json.RawMessage
+			if err := json.Unmarshal(previous, &archived); err != nil {
+				return err
+			}
+			delete(archived, "delivery")
+			delete(archived, "deliveries")
+			history, err := json.Marshal(archived)
+			if err != nil {
+				return err
+			}
+			var rawHistory []byte
+			if err := tx.QueryRowContext(ctx, "SELECT turn_history_json FROM session_meta WHERE session_key = ?", key).Scan(&rawHistory); err != nil {
+				return err
+			}
+			var snapshots []json.RawMessage
+			if err := json.Unmarshal(rawHistory, &snapshots); err != nil {
+				return err
+			}
+			snapshots = append(snapshots, history)
+			if overflow := len(snapshots) - maxStoredTurnHistory; overflow > 0 {
+				snapshots = snapshots[overflow:]
+			}
+			turnHistory, err = json.Marshal(snapshots)
+			if err != nil {
+				return err
 			}
 		}
 	}
-	turnHistory, err := json.Marshal(meta.TurnHistory)
-	if err != nil {
-		return err
-	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE session_meta
-		SET turn_json = ?, turn_history_json = ?, updated_at = ?
+		SET turn_json = ?, turn_history_json = COALESCE(?, turn_history_json), updated_at = ?
 		WHERE session_key = ?`,
 		nilIfEmpty(turn), turnHistory, now.UnixNano(), key,
 	); err != nil {
@@ -1314,12 +1348,28 @@ func maxInt64(a, b int64) int64 {
 // DeleteSession removes the session and cascades to messages and aliases. It
 // intentionally does not VACUUM; the freed pages remain available for reuse.
 func (s *SQLiteStore) DeleteSession(ctx context.Context, sessionKey string) (bool, error) {
+	return s.DeletePicoSession(ctx, sessionKey, "", false)
+}
+
+// DeletePicoSession also cancels accepted requests for the browser session ID.
+func (s *SQLiteStore) DeletePicoSession(ctx context.Context, sessionKey, picoSessionID string, gatewayRunning bool) (bool, error) {
 	ctx = sqliteContext(ctx)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, fmt.Errorf("memory: begin delete session: %w", err)
 	}
 	defer tx.Rollback()
+	if picoSessionID != "" && gatewayRunning {
+		var processing bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
+			SELECT 1 FROM pico_inbox WHERE session_id = ? AND state = 'processing'
+		)`, picoSessionID).Scan(&processing); err != nil {
+			return false, err
+		}
+		if processing {
+			return false, ErrPicoInboundInFlight
+		}
+	}
 	if err := indexstore.ClearSession(ctx, tx, sessionKey); err != nil {
 		return false, fmt.Errorf("memory: delete session index: %w", err)
 	}
@@ -1333,6 +1383,12 @@ func (s *SQLiteStore) DeleteSession(ctx context.Context, sessionKey string) (boo
 	rows, err := result.RowsAffected()
 	if err != nil {
 		return false, fmt.Errorf("memory: delete session rows: %w", err)
+	}
+	if picoSessionID != "" {
+		if _, err := tx.ExecContext(ctx, `UPDATE pico_inbox SET state = 'done', payload = NULL
+			WHERE session_id = ? AND state != 'done'`, picoSessionID); err != nil {
+			return false, fmt.Errorf("memory: cancel deleted session inbox: %w", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("memory: commit session deletion: %w", err)

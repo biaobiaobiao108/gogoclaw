@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/biaobiaobiao108/gogoclaw/pkg/seahorse"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 )
 
 func sessionCachePaths(dir string, ref picoJSONLSessionRef) []string {
@@ -79,18 +79,22 @@ func sessionCacheKeyMatchesDir(key, dir string) bool {
 		strings.HasPrefix(key, "legacy:"+cleanDir+":")
 }
 
-func clearSessionSQLite(r *http.Request, dir, key string) error {
-	dbPath := filepath.Join(dir, "sessions.db")
-	if _, err := os.Stat(dbPath); err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
+func clearSessionSQLite(r *http.Request, dir, key, picoID string, gatewayRunning bool) error {
+	store, err := memory.OpenSQLiteStore(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
 	}
-	engine, err := seahorse.NewEngine(seahorse.Config{DBPath: dbPath}, nil)
 	if err != nil {
 		return err
 	}
-	clearErr := engine.ClearSession(r.Context(), key)
-	return errors.Join(clearErr, engine.Close())
+	_, clearErr := store.DeletePicoSession(r.Context(), key, picoID, gatewayRunning)
+	return errors.Join(clearErr, store.Close())
+}
+
+func writeSessionCleanupError(w http.ResponseWriter, err error) {
+	if errors.Is(err, memory.ErrPicoInboundInFlight) {
+		http.Error(w, "stop the gateway before deleting a session with an in-flight request", http.StatusConflict)
+		return
+	}
+	http.Error(w, "failed to delete session context", http.StatusInternalServerError)
 }

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -26,11 +27,23 @@ func (al *AgentLoop) tryHandleStopCommand(
 	// placeholder but didn't stop it, that placeholder belongs to the other
 	// message's worker which hasn't started yet — arm a pending stop so the
 	// worker will bail when it checks before running.
-	if err == nil && !result.Stopped {
+	if !result.Stopped {
 		if ts := al.getActiveTurnState(sessionKey); ts != nil {
 			snap := ts.snapshot()
 			if strings.HasPrefix(snap.TurnID, pendingTurnPrefix) {
-				al.markPendingStop(sessionKey)
+				ts.pendingStop.Store(true)
+				if replacement := ts.pendingReplacement.Load(); replacement != nil {
+					_ = replacement.requestHardAbort()
+				}
+				var cancelErr error
+				if ts.pendingReceipt != nil {
+					_, cancelErr = ts.pendingReceipt.Cancel(ctx)
+				}
+				if cancelErr == nil {
+					result.Stopped = true
+				}
+				err = errors.Join(err, cancelErr)
+			} else if abortErr := al.HardAbort(sessionKey); abortErr == nil {
 				result.Stopped = true
 			}
 		}
@@ -58,13 +71,13 @@ func (al *AgentLoop) stopActiveTurnForSession(sessionKey string) (commands.StopR
 	}
 
 	result := commands.StopResult{}
-	cleared := al.clearSteeringMessagesForScope(sessionKey)
+	cleared, clearErr := al.clearSteeringMessagesForScope(al.backgroundContext(), sessionKey)
 	al.clearPendingSkills(sessionKey)
 
 	ts := al.getActiveTurnState(sessionKey)
 	if ts == nil {
 		result.Stopped = cleared > 0
-		return result, nil
+		return result, clearErr
 	}
 
 	snap := ts.snapshot()
@@ -76,36 +89,19 @@ func (al *AgentLoop) stopActiveTurnForSession(sessionKey string) (commands.StopR
 		// hasn't started yet. In both cases, we don't arm a pending stop here;
 		// the caller (tryHandleStopCommand) handles the "another message queued"
 		// case explicitly, since it knows loaded=true.
-		return result, nil
+		return result, clearErr
 	}
 
 	if err := al.HardAbort(sessionKey); err != nil {
 		if al.getActiveTurnState(sessionKey) == nil {
 			result.Stopped = cleared > 0
-			return result, nil
+			return result, clearErr
 		}
-		return commands.StopResult{}, err
+		return commands.StopResult{}, errors.Join(err, clearErr)
 	}
 
 	result.Stopped = true
-	return result, nil
-}
-
-func (al *AgentLoop) markPendingStop(sessionKey string) {
-	sessionKey = strings.TrimSpace(sessionKey)
-	if sessionKey == "" {
-		return
-	}
-	al.pendingStops.Store(sessionKey, struct{}{})
-}
-
-func (al *AgentLoop) takePendingStop(sessionKey string) bool {
-	sessionKey = strings.TrimSpace(sessionKey)
-	if sessionKey == "" {
-		return false
-	}
-	_, ok := al.pendingStops.LoadAndDelete(sessionKey)
-	return ok
+	return result, clearErr
 }
 
 func (al *AgentLoop) resetMessageToolRound(sessionKey string) {

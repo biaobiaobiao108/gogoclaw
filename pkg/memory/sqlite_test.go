@@ -24,6 +24,95 @@ func newSQLiteTestStore(t *testing.T) *SQLiteStore {
 	return store
 }
 
+func TestPicoSteeringCommitTransfersPendingRequestExactlyOnce(t *testing.T) {
+	ctx := context.Background()
+	store := newSQLiteTestStore(t)
+	if _, err := store.QueuePicoInbound(ctx, "browser", "message", bus.InboundMessage{Channel: "pico"}); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := store.PendingPicoInbound(ctx, "pico", 0)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("pending inbox: %v (%v)", pending, err)
+	}
+	requestID := pending[0].ID
+	if _, err := store.db.Exec(`CREATE TRIGGER reject_test_message BEFORE INSERT ON session_messages
+		BEGIN SELECT RAISE(ABORT, 'test append failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	msg := providers.Message{Role: "user", Content: "keep the instruction"}
+	if _, err := store.AppendPicoSteering(ctx, requestID, "session", msg); err == nil {
+		t.Fatal("expected append failure")
+	}
+	if pending, err := store.PendingPicoInbound(ctx, "pico", 0); err != nil || len(pending) != 1 {
+		t.Fatalf("failed transaction changed the pending request: %v (%v)", pending, err)
+	}
+	if _, err := store.db.Exec("DROP TRIGGER reject_test_message"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []bool{true, false} {
+		if appended, err := store.AppendPicoSteering(ctx, requestID, "session", msg); err != nil || appended != want {
+			t.Fatalf("append = %v (%v), want %v", appended, err, want)
+		}
+	}
+	if messages, err := store.GetTranscript(ctx, "session"); err != nil || len(messages) != 1 || messages[0].Content != msg.Content {
+		t.Fatalf("transcript = %v (%v)", messages, err)
+	}
+	if pending, err := store.PendingPicoInbound(ctx, "pico", 0); err != nil || len(pending) != 0 {
+		t.Fatalf("committed request still pending: %v (%v)", pending, err)
+	}
+}
+
+func TestSQLiteDeliveryScheduleBackfillsAndTracksCheckpoints(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store, err := NewSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetTurn(ctx, "legacy", json.RawMessage(`{"turn_id":"one","delivery":{"id":"d","status":"queued"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("DROP TRIGGER session_delivery_schedule_update; DROP TABLE session_delivery_schedule; PRAGMA user_version = 2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = OpenSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	now := time.Now().UTC()
+	future := now.Add(time.Minute)
+	raw := fmt.Sprintf(`{"deliveries":[{"id":"l","status":"delivered_bus","requires_ack":true,"lease_until":%q}]}`, future.Format(time.RFC3339Nano))
+	if err := store.SetTurn(ctx, "future", json.RawMessage(raw)); err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range []struct {
+		at   time.Time
+		want string
+	}{{now, "legacy"}, {future.Add(time.Second), "legacy,future"}} {
+		if keys, err := store.DueDeliverySessions(ctx, check.at); err != nil || strings.Join(keys, ",") != check.want {
+			t.Fatalf("due = %v (%v), want %s", keys, err, check.want)
+		}
+	}
+	if err := store.SetTurn(ctx, "legacy", json.RawMessage(`{"turn_id":"two","deliveries":[{"id":"d","status":"acknowledged"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ClearTurns(ctx, "future"); err != nil {
+		t.Fatal(err)
+	}
+	if keys, err := store.DueDeliverySessions(ctx, future.Add(time.Second)); err != nil || len(keys) != 0 {
+		t.Fatalf("terminal or cleared deliveries are still scheduled: %v (%v)", keys, err)
+	}
+	meta, err := store.GetSessionMeta(ctx, "legacy")
+	if err != nil || len(meta.TurnHistory) != 1 || strings.Contains(string(meta.TurnHistory[0]), "delivery") {
+		t.Fatalf("archived checkpoint duplicated the delivery payload: %v (%v)", meta.TurnHistory, err)
+	}
+}
+
 func TestSQLiteStoreLifecycleAndPersistence(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
