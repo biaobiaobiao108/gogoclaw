@@ -356,13 +356,20 @@ async function checkLocalChat(page, base, model) {
     if ((await answer.count()) !== 1)
       throw new Error("Interim text did not stay in one reply")
     await answer.getByText(replySentinel, { exact: true }).waitFor()
-    const process = answer.getByRole("button", {
-      name: /^(?:Thinking and tools|思考与工具)/,
+    const process = answer.locator(":scope > div > button[aria-expanded]")
+    await process.waitFor({ timeout: 10000 }).catch(async (error) => {
+      throw new Error(
+        "Reply has no tool process: " + (await answer.innerText()),
+        {
+          cause: error,
+        },
+      )
     })
     if ((await process.getAttribute("aria-expanded")) !== "false")
       throw new Error("The tool process should be collapsed by default")
+    await process.getByText(/^1 (?:calls?|次调用)$/).waitFor({ timeout: 10000 })
     const parts = await answer.textContent()
-    const toolPosition = parts.search(/1 calls|1 次调用/)
+    const toolPosition = parts.indexOf(await process.textContent())
     if (
       parts.indexOf(interimSentinel) >= toolPosition ||
       toolPosition >= parts.indexOf(replySentinel)
@@ -376,7 +383,7 @@ async function checkLocalChat(page, base, model) {
     if ((await copy.count()) !== 1 || (await regenerate.count()) !== 1)
       throw new Error("Reply controls appear more than once")
     await process.click()
-    await answer.getByText("list_dir", { exact: true }).waitFor()
+    await answer.getByText("list_dir", { exact: true }).first().waitFor()
     await process.click()
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
     await copy.focus()
@@ -409,7 +416,7 @@ async function checkLocalChat(page, base, model) {
   console.log("Verified regeneration replaced the whole reply")
   const newChat = () =>
     page
-      .getByRole("button", { name: /^(New chat|新建对话)$/ })
+      .getByRole("button", { name: /^(New Chat|新建对话)$/ })
       .first()
       .click()
   const send = async (text) => {
@@ -504,6 +511,18 @@ async function checkLocalChat(page, base, model) {
     throw new Error("Continuation must use saved text without providing tools")
   const stoppedReply = page.locator("article").filter({ hasText: stoppedText })
   await stoppedReply.getByText(resumedText, { exact: true }).waitFor()
+  await page.waitForFunction(
+    async (text) => {
+      const id = localStorage.getItem("gogoclaw:last-session-id")
+      if (!id) return false
+      const response = await fetch(`/api/sessions/${encodeURIComponent(id)}`)
+      if (!response.ok) return false
+      const { messages } = await response.json()
+      return messages.some((message) => message.content === text)
+    },
+    resumedText,
+    { timeout: 10000, polling: 250 },
+  )
   await page.reload()
   await stoppedReply.getByText(resumedText, { exact: true }).waitFor()
   console.log("Verified stop and reload, then text-only continuation")
@@ -636,6 +655,7 @@ async function main() {
         : {}),
     })
     page = await browser.newPage({
+      locale: "en-US",
       viewport: {
         width: Number(process.env.GOGOCLAW_QA_WIDTH || 390),
         height: 844,
