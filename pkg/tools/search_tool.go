@@ -48,7 +48,7 @@ func (t *BM25SearchTool) Policy() ToolPolicy {
 }
 
 func (t *BM25SearchTool) Description() string {
-	return "Find hidden tools for the current task by English tool name or action. Use this before calling a tool that is missing from the current tool list. Matching tools become available on the next model call and stay available for this task."
+	return "Find hidden tools by English tool name or action. Use this before calling a tool that is missing from the current tool list. Matching tools become available on the next model call."
 }
 
 func (t *BM25SearchTool) PromptMetadata() PromptMetadata {
@@ -158,7 +158,7 @@ func formatDiscoveryResponse(registry *ToolRegistry, results []ToolSearchResult,
 	}
 
 	msg := fmt.Sprintf(
-		"Found %d tools:\n%s\n\nMatching tools are now available as native tools for this task. Call them directly using their parameter schemas.",
+		"Found %d tools:\n%s\n\nMatching tools are now available as native tools. Call them directly using their parameter schemas.",
 		len(results),
 		string(b),
 	)

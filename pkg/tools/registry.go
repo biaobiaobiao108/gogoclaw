@@ -151,7 +151,7 @@ func (r *ToolRegistry) PromoteTools(names []string, ttl int) {
 	defer r.mu.Unlock()
 	promoted := 0
 	for _, name := range names {
-		if entry, exists := r.tools[name]; exists {
+		if entry, exists := r.tools[name]; exists && r.toolAllowedLocked(name) {
 			if !entry.IsCore {
 				entry.TTL = ttl
 				promoted++
@@ -163,6 +163,30 @@ func (r *ToolRegistry) PromoteTools(names []string, ttl int) {
 		"PromoteTools completed",
 		map[string]any{"requested": len(names), "promoted": promoted, "ttl": ttl},
 	)
+}
+
+// RestoreDiscoveredTools exposes previously discovered tools that are still
+// registered and allowed. Their definitions come from this registry.
+func (r *ToolRegistry) RestoreDiscoveredTools(names []string) {
+	if len(names) > 0 {
+		r.PromoteTools(names, taskToolLifetime)
+	}
+}
+
+// DiscoveredTools returns the names that can be restored in another turn.
+// Tools promoted with a limited TTL stay local to this turn.
+func (r *ToolRegistry) DiscoveredTools() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var names []string
+	for name, entry := range r.tools {
+		if !entry.IsCore && entry.TTL == taskToolLifetime && r.toolAllowedLocked(name) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // TickTTL decreases TTL only for non-core tools

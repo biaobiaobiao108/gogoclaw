@@ -556,7 +556,14 @@ func (ts *turnState) saveTurnCheckpoint(status, tool string) error {
 		checkpoint.Deliveries = append([]session.TurnDelivery(nil), previous.Deliveries...)
 		checkpoint.Delivery = previous.Delivery
 		checkpoint.Approval = previous.Approval
-		if previous.TurnID == ts.turnID && !(status == "running" && checkpoint.Iteration == 0) {
+		starting := status == "running" && checkpoint.Iteration == 0
+		if ts.tools != nil {
+			if starting {
+				ts.tools.RestoreDiscoveredTools(previous.DiscoveredTools)
+			}
+			checkpoint.DiscoveredTools = ts.tools.DiscoveredTools()
+		}
+		if previous.TurnID == ts.turnID && !starting {
 			checkpoint.Events = append(checkpoint.Events, previous.Events...)
 			if status == "failed" || status == "interrupted" {
 				checkpoint.Tool = previous.Tool

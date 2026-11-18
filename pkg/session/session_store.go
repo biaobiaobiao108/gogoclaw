@@ -10,21 +10,22 @@ import (
 )
 
 type TurnCheckpoint struct {
-	Usage      *bus.ContextUsage     `json:"usage,omitempty"`
-	TurnID     string                `json:"turn_id"`
-	Status     string                `json:"status"`
-	EndReason  string                `json:"end_reason,omitempty"`
-	Iteration  int                   `json:"iteration"`
-	Tool       string                `json:"tool,omitempty"`
-	StartedAt  time.Time             `json:"started_at,omitempty"`
-	UpdatedAt  time.Time             `json:"updated_at,omitempty"`
-	Plan       []TurnPlanStep        `json:"plan,omitempty"`
-	Activities []TurnActivity        `json:"activities,omitempty"`
-	Approval   *approval.Request     `json:"approval,omitempty"`
-	Delivery   *TurnDelivery         `json:"delivery,omitempty"`
-	Deliveries []TurnDelivery        `json:"deliveries,omitempty"`
-	ToolItems  []TurnToolItem        `json:"tool_items,omitempty"`
-	Events     []TurnCheckpointEvent `json:"events,omitempty"`
+	Usage           *bus.ContextUsage     `json:"usage,omitempty"`
+	TurnID          string                `json:"turn_id"`
+	Status          string                `json:"status"`
+	EndReason       string                `json:"end_reason,omitempty"`
+	Iteration       int                   `json:"iteration"`
+	Tool            string                `json:"tool,omitempty"`
+	StartedAt       time.Time             `json:"started_at,omitempty"`
+	UpdatedAt       time.Time             `json:"updated_at,omitempty"`
+	Plan            []TurnPlanStep        `json:"plan,omitempty"`
+	Activities      []TurnActivity        `json:"activities,omitempty"`
+	Approval        *approval.Request     `json:"approval,omitempty"`
+	Delivery        *TurnDelivery         `json:"delivery,omitempty"`
+	Deliveries      []TurnDelivery        `json:"deliveries,omitempty"`
+	ToolItems       []TurnToolItem        `json:"tool_items,omitempty"`
+	Events          []TurnCheckpointEvent `json:"events,omitempty"`
+	DiscoveredTools []string              `json:"discovered_tools,omitempty"`
 }
 
 // TurnActivity is the durable user-facing execution timeline for a turn.
