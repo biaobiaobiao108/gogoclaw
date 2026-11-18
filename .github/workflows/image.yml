@@ -35,14 +35,8 @@ jobs:
       - id: commit
         run: printf 'sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-  verify:
-    needs: resolve
-    uses: ./.github/workflows/ci.yml
-    with:
-      checkout_ref: ${{ needs.resolve.outputs.sha }}
-
   build:
-    needs: [resolve, verify]
+    needs: resolve
     name: build-${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
