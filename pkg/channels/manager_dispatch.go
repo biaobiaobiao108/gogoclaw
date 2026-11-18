@@ -12,6 +12,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/constants"
 	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
@@ -63,7 +64,8 @@ func (m *Manager) runWorker(ctx context.Context, name string, w *channelWorker) 
 			// consume the whole final message before any marker chunk leaks.
 			if m.finalizedStreamActiveForMessage(name, msg) {
 				chunks = []string{msg.Content}
-			} else if cfg := m.currentConfig(); cfg != nil && cfg.Agents.Defaults.SplitOnMarker && !outboundMessageIsToolFeedback(msg) {
+			} else if cfg := m.currentConfig(); cfg != nil && cfg.Agents.Defaults.SplitOnMarker &&
+				name != config.ChannelPico && !outboundMessageIsToolFeedback(msg) {
 				if markerChunks := SplitByMarker(msg.Content); len(markerChunks) > 1 {
 					for _, chunk := range markerChunks {
 						chunkMsg := msg

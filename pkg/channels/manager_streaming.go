@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 )
 
@@ -87,6 +88,7 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID, sessionK
 	}
 
 	if cfg := m.currentConfig(); cfg != nil && cfg.Agents.Defaults.SplitOnMarker &&
+		channelName != config.ChannelPico &&
 		!cfg.Channels.TracksPlatformTextDelivery(channelName) {
 		return &splitMarkerStreamer{
 			current:     streamer,
@@ -346,6 +348,13 @@ func (s *finalizeHookStreamer) Finalize(ctx context.Context, content string) err
 }
 
 func (s *finalizeHookStreamer) FinalizeInterim(ctx context.Context, content string) error {
+	if interim, ok := s.Streamer.(bus.InterimStreamer); ok {
+		if err := interim.FinalizeInterim(ctx, content); err != nil {
+			return err
+		}
+		s.runFinalizeHook(ctx, content, false)
+		return nil
+	}
 	return s.finish(ctx, content, false)
 }
 

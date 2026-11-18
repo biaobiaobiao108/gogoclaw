@@ -954,7 +954,7 @@
       "restrict_workspace": "Restrict to Workspace",
       "restrict_workspace_hint": "Only allow file operations and command paths inside the workspace.",
       "split_on_marker": "Chatty Mode",
-      "split_on_marker_hint": "Split long messages into short ones like real human chatting.",
+      "split_on_marker_hint": "Split long replies into shorter messages on messaging channels.",
       "tool_feedback_enabled": "Tool Feedback",
       "tool_feedback_enabled_hint": "Send a short execution note into the current chat before each tool runs.",
       "tool_feedback_separate_messages": "Separate Feedback Messages",

@@ -44,18 +44,9 @@ interface AssistantMessageProps {
   content: string
   attachments?: ChatAttachment[]
   kind?: AssistantMessageKind
-  modelName?: string
   toolCalls?: ChatToolCall[]
-  timestamp?: string | number
   isStreaming?: boolean
-  feedback?: ChatFeedbackValue
   sources?: ChatSource[]
-  branchGroup?: ChatBranchGroup
-  onFeedback?: (value: ChatFeedbackValue) => void
-  onRegenerate?: () => void
-  onSelectBranch?: (versionId: string) => void
-  actionsDisabled?: boolean
-  branchSwitchPending?: boolean
 }
 
 export const AssistantMessage = memo(function AssistantMessage({
@@ -63,21 +54,11 @@ export const AssistantMessage = memo(function AssistantMessage({
   content,
   attachments = [],
   kind = "normal",
-  modelName,
   toolCalls = [],
-  timestamp = "",
   isStreaming = false,
-  feedback,
   sources = [],
-  branchGroup,
-  onFeedback,
-  onRegenerate,
-  onSelectBranch,
-  actionsDisabled = false,
-  branchSwitchPending = false,
 }: AssistantMessageProps) {
   const { t } = useTranslation()
-  const { copy, isCopied } = useCopyToClipboard()
   const isThought = kind === "thought"
   const isToolCalls = kind === "tool_calls"
   const isCollapsedBlock = isThought || isToolCalls
@@ -93,17 +74,11 @@ export const AssistantMessage = memo(function AssistantMessage({
   const visibleContent = useSmoothStreamText(content, isThought && isStreaming)
   const hasVisibleText = visibleContent.trim().length > 0
 
-  const formattedTimestamp =
-    timestamp !== "" ? formatMessageTime(timestamp) : ""
   const collapsedLabel = isThought
     ? isStreaming
       ? t("chat.reasoningStreamingLabel")
       : t("chat.reasoningLabel")
     : t("chat.toolCallsLabel")
-  const copyMessageLabel = isCopied
-    ? t("chat.copiedLabel")
-    : t("chat.copyMessage")
-
   return (
     <div className="group relative flex w-full flex-col gap-2 py-2">
       {/* Main Content Area */}
@@ -276,142 +251,174 @@ export const AssistantMessage = memo(function AssistantMessage({
           </ol>
         </div>
       )}
-
-      {/* Bottom Action Row (ChatGPT style: appears under message on hover) */}
-      {!isCollapsedBlock && hasText && !isStreaming && (
-        <div className="mt-1 flex flex-wrap items-center gap-1 text-xs">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-foreground h-7 w-7 rounded-md opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
-            onClick={() => void copy(content)}
-            aria-label={copyMessageLabel}
-          >
-            {isCopied ? (
-              <IconCheck className="text-success h-3.5 w-3.5" />
-            ) : (
-              <IconCopy className="h-3.5 w-3.5" />
-            )}
-          </Button>
-
-          {onFeedback && (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "text-muted-foreground hover:text-foreground h-7 w-7 rounded-md",
-                  feedback === "up" && "bg-muted text-foreground",
-                )}
-                onClick={() => onFeedback("up")}
-                aria-label={t("chat.feedbackUp")}
-                aria-pressed={feedback === "up"}
-              >
-                <IconThumbUp className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "text-muted-foreground hover:text-foreground h-7 w-7 rounded-md",
-                  feedback === "down" && "bg-muted text-foreground",
-                )}
-                onClick={() => onFeedback("down")}
-                aria-label={t("chat.feedbackDown")}
-                aria-pressed={feedback === "down"}
-              >
-                <IconThumbDown className="h-3.5 w-3.5" />
-              </Button>
-            </>
-          )}
-          {onRegenerate && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-muted-foreground hover:text-foreground h-7 w-7 rounded-md"
-              onClick={onRegenerate}
-              disabled={actionsDisabled}
-              aria-label={t("chat.regenerate")}
-            >
-              <IconRefresh className="h-3.5 w-3.5" />
-            </Button>
-          )}
-
-          {branchGroup && branchGroup.versions.length > 1 && (
-            <div
-              className="text-muted-foreground ml-1 flex items-center gap-0.5"
-              aria-busy={branchSwitchPending}
-            >
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 rounded-md"
-                disabled={
-                  actionsDisabled ||
-                  branchSwitchPending ||
-                  branchGroup.activeVersionId === branchGroup.versions[0]?.id
-                }
-                onClick={() => {
-                  const index = branchGroup.versions.findIndex(
-                    (version) => version.id === branchGroup.activeVersionId,
-                  )
-                  const previous = branchGroup.versions[index - 1]
-                  if (previous) onSelectBranch?.(previous.id)
-                }}
-                aria-label={t("chat.previousBranch")}
-              >
-                <IconChevronLeft className="h-3.5 w-3.5" />
-              </Button>
-              <span className="min-w-8 text-center font-mono text-[11px] tabular-nums">
-                {Math.max(
-                  1,
-                  branchGroup.versions.findIndex(
-                    (version) => version.id === branchGroup.activeVersionId,
-                  ) + 1,
-                )}
-                {" / "}
-                {branchGroup.versions.length}
-              </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 rounded-md"
-                disabled={
-                  actionsDisabled ||
-                  branchSwitchPending ||
-                  branchGroup.versions.at(-1)?.id ===
-                    branchGroup.activeVersionId
-                }
-                onClick={() => {
-                  const index = branchGroup.versions.findIndex(
-                    (version) => version.id === branchGroup.activeVersionId,
-                  )
-                  const next = branchGroup.versions[index + 1]
-                  if (next) onSelectBranch?.(next.id)
-                }}
-                aria-label={t("chat.nextBranch")}
-              >
-                <IconChevronRight className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          )}
-
-          {modelName && (
-            <span className="text-muted-foreground/50 font-mono text-[11px] opacity-0 transition-opacity group-hover:opacity-100">
-              {modelName}
-            </span>
-          )}
-
-          {formattedTimestamp && (
-            <span className="text-muted-foreground/40 text-[11px] opacity-0 transition-opacity group-hover:opacity-100">
-              {formattedTimestamp}
-            </span>
-          )}
-        </div>
-      )}
     </div>
   )
 })
+
+interface AssistantMessageActionsProps {
+  content: string
+  modelName?: string
+  timestamp?: string | number
+  feedback?: ChatFeedbackValue
+  branchGroup?: ChatBranchGroup
+  onFeedback?: (value: ChatFeedbackValue) => void
+  onRegenerate?: () => void
+  onSelectBranch?: (versionId: string) => void
+  actionsDisabled?: boolean
+  branchSwitchPending?: boolean
+}
+
+export function AssistantMessageActions({
+  content,
+  modelName,
+  timestamp = "",
+  feedback,
+  branchGroup,
+  onFeedback,
+  onRegenerate,
+  onSelectBranch,
+  actionsDisabled = false,
+  branchSwitchPending = false,
+}: AssistantMessageActionsProps) {
+  const { t } = useTranslation()
+  const { copy, isCopied } = useCopyToClipboard()
+  const formattedTimestamp =
+    timestamp !== "" ? formatMessageTime(timestamp) : ""
+  const copyMessageLabel = isCopied
+    ? t("chat.copiedLabel")
+    : t("chat.copyMessage")
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1 text-xs">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="text-muted-foreground hover:text-foreground h-7 w-7 rounded-md opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+        onClick={() => void copy(content)}
+        aria-label={copyMessageLabel}
+      >
+        {isCopied ? (
+          <IconCheck className="text-success h-3.5 w-3.5" />
+        ) : (
+          <IconCopy className="h-3.5 w-3.5" />
+        )}
+      </Button>
+
+      {onFeedback && (
+        <>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "text-muted-foreground hover:text-foreground h-7 w-7 rounded-md",
+              feedback === "up" && "bg-muted text-foreground",
+            )}
+            onClick={() => onFeedback("up")}
+            aria-label={t("chat.feedbackUp")}
+            aria-pressed={feedback === "up"}
+          >
+            <IconThumbUp className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "text-muted-foreground hover:text-foreground h-7 w-7 rounded-md",
+              feedback === "down" && "bg-muted text-foreground",
+            )}
+            onClick={() => onFeedback("down")}
+            aria-label={t("chat.feedbackDown")}
+            aria-pressed={feedback === "down"}
+          >
+            <IconThumbDown className="h-3.5 w-3.5" />
+          </Button>
+        </>
+      )}
+      {onRegenerate && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-muted-foreground hover:text-foreground h-7 w-7 rounded-md"
+          onClick={onRegenerate}
+          disabled={actionsDisabled}
+          aria-label={t("chat.regenerate")}
+        >
+          <IconRefresh className="h-3.5 w-3.5" />
+        </Button>
+      )}
+
+      {branchGroup && branchGroup.versions.length > 1 && (
+        <div
+          className="text-muted-foreground ml-1 flex items-center gap-0.5"
+          aria-busy={branchSwitchPending}
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 rounded-md"
+            disabled={
+              actionsDisabled ||
+              branchSwitchPending ||
+              branchGroup.activeVersionId === branchGroup.versions[0]?.id
+            }
+            onClick={() => {
+              const index = branchGroup.versions.findIndex(
+                (version) => version.id === branchGroup.activeVersionId,
+              )
+              const previous = branchGroup.versions[index - 1]
+              if (previous) onSelectBranch?.(previous.id)
+            }}
+            aria-label={t("chat.previousBranch")}
+          >
+            <IconChevronLeft className="h-3.5 w-3.5" />
+          </Button>
+          <span className="min-w-8 text-center font-mono text-[11px] tabular-nums">
+            {Math.max(
+              1,
+              branchGroup.versions.findIndex(
+                (version) => version.id === branchGroup.activeVersionId,
+              ) + 1,
+            )}
+            {" / "}
+            {branchGroup.versions.length}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 rounded-md"
+            disabled={
+              actionsDisabled ||
+              branchSwitchPending ||
+              branchGroup.versions.at(-1)?.id === branchGroup.activeVersionId
+            }
+            onClick={() => {
+              const index = branchGroup.versions.findIndex(
+                (version) => version.id === branchGroup.activeVersionId,
+              )
+              const next = branchGroup.versions[index + 1]
+              if (next) onSelectBranch?.(next.id)
+            }}
+            aria-label={t("chat.nextBranch")}
+          >
+            <IconChevronRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
+
+      {modelName && (
+        <span className="text-muted-foreground/50 font-mono text-[11px] opacity-0 transition-opacity group-hover:opacity-100">
+          {modelName}
+        </span>
+      )}
+
+      {formattedTimestamp && (
+        <span className="text-muted-foreground/40 text-[11px] opacity-0 transition-opacity group-hover:opacity-100">
+          {formattedTimestamp}
+        </span>
+      )}
+    </div>
+  )
+}
 
 const REMARK_PLUGINS = [remarkGfm]
 const REHYPE_PLUGINS_HIGHLIGHT = [rehypeRaw, rehypeSanitize, rehypeHighlight]

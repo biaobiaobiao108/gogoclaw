@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 )
 
 func outboundMessageChannel(msg bus.OutboundMessage) string {
@@ -222,12 +223,11 @@ func (m *Manager) preSend(ctx context.Context, name string, msg bus.OutboundMess
 	chatID := outboundMessageChatID(msg)
 	key := name + ":" + chatID
 	streamKey := streamSuppressionKey(name, chatID, msg.SessionKey)
+	isAuxiliaryMessage := outboundMessageHasAuxiliaryKind(msg)
 
-	// 1. Stop typing
-	if v, loaded := m.typingStops.LoadAndDelete(key); loaded {
-		if entry, ok := v.(typingEntry); ok {
-			entry.stop() // idempotent, safe
-		}
+	// Pico keeps the turn active while interim text and process details arrive.
+	if name != config.ChannelPico || (!isAuxiliaryMessage && !outboundMessageIsInterim(msg)) {
+		m.InvokeTypingStop(name, chatID)
 	}
 
 	// 2. Undo reaction
@@ -239,7 +239,6 @@ func (m *Manager) preSend(ctx context.Context, name string, msg bus.OutboundMess
 
 	isToolFeedback := outboundMessageIsToolFeedback(msg)
 	isToolCalls := outboundMessageIsToolCalls(msg)
-	isAuxiliaryMessage := outboundMessageHasAuxiliaryKind(msg)
 	isFinalMessage := outboundMessageIsFinal(msg)
 	isTrackedDelivery := msg.Context.Raw[bus.MetadataPlatformDelivery] != ""
 	if isTrackedDelivery {

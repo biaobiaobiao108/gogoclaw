@@ -1,4 +1,5 @@
 import type { ChatInputDisabledReason } from "@/components/chat/chat-composer"
+import type { ChatReplyRow } from "@/features/chat/group-messages"
 import type {
   ChatActivity,
   ChatMessage,
@@ -56,7 +57,7 @@ export type ChatStreamRow =
   | { kind: "historyError" }
   | { kind: "empty" }
   | { kind: "message"; message: ChatMessage }
-  | { kind: "process"; messages: ChatMessage[]; active?: boolean }
+  | ChatReplyRow
   | { kind: "working" }
   | {
       kind: "activity"
@@ -68,8 +69,8 @@ export type ChatStreamRow =
 export function chatStreamRowKey(row: ChatStreamRow): string {
   return row.kind === "message"
     ? `message:${row.message.id}`
-    : row.kind === "process"
-      ? `process:${row.messages[0].id}`
+    : row.kind === "reply"
+      ? `reply:${row.id}`
       : row.kind
 }
 
@@ -86,16 +87,16 @@ export function estimateChatStreamRow(row: ChatStreamRow): number {
       return 56
     case "activity":
       return 180
-    case "process": {
-      const count = row.messages.length
-      const totalChars = row.messages.reduce(
-        (acc, m) => acc + (m.content?.length || 0),
-        0,
-      )
-      return Math.max(
-        64,
-        Math.min(600, 48 + count * 24 + Math.floor(totalChars / 8)),
-      )
+    case "reply": {
+      const contentHeight = row.parts.reduce((height, part) => {
+        return (
+          height +
+          (part.kind === "process"
+            ? 40
+            : 32 + Math.floor(part.message.content.length / 3))
+        )
+      }, 0)
+      return Math.max(56, Math.min(1200, 24 + contentHeight))
     }
     case "message": {
       const chars = row.message.content?.length || 0

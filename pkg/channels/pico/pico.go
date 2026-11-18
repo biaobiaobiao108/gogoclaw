@@ -240,6 +240,7 @@ type picoStreamer struct {
 	lastContent       string
 	deliveryPublished bool
 	finalized         bool
+	interim           bool
 	reasoningLastLen  int
 	reasoningLastAt   time.Time
 	reasoningContent  string

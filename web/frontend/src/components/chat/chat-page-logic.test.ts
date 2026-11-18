@@ -56,9 +56,10 @@ describe("chat page logic", () => {
   })
 
   test("builds stable row keys and bounded size estimates", () => {
-    const processRow: ChatStreamRow = {
-      kind: "process",
-      messages: [userMessage],
+    const replyRow: ChatStreamRow = {
+      kind: "reply",
+      id: "turn-1",
+      parts: [{ kind: "process", messages: [userMessage] }],
     }
     const longUserRow: ChatStreamRow = {
       kind: "message",
@@ -69,10 +70,10 @@ describe("chat page logic", () => {
       message: { ...userMessage, role: "assistant", content: "x".repeat(5000) },
     }
 
-    expect(chatStreamRowKey(processRow)).toBe("process:user-1")
+    expect(chatStreamRowKey(replyRow)).toBe("reply:turn-1")
     expect(chatStreamRowKey({ kind: "working" })).toBe("working")
     expect(estimateChatStreamRow(longUserRow)).toBe(300)
     expect(estimateChatStreamRow(longAssistantRow)).toBe(1200)
-    expect(estimateChatStreamRow(processRow)).toBeLessThanOrEqual(600)
+    expect(estimateChatStreamRow(replyRow)).toBeLessThanOrEqual(600)
   })
 })

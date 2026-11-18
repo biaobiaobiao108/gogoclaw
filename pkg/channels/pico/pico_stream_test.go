@@ -102,12 +102,13 @@ func TestBeginStream_OnlyCompleteTextRequestsDeliveryAck(t *testing.T) {
 		draft.Payload[PayloadKeyStreamDraft] != true || draft.Payload[PayloadKeyDeliveryID] != nil {
 		t.Fatalf("draft = %+v", draft)
 	}
-	if err := streamer.Finalize(ctx, "short text"); err != nil {
+	if err := streamer.(*picoStreamer).FinalizeInterim(ctx, "short text"); err != nil {
 		t.Fatal(err)
 	}
 	final := mustReceivePicoMessage(t, received)
 	if final.Type != TypeMessageUpdate || final.ID != draft.ID ||
-		final.Payload[PayloadKeyDeliveryID] != "reply-1" || final.Payload[PayloadKeyStreamDraft] != false {
+		final.Payload[PayloadKeyDeliveryID] != "reply-1" || final.Payload[PayloadKeyStreamDraft] != false ||
+		final.Payload[PayloadKeyOutboundKind] != "interim" {
 		t.Fatalf("completed message = %+v", final)
 	}
 }

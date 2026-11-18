@@ -51,6 +51,30 @@ func TestInvokeTypingStop_Idempotent(t *testing.T) {
 	}
 }
 
+func TestPicoTypingContinuesThroughInterimAndProcessMessages(t *testing.T) {
+	m := newTestManager()
+	stopped := false
+	m.RecordTypingStop("pico", "chat", func() { stopped = true })
+	ch := &mockMessageEditor{}
+	msg := bus.OutboundMessage{ChatID: "chat", Content: "working"}
+	for _, raw := range []map[string]string{
+		{"message_kind": "thought"},
+		{"outbound_kind": "interim"},
+		{"message_kind": "tool_calls"},
+	} {
+		msg.Context.Raw = raw
+		m.preSend(t.Context(), "pico", msg, ch)
+		if stopped {
+			t.Fatalf("typing stopped on %v", raw)
+		}
+	}
+	msg.Context.Raw = map[string]string{"outbound_kind": "final"}
+	m.preSend(t.Context(), "pico", msg, ch)
+	if !stopped {
+		t.Fatal("typing must stop for the final reply")
+	}
+}
+
 func TestRecordPlaceholder_ConcurrentSafe(t *testing.T) {
 	m := newTestManager()
 

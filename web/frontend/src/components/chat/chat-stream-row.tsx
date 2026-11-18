@@ -2,7 +2,10 @@ import { useTranslation } from "react-i18next"
 
 import { ActiveWorkIndicator } from "@/components/chat/active-work-indicator"
 import { ActivityTimeline } from "@/components/chat/activity-timeline"
-import { AssistantMessage } from "@/components/chat/assistant-message"
+import {
+  AssistantMessage,
+  AssistantMessageActions,
+} from "@/components/chat/assistant-message"
 import type { ChatInputDisabledReason } from "@/components/chat/chat-composer"
 import { ChatEmptyState } from "@/components/chat/chat-empty-state"
 import type { ChatStreamRow } from "@/components/chat/chat-page-logic"
@@ -150,27 +153,6 @@ export function ChatStreamRowContent({
   }
 
   if (row.kind === "message") {
-    if (row.message.role === "assistant") {
-      return (
-        <AssistantMessage
-          content={row.message.content}
-          attachments={row.message.attachments}
-          kind={row.message.kind}
-          modelName={row.message.modelName}
-          toolCalls={row.message.toolCalls}
-          feedback={row.message.feedback}
-          sources={row.message.sources}
-          branchGroup={branchGroup}
-          onFeedback={(value) => onFeedback(row.message.id, value)}
-          onRegenerate={() => onRegenerate(row.message.id)}
-          onSelectBranch={onSelectBranch}
-          actionsDisabled={messageActionsDisabled}
-          branchSwitchPending={isBranchSwitching}
-          timestamp={row.message.timestamp}
-          isStreaming={row.message.id === streamingMessageId}
-        />
-      )
-    }
     return (
       <UserMessage
         content={row.message.content}
@@ -188,16 +170,62 @@ export function ChatStreamRowContent({
     )
   }
 
-  if (row.kind === "process") {
+  if (row.kind === "reply") {
+    const { lastText } = row
+    const copyText =
+      lastText && !row.active
+        ? row.parts
+            .flatMap((part) =>
+              part.kind === "text" && part.message.content.trim()
+                ? [part.message.content]
+                : [],
+            )
+            .join("\n\n")
+        : ""
     return (
-      <ProcessMessage
-        messages={row.messages}
-        streamingMessageId={streamingMessageId}
-        activeTurn={row.active ? activeTurn : undefined}
-        activities={row.active ? (recentActivities ?? []) : []}
-        expanded={expandedProcesses[row.messages[0].id] ?? false}
-        onToggle={() => onToggleProcess(row.messages[0].id)}
-      />
+      <article className="group w-full">
+        {row.parts.map((part, index) => {
+          if (part.kind === "text") {
+            return (
+              <AssistantMessage
+                key={part.message.id}
+                content={part.message.content}
+                attachments={part.message.attachments}
+                sources={part.message.sources}
+                isStreaming={part.message.id === streamingMessageId}
+              />
+            )
+          }
+          const active = row.active && index === row.parts.length - 1
+          const processId = part.messages[0].id
+          return (
+            <ProcessMessage
+              key={processId}
+              messages={part.messages}
+              streamingMessageId={streamingMessageId}
+              isTurnActive={active}
+              activeTurn={active ? activeTurn : undefined}
+              activities={active ? recentActivities : undefined}
+              expanded={expandedProcesses[processId] ?? false}
+              onToggle={() => onToggleProcess(processId)}
+            />
+          )
+        })}
+        {lastText && copyText && (
+          <AssistantMessageActions
+            content={copyText}
+            modelName={lastText.modelName}
+            timestamp={lastText.timestamp}
+            feedback={lastText.feedback}
+            branchGroup={branchGroup}
+            onFeedback={(value) => onFeedback(lastText.id, value)}
+            onRegenerate={() => onRegenerate(lastText.id)}
+            onSelectBranch={onSelectBranch}
+            actionsDisabled={messageActionsDisabled}
+            branchSwitchPending={isBranchSwitching}
+          />
+        )}
+      </article>
     )
   }
 

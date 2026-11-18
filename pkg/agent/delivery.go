@@ -318,6 +318,9 @@ func outboundFromTurnDelivery(sessionKey string, delivery session.TurnDelivery) 
 
 func (al *AgentLoop) prepareStreamingDelivery(ts *turnState) session.TurnDelivery {
 	msg := outboundMessageForTurn(ts, "")
+	if ts.channel == "pico" {
+		msg.ID = assistantResponseID(ts, nil)
+	}
 	msg = bus.NormalizeOutboundMessage(msg)
 	delivery := turnDeliveryFromOutbound(msg)
 	delivery.Status = deliveryStatusStreaming

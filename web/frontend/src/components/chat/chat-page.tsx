@@ -610,13 +610,13 @@ export function ChatPage() {
     const groupedRows: ChatStreamRow[] = groupChatMessages(messages)
     const lastGroupedIndex = groupedRows.length - 1
     const lastGroupedRow = groupedRows[lastGroupedIndex]
-    const activeProcess =
-      Boolean(activeTurn || isTyping) && lastGroupedRow?.kind === "process"
-    if (activeProcess && lastGroupedRow?.kind === "process") {
+    const replyIsActive =
+      Boolean(activeTurn || isTyping) && lastGroupedRow?.kind === "reply"
+    if (replyIsActive) {
       groupedRows[lastGroupedIndex] = { ...lastGroupedRow, active: true }
     }
     rows.push(...groupedRows)
-    if (isTyping && !activeProcess) rows.push({ kind: "working" })
+    if (isTyping && !replyIsActive) rows.push({ kind: "working" })
     if (!isHistoryLoading && !historyError && !activeTurn) {
       rows.push({
         kind: "activity",
@@ -897,8 +897,8 @@ export function ChatPage() {
                       inputDisabledReason={inputDisabledReason}
                       onSelectPrompt={(prompt) => setInput(prompt)}
                       branchGroup={
-                        row.kind === "message"
-                          ? branchByVersion.get(row.message.id)
+                        row.kind === "reply" && row.lastText
+                          ? branchByVersion.get(row.lastText.id)
                           : undefined
                       }
                       onFeedback={(messageId, value) =>

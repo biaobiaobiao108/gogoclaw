@@ -9,6 +9,7 @@ export function ProcessMessage({
   expanded,
   onToggle,
   streamingMessageId,
+  isTurnActive,
   activeTurn,
   activities = [],
 }: {
@@ -16,6 +17,7 @@ export function ProcessMessage({
   expanded: boolean
   onToggle: () => void
   streamingMessageId?: string
+  isTurnActive?: boolean
   activeTurn?: ChatStoreState["activeTurn"]
   activities?: ChatActivity[]
 }) {
@@ -29,7 +31,7 @@ export function ProcessMessage({
     messages.some((m) => m.id === streamingMessageId && m.kind === "thought"),
   )
   const turnActivities = activeTurn?.activities ?? []
-  const isActive = Boolean(activeTurn || isStreamingThought)
+  const isActive = Boolean(isTurnActive || isStreamingThought)
   const currentActivity = isActive
     ? (activeTurn?.activity ??
       [...turnActivities, ...activities]
@@ -40,7 +42,7 @@ export function ProcessMessage({
     ? currentActivity.title
     : isStreamingThought
       ? t("chat.reasoningStreamingLabel")
-      : activeTurn?.phase === "tools"
+      : activeTurn?.phase === "tools" || (isActive && !activeTurn && calls > 0)
         ? t("chat.workingWithTools")
         : activeTurn?.phase === "finalizing"
           ? t("chat.workingFinalizing")

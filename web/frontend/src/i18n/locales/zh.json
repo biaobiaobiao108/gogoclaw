@@ -954,7 +954,7 @@
       "restrict_workspace": "限制工作目录访问",
       "restrict_workspace_hint": "仅允许在工作目录内执行文件操作和命令路径",
       "split_on_marker": "连续短消息",
-      "split_on_marker_hint": "像真人聊天一样，把长难句拆成多条短消息快速发出",
+      "split_on_marker_hint": "在即时通讯渠道把长回复拆成多条短消息发送",
       "tool_feedback_enabled": "工具反馈",
       "tool_feedback_enabled_hint": "在每次执行工具前，先向当前会话发送一条简短的执行说明",
       "tool_feedback_separate_messages": "分开发送反馈消息",

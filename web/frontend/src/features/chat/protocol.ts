@@ -388,6 +388,8 @@ export function handlePicoMessage(
         })(),
         isTyping:
           !isPlaceholder &&
+          payload.stream_draft !== true &&
+          payload.outbound_kind !== "interim" &&
           (kind === "normal" || message.type === "media.create")
             ? false
             : prev.isTyping,
@@ -457,6 +459,10 @@ export function handlePicoMessage(
             },
           ]
         })(),
+        ...(payload.stream_draft === false &&
+        payload.outbound_kind !== "interim"
+          ? { isTyping: false }
+          : {}),
         ...(contextUsage ? { contextUsage } : {}),
       }))
       return deliveryId

@@ -11,6 +11,7 @@ import {
   scheduleReconnect as scheduleChatReconnect,
   setMaintainConnection,
 } from "@/features/chat/chat-connection"
+import { groupChatMessages } from "@/features/chat/group-messages"
 import {
   loadOlderSessionHistory,
   loadSessionHistory,
@@ -535,11 +536,19 @@ export function sendChatMessage({
       ? prev.messages.findIndex((message) => message.id === targetMessageId)
       : -1
     if (action === "regenerate") {
+      const reply = groupChatMessages(
+        prev.messages.slice(0, targetIndex + 1),
+      ).at(-1)
+      const firstPart = reply?.kind === "reply" ? reply.parts[0] : undefined
+      const firstMessageId =
+        firstPart?.kind === "text"
+          ? firstPart.message.id
+          : firstPart?.messages[0]?.id
+      const start = firstMessageId
+        ? prev.messages.findIndex((message) => message.id === firstMessageId)
+        : targetIndex
       return {
-        messages:
-          targetIndex >= 0
-            ? prev.messages.slice(0, targetIndex)
-            : prev.messages,
+        messages: start >= 0 ? prev.messages.slice(0, start) : prev.messages,
         isTyping: true,
         interrupted: false,
         activeTurn: undefined,

@@ -30,6 +30,36 @@ test("task usage refreshes independently of context occupancy after completion",
 })
 
 describe("turn status", () => {
+  test("leaves the turn running through draft frames and completed interim text", () => {
+    updateChatStore({ messages: [], isTyping: true })
+    const emitText = (
+      type: "message.create" | "message.update",
+      messageId: string,
+      payload: Record<string, unknown>,
+    ) =>
+      handlePicoMessage(
+        {
+          type,
+          payload: { message_id: messageId, content: messageId, ...payload },
+        },
+        "current",
+      )
+
+    emitText("message.create", "interim-1", { outbound_kind: "interim" })
+    expect(getChatState().isTyping).toBe(true)
+    emitText("message.create", "interim-2", { stream_draft: true })
+    expect(getChatState().isTyping).toBe(true)
+    emitText("message.update", "interim-2", {
+      stream_draft: false,
+      outbound_kind: "interim",
+    })
+    expect(getChatState().isTyping).toBe(true)
+    emitText("message.create", "final", { stream_draft: true })
+    expect(getChatState().isTyping).toBe(true)
+    emitText("message.update", "final", { stream_draft: false })
+    expect(getChatState().isTyping).toBe(false)
+  })
+
   test("tracks the active and interrupted state for the current session only", () => {
     updateChatStore({ activeTurn: undefined, interrupted: false })
     handlePicoMessage(

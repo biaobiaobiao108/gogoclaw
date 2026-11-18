@@ -40,7 +40,7 @@ func outboundMessageFinalizesTrackedToolFeedback(msg bus.OutboundMessage) bool {
 	return !outboundMessageIsToolFeedback(msg) &&
 		!outboundMessageIsThought(msg) &&
 		!outboundMessageIsToolCalls(msg) &&
-		!strings.EqualFold(strings.TrimSpace(msg.Context.Raw["outbound_kind"]), "interim")
+		!strings.EqualFold(strings.TrimSpace(msg.Context.Raw[PayloadKeyOutboundKind]), "interim")
 }
 
 // SendSessionTitleUpdate tells connected clients to reload session metadata.
@@ -90,6 +90,9 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]stri
 	}
 	if deliveryID != "" {
 		payload[PayloadKeyDeliveryID] = deliveryID
+	}
+	if msg.Context.Raw[PayloadKeyOutboundKind] == "interim" {
+		payload[PayloadKeyOutboundKind] = "interim"
 	}
 	if modelName := strings.TrimSpace(msg.Context.Raw[PayloadKeyModelName]); modelName != "" {
 		payload[PayloadKeyModelName] = modelName
@@ -338,6 +341,13 @@ func (s *picoStreamer) Finalize(ctx context.Context, content string) error {
 	return s.FinalizeWithContext(ctx, content, nil)
 }
 
+func (s *picoStreamer) FinalizeInterim(ctx context.Context, content string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.interim = true
+	return s.updateLocked(ctx, content, true, nil)
+}
+
 func (s *picoStreamer) FinalizeWithContext(ctx context.Context, content string, contextUsage *bus.ContextUsage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -511,6 +521,9 @@ func (s *picoStreamer) sendLocked(
 		if final && s.deliveryID != "" {
 			payload[PayloadKeyDeliveryID] = s.deliveryID
 		}
+		if final && s.interim {
+			payload[PayloadKeyOutboundKind] = "interim"
+		}
 		if s.modelName != "" {
 			payload[PayloadKeyModelName] = s.modelName
 		}
@@ -531,6 +544,9 @@ func (s *picoStreamer) sendLocked(
 		}
 		if final && s.deliveryID != "" {
 			payload[PayloadKeyDeliveryID] = s.deliveryID
+		}
+		if final && s.interim {
+			payload[PayloadKeyOutboundKind] = "interim"
 		}
 		if s.modelName != "" {
 			payload[PayloadKeyModelName] = s.modelName
