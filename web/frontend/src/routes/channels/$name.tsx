@@ -1,6 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router"
-
-import { ChannelConfigPage } from "@/components/channels/channel-config-page"
+import { createFileRoute, lazyRouteComponent } from "@tanstack/react-router"
 
 export const Route = createFileRoute("/channels/$name")({
   component: ChannelsByNameRoute,
@@ -9,5 +7,10 @@ export const Route = createFileRoute("/channels/$name")({
 function ChannelsByNameRoute() {
   const { name } = Route.useParams()
 
-  return <ChannelConfigPage key={name} channelName={name} />
+  return <ChannelConfigPageLazy key={name} channelName={name} />
 }
+
+const ChannelConfigPageLazy = lazyRouteComponent(
+  () => import("@/components/channels/channel-config-page"),
+  "ChannelConfigPage",
+)

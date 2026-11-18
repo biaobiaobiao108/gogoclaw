@@ -1,4 +1,4 @@
-// Run against a local Vite server with a globally installed Playwright.
+// Run against the local Bun dev server with a globally installed Playwright.
 const fs = require("node:fs")
 const playwright = require(process.env.PLAYWRIGHT_MODULE)
 

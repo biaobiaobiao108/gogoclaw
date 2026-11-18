@@ -1,4 +1,4 @@
-// Run against a local Vite server with a globally installed Playwright.
+// Run against the local Bun dev server with a globally installed Playwright.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE)
 
 async function main() {

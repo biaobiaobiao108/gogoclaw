@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 
-import githubDarkCss from "highlight.js/styles/github-dark.css?inline"
-import githubLightCss from "highlight.js/styles/github.css?inline"
+import githubDarkCss from "highlight.js/styles/github-dark.css" with { type: "text" }
+import githubLightCss from "highlight.js/styles/github.css" with { type: "text" }
 
 const THEME_STYLE_ID = "hljs-theme-style"
 const THEME_STYLE_OWNER_ATTR = "data-gogoclaw-highlight-theme"

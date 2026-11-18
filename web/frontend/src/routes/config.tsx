@@ -1,6 +1,9 @@
-import { createFileRoute, Outlet, useRouterState } from "@tanstack/react-router"
-
-import { ConfigPage } from "@/components/config/config-page"
+import {
+  createFileRoute,
+  lazyRouteComponent,
+  Outlet,
+  useRouterState,
+} from "@tanstack/react-router"
 
 export const Route = createFileRoute("/config")({
   component: ConfigRouteLayout,
@@ -12,8 +15,13 @@ function ConfigRouteLayout() {
   })
 
   if (pathname === "/config") {
-    return <ConfigPage />
+    return <ConfigPageLazy />
   }
 
   return <Outlet />
 }
+
+const ConfigPageLazy = lazyRouteComponent(
+  () => import("@/components/config/config-page"),
+  "ConfigPage",
+)

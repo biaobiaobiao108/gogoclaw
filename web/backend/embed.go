@@ -24,7 +24,7 @@ func registerEmbedRoutes(mux *http.ServeMux) {
 		logger.ErrorC("web", fmt.Sprintf("Warning: failed to register SVG MIME type: %v", err))
 	}
 
-	// Attempt to get the subdirectory 'dist' where Vite usually builds
+	// Attempt to get the subdirectory 'dist' where the frontend builds
 	subFS, err := fs.Sub(frontendFS, "dist")
 	if err != nil {
 		// Log a warning if dist doesn't exist yet (e.g., during development before a frontend build)

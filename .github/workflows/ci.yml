@@ -110,7 +110,7 @@ jobs:
       - run: '"$(bun pm bin -g)/playwright" install --with-deps chromium'
       - name: Exercise console workflows in Chromium
         run: |
-          bun run dev --host 127.0.0.1 > /tmp/gogoclaw-vite.log 2>&1 &
+          bun run dev --host 127.0.0.1 > /tmp/gogoclaw-bun-dev.log 2>&1 &
           trap 'kill $! 2>/dev/null || true' EXIT
           timeout 60 bash -c 'until curl -fsS http://127.0.0.1:5173/ >/dev/null; do sleep 1; done'
           export PLAYWRIGHT_MODULE="$(bun pm bin -g)/../install/global/node_modules/playwright"
@@ -159,7 +159,7 @@ jobs:
         env:
           GOGOCLAW_BROWSER: ${{ matrix.browser }}
         run: |
-          bun run dev --host 127.0.0.1 > /tmp/gogoclaw-vite.log 2>&1 &
+          bun run dev --host 127.0.0.1 > /tmp/gogoclaw-bun-dev.log 2>&1 &
           trap 'kill $! 2>/dev/null || true' EXIT
           timeout 60 bash -c 'until curl -fsS http://127.0.0.1:5173/ >/dev/null; do sleep 1; done'
           PLAYWRIGHT_MODULE="$(bun pm bin -g)/../install/global/node_modules/playwright" \

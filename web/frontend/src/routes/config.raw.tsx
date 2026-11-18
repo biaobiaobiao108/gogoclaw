@@ -1,7 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router"
-
-import { RawConfigPage } from "@/components/config/raw-config-page"
+import { createFileRoute, lazyRouteComponent } from "@tanstack/react-router"
 
 export const Route = createFileRoute("/config/raw")({
-  component: RawConfigPage,
+  component: lazyRouteComponent(
+    () => import("@/components/config/raw-config-page"),
+    "RawConfigPage",
+  ),
 })

@@ -1,11 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router"
-
-import { SkillsPage } from "@/components/agent/skills/skills-page"
+import { createFileRoute, lazyRouteComponent } from "@tanstack/react-router"
 
 export const Route = createFileRoute("/agent/skills")({
   component: AgentSkillsRoute,
 })
 
 function AgentSkillsRoute() {
-  return <SkillsPage />
+  return <SkillsPageLazy />
 }
+
+const SkillsPageLazy = lazyRouteComponent(
+  () => import("@/components/agent/skills/skills-page"),
+  "SkillsPage",
+)

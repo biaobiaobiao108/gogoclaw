@@ -71,6 +71,7 @@ async function main() {
     const page = await browser.newPage({
       viewport: { width: 390, height: 844 },
     })
+    await page.addInitScript(() => localStorage.setItem("theme", "dark"))
     const errors = []
     const configWrites = []
     page.on("request", (request) => {
@@ -81,6 +82,12 @@ async function main() {
     await page.goto(
       `${base}/launcher-setup#setup_token=${encodeURIComponent(token)}`,
     )
+    if (
+      !(await page.evaluate(() =>
+        document.documentElement.classList.contains("dark"),
+      ))
+    )
+      throw new Error("Theme initialization did not run under CSP")
     await page.locator("#setup-password").fill("browser-test-password")
     await page.locator("#setup-confirm").fill("browser-test-password")
     await page.locator('button[type="submit"]').click()

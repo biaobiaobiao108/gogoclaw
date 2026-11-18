@@ -6,8 +6,9 @@ const frontendDir = resolve(import.meta.dirname, "..")
 const backendDist = resolve(frontendDir, "../backend/dist")
 const buildDir = resolve(frontendDir, "../build")
 const frontendDist = resolve(frontendDir, "dist")
+const frontendCache = resolve(frontendDir, ".cache")
 
-const targets = [frontendDist, backendDist, buildDir]
+const targets = [frontendDist, backendDist, buildDir, frontendCache]
 
 for (const target of targets) {
   if (existsSync(target)) {

@@ -114,7 +114,7 @@ export function AppHeader() {
             aria-label={t("header.home")}
             className="-ml-1 flex h-8 items-center gap-2 rounded-md px-1 opacity-95 transition-opacity hover:opacity-100"
           >
-            <img className="size-5" src="/logo.svg" alt="" />
+            <img className="size-5" src="/public/logo.svg" alt="" />
             <span className="hidden text-sm font-semibold tracking-tight md:inline">
               GoGoClaw
             </span>
