@@ -6,6 +6,32 @@ const browserName = process.env.GOGOCLAW_BROWSER || "chromium"
 const browserType = playwright[browserName]
 if (!browserType) throw new Error(`Unknown browser: ${browserName}`)
 
+// WebKit reports cancelled same-origin loads from an outgoing document as page
+// errors during Playwright-driven navigation. Playwright splits the message at
+// the URL colon, so join the name and message before matching.
+const refusedLoad =
+  /^(?:Fetch API|XMLHttpRequest) cannot load (\S+) due to access control checks\.$/
+
+function originOf(value) {
+  try {
+    return new URL(value).origin
+  } catch {
+    return undefined
+  }
+}
+
+function isNavigationRefusedLoad(error, navigations) {
+  if (browserName !== "webkit") return false
+  const joined = `${error.name}:/${error.message}`
+  const url = refusedLoad.exec(joined)?.[1]
+  if (!url) return false
+  const origin = originOf(url)
+  return (
+    origin !== undefined &&
+    [...navigations].some((navigation) => originOf(navigation.from) === origin)
+  )
+}
+
 async function main() {
   const browser = await browserType.launch({
     headless: true,
@@ -27,8 +53,21 @@ async function main() {
       logClears: 0,
       approvalResponse: null,
     }
+    const testNavigations = new Set()
+    const navigate = async (url, options) => {
+      const navigation = { from: page.url() }
+      testNavigations.add(navigation)
+      try {
+        return await page.goto(url, options)
+      } finally {
+        testNavigations.delete(navigation)
+      }
+    }
 
-    page.on("pageerror", (error) => errors.push(error.message))
+    page.on("pageerror", (error) => {
+      if (isNavigationRefusedLoad(error, testNavigations)) return
+      errors.push(error.message)
+    })
     page.on("console", (message) => {
       if (message.type() === "error") errors.push(message.text())
     })
@@ -246,7 +285,7 @@ async function main() {
     })
 
     const base = process.env.GOGOCLAW_BROWSER_URL || "http://127.0.0.1:5173"
-    await page.goto(`${base}/chat`)
+    await navigate(`${base}/chat`)
     await page
       .locator('textarea:not([aria-hidden="true"])')
       .waitFor()
@@ -314,7 +353,7 @@ async function main() {
     await scan(page, "chat", Boolean(process.env.AXE_MODULE))
     await assertNoRawKeys(page, "chat")
 
-    await page.goto(`${base}/config`)
+    await navigate(`${base}/config`)
     const approvalSwitch = page.getByRole("switch", { name: "工具调用审批" })
     await approvalSwitch.waitFor()
     await approvalSwitch.focus()
@@ -333,7 +372,7 @@ async function main() {
     await scan(page, "config", Boolean(process.env.AXE_MODULE))
     await assertNoRawKeys(page, "config")
 
-    await page.goto(`${base}/channels/pico`)
+    await navigate(`${base}/channels/pico`)
     const channelSwitch = page.getByRole("switch", { name: "启用频道" })
     await channelSwitch.waitFor()
     await channelSwitch.click()
@@ -351,7 +390,7 @@ async function main() {
     await scan(page, "channel", Boolean(process.env.AXE_MODULE))
     await assertNoRawKeys(page, "channel")
 
-    await page.goto(`${base}/agent/skills`)
+    await navigate(`${base}/agent/skills`)
     await page.getByText("release-check", { exact: true }).waitFor()
     const importButton = page.getByRole("button", { name: "导入技能" })
     await importButton.click()
@@ -384,7 +423,7 @@ async function main() {
     await scan(page, "skills", Boolean(process.env.AXE_MODULE))
     await assertNoRawKeys(page, "skills")
 
-    await page.goto(`${base}/sessions`)
+    await navigate(`${base}/sessions`)
     await page.getByText("telegram · main", { exact: true }).first().waitFor()
     await page.getByText("telegram · main", { exact: true }).first().click()
     await page.getByText("Checks completed.", { exact: true }).waitFor()
@@ -396,7 +435,7 @@ async function main() {
     await scan(page, "sessions", Boolean(process.env.AXE_MODULE))
     await assertNoRawKeys(page, "sessions")
 
-    await page.goto(`${base}/logs`)
+    await navigate(`${base}/logs`)
     await page.getByText("gateway ready", { exact: false }).waitFor()
     await page.getByRole("button", { name: "清空日志" }).click()
     await page.getByText("等待日志中", { exact: false }).waitFor()
@@ -405,7 +444,7 @@ async function main() {
     await assertNoRawKeys(page, "logs")
 
     await page.emulateMedia({ reducedMotion: "reduce" })
-    await page.goto(`${base}/config`)
+    await navigate(`${base}/config`)
     const reducedDuration = await page
       .getByRole("button", { name: "切换到深色主题" })
       .evaluate((element) => getComputedStyle(element).transitionDuration)
@@ -413,7 +452,7 @@ async function main() {
       throw new Error(`Reduced-motion duration was ${reducedDuration}`)
 
     await page.emulateMedia({ reducedMotion: "no-preference" })
-    await page.goto(`${base}/config`)
+    await navigate(`${base}/config`)
     await page.setViewportSize({ width: 640, height: 800 })
     await page.addStyleTag({ content: "html { font-size: 200% !important; }" })
     const scaledType = await page.evaluate(() => ({
@@ -439,7 +478,7 @@ async function main() {
     await page.getByRole("button", { name: "保存", exact: true }).waitFor()
 
     for (const width of [375, 320]) {
-      await page.goto(`${base}/config`)
+      await navigate(`${base}/config`)
       await page.setViewportSize({ width, height: 812 })
       await page.getByRole("button", { name: "保存", exact: true }).waitFor()
       if (
