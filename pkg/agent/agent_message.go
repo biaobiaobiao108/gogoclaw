@@ -245,13 +245,13 @@ func (al *AgentLoop) processMessageResult(
 			Attachments:    append([]bus.InboundAttachment(nil), msg.Attachments...),
 			ThinkingLevel:  strings.TrimSpace(msg.Context.Raw["thinking_level"]),
 		},
-		SenderID:                msg.SenderID,
-		SenderDisplayName:       msg.Sender.DisplayName,
-		DefaultResponse:         defaultResponse,
-		EnableSummary:           true,
-		SendResponse:            false,
-		AllowInterimPicoPublish: true,
-		runtime:                 &runtime,
+		SenderID:            msg.SenderID,
+		SenderDisplayName:   msg.Sender.DisplayName,
+		DefaultResponse:     defaultResponse,
+		EnableSummary:       true,
+		SendResponse:        false,
+		AllowInterimPublish: true,
+		runtime:             &runtime,
 	}
 	var err error
 	opts, err = resolveTurnProfileOptions(runtime.cfg, opts)

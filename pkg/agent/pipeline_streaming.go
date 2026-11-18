@@ -24,6 +24,11 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 ) (*providers.LLMResponse, bool, error) {
 	exec.streamingPublisher = nil
 	exec.streamingFallback = false
+	// Keep later responses on the same outbound queue so a direct stream
+	// finalization cannot arrive ahead of the queued interim message.
+	if exec.interimQueued {
+		return nil, false, nil
+	}
 	if !p.configuredStreamingEligible(ts, exec) {
 		return nil, false, nil
 	}
@@ -316,6 +321,42 @@ func cancelConfiguredStreamingLLM(ctx context.Context, exec *turnExecution) {
 	publisher.Cancel(ctx)
 }
 
+func (p *Pipeline) finishToolCallStream(
+	ctx context.Context, ts *turnState, exec *turnExecution, msg providers.Message,
+) (textStreamed, reasoningStreamed bool) {
+	publisher := exec.streamingPublisher
+	if publisher == nil {
+		return false, false
+	}
+	if delivery := exec.streamingDelivery; delivery != nil {
+		defer p.al.discardDelivery(ts.sessionKey, delivery.ID)
+	}
+	interim, canFinalize := publisher.streamer.(bus.InterimStreamer)
+	hasReasoning := strings.TrimSpace(msg.ReasoningContent) != ""
+	if canFinalize && ts.channel == "pico" && ts.opts.AllowInterimPublish &&
+		publisher.Published() && strings.TrimSpace(msg.Content) != "" &&
+		(!publisher.ReasoningPublished() || hasReasoning) {
+		var err error
+		if publisher.ReasoningPublished() {
+			err = publisher.FinalizeReasoning(ctx, msg.ReasoningContent)
+			reasoningStreamed = err == nil
+		}
+		if err == nil {
+			err = interim.FinalizeInterim(ctx, msg.Content)
+		}
+		if err == nil {
+			exec.streamingPublisher = nil
+			exec.streamingDelivery = nil
+			return true, reasoningStreamed
+		}
+		logger.WarnCF("agent", "Failed to finalize interim response stream", map[string]any{
+			"channel": ts.channel, "chat_id": ts.chatID, "error": err.Error(),
+		})
+	}
+	cancelConfiguredStreamingLLM(ctx, exec)
+	return false, false
+}
+
 func (p *Pipeline) configuredStreamingEligible(ts *turnState, exec *turnExecution) bool {
 	if p == nil || ts == nil || exec == nil || p.Bus == nil {
 		logger.DebugCF("agent", "configured streaming not used", map[string]any{
@@ -333,7 +374,7 @@ func (p *Pipeline) configuredStreamingEligible(ts *turnState, exec *turnExecutio
 		})
 		return false
 	}
-	if !ts.opts.SendResponse && !ts.opts.AllowInterimPicoPublish {
+	if !ts.opts.SendResponse && !ts.opts.AllowInterimPublish {
 		logger.DebugCF("agent", "configured streaming not used", map[string]any{
 			"agent_id": ts.agent.ID,
 			"channel":  ts.channel,
@@ -565,15 +606,6 @@ func (p *streamingChunkPublisher) FinalizeReasoning(ctx context.Context, content
 		return fmt.Errorf("stream reasoning finalize: %w", err)
 	}
 	return nil
-}
-
-func (p *streamingChunkPublisher) ClearFinalizedStreamMarker() {
-	if p == nil || p.streamer == nil {
-		return
-	}
-	if cleaner, ok := p.streamer.(interface{ ClearFinalizedStreamMarker() }); ok {
-		cleaner.ClearFinalizedStreamMarker()
-	}
 }
 
 func (p *streamingChunkPublisher) Cancel(ctx context.Context) {

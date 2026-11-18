@@ -183,118 +183,73 @@ func (al *AgentLoop) publishPicoReasoning(
 	}
 }
 
-func (al *AgentLoop) publishPicoToolCallInterim(
+func (al *AgentLoop) publishToolCallInterim(
 	ctx context.Context,
 	ts *turnState,
-	modelName string,
+	assistantMsg providers.Message,
 	reasoningContent string,
-	content string,
-	toolCalls []providers.ToolCall,
-	messageIDs ...string,
-) {
-	if ts == nil || ts.chatID == "" || al == nil || al.bus == nil {
-		return
+	textStreamed bool,
+) bool {
+	if al.bus == nil || ts.channel == "" || ts.chatID == "" {
+		return false
 	}
-
-	messageID := fmt.Sprintf("%s-llm-%d", ts.turnID, ts.currentIteration())
-	if len(messageIDs) > 0 {
-		messageID = messageIDs[0]
-	}
-	if strings.TrimSpace(reasoningContent) != "" {
-		pubCtx, pubCancel := context.WithTimeout(ctx, 3*time.Second)
-		err := al.bus.PublishOutbound(
-			pubCtx,
-			outboundMessageForTurnWithOptions(
-				ts,
-				reasoningContent,
-				outboundTurnMessageOptions{
-					kind:      messageKindThought,
-					messageID: messageID + "-thought",
-					modelName: modelName,
-				},
-			),
-		)
-		pubCancel()
-		if err != nil && !errors.Is(err, context.DeadlineExceeded) &&
-			!errors.Is(err, context.Canceled) &&
-			!errors.Is(err, bus.ErrBusClosed) {
-			logger.WarnCF("agent", "Failed to publish pico reasoning", map[string]any{
-				"channel": ts.channel,
-				"chat_id": ts.chatID,
-				"error":   err.Error(),
+	publish := func(msg bus.OutboundMessage) bool {
+		pubCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		if err := al.bus.PublishOutbound(pubCtx, msg); err != nil {
+			logger.WarnCF("agent", "Failed to publish interim response", map[string]any{
+				"channel": ts.channel, "chat_id": ts.chatID, "error": err.Error(),
 			})
+			return false
 		}
+		return true
 	}
 
-	if !ts.opts.AllowInterimPicoPublish {
-		return
+	if ts.channel == "pico" && strings.TrimSpace(reasoningContent) != "" {
+		publish(outboundMessageForTurnWithOptions(ts, reasoningContent, outboundTurnMessageOptions{
+			kind:      messageKindThought,
+			messageID: assistantMsg.ID + "-thought",
+			modelName: assistantMsg.ModelName,
+		}))
+	}
+	if !ts.opts.AllowInterimPublish {
+		return false
+	}
+
+	textPublished := textStreamed
+	if !textPublished && strings.TrimSpace(assistantMsg.Content) != "" {
+		textPublished = publish(outboundMessageForTurnWithOptions(ts, assistantMsg.Content, outboundTurnMessageOptions{
+			messageID: assistantMsg.ID,
+			modelName: assistantMsg.ModelName,
+			raw:       map[string]string{metadataKeyOutboundKind: outboundKindInterim},
+		}))
+	}
+	if ts.channel != "pico" {
+		return textPublished
 	}
 
 	visibleToolCalls := utils.BuildVisibleToolCalls(
-		toolCalls,
+		assistantMsg.ToolCalls,
 		al.runtimeSnapshot().cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength(),
+		assistantMsg.Content,
 	)
-	duplicateToolCallContent := len(visibleToolCalls) > 0 &&
-		utils.ToolCallExplanationDuplicatesContent(content, toolCalls)
-
-	if strings.TrimSpace(content) != "" && !duplicateToolCallContent {
-		pubCtx, pubCancel := context.WithTimeout(ctx, 3*time.Second)
-		err := al.bus.PublishOutbound(
-			pubCtx,
-			outboundMessageForTurnWithOptions(ts, content, outboundTurnMessageOptions{
-				messageID: messageID,
-				modelName: modelName,
-			}),
-		)
-		pubCancel()
-		if err != nil && !errors.Is(err, context.DeadlineExceeded) &&
-			!errors.Is(err, context.Canceled) &&
-			!errors.Is(err, bus.ErrBusClosed) {
-			logger.WarnCF("agent", "Failed to publish pico interim assistant content", map[string]any{
-				"channel": ts.channel,
-				"chat_id": ts.chatID,
-				"error":   err.Error(),
-			})
-		}
-	}
-
 	if len(visibleToolCalls) == 0 {
-		return
+		return textPublished
 	}
-
 	rawToolCalls, err := json.Marshal(visibleToolCalls)
 	if err != nil {
 		logger.WarnCF("agent", "Failed to serialize pico tool calls", map[string]any{
-			"channel": ts.channel,
-			"chat_id": ts.chatID,
-			"error":   err.Error(),
+			"channel": ts.channel, "chat_id": ts.chatID, "error": err.Error(),
 		})
-		return
+		return textPublished
 	}
-
-	msg := outboundMessageForTurnWithOptions(ts, "", outboundTurnMessageOptions{
+	publish(outboundMessageForTurnWithOptions(ts, "", outboundTurnMessageOptions{
 		kind:      messageKindToolCalls,
-		modelName: modelName,
-		raw: map[string]string{
-			metadataKeyToolCalls: string(rawToolCalls),
-		},
-	})
-
-	if len(messageIDs) > 0 {
-		msg.ID = messageIDs[0] + "-tools"
-	}
-	pubCtx, pubCancel := context.WithTimeout(ctx, 3*time.Second)
-	err = al.bus.PublishOutbound(pubCtx, msg)
-	pubCancel()
-	if err != nil && !errors.Is(err, context.DeadlineExceeded) &&
-		!errors.Is(err, context.Canceled) &&
-		!errors.Is(err, bus.ErrBusClosed) {
-		logger.WarnCF("agent", "Failed to publish pico tool calls", map[string]any{
-			"channel": ts.channel,
-			"chat_id": ts.chatID,
-			"error":   err.Error(),
-		})
-	}
+		messageID: assistantMsg.ID + "-tools",
+		modelName: assistantMsg.ModelName,
+		raw:       map[string]string{metadataKeyToolCalls: string(rawToolCalls)},
+	}))
+	return textPublished
 }
 
 func (al *AgentLoop) handleReasoning(

@@ -222,6 +222,14 @@ func toolFeedbackExplanationFromMessages(messages []providers.Message) string {
 	return ""
 }
 
+func (exec *turnExecution) toolFeedbackExplanation(tc providers.ToolCall, messages []providers.Message) string {
+	explanation := toolFeedbackExplanationForToolCall(exec.response, tc, messages)
+	if exec.interimPublished && utils.ToolFeedbackExplanationMatchesContent(explanation, exec.response.Content) {
+		return ""
+	}
+	return explanation
+}
+
 func toolFeedbackArgsPreview(args map[string]any, maxLen int) string {
 	argsJSON := utils.FormatArgsJSON(args, true, false)
 	return utils.Truncate(argsJSON, maxLen)

@@ -78,6 +78,11 @@ type Streamer interface {
 	Cancel(ctx context.Context)
 }
 
+// InterimStreamer preserves a streamed message while the turn continues.
+type InterimStreamer interface {
+	FinalizeInterim(ctx context.Context, content string) error
+}
+
 // ContextUsageStreamer can attach final context-window usage metadata when a
 // streaming channel's final message replaces the normal outbound response.
 type ContextUsageStreamer interface {

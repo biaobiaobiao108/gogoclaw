@@ -120,6 +120,8 @@ type turnExecution struct {
 	normalizedResponse  providers.NormalizedResponse
 	normalizedToolCalls []providers.ToolCall
 	allResponsesHandled bool
+	interimPublished    bool
+	interimQueued       bool
 	streamingPublisher  *streamingChunkPublisher
 	streamingDelivery   *session.TurnDelivery
 	streamingFallback   bool

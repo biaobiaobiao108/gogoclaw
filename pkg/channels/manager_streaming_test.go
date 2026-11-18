@@ -794,6 +794,48 @@ func TestGetStreamer_FinalizeDismissesTrackedToolFeedback(t *testing.T) {
 	}
 }
 
+func TestGetStreamer_FinalizeInterimDoesNotSuppressLaterMessages(t *testing.T) {
+	m := newTestManager()
+	m.channels["test"] = &mockStreamingChannel{streamer: &mockStreamer{}}
+	ctx := context.Background()
+	streamer, ok := m.GetStreamer(ctx, "test", "123", "session")
+	if !ok {
+		t.Fatal("expected streamer to be available")
+	}
+	interim, ok := streamer.(bus.InterimStreamer)
+	if !ok {
+		t.Fatal("expected streamer to support interim responses")
+	}
+	if err := interim.FinalizeInterim(ctx, "checking"); err != nil {
+		t.Fatal(err)
+	}
+	key := streamSuppressionKey("test", "123", "session")
+	if _, active := m.streamActive.Load(key); active || m.streamAuxiliaryTombstoneActive(key) {
+		t.Fatal("interim response marked the turn complete")
+	}
+}
+
+func TestPreSend_ExternalInterimClearsPreviousTurnStreamMarker(t *testing.T) {
+	m := newTestManager()
+	ctx := context.Background()
+	ch := &mockChannel{}
+	key := streamSuppressionKey("test", "123", "session")
+	m.streamActive.Store(key, true)
+	m.streamAuxiliaryTombstones.Store(key, time.Now())
+	msg := testOutboundMessage(bus.OutboundMessage{
+		Channel: "test", ChatID: "123", SessionKey: "session", Content: "checking",
+	})
+	msg.Context.Raw = map[string]string{"outbound_kind": "interim"}
+	if _, handled := m.preSend(ctx, "test", msg, ch); handled {
+		t.Fatal("expected the interim response to reach the channel")
+	}
+	msg.Content = "done"
+	msg.Context.Raw = map[string]string{"outbound_kind": "final"}
+	if _, handled := m.preSend(ctx, "test", msg, ch); handled {
+		t.Fatal("expected the final response to reach the channel")
+	}
+}
+
 func TestGetStreamer_FinalizeCleansPlaceholderImmediately(t *testing.T) {
 	m := newTestManager()
 	m.RecordPlaceholder("test", "123", "placeholder-1")

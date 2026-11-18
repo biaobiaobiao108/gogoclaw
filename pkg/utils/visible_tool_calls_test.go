@@ -20,7 +20,7 @@ func TestBuildVisibleToolCalls_DoesNotTruncateExplanation(t *testing.T) {
 		},
 	}}
 
-	visible := BuildVisibleToolCalls(toolCalls, 20)
+	visible := BuildVisibleToolCalls(toolCalls, 20, "")
 	if len(visible) != 1 {
 		t.Fatalf("len(visible) = %d, want 1", len(visible))
 	}

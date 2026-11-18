@@ -50,7 +50,7 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID, sessionK
 	clearMarker := func() {
 		m.streamActive.Delete(streamKey)
 	}
-	onFinalize := func(finalizeCtx context.Context, finalContent string) {
+	onFinalize := func(finalizeCtx context.Context, finalContent string, turnComplete bool) {
 		if m.toolFeedbackSeparateMessagesEnabled() {
 			clearTrackedToolFeedbackMessage(
 				ch,
@@ -80,8 +80,10 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID, sessionK
 				}
 			}
 		}
-		m.streamActive.Store(streamKey, true)
-		m.streamAuxiliaryTombstones.Store(streamKey, time.Now())
+		if turnComplete {
+			m.streamActive.Store(streamKey, true)
+			m.streamAuxiliaryTombstones.Store(streamKey, time.Now())
+		}
 	}
 
 	if cfg := m.currentConfig(); cfg != nil && cfg.Agents.Defaults.SplitOnMarker {
@@ -144,12 +146,20 @@ func (s *splitMarkerStreamer) Finalize(ctx context.Context, content string) erro
 }
 
 func (s *splitMarkerStreamer) FinalizeWithContext(ctx context.Context, content string, usage *bus.ContextUsage) error {
+	return s.finish(ctx, content, usage, true)
+}
+
+func (s *splitMarkerStreamer) FinalizeInterim(ctx context.Context, content string) error {
+	return s.finish(ctx, content, nil, false)
+}
+
+func (s *splitMarkerStreamer) finish(ctx context.Context, content string, usage *bus.ContextUsage, turnComplete bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.finalizeLocked(ctx, content, usage); err != nil {
 		return err
 	}
-	s.runFinalizeHook(ctx, content)
+	s.runFinalizeHook(ctx, content, turnComplete)
 	return nil
 }
 
@@ -284,13 +294,13 @@ func (s *splitMarkerStreamer) ensureCurrentLocked(ctx context.Context) error {
 	return nil
 }
 
-func (s *splitMarkerStreamer) runFinalizeHook(ctx context.Context, content string) {
+func (s *splitMarkerStreamer) runFinalizeHook(ctx context.Context, content string, turnComplete bool) {
 	if s.finalized {
 		return
 	}
 	s.finalized = true
 	if s.onFinalize != nil {
-		s.onFinalize(ctx, content)
+		s.onFinalize(ctx, content, turnComplete)
 	}
 }
 
@@ -325,10 +335,18 @@ func (m *Manager) streamActiveForChat(channel, chatID string) bool {
 }
 
 func (s *finalizeHookStreamer) Finalize(ctx context.Context, content string) error {
+	return s.finish(ctx, content, true)
+}
+
+func (s *finalizeHookStreamer) FinalizeInterim(ctx context.Context, content string) error {
+	return s.finish(ctx, content, false)
+}
+
+func (s *finalizeHookStreamer) finish(ctx context.Context, content string, turnComplete bool) error {
 	if err := s.Streamer.Finalize(ctx, content); err != nil {
 		return err
 	}
-	s.runFinalizeHook(ctx, content)
+	s.runFinalizeHook(ctx, content, turnComplete)
 	return nil
 }
 
@@ -340,7 +358,7 @@ func (s *finalizeHookStreamer) FinalizeWithContext(ctx context.Context, content 
 	} else if err := s.Streamer.Finalize(ctx, content); err != nil {
 		return err
 	}
-	s.runFinalizeHook(ctx, content)
+	s.runFinalizeHook(ctx, content, true)
 	return nil
 }
 
@@ -370,9 +388,9 @@ func (s *finalizeHookStreamer) SetTurnUsage(inputTokens, outputTokens int) {
 	setStreamerTurnUsage(s.Streamer, inputTokens, outputTokens)
 }
 
-func (s *finalizeHookStreamer) runFinalizeHook(ctx context.Context, content string) {
+func (s *finalizeHookStreamer) runFinalizeHook(ctx context.Context, content string, turnComplete bool) {
 	if s.onFinalize != nil {
-		s.onFinalize(ctx, content)
+		s.onFinalize(ctx, content, turnComplete)
 	}
 }
 

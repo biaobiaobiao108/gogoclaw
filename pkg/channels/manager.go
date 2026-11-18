@@ -245,7 +245,7 @@ type splitMarkerStreamer struct {
 	begin            func(context.Context) (bus.Streamer, error)
 	completedParts   int
 	finalized        bool
-	onFinalize       func(context.Context, string)
+	onFinalize       func(context.Context, string, bool)
 	clearMarker      func()
 	modelName        string
 	deliveryID       string
@@ -256,6 +256,6 @@ type splitMarkerStreamer struct {
 // finalizeHookStreamer wraps a Streamer to run a hook on Finalize.
 type finalizeHookStreamer struct {
 	Streamer
-	onFinalize  func(context.Context, string)
+	onFinalize  func(context.Context, string, bool)
 	clearMarker func()
 }

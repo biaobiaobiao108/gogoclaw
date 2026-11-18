@@ -1198,7 +1198,7 @@ func TestHandleListSessions_MessageCountUsesVisibleTranscript(t *testing.T) {
 	}
 }
 
-func TestHandleListSessions_DeduplicatesAssistantToolCallContentFromVisibleTranscript(t *testing.T) {
+func TestHandleListSessions_CountsInterimAssistantContentInVisibleTranscript(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
 
@@ -1254,8 +1254,8 @@ func TestHandleListSessions_DeduplicatesAssistantToolCallContentFromVisibleTrans
 	if len(items) != 1 {
 		t.Fatalf("len(items) = %d, want 1", len(items))
 	}
-	if items[0].MessageCount != 2 {
-		t.Fatalf("items[0].MessageCount = %d, want 2", items[0].MessageCount)
+	if items[0].MessageCount != 3 {
+		t.Fatalf("items[0].MessageCount = %d, want 3", items[0].MessageCount)
 	}
 }
 
@@ -1314,16 +1314,18 @@ func TestHandleGetSession_DoesNotDuplicateAssistantToolCallContent(t *testing.T)
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if len(resp.Messages) != 2 {
-		t.Fatalf("len(resp.Messages) = %d, want 2", len(resp.Messages))
+	if len(resp.Messages) != 3 {
+		t.Fatalf("len(resp.Messages) = %d, want 3", len(resp.Messages))
 	}
 	if resp.Messages[0].Role != "user" || resp.Messages[0].Content != "check file" {
 		t.Fatalf("first message = %#v, want user/check file", resp.Messages[0])
 	}
-	toolCall := assertVisibleToolCallMessage(t, resp.Messages[1], "read_file")
-	if toolCall.ExtraContent == nil ||
-		toolCall.ExtraContent.ToolFeedbackExplanation != "Read the file before replying." {
-		t.Fatalf("tool call = %#v, want explanation", toolCall)
+	if resp.Messages[1].Content != "Read the file before replying." || resp.Messages[1].Kind == "tool_calls" {
+		t.Fatalf("assistant message = %#v, want the interim text as a normal message", resp.Messages[1])
+	}
+	toolCall := assertVisibleToolCallMessage(t, resp.Messages[2], "read_file")
+	if toolCall.ExtraContent != nil {
+		t.Fatalf("tool call = %#v, want duplicate explanation omitted", toolCall)
 	}
 }
 
@@ -1452,8 +1454,8 @@ func TestHandleGetSession_PreservesMediaWhenAssistantToolCallContentDuplicatesSu
 	if resp.Messages[1].Role != "assistant" {
 		t.Fatalf("assistant message role = %q, want assistant", resp.Messages[1].Role)
 	}
-	if resp.Messages[1].Content != "" {
-		t.Fatalf("assistant content = %q, want duplicate content suppressed", resp.Messages[1].Content)
+	if resp.Messages[1].Content != "Reviewing the generated screenshot." {
+		t.Fatalf("assistant content = %q, want preserved interim content", resp.Messages[1].Content)
 	}
 	if len(resp.Messages[1].Media) != 1 || resp.Messages[1].Media[0] != "data:image/png;base64,abc123" {
 		t.Fatalf("assistant media = %#v, want preserved media", resp.Messages[1].Media)
@@ -1531,8 +1533,8 @@ func TestHandleGetSession_PreservesAttachmentsWhenAssistantToolCallContentDuplic
 	if resp.Messages[1].Role != "assistant" {
 		t.Fatalf("assistant message role = %q, want assistant", resp.Messages[1].Role)
 	}
-	if resp.Messages[1].Content != "" {
-		t.Fatalf("assistant content = %q, want duplicate content suppressed", resp.Messages[1].Content)
+	if resp.Messages[1].Content != "Reviewing the generated report." {
+		t.Fatalf("assistant content = %q, want preserved interim content", resp.Messages[1].Content)
 	}
 	if len(resp.Messages[1].Attachments) != 1 {
 		t.Fatalf("len(assistant.Attachments) = %d, want 1", len(resp.Messages[1].Attachments))

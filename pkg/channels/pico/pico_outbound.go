@@ -39,7 +39,8 @@ func outboundMessageIsToolCalls(msg bus.OutboundMessage) bool {
 func outboundMessageFinalizesTrackedToolFeedback(msg bus.OutboundMessage) bool {
 	return !outboundMessageIsToolFeedback(msg) &&
 		!outboundMessageIsThought(msg) &&
-		!outboundMessageIsToolCalls(msg)
+		!outboundMessageIsToolCalls(msg) &&
+		!strings.EqualFold(strings.TrimSpace(msg.Context.Raw["outbound_kind"]), "interim")
 }
 
 // SendSessionTitleUpdate tells connected clients to reload session metadata.

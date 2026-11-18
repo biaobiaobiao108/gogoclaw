@@ -27,6 +27,7 @@ type VisibleToolCallExtraContent struct {
 func BuildVisibleToolCalls(
 	toolCalls []providers.ToolCall,
 	maxArgsLen int,
+	assistantContent string,
 ) []VisibleToolCall {
 	if len(toolCalls) == 0 {
 		return nil
@@ -39,6 +40,9 @@ func BuildVisibleToolCalls(
 		explanation := ""
 		if tc.ExtraContent != nil {
 			explanation = strings.TrimSpace(tc.ExtraContent.ToolFeedbackExplanation)
+		}
+		if ToolFeedbackExplanationMatchesContent(explanation, assistantContent) {
+			explanation = ""
 		}
 		if name == "" && explanation == "" && argsPreview == "" {
 			continue

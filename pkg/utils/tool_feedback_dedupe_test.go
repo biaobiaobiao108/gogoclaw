@@ -1,55 +1,24 @@
 package utils
 
-import (
-	"testing"
+import "testing"
 
-	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
-)
-
-func TestToolCallExplanationDuplicatesContent(t *testing.T) {
-	t.Run("exact duplicate", func(t *testing.T) {
-		toolCalls := []providers.ToolCall{{
-			ExtraContent: &providers.ExtraContent{
-				ToolFeedbackExplanation: "Read the file before replying.",
-			},
-		}}
-
-		if !ToolCallExplanationDuplicatesContent("Read the file before replying.", toolCalls) {
-			t.Fatal("expected duplicated content to be detected")
-		}
-	})
-
-	t.Run("whitespace normalized duplicate", func(t *testing.T) {
-		toolCalls := []providers.ToolCall{{
-			ExtraContent: &providers.ExtraContent{
-				ToolFeedbackExplanation: "Read   the file\nbefore replying.",
-			},
-		}}
-
-		if !ToolCallExplanationDuplicatesContent("  Read the file before replying.  ", toolCalls) {
-			t.Fatal("expected whitespace-only differences to be ignored")
-		}
-	})
-
-	t.Run("distinct content", func(t *testing.T) {
-		toolCalls := []providers.ToolCall{{
-			ExtraContent: &providers.ExtraContent{
-				ToolFeedbackExplanation: "Read the file before replying.",
-			},
-		}}
-
-		if ToolCallExplanationDuplicatesContent(
-			"I will summarize the findings after reading the file.",
-			toolCalls,
-		) {
-			t.Fatal("expected distinct content to remain visible")
-		}
-	})
-
-	t.Run("missing explanation", func(t *testing.T) {
-		toolCalls := []providers.ToolCall{{}}
-		if ToolCallExplanationDuplicatesContent("Read the file before replying.", toolCalls) {
-			t.Fatal("expected empty tool explanations to skip dedupe")
-		}
-	})
+func TestToolFeedbackExplanationMatchesContent(t *testing.T) {
+	tests := []struct {
+		name        string
+		explanation string
+		content     string
+		want        bool
+	}{
+		{"exact duplicate", "Read the file.", "Read the file.", true},
+		{"normalized whitespace", "Read   the file.\nThen reply.", " Read the file. Then reply. ", true},
+		{"distinct text", "Read the file.", "I will summarize my findings.", false},
+		{"empty text", "", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ToolFeedbackExplanationMatchesContent(tt.explanation, tt.content); got != tt.want {
+				t.Errorf("match = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

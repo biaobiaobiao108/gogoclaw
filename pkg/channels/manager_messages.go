@@ -44,12 +44,17 @@ func outboundMessageIsFinal(msg bus.OutboundMessage) bool {
 	return strings.EqualFold(strings.TrimSpace(msg.Context.Raw["outbound_kind"]), "final")
 }
 
+func outboundMessageIsInterim(msg bus.OutboundMessage) bool {
+	return strings.EqualFold(strings.TrimSpace(msg.Context.Raw["outbound_kind"]), "interim")
+}
+
 func outboundMessageBypassesPlaceholderEdit(msg bus.OutboundMessage) bool {
 	if len(msg.Context.Raw) == 0 {
 		return false
 	}
 	kind := strings.TrimSpace(msg.Context.Raw["message_kind"])
-	return strings.EqualFold(kind, "thought") || strings.EqualFold(kind, "tool_calls")
+	return strings.EqualFold(kind, "thought") || strings.EqualFold(kind, "tool_calls") ||
+		(msg.Context.Channel == "pico" && outboundMessageIsInterim(msg))
 }
 
 func outboundMessageEditPayload(msg bus.OutboundMessage, content string) map[string]any {
@@ -237,6 +242,12 @@ func (m *Manager) preSend(ctx context.Context, name string, msg bus.OutboundMess
 	isAuxiliaryMessage := outboundMessageHasAuxiliaryKind(msg)
 	isFinalMessage := outboundMessageIsFinal(msg)
 	separateToolFeedbackMessages := m.toolFeedbackSeparateMessagesEnabled()
+
+	// After an external interim message, the remaining replies use this queue.
+	// A previous turn's finalized stream must not consume their final message.
+	if name != "pico" && outboundMessageIsInterim(msg) {
+		m.streamActive.Delete(streamKey)
+	}
 
 	// 3. If a stream already finalized this chat, stale auxiliary messages must
 	// be dropped without consuming the final-response marker. Streaming

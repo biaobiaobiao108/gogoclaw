@@ -198,36 +198,24 @@ func sessionTranscriptMessages(
 				}
 			}
 
+			// Keep visible message-tool output and assistant text in the transcript,
+			// while excluding the internal summary that marks handled delivery.
+			content := msg.Content
+			internalOnly := assistantMessageInternalOnly(msg)
+			if internalOnly {
+				content = ""
+			}
 			toolCallsMsg, hasToolCallsMsg := assistantToolCallsMessage(
 				msg.ToolCalls,
 				msg.ModelName,
 				toolFeedbackMaxArgsLength,
 				msg.CreatedAt,
+				content,
 			)
 			if msg.ID != "" {
 				toolCallsMsg.ID = msg.ID + "-tools"
 			}
 			visibleToolMessages := visibleAssistantToolMessages(msg.ToolCalls, msg.ModelName, msg.CreatedAt)
-
-			// Pico web chat can persist both visible `message` tool output and a
-			// later plain assistant reply in the same turn. Hide only the fixed
-			// internal summary that marks handled tool delivery.
-			content := msg.Content
-			if assistantMessageInternalOnly(msg) {
-				if len(attachments) == 0 {
-					if hasToolCallsMsg {
-						transcript = append(transcript, toolCallsMsg)
-					}
-					if len(visibleToolMessages) > 0 {
-						transcript = append(transcript, visibleToolMessages...)
-					}
-					continue
-				}
-				content = ""
-			}
-			if hasToolCallsMsg && utils.ToolCallExplanationDuplicatesContent(content, msg.ToolCalls) {
-				content = ""
-			}
 
 			chatMsg := sessionChatMessage{
 				ID:          msg.ID,
@@ -239,7 +227,7 @@ func sessionTranscriptMessages(
 				Attachments: attachments,
 				Sources:     mergeSessionSources(pendingSources, extractSessionSources(content)),
 			}
-			if !sessionChatMessageVisible(chatMsg) {
+			if (internalOnly && len(attachments) == 0) || !sessionChatMessageVisible(chatMsg) {
 				if hasToolCallsMsg {
 					transcript = append(transcript, toolCallsMsg)
 				}
@@ -408,6 +396,7 @@ func assistantToolCallsMessage(
 	modelName string,
 	toolFeedbackMaxArgsLength int,
 	createdAt *time.Time,
+	assistantContent string,
 ) (sessionChatMessage, bool) {
 	if len(toolCalls) == 0 {
 		return sessionChatMessage{}, false
@@ -416,7 +405,7 @@ func assistantToolCallsMessage(
 		toolFeedbackMaxArgsLength = defaultToolFeedbackMaxArgsLength()
 	}
 
-	visibleToolCalls := utils.BuildVisibleToolCalls(toolCalls, toolFeedbackMaxArgsLength)
+	visibleToolCalls := utils.BuildVisibleToolCalls(toolCalls, toolFeedbackMaxArgsLength, assistantContent)
 	if len(visibleToolCalls) == 0 {
 		return sessionChatMessage{}, false
 	}

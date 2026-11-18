@@ -192,6 +192,16 @@ type cleanableRecordingStreamer struct {
 	clearMarkers int
 }
 
+type interimRecordingStreamer struct {
+	recordingStreamer
+	interim []string
+}
+
+func (s *interimRecordingStreamer) FinalizeInterim(_ context.Context, content string) error {
+	s.interim = append(s.interim, content)
+	return nil
+}
+
 func (s *cleanableRecordingStreamer) ClearFinalizedStreamMarker() {
 	s.clearMarkers++
 }
@@ -449,7 +459,7 @@ func TestConfiguredStreamingDisabledForInternalTurnWithoutUserVisibleOutput(t *t
 	al := NewAgentLoop(cfg, msgBus, provider)
 	opts := configuredStreamingProcessOptions("pico")
 	opts.SendResponse = false
-	opts.AllowInterimPicoPublish = false
+	opts.AllowInterimPublish = false
 
 	got, err := al.runAgentLoop(context.Background(), al.GetRegistry().GetDefaultAgent(), opts)
 	if err != nil {
@@ -1057,7 +1067,7 @@ func TestConfiguredStreamingFinalizesWithDefaultResponseWhenContentEmpty(t *test
 
 func TestConfiguredStreamingToolCallsUseCompleteStreamResponse(t *testing.T) {
 	cfg := newConfiguredStreamingTestConfig(t, true, true, nil)
-	streamer := &recordingStreamer{}
+	streamer := &interimRecordingStreamer{}
 	msgBus := bus.NewMessageBus()
 	msgBus.SetStreamDelegate(configuredStreamingDelegate{streamer: streamer})
 	provider := &configuredStreamingProvider{
@@ -1094,11 +1104,58 @@ func TestConfiguredStreamingToolCallsUseCompleteStreamResponse(t *testing.T) {
 	if provider.chatCalls != 0 {
 		t.Fatalf("Chat calls = %d, want 0", provider.chatCalls)
 	}
-	if streamer.canceled != 1 {
-		t.Fatalf("streamer canceled = %d, want 1 for non-final tool-call response", streamer.canceled)
+	if streamer.canceled != 0 {
+		t.Fatalf("streamer canceled = %d, want 0 for an interim response with text", streamer.canceled)
+	}
+	if len(streamer.interim) != 1 || streamer.interim[0] != "need a tool" {
+		t.Fatalf("interim stream finalized = %v, want [need a tool]", streamer.interim)
 	}
 	if len(streamer.finalized) != 1 || streamer.finalized[0] != "tool call handled" {
 		t.Fatalf("stream finalized = %v, want [tool call handled]", streamer.finalized)
+	}
+}
+
+func TestConfiguredStreamingTelegramQueuesResponsesInTurnOrder(t *testing.T) {
+	cfg := newConfiguredStreamingTestConfig(t, true, true, nil)
+	cfg.Channels["telegram"] = &config.Channel{
+		Type:     config.ChannelTelegram,
+		Enabled:  true,
+		Settings: config.RawNode(`{"streaming":{"enabled":true}}`),
+	}
+	if err := config.InitChannelList(cfg.Channels); err != nil {
+		t.Fatal(err)
+	}
+	streamer := &recordingStreamer{}
+	msgBus := bus.NewMessageBus()
+	msgBus.SetStreamDelegate(configuredStreamingDelegate{streamer: streamer})
+	provider := &configuredStreamingProvider{
+		streamPlan: []configuredStreamingCall{{
+			chunks: []string{"need a"},
+			response: &providers.LLMResponse{
+				Content: "need a tool",
+				ToolCalls: []providers.ToolCall{{
+					ID: "call-1", Name: "tool_limit_test_tool", Arguments: map[string]any{"value": "x"},
+				}},
+			},
+		}},
+		chatResponse: &providers.LLMResponse{Content: "tool call handled"},
+	}
+	al := NewAgentLoop(cfg, msgBus, provider)
+	al.GetRegistry().GetDefaultAgent().Tools.Register(&toolLimitTestTool{})
+	got := runConfiguredStreamingTurn(t, al, "telegram")
+	if got != "tool call handled" || provider.streamCalls != 1 || provider.chatCalls != 1 {
+		t.Fatalf("response = %q, stream calls = %d, chat calls = %d", got, provider.streamCalls, provider.chatCalls)
+	}
+	if streamer.canceled != 1 || len(streamer.finalized) != 0 {
+		t.Fatalf("stream canceled = %d, finalized = %v, want the canceled draft", streamer.canceled, streamer.finalized)
+	}
+	select {
+	case msg := <-msgBus.OutboundChan():
+		if msg.Content != "need a tool" || msg.Context.Channel != "telegram" {
+			t.Fatalf("interim outbound = %+v", msg)
+		}
+	default:
+		t.Fatal("missing interim outbound")
 	}
 }
 
@@ -1172,15 +1229,15 @@ func newConfiguredStreamingPicoChannel(t *testing.T, enabled bool) *config.Chann
 
 func configuredStreamingProcessOptions(channel string) processOptions {
 	return processOptions{
-		SessionKey:              "agent:main:" + channel + ":session-1",
-		Channel:                 channel,
-		ChatID:                  "session-1",
-		UserMessage:             "hello",
-		DefaultResponse:         defaultResponse,
-		EnableSummary:           false,
-		SendResponse:            false,
-		AllowInterimPicoPublish: true,
-		NoHistory:               true,
+		SessionKey:          "agent:main:" + channel + ":session-1",
+		Channel:             channel,
+		ChatID:              "session-1",
+		UserMessage:         "hello",
+		DefaultResponse:     defaultResponse,
+		EnableSummary:       false,
+		SendResponse:        false,
+		AllowInterimPublish: true,
+		NoHistory:           true,
 	}
 }
 

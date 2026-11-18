@@ -384,11 +384,7 @@ toolLoop:
 
 					if shouldPublishToolFeedback(cfg, ts) && ts.channel != "pico" {
 						toolFeedbackMaxLen := cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength()
-						toolFeedbackExplanation := toolFeedbackExplanationForToolCall(
-							exec.response,
-							tc,
-							messages,
-						)
+						toolFeedbackExplanation := exec.toolFeedbackExplanation(tc, messages)
 						feedbackMsg := utils.FormatToolFeedbackMessage(
 							toolName,
 							toolFeedbackExplanation,
@@ -762,11 +758,7 @@ toolLoop:
 
 		if !duplicateReadOnly && shouldPublishToolFeedback(cfg, ts) && ts.channel != "pico" {
 			toolFeedbackMaxLen := cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength()
-			toolFeedbackExplanation := toolFeedbackExplanationForToolCall(
-				exec.response,
-				tc,
-				messages,
-			)
+			toolFeedbackExplanation := exec.toolFeedbackExplanation(tc, messages)
 			feedbackMsg := utils.FormatToolFeedbackMessage(
 				toolName,
 				toolFeedbackExplanation,

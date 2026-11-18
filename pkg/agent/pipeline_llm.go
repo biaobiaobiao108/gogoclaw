@@ -742,9 +742,8 @@ func (p *Pipeline) CallLLM(
 			})
 		return ControlBreak, nil
 	}
-	cancelConfiguredStreamingLLM(turnCtx, exec)
-
 	// Tool-call path: normalize and prepare for tool execution
+	defer cancelConfiguredStreamingLLM(turnCtx, exec)
 	responseToolCalls := exec.normalizedResponse.ToolCalls()
 	exec.normalizedToolCalls = make([]providers.ToolCall, 0, len(responseToolCalls))
 	for _, tc := range responseToolCalls {
@@ -817,16 +816,15 @@ func (p *Pipeline) CallLLM(
 			return ControlBreak, fmt.Errorf("save tool calls before execution: %w", err)
 		}
 	}
-	if shouldPublishPicoToolCallInterim {
-		al.publishPicoToolCallInterim(
-			turnCtx,
-			ts,
-			exec.llmModelName,
-			reasoningContent,
-			exec.response.Content,
-			assistantMsg.ToolCalls,
-			assistantMsg.ID,
-		)
+	textStreamed, reasoningStreamed := p.finishToolCallStream(turnCtx, ts, exec, assistantMsg)
+	if reasoningStreamed {
+		reasoningContent = ""
+	}
+	exec.interimPublished = al.publishToolCallInterim(
+		turnCtx, ts, assistantMsg, reasoningContent, textStreamed,
+	)
+	if exec.interimPublished && ts.channel != "pico" {
+		exec.interimQueued = true
 	}
 
 	return ControlToolLoop, nil

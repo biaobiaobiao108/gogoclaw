@@ -1736,6 +1736,50 @@ func TestRun_PicoPublishesAssistantContentDuringToolCallsWithoutFinalDuplicate(t
 	}
 }
 
+func TestProcessMessage_PublishesInterimAssistantTextToExternalChannels(t *testing.T) {
+	for _, channel := range []string{"telegram", "weixin"} {
+		t.Run(channel, func(t *testing.T) {
+			cfg := &config.Config{Agents: config.AgentsConfig{Defaults: config.AgentDefaults{
+				Workspace:         t.TempDir(),
+				ModelName:         "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 3,
+				ToolFeedback:      config.ToolFeedbackConfig{Enabled: true},
+			}}}
+			msgBus := bus.NewMessageBus()
+			al := NewAgentLoop(cfg, msgBus, &picoInterleavedContentProvider{})
+			al.GetRegistry().GetDefaultAgent().Tools.Register(&toolLimitTestTool{})
+			ctx := context.Background()
+			response, err := al.processMessage(ctx, testInboundMessage(bus.InboundMessage{
+				Channel: channel, ChatID: "chat-1", SenderID: "user-1", Content: "run with tools",
+			}))
+			if err != nil || response != "final model text" {
+				t.Fatalf("processMessage() = %q, %v, want final model text", response, err)
+			}
+
+			select {
+			case outbound := <-msgBus.OutboundChan():
+				if outbound.Content != "intermediate model text" ||
+					outbound.Context.Channel != channel || outbound.Context.ChatID != "chat-1" ||
+					outbound.Context.Raw[metadataKeyOutboundKind] != outboundKindInterim {
+					t.Fatalf("first outbound = %+v, want interim text for %s/chat-1", outbound, channel)
+				}
+			default:
+				t.Fatal("missing interim text")
+			}
+			select {
+			case outbound := <-msgBus.OutboundChan():
+				if outbound.Context.Raw[metadataKeyMessageKind] != messageKindToolFeedback ||
+					strings.Contains(outbound.Content, "intermediate model text") {
+					t.Fatalf("second outbound = %+v, want tool feedback without duplicate text", outbound)
+				}
+			default:
+				t.Fatal("missing tool feedback")
+			}
+		})
+	}
+}
+
 func TestRunAgentLoop_PicoSkipsInterimPublishWhenNotAllowed(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -1761,15 +1805,15 @@ func TestRunAgentLoop_PicoSkipsInterimPublishWhenNotAllowed(t *testing.T) {
 	agent.Tools.Register(&toolLimitTestTool{})
 
 	response, err := al.runAgentLoop(context.Background(), agent, processOptions{
-		SessionKey:              "agent:main:pico:session-1",
-		Channel:                 "pico",
-		ChatID:                  "session-1",
-		UserMessage:             "run with tools",
-		DefaultResponse:         defaultResponse,
-		EnableSummary:           false,
-		SendResponse:            false,
-		AllowInterimPicoPublish: false,
-		SuppressToolFeedback:    true,
+		SessionKey:           "agent:main:pico:session-1",
+		Channel:              "pico",
+		ChatID:               "session-1",
+		UserMessage:          "run with tools",
+		DefaultResponse:      defaultResponse,
+		EnableSummary:        false,
+		SendResponse:         false,
+		AllowInterimPublish:  false,
+		SuppressToolFeedback: true,
 	})
 	if err != nil {
 		t.Fatalf("runAgentLoop() error = %v", err)
@@ -1785,7 +1829,7 @@ func TestRunAgentLoop_PicoSkipsInterimPublishWhenNotAllowed(t *testing.T) {
 	}
 }
 
-func TestRun_PicoToolFeedbackSuppressesDuplicateInterimAssistantContent(t *testing.T) {
+func TestRun_PicoKeepsInterimAssistantContentOutsideToolFeedback(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	cfg := &config.Config{
@@ -1831,7 +1875,7 @@ func TestRun_PicoToolFeedbackSuppressesDuplicateInterimAssistantContent(t *testi
 
 	outputs := make([]bus.OutboundMessage, 0, 3)
 	deadline := time.After(2 * time.Second)
-	for len(outputs) < 2 {
+	for len(outputs) < 3 {
 		select {
 		case outbound := <-msgBus.OutboundChan():
 			outputs = append(outputs, outbound)
@@ -1840,17 +1884,18 @@ func TestRun_PicoToolFeedbackSuppressesDuplicateInterimAssistantContent(t *testi
 		}
 	}
 
-	if outputs[0].Context.Raw[metadataKeyMessageKind] != messageKindToolCalls {
-		t.Fatalf("first outbound = %+v, want tool_calls message", outputs[0])
+	if outputs[0].Content != "intermediate model text" {
+		t.Fatalf("first outbound = %+v, want interim text", outputs[0])
 	}
-	if outputs[0].Content != "" {
-		t.Fatalf("first outbound content = %q, want empty tool_calls content", outputs[0].Content)
+	if outputs[1].Context.Raw[metadataKeyMessageKind] != messageKindToolCalls || outputs[1].Content != "" {
+		t.Fatalf("second outbound = %+v, want tool_calls message", outputs[1])
 	}
-	if !strings.Contains(outputs[0].Context.Raw[metadataKeyToolCalls], "tool_limit_test_tool") {
-		t.Fatalf("first outbound tool_calls = %q, want tool name", outputs[0].Context.Raw[metadataKeyToolCalls])
+	rawToolCalls := outputs[1].Context.Raw[metadataKeyToolCalls]
+	if !strings.Contains(rawToolCalls, "tool_limit_test_tool") || strings.Contains(rawToolCalls, "intermediate model text") {
+		t.Fatalf("tool_calls = %q, want tool name with the duplicate text omitted", rawToolCalls)
 	}
-	if outputs[1].Content != "final model text" {
-		t.Fatalf("second outbound content = %q, want %q", outputs[1].Content, "final model text")
+	if outputs[2].Content != "final model text" {
+		t.Fatalf("third outbound = %+v, want final text", outputs[2])
 	}
 
 	runCancel()
