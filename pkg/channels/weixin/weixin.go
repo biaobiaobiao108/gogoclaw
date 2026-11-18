@@ -2,6 +2,7 @@ package weixin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -445,21 +446,12 @@ func (c *WeixinChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 		return nil, fmt.Errorf("weixin send: %w: missing context token for chat %s", channels.ErrSendFailed, toUserID)
 	}
 
-	if err := c.sendTextMessage(
-		ctx,
-		toUserID,
-		contextToken,
-		channels.StableID(msg.ID, "text"),
-		msg.Content,
-	); err != nil {
-		logger.ErrorCF("weixin", "Failed to send message", map[string]any{
-			"to_user_id": toUserID,
-			"error":      err.Error(),
-		})
-		if c.remainingPause() > 0 {
-			return nil, fmt.Errorf("weixin send: %w", channels.ErrSendFailed)
+	if err := c.sendTextMessage(ctx, toUserID, contextToken, channels.StableID(msg.ID, "text"), msg.Content); err != nil {
+		if errors.Is(err, channels.ErrSendFailed) {
+			return nil, err
 		}
-		return nil, fmt.Errorf("weixin send: %w", channels.ErrTemporary)
+		// A dropped connection or invalid response can occur after acceptance.
+		return nil, fmt.Errorf("weixin send: %w", channels.ErrDeliveryUnknown)
 	}
 
 	return nil, nil

@@ -109,6 +109,9 @@ func PreserveUsageTotals(current, previous *ContextUsage) *ContextUsage {
 	return &copy
 }
 
+// MetadataPlatformDelivery identifies deliveries that need a platform result.
+const MetadataPlatformDelivery = "platform_delivery_id"
+
 type OutboundMessage struct {
 	// ID is the stable logical delivery ID generated when the message enters
 	// the outbound bus. Channel retries must preserve it for platform-level

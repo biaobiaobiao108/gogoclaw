@@ -271,6 +271,16 @@ func finalizeConfiguredStreamingLLM(
 	exec.streamingPublisher = nil
 	delivery := exec.streamingDelivery
 	exec.streamingDelivery = nil
+	if al.tracksPlatformDelivery(ts.sessionKey, ts.channel) {
+		// Telegram drafts remain transient. The final text goes through the
+		// same outbox as ordinary replies so platform acceptance is recorded.
+		publisher.Cancel(ctx)
+		if delivery != nil {
+			al.discardDelivery(ts.sessionKey, delivery.ID)
+		}
+		exec.streamingFallback = true
+		return false, nil
+	}
 	visibleBeforeFinalize := publisher.Published()
 	if err := publisher.Finalize(ctx, content, contextUsage); err != nil {
 		if visibleBeforeFinalize || publisher.Published() {

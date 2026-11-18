@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
 	"golang.org/x/term"
@@ -141,6 +142,16 @@ func GetLevel() LogLevel {
 	mu.RLock()
 	defer mu.RUnlock()
 	return currentLevel
+}
+
+// ContentDiagnosticsEnabled keeps conversation payload logging separate from
+// ordinary debug logging and gives the operator an explicit expiration time.
+func ContentDiagnosticsEnabled() bool {
+	if GetLevel() != DEBUG {
+		return false
+	}
+	deadline, err := time.Parse(time.RFC3339, os.Getenv("GOGOCLAW_CONTENT_DIAGNOSTICS_UNTIL"))
+	return err == nil && time.Now().Before(deadline)
 }
 
 // ParseLevel converts a case-insensitive level name to a LogLevel.

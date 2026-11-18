@@ -230,6 +230,9 @@ func registerSharedTools(
 					ReplyToMessageID: replyToMessageID,
 				}
 				if channelManager != nil && channel != "" {
+					if al.tracksPlatformDelivery(outboundSessionKey, channel) {
+						return al.sendTrackedPlatformMessage(ctx, outboundMessage, channelManager.SendMessage)
+					}
 					return channelManager.SendMessage(ctx, outboundMessage)
 				}
 				pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)

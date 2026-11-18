@@ -703,10 +703,10 @@ func (c *FeishuChannel) handleMessageReceive(ctx context.Context, event *larkim.
 	}
 
 	logger.InfoCF("feishu", "Feishu message received", map[string]any{
-		"sender_id":  senderID,
-		"chat_id":    chatID,
-		"message_id": messageID,
-		"preview":    utils.Truncate(content, 80),
+		"sender_id":     senderID,
+		"chat_id":       chatID,
+		"message_id":    messageID,
+		"content_bytes": len(content),
 	})
 	logger.InfoCF("feishu", "Feishu reply linkage", map[string]any{
 		"message_id": messageID,

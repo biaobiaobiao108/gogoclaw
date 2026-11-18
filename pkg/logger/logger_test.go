@@ -433,3 +433,23 @@ func TestGetPackageNameFromFile(t *testing.T) {
 		})
 	}
 }
+
+func TestContentDiagnosticsRequiresDebugAndAnUnexpiredDeadline(t *testing.T) {
+	previous := GetLevel()
+	t.Cleanup(func() { SetLevel(previous) })
+	t.Setenv("GOGOCLAW_CONTENT_DIAGNOSTICS_UNTIL", time.Now().Add(time.Hour).Format(time.RFC3339))
+	SetLevel(INFO)
+	if ContentDiagnosticsEnabled() {
+		t.Fatal("INFO must not enable conversation logging")
+	}
+	SetLevel(DEBUG)
+	if !ContentDiagnosticsEnabled() {
+		t.Fatal("DEBUG with a future deadline must enable diagnostics")
+	}
+	for _, value := range []string{"", "invalid", time.Now().Add(-time.Hour).Format(time.RFC3339)} {
+		t.Setenv("GOGOCLAW_CONTENT_DIAGNOSTICS_UNTIL", value)
+		if ContentDiagnosticsEnabled() {
+			t.Fatalf("diagnostics enabled for %q", value)
+		}
+	}
+}

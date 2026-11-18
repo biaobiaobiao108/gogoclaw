@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
 	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
@@ -499,5 +500,101 @@ func TestRetryPendingDeliveryReconcilesInterruptedStreaming(t *testing.T) {
 				t.Fatalf("legacy delivery retry ID = %q, want stable fallback %q", outbox[0].ID, delivery.ID)
 			}
 		})
+	}
+}
+
+func TestPlatformDeliveryWaitsForAcceptanceAndDoesNotReplayUncertainSend(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+	store := agent.Sessions.(session.TurnCheckpointStore)
+	transport := &deliveryTestBus{}
+	al.bus = transport
+	ctx := context.Background()
+	key := "tracked-platform-session"
+
+	for i, tc := range []struct {
+		name    string
+		channel string
+		err     error
+		status  string
+	}{
+		{"telegram accepted", "telegram", nil, deliveryStatusAcknowledged},
+		{"weixin rejected", "weixin", channels.ErrSendFailed, deliveryStatusDeadLetter},
+		{"weixin timeout", "weixin", channels.ErrDeliveryUnknown, deliveryStatusUnknown},
+		{"restart during send", "telegram", nil, deliveryStatusUnknown},
+	} {
+		msg := bus.OutboundMessage{
+			ID: tc.name, SessionKey: key, Content: "fixture text",
+			Context: bus.NewOutboundContext(tc.channel, "test-chat", ""),
+		}
+		if err := al.publishTrackedOutbound(ctx, key, msg); err != nil {
+			t.Fatal(err)
+		}
+		persisted, err := store.GetTurnCheckpoint(key)
+		if err != nil || persisted.Delivery.Status != deliveryStatusQueued {
+			t.Fatalf("%s: delivery = %+v, error = %v", tc.name, persisted.Delivery, err)
+		}
+		sent := transport.outbound[i]
+		claimed, err := al.BeginPlatformDelivery(sent)
+		if err != nil || !claimed {
+			t.Fatalf("%s: claimed = %v, error = %v", tc.name, claimed, err)
+		}
+		if duplicate, err := al.BeginPlatformDelivery(sent); err != nil || duplicate {
+			t.Fatalf("%s: duplicate claim = %v, error = %v", tc.name, duplicate, err)
+		}
+		if tc.name == "restart during send" {
+			persisted, err = store.GetTurnCheckpoint(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			interrupted := *persisted.Delivery
+			interrupted.DispatchOwner = "previous-process"
+			if err := al.setTurnDelivery(key, interrupted); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := al.FinishPlatformDelivery(sent, nil, tc.err); err != nil {
+			t.Fatal(err)
+		}
+
+		al.retryPendingDelivery(ctx)
+		persisted, err = store.GetTurnCheckpoint(key)
+		if err != nil || persisted.Delivery.Status != tc.status || len(transport.outbound) != i+1 {
+			t.Fatalf("%s: delivery = %+v, error = %v, sends = %d", tc.name, persisted.Delivery, err, len(transport.outbound))
+		}
+	}
+}
+
+func TestQueuedPlatformDeliveryRetainsInterimEnvelopeOnRecovery(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+	transport := &deliveryTestBus{}
+	al.bus = transport
+	const key = "queued-external"
+	message := bus.NormalizeOutboundMessage(bus.OutboundMessage{
+		Context: bus.NewOutboundContext("telegram", "fixture-chat", "fixture-reply"),
+		ID:      "fixture-interim", SessionKey: key, Content: "working",
+	})
+	message.Context.Raw = map[string]string{metadataKeyOutboundKind: outboundKindInterim}
+	delivery := turnDeliveryFromOutbound(message)
+	delivery.PlatformTracked = true
+	if err := al.setTurnDelivery(key, delivery); err != nil {
+		t.Fatal(err)
+	}
+
+	al.retryPendingDelivery(context.Background())
+	al.retryPendingDelivery(context.Background())
+	if len(transport.outbound) != 1 {
+		t.Fatalf("recovered sends = %d, want 1", len(transport.outbound))
+	}
+	replayed := transport.outbound[0]
+	if replayed.ID != message.ID || replayed.Context.ReplyToMessageID != "fixture-reply" ||
+		replayed.Context.Raw[metadataKeyOutboundKind] != outboundKindInterim ||
+		replayed.Context.Raw[bus.MetadataPlatformDelivery] != delivery.ID {
+		t.Fatalf("recovered envelope = %+v", replayed)
+	}
+	store := agent.Sessions.(session.TurnCheckpointStore)
+	snapshot, err := store.GetTurnCheckpoint(key)
+	if err != nil || snapshot.Delivery.Status != deliveryStatusQueued {
+		t.Fatalf("recovered state = %+v, error = %v", snapshot.Delivery, err)
 	}
 }

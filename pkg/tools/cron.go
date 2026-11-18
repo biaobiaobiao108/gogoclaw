@@ -27,6 +27,7 @@ type JobExecutor interface {
 // CronTool provides scheduling capabilities for the agent
 type CronTool struct {
 	cronService           *cron.CronService
+	channels              config.ChannelsConfig
 	executor              JobExecutor
 	msgBus                *bus.MessageBus
 	execTool              *ExecTool
@@ -39,21 +40,23 @@ type CronTool struct {
 // execTimeout: 0 means no timeout, >0 sets the timeout duration
 func NewCronTool(
 	cronService *cron.CronService, executor JobExecutor, msgBus *bus.MessageBus, workspace string, restrict bool,
-	execTimeout time.Duration, config *config.Config,
+	execTimeout time.Duration, cfg *config.Config,
 ) (*CronTool, error) {
 	allowCommand := true
 	execEnabled := true
 	var commandAllowedRemotes []string
-	if config != nil {
-		allowCommand = config.Tools.Cron.AllowCommand
-		execEnabled = config.Tools.Exec.Enabled
-		commandAllowedRemotes = config.Tools.Cron.CommandAllowedRemotes
+	var channels config.ChannelsConfig
+	if cfg != nil {
+		channels = cfg.Channels
+		allowCommand = cfg.Tools.Cron.AllowCommand
+		execEnabled = cfg.Tools.Exec.Enabled
+		commandAllowedRemotes = cfg.Tools.Cron.CommandAllowedRemotes
 	}
 
 	var execTool *ExecTool
 	if execEnabled {
 		var err error
-		execTool, err = NewExecToolWithConfig(workspace, restrict, config)
+		execTool, err = NewExecToolWithConfig(workspace, restrict, cfg)
 		if err != nil {
 			return nil, fmt.Errorf("unable to configure exec tool: %w", err)
 		}
@@ -64,6 +67,7 @@ func NewCronTool(
 	}
 	return &CronTool{
 		cronService:           cronService,
+		channels:              channels,
 		executor:              executor,
 		msgBus:                msgBus,
 		execTool:              execTool,
@@ -602,16 +606,12 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) (string, e
 		chatID = "direct"
 	}
 
+	sessionKey := fmt.Sprintf("agent:cron-%s-%s", job.ID, uuid.New().String())
 	// Execute command if present
 	if job.Payload.Command != "" {
 		if !t.execEnabled || t.execTool == nil {
 			output := "Error executing scheduled command: command execution is disabled"
-			pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer pubCancel()
-			pubErr := t.msgBus.PublishOutbound(pubCtx, bus.OutboundMessage{
-				Context: bus.NewOutboundContext(channel, chatID, ""),
-				Content: output,
-			})
+			pubErr := t.publishCommandResult(channel, chatID, sessionKey, output)
 			if pubErr != nil {
 				return "", fmt.Errorf("%s; publish result: %w", output, pubErr)
 			}
@@ -633,12 +633,7 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) (string, e
 			output = fmt.Sprintf("Scheduled command '%s' executed:\n%s", job.Payload.Command, result.ForLLM)
 		}
 
-		pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer pubCancel()
-		pubErr := t.msgBus.PublishOutbound(pubCtx, bus.OutboundMessage{
-			Context: bus.NewOutboundContext(channel, chatID, ""),
-			Content: output,
-		})
+		pubErr := t.publishCommandResult(channel, chatID, sessionKey, output)
 		if pubErr != nil {
 			return "", fmt.Errorf("publish scheduled command result: %w", pubErr)
 		}
@@ -647,8 +642,6 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) (string, e
 		}
 		return "ok", nil
 	}
-
-	sessionKey := fmt.Sprintf("agent:cron-%s-%s", job.ID, uuid.New().String())
 
 	// Call agent with the job message
 	response, err := t.executor.ProcessDirectWithChannel(
@@ -668,4 +661,16 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) (string, e
 		}
 	}
 	return "ok", nil
+}
+
+func (t *CronTool) publishCommandResult(channel, chatID, sessionKey, output string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if t.channels.TracksPlatformTextDelivery(channel) {
+		return t.executor.PublishResponseIfNeededChecked(ctx, channel, chatID, sessionKey, output)
+	}
+	return t.msgBus.PublishOutbound(ctx, bus.OutboundMessage{
+		Context: bus.NewOutboundContext(channel, chatID, ""),
+		Content: output,
+	})
 }

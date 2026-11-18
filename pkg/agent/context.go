@@ -1005,12 +1005,11 @@ func (cb *ContextBuilder) BuildMessagesFromPrompt(req PromptBuildRequest) []prov
 			"cached":        isCached,
 		})
 
-	// Log preview of system prompt (avoid logging huge content)
-	preview := utils.Truncate(fullSystemPrompt, 500)
-	logger.DebugCF("agent", "System prompt preview",
-		map[string]any{
-			"preview": preview,
+	if logger.ContentDiagnosticsEnabled() {
+		logger.DebugCF("agent", "System prompt preview", map[string]any{
+			"preview": utils.Truncate(fullSystemPrompt, 500),
 		})
+	}
 
 	history := sanitizeHistoryForProvider(req.History)
 	history = cb.pruneHistoricalToolOutputs(history)

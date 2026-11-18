@@ -13,7 +13,6 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/routing"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
 
 func (al *AgentLoop) buildContinuationTarget(msg bus.InboundMessage) (*continuationTarget, error) {
@@ -167,21 +166,14 @@ func (al *AgentLoop) processMessageResult(
 	runtime := al.runtimeSnapshot()
 	msg = al.prepareInboundMessageForAgentWithRuntime(ctx, msg, runtime)
 
-	// Add message preview to log (show full content for error messages)
-	var logContent string
-	if strings.Contains(msg.Content, "Error:") || strings.Contains(msg.Content, "error") {
-		logContent = msg.Content // Full content for errors
-	} else {
-		logContent = utils.Truncate(msg.Content, 80)
-	}
 	logger.InfoCF(
 		"agent",
-		fmt.Sprintf("Processing message from %s:%s: %s", msg.Channel, msg.SenderID, logContent),
+		"Processing inbound message",
 		map[string]any{
-			"channel":     msg.Channel,
-			"chat_id":     msg.ChatID,
-			"sender_id":   msg.SenderID,
-			"session_key": msg.SessionKey,
+			"channel":       msg.Channel,
+			"chat_id":       msg.ChatID,
+			"session_key":   msg.SessionKey,
+			"content_bytes": len(msg.Content),
 		},
 	)
 

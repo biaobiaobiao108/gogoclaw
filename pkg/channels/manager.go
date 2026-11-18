@@ -83,6 +83,8 @@ func (w *channelWorker) stopped() <-chan struct{} {
 }
 
 type Manager struct {
+	beginDelivery             func(bus.OutboundMessage) (bool, error)
+	finishDelivery            func(bus.OutboundMessage, []string, error) error
 	initializeChannel         func(string, Channel)
 	channels                  map[string]Channel
 	workers                   map[string]*channelWorker
@@ -129,6 +131,17 @@ type ManagerOption func(*Manager)
 // WithChannelInitializer configures each instance before it is started.
 func WithChannelInitializer(initialize func(string, Channel)) ManagerOption {
 	return func(m *Manager) { m.initializeChannel = initialize }
+}
+
+// WithTrackedDelivery connects the channel worker to the durable outbox.
+func WithTrackedDelivery(
+	begin func(bus.OutboundMessage) (bool, error),
+	finish func(bus.OutboundMessage, []string, error) error,
+) ManagerOption {
+	return func(m *Manager) {
+		m.beginDelivery = begin
+		m.finishDelivery = finish
+	}
 }
 
 // WithRuntimeEvents injects the runtime event bus used for channel observations.

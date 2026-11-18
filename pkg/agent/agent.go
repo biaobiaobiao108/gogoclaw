@@ -730,6 +730,7 @@ func (al *AgentLoop) runAgentLoopResult(
 			opts.Dispatch.SessionScope,
 		)
 		msg := bus.OutboundMessage{
+			ID: result.responseID,
 			Context: outboundContextFromInbound(
 				opts.Dispatch.InboundContext,
 				opts.Dispatch.Channel(),
@@ -756,14 +757,19 @@ func (al *AgentLoop) runAgentLoopResult(
 	}
 
 	if result.finalContent != "" {
-		responsePreview := utils.Truncate(result.finalContent, 120)
-		logger.InfoCF("agent", fmt.Sprintf("Response: %s", responsePreview),
+		logger.InfoCF("agent", "Response completed",
 			map[string]any{
+				"turn_id":      ts.turnID,
 				"agent_id":     agent.ID,
 				"session_key":  opts.Dispatch.SessionKey,
 				"iterations":   ts.currentIteration(),
 				"final_length": len(result.finalContent),
 			})
+		if logger.ContentDiagnosticsEnabled() {
+			logger.DebugCF("agent", "Response preview", map[string]any{
+				"turn_id": ts.turnID, "preview": utils.Truncate(result.finalContent, 120),
+			})
+		}
 	}
 
 	return agentLoopResult{

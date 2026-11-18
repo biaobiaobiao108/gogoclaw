@@ -147,6 +147,7 @@ func (p *Pipeline) Finalize(
 		}, streamErr
 	}
 	return turnResult{
+		responseID:        responseID,
 		finalContent:      finalContent,
 		modelName:         exec.llmModelName,
 		status:            turnStatus,

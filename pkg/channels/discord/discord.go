@@ -681,9 +681,9 @@ func (c *DiscordChannel) handleMessage(s *discordgo.Session, m *discordgo.Messag
 	}
 
 	logger.DebugCF("discord", "Received message", map[string]any{
-		"sender_name": sender.DisplayName,
-		"sender_id":   senderID,
-		"preview":     utils.Truncate(content, 50),
+		"sender_name":   sender.DisplayName,
+		"sender_id":     senderID,
+		"content_bytes": len(content),
 	})
 
 	peerKind := "channel"

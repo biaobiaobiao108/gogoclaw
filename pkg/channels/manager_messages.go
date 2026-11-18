@@ -241,6 +241,10 @@ func (m *Manager) preSend(ctx context.Context, name string, msg bus.OutboundMess
 	isToolCalls := outboundMessageIsToolCalls(msg)
 	isAuxiliaryMessage := outboundMessageHasAuxiliaryKind(msg)
 	isFinalMessage := outboundMessageIsFinal(msg)
+	isTrackedDelivery := msg.Context.Raw[bus.MetadataPlatformDelivery] != ""
+	if isTrackedDelivery {
+		m.streamActive.Delete(streamKey)
+	}
 	separateToolFeedbackMessages := m.toolFeedbackSeparateMessagesEnabled()
 
 	// After an external interim message, the remaining replies use this queue.
@@ -323,7 +327,7 @@ func (m *Manager) preSend(ctx context.Context, name string, msg bus.OutboundMess
 				}
 				return nil, false
 			}
-			if outboundMessageBypassesPlaceholderEdit(msg) {
+			if isTrackedDelivery || outboundMessageBypassesPlaceholderEdit(msg) {
 				if deleter, ok := ch.(MessageDeleter); ok {
 					deleter.DeleteMessage(ctx, chatID, entry.id) // best effort
 				}

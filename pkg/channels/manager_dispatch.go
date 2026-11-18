@@ -81,12 +81,48 @@ func (m *Manager) runWorker(ctx context.Context, name string, w *channelWorker) 
 			// Step 3: Send all chunks. Each chunk gets a stable derived ID so
 			// retries target the same platform message while separate chunks
 			// remain independently idempotent.
-			for index, chunk := range chunks {
-				chunkMsg := outboundChunkMessage(msg, chunk, index, len(chunks))
-				m.sendWithRetry(ctx, name, w, chunkMsg)
-			}
+			m.sendChunks(ctx, name, w, msg, chunks)
 		case <-ctx.Done():
 			return
+		}
+	}
+}
+
+func (m *Manager) sendChunks(ctx context.Context, name string, w *channelWorker, msg bus.OutboundMessage, chunks []string) {
+	tracked := m.beginDelivery != nil && msg.Context.Raw[bus.MetadataPlatformDelivery] != ""
+	if tracked {
+		begin, err := m.beginDelivery(msg)
+		if err != nil {
+			logger.ErrorCF("channels", "Failed to claim platform delivery", map[string]any{
+				"channel": name, "delivery_id": msg.Context.Raw[bus.MetadataPlatformDelivery], "error": err.Error(),
+			})
+		}
+		if err != nil || !begin {
+			return
+		}
+	}
+	var platformIDs []string
+	var sendErr error
+	for index, chunk := range chunks {
+		chunkMsg := outboundChunkMessage(msg, chunk, index, len(chunks))
+		ids, err := m.sendWithRetry(ctx, name, w, chunkMsg)
+		if !tracked {
+			continue
+		}
+		platformIDs = append(platformIDs, ids...)
+		if err != nil {
+			sendErr = err
+			if index > 0 {
+				sendErr = fmt.Errorf("%w: one or more chunks were accepted", ErrDeliveryUnknown)
+			}
+			break
+		}
+	}
+	if tracked {
+		if err := m.finishDelivery(msg, platformIDs, sendErr); err != nil {
+			logger.ErrorCF("channels", "Failed to persist platform delivery result", map[string]any{
+				"channel": name, "delivery_id": msg.Context.Raw[bus.MetadataPlatformDelivery], "error": err.Error(),
+			})
 		}
 	}
 }

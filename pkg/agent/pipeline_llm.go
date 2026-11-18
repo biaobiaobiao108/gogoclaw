@@ -195,6 +195,7 @@ func (p *Pipeline) CallLLM(
 	logger.DebugCF("agent", "LLM request",
 		map[string]any{
 			"agent_id":          ts.agent.ID,
+			"turn_id":           ts.turnID,
 			"iteration":         iteration,
 			"model":             exec.llmModel,
 			"messages_count":    len(exec.callMessages),
@@ -203,12 +204,14 @@ func (p *Pipeline) CallLLM(
 			"temperature":       ts.agent.Temperature,
 			"system_prompt_len": firstMessageContentLen(exec.callMessages),
 		})
-	logger.DebugCF("agent", "Full LLM request",
-		map[string]any{
+	if logger.ContentDiagnosticsEnabled() {
+		logger.DebugCF("agent", "LLM request preview", map[string]any{
+			"turn_id":       ts.turnID,
 			"iteration":     iteration,
 			"messages_json": formatMessagesForLog(exec.callMessages),
 			"tools_json":    formatToolsForLog(exec.providerToolDefs),
 		})
+	}
 
 	// LLM call closure with fallback support
 	callLLM := func(
@@ -677,7 +680,7 @@ func (p *Pipeline) CallLLM(
 		"iteration":      iteration,
 		"content_chars":  len(exec.response.Content),
 		"tool_calls":     len(exec.response.ToolCalls),
-		"reasoning":      exec.response.Reasoning,
+		"turn_id":        ts.turnID,
 		"target_channel": al.targetReasoningChannelID(ts.channel),
 		"channel":        ts.channel,
 	}

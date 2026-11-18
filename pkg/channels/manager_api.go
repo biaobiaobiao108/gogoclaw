@@ -176,10 +176,10 @@ func (m *Manager) SendMessage(ctx context.Context, msg bus.OutboundMessage) erro
 	m.mu.RUnlock()
 
 	if !exists {
-		return fmt.Errorf("channel %s not found", channelName)
+		return fmt.Errorf("channel %s not found: %w", channelName, ErrNotRunning)
 	}
 	if !wExists || w == nil {
-		return fmt.Errorf("channel %s has no active worker", channelName)
+		return fmt.Errorf("channel %s has no active worker: %w", channelName, ErrNotRunning)
 	}
 
 	maxLen := 0
@@ -194,6 +194,9 @@ func (m *Manager) SendMessage(ctx context.Context, msg bus.OutboundMessage) erro
 	for index, chunk := range chunks {
 		chunkMsg := outboundChunkMessage(msg, chunk, index, len(chunks))
 		if _, err := m.sendWithRetry(ctx, channelName, w, chunkMsg); err != nil {
+			if index > 0 && msg.Context.Raw[bus.MetadataPlatformDelivery] != "" {
+				err = fmt.Errorf("%w: %v", ErrDeliveryUnknown, err)
+			}
 			return fmt.Errorf("send channel %s chunk %d/%d: %w", channelName, index+1, len(chunks), err)
 		}
 	}

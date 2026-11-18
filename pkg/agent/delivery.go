@@ -16,6 +16,8 @@ import (
 
 const (
 	deliveryStatusQueued        = "queued"
+	deliveryStatusDispatching   = "dispatching"
+	deliveryStatusUnknown       = "delivery_unknown"
 	deliveryStatusStreaming     = "streaming"
 	deliveryStatusDeliveredBus  = "delivered_to_bus"
 	deliveryStatusAcknowledged  = "acknowledged"
@@ -31,6 +33,8 @@ const (
 
 	metadataKeyDeliveryID = "delivery_id"
 )
+
+var platformDeliveryOwner = uuid.NewString()
 
 type deliveryLocation struct {
 	agentID    string
@@ -118,8 +122,20 @@ func upsertTurnDelivery(deliveries []session.TurnDelivery, delivery session.Turn
 		}
 	}
 	deliveries = append(deliveries, delivery)
-	if overflow := len(deliveries) - deliveryOutboxLimit; overflow > 0 {
-		deliveries = append([]session.TurnDelivery(nil), deliveries[overflow:]...)
+	for overflow := len(deliveries) - deliveryOutboxLimit; overflow > 0; overflow-- {
+		// Never evict a platform delivery that could still be claimed.
+		removable := -1
+		for i, item := range deliveries {
+			if !item.PlatformTracked || (item.Status != deliveryStatusQueued && item.Status != deliveryStatusDispatching) {
+				removable = i
+				break
+			}
+		}
+		if removable < 0 {
+			break
+		}
+		kept := append([]session.TurnDelivery(nil), deliveries[:removable]...)
+		deliveries = append(kept, deliveries[removable+1:]...)
 	}
 	return deliveries
 }
@@ -181,11 +197,23 @@ func (al *AgentLoop) publishTrackedOutbound(ctx context.Context, sessionKey stri
 	delivery := turnDeliveryFromOutbound(msg)
 	delivery.Status = deliveryStatusQueued
 	delivery.CreatedAt = now
+	if al.tracksPlatformDelivery(sessionKey, msg.Context.Channel) {
+		delivery.PlatformTracked = true
+		msg.SessionKey = sessionKey
+		delivery.Attempts = 1
+		next := now.Add(deliveryLeaseDuration)
+		delivery.NextAttemptAt = &next
+	}
 	if err := al.setTurnDelivery(sessionKey, delivery); err != nil {
 		return fmt.Errorf("persist queued delivery: %w", err)
 	}
 	markTrackedDelivery(&msg, delivery)
-	markFinalOutbound(&msg)
+	if msg.Context.Raw[metadataKeyOutboundKind] == "" {
+		markFinalOutbound(&msg)
+	}
+	if delivery.PlatformTracked {
+		return al.bus.PublishOutbound(ctx, msg)
+	}
 	if err := al.bus.PublishOutbound(ctx, msg); err != nil {
 		delivery.Status = deliveryStatusFailed
 		delivery.Attempts = 1
@@ -379,6 +407,9 @@ func markTrackedDelivery(msg *bus.OutboundMessage, delivery session.TurnDelivery
 		msg.Context.Raw = make(map[string]string, 2)
 	}
 	msg.Context.Raw[metadataKeyDeliveryID] = delivery.ID
+	if delivery.PlatformTracked {
+		msg.Context.Raw[bus.MetadataPlatformDelivery] = delivery.ID
+	}
 }
 
 func (al *AgentLoop) runDeliveryOutbox(ctx context.Context) {
@@ -418,6 +449,10 @@ func (al *AgentLoop) retryPendingDelivery(ctx context.Context) {
 				continue
 			}
 			for _, candidate := range checkpointDeliveries(checkpoint) {
+				if candidate.PlatformTracked {
+					al.retryPlatformDelivery(ctx, sessionKey, candidate)
+					continue
+				}
 				if candidate.Status == deliveryStatusStreaming {
 					candidate = reconcileInterruptedStreamingDelivery(candidate, time.Now().UTC())
 					if err := al.setTurnDelivery(sessionKey, candidate); err != nil {

@@ -86,7 +86,8 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID, sessionK
 		}
 	}
 
-	if cfg := m.currentConfig(); cfg != nil && cfg.Agents.Defaults.SplitOnMarker {
+	if cfg := m.currentConfig(); cfg != nil && cfg.Agents.Defaults.SplitOnMarker &&
+		!cfg.Channels.TracksPlatformTextDelivery(channelName) {
 		return &splitMarkerStreamer{
 			current:     streamer,
 			reasoning:   reasoningStreamerFrom(streamer),

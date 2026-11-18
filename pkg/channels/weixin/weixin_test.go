@@ -462,3 +462,21 @@ func TestSendUploadedMedia_SendsCaptionAsSeparateTextBeforeMedia(t *testing.T) {
 		t.Fatalf("second request image media = %+v, want media ref", requests[1].Msg.ItemList[0].ImageItem)
 	}
 }
+
+func TestSendDoesNotRetryAnAmbiguousWeixinResponse(t *testing.T) {
+	ch := &WeixinChannel{
+		BaseChannel: basechannels.NewBaseChannel("weixin", nil, nil, nil),
+		api: &ApiClient{
+			BaseURL: "https://weixin.example/",
+			HttpClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return nil, io.ErrUnexpectedEOF
+			})},
+		},
+	}
+	ch.SetRunning(true)
+	ch.contextTokens.Store("user-1", "fixture")
+	_, err := ch.Send(context.Background(), bus.OutboundMessage{ID: "message-1", ChatID: "user-1", Content: "hi"})
+	if !errors.Is(err, basechannels.ErrDeliveryUnknown) || errors.Is(err, basechannels.ErrTemporary) {
+		t.Fatalf("Send() = %v, want unknown platform acceptance", err)
+	}
+}

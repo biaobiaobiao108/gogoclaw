@@ -465,6 +465,7 @@ func setupAndStartServices(
 		msgBus,
 		runningServices.MediaStore,
 		channels.WithRuntimeEvents(agentLoop.RuntimeEventBus()),
+		channels.WithTrackedDelivery(agentLoop.BeginPlatformDelivery, agentLoop.FinishPlatformDelivery),
 		channels.WithChannelInitializer(func(name string, channel channels.Channel) {
 			if name == config.ChannelPico {
 				configurePicoChannel(agentLoop, channel)

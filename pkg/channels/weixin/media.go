@@ -931,7 +931,7 @@ func (c *WeixinChannel) sendMessageItem(
 		if isSessionExpiredStatus(resp.Ret, resp.Errcode) {
 			c.pauseSession("sendmessage", resp.Ret, resp.Errcode, resp.Errmsg)
 		}
-		return fmt.Errorf("sendmessage failed: ret=%d errcode=%d errmsg=%s", resp.Ret, resp.Errcode, resp.Errmsg)
+		return fmt.Errorf("sendmessage: %w: ret=%d errcode=%d", basechannels.ErrSendFailed, resp.Ret, resp.Errcode)
 	}
 	return nil
 }

@@ -1172,10 +1172,10 @@ func (c *TelegramChannel) handleMessages(ctx context.Context, messages []*telego
 	}
 
 	logger.DebugCF("telegram", "Received message", map[string]any{
-		"sender_id": sender.CanonicalID,
-		"chat_id":   compositeChatID,
-		"thread_id": threadID,
-		"preview":   utils.Truncate(content, 50),
+		"sender_id":     sender.CanonicalID,
+		"chat_id":       compositeChatID,
+		"thread_id":     threadID,
+		"content_bytes": len(content),
 	})
 
 	peerKind := "direct"

@@ -196,7 +196,13 @@ func (al *AgentLoop) publishToolCallInterim(
 	publish := func(msg bus.OutboundMessage) bool {
 		pubCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
-		if err := al.bus.PublishOutbound(pubCtx, msg); err != nil {
+		publishOutbound := al.bus.PublishOutbound
+		if msg.Context.Raw[metadataKeyOutboundKind] == outboundKindInterim && al.tracksPlatformDelivery(ts.sessionKey, ts.channel) {
+			publishOutbound = func(ctx context.Context, msg bus.OutboundMessage) error {
+				return al.publishTrackedOutbound(ctx, ts.sessionKey, msg)
+			}
+		}
+		if err := publishOutbound(pubCtx, msg); err != nil {
 			logger.WarnCF("agent", "Failed to publish interim response", map[string]any{
 				"channel": ts.channel, "chat_id": ts.chatID, "error": err.Error(),
 			})

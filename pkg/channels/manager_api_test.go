@@ -453,3 +453,39 @@ func TestReloadReplacesWorkerAndReportsDeliveryFailure(t *testing.T) {
 		t.Fatalf("SendMessage error = %v, want permanent send failure", err)
 	}
 }
+
+func TestTrackedDeliveryStopsOnPartialPlatformFailure(t *testing.T) {
+	var finishErr error
+	claimed := false
+	manager := &Manager{
+		beginDelivery: func(bus.OutboundMessage) (bool, error) {
+			if claimed {
+				return false, nil
+			}
+			claimed = true
+			return true, nil
+		},
+		finishDelivery: func(_ bus.OutboundMessage, _ []string, err error) error {
+			finishErr = err
+			return nil
+		},
+	}
+	ch := &mockChannel{sendFn: func(_ context.Context, msg bus.OutboundMessage) error {
+		if msg.Content == "second" {
+			return ErrSendFailed
+		}
+		return nil
+	}}
+	worker := newChannelWorker("tracked", ch, "telegram")
+	worker.limiter = rate.NewLimiter(rate.Inf, 1)
+	msg := testOutboundMessage(bus.OutboundMessage{
+		Channel: "tracked", ChatID: "fixture",
+		Context: bus.InboundContext{Channel: "tracked", ChatID: "fixture", Raw: map[string]string{bus.MetadataPlatformDelivery: "fixture-delivery"}},
+	})
+	manager.RecordPlaceholder("tracked", "fixture", "fixture-placeholder")
+	manager.sendChunks(context.Background(), "tracked", worker, msg, []string{"first", "second", "third"})
+	manager.sendChunks(context.Background(), "tracked", worker, msg, []string{"first", "second", "third"})
+	if !errors.Is(finishErr, ErrDeliveryUnknown) || len(ch.sentMessages) != 2 || ch.editedMessages != 0 {
+		t.Fatalf("delivery outcome = %v, sent = %d, edited = %d", finishErr, len(ch.sentMessages), ch.editedMessages)
+	}
+}

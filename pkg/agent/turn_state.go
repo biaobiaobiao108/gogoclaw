@@ -53,6 +53,7 @@ const (
 // =============================================================================
 
 type turnResult struct {
+	responseID        string
 	finalContent      string
 	modelName         string
 	status            TurnEndStatus

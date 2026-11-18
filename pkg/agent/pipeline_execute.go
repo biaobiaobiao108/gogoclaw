@@ -363,10 +363,9 @@ toolLoop:
 					toolPolicy := ts.toolPolicy(toolName)
 					ts.markToolItemRunning(toolBatchID, i, toolName, toolArgs)
 
-					argsJSON, _ := json.Marshal(toolArgs)
-					argsPreview := utils.Truncate(string(argsJSON), 200)
-					logger.InfoCF("agent", fmt.Sprintf("Tool call (hook respond): %s(%s)", toolName, argsPreview),
+					logger.InfoCF("agent", "Tool call handled by hook",
 						map[string]any{
+							"turn_id":   ts.turnID,
 							"agent_id":  ts.agent.ID,
 							"tool":      toolName,
 							"iteration": iteration,
@@ -732,8 +731,9 @@ toolLoop:
 			duplicateReadOnly = true
 			duplicateRepeat = ts.recordReadOnlyRepeat(readOnlyKey)
 		}
-		logger.InfoCF("agent", fmt.Sprintf("Tool call: %s(%s)", toolName, argsPreview),
+		logger.InfoCF("agent", "Tool call",
 			map[string]any{
+				"turn_id":   ts.turnID,
 				"agent_id":  ts.agent.ID,
 				"tool":      toolName,
 				"iteration": iteration,
