@@ -183,6 +183,69 @@ func TestSendCard_RetriesUseSameUUID(t *testing.T) {
 	}
 }
 
+func TestSend_FeishuFallsBackOnlyOnConfirmedCardRejection(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		status int
+		body   string
+		want   error
+	}{
+		{"card rejected", http.StatusBadRequest, `{"code":11310}`, nil},
+		{"upstream error with card code", http.StatusBadGateway, `{"code":11310}`, channels.ErrDeliveryUnknown},
+		{"rate limited", http.StatusTooManyRequests, `{"code":99991400}`, channels.ErrRateLimit},
+		{"missing receipt", http.StatusOK, `{"code":0}`, channels.ErrDeliveryUnknown},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			messageTypes := make(chan string, 4)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/open-apis/auth/v3/tenant_access_token/internal" {
+					_, _ = io.WriteString(w, `{"code":0,"tenant_access_token":"token-1","expire":7200}`)
+					return
+				}
+				var body struct {
+					Type string `json:"msg_type"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				messageTypes <- body.Type
+				if body.Type == larkim.MsgTypeText {
+					_, _ = io.WriteString(w, `{"code":0,"data":{"message_id":"om_text"}}`)
+					return
+				}
+				w.WriteHeader(tt.status)
+				_, _ = io.WriteString(w, tt.body)
+			}))
+			defer server.Close()
+			cache := newTokenCache()
+			ch := &FeishuChannel{
+				BaseChannel: channels.NewBaseChannel("feishu", nil, nil, nil),
+				client:      lark.NewClient("app-id", "app-secret", lark.WithOpenBaseUrl(server.URL), lark.WithTokenCache(cache)),
+				tokenCache:  cache, progress: channels.NewToolFeedbackAnimator(nil),
+			}
+			ch.SetRunning(true)
+			ids, err := ch.Send(context.Background(), bus.OutboundMessage{
+				ID: "delivery", ChatID: "oc_chat", Content: "hello",
+				Context: bus.InboundContext{Raw: map[string]string{bus.MetadataPlatformDelivery: "delivery"}},
+			})
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("Send() error = %v, want %v", err, tt.want)
+			}
+			if tt.want == nil {
+				if len(ids) != 1 || ids[0] != "om_text" || len(messageTypes) != 2 ||
+					<-messageTypes != larkim.MsgTypeInteractive || <-messageTypes != larkim.MsgTypeText {
+					t.Fatalf("expected card then plain text, got IDs %v", ids)
+				}
+			} else if len(ids) != 0 || len(messageTypes) != 1 || <-messageTypes != larkim.MsgTypeInteractive {
+				t.Fatalf("expected one card send and no receipt, got IDs %v", ids)
+			}
+		})
+	}
+}
+
 func TestAppendMediaTags(t *testing.T) {
 	tests := []struct {
 		name        string

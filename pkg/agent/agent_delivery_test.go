@@ -1737,7 +1737,7 @@ func TestRun_PicoPublishesAssistantContentDuringToolCallsWithoutFinalDuplicate(t
 }
 
 func TestProcessMessage_PublishesInterimAssistantTextToExternalChannels(t *testing.T) {
-	for _, channel := range []string{"telegram", "weixin"} {
+	for _, channel := range []string{"telegram", "weixin", "discord", "feishu", "qq", "pico_client"} {
 		t.Run(channel, func(t *testing.T) {
 			cfg := &config.Config{Agents: config.AgentsConfig{Defaults: config.AgentDefaults{
 				Workspace:         t.TempDir(),
@@ -1750,19 +1750,21 @@ func TestProcessMessage_PublishesInterimAssistantTextToExternalChannels(t *testi
 			al := NewAgentLoop(cfg, msgBus, &picoInterleavedContentProvider{})
 			al.GetRegistry().GetDefaultAgent().Tools.Register(&toolLimitTestTool{})
 			ctx := context.Background()
-			response, err := al.processMessage(ctx, testInboundMessage(bus.InboundMessage{
-				Channel: channel, ChatID: "chat-1", SenderID: "user-1", Content: "run with tools",
+			al.runTurnWithSteering(ctx, testInboundMessage(bus.InboundMessage{
+				Context: bus.InboundContext{
+					Channel: channel, ChatID: "chat-1", SenderID: "user-1",
+					ChatType: "direct", MessageID: "original-message",
+				},
+				Content: "run with tools",
 			}))
-			if err != nil || response != "final model text" {
-				t.Fatalf("processMessage() = %q, %v, want final model text", response, err)
-			}
 
 			select {
 			case outbound := <-msgBus.OutboundChan():
 				if outbound.Content != "intermediate model text" ||
 					outbound.Context.Channel != channel || outbound.Context.ChatID != "chat-1" ||
-					outbound.Context.Raw[metadataKeyOutboundKind] != outboundKindInterim {
-					t.Fatalf("first outbound = %+v, want interim text for %s/chat-1", outbound, channel)
+					outbound.Context.Raw[metadataKeyOutboundKind] != outboundKindInterim ||
+					outbound.Context.Raw[bus.MetadataPlatformDelivery] != outbound.ID {
+					t.Fatalf("first outbound = %+v, want tracked interim text for %s/chat-1", outbound, channel)
 				}
 			default:
 				t.Fatal("missing interim text")
@@ -1775,6 +1777,17 @@ func TestProcessMessage_PublishesInterimAssistantTextToExternalChannels(t *testi
 				}
 			default:
 				t.Fatal("missing tool feedback")
+			}
+			select {
+			case outbound := <-msgBus.OutboundChan():
+				if outbound.Content != "final model text" ||
+					outbound.Context.Raw[metadataKeyOutboundKind] != outboundKindFinal ||
+					outbound.Context.Raw[bus.MetadataPlatformDelivery] != outbound.ID ||
+					outbound.Context.MessageID != "original-message" || outbound.Context.ChatType != "direct" {
+					t.Fatalf("third outbound = %+v, want tracked final reply with its original destination", outbound)
+				}
+			default:
+				t.Fatal("missing final reply")
 			}
 		})
 	}

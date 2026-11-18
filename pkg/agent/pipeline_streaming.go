@@ -272,7 +272,7 @@ func finalizeConfiguredStreamingLLM(
 	delivery := exec.streamingDelivery
 	exec.streamingDelivery = nil
 	if al.tracksPlatformDelivery(ts.sessionKey, ts.channel) {
-		// Telegram drafts remain transient. The final text goes through the
+		// Platform drafts remain transient. The final text goes through the
 		// same outbox as ordinary replies so platform acceptance is recorded.
 		publisher.Cancel(ctx)
 		if delivery != nil {
@@ -280,6 +280,12 @@ func finalizeConfiguredStreamingLLM(
 		}
 		exec.streamingFallback = true
 		return false, nil
+	}
+	if delivery != nil && delivery.RequiresAck {
+		if err := al.stageStreamingDelivery(ts.sessionKey, delivery, content, contextUsage); err != nil {
+			publisher.Cancel(ctx)
+			return false, fmt.Errorf("persist final stream payload: %w", err)
+		}
 	}
 	visibleBeforeFinalize := publisher.Published()
 	if err := publisher.Finalize(ctx, content, contextUsage); err != nil {
@@ -338,9 +344,7 @@ func (p *Pipeline) finishToolCallStream(
 	if publisher == nil {
 		return false, false
 	}
-	if delivery := exec.streamingDelivery; delivery != nil {
-		defer p.al.discardDelivery(ts.sessionKey, delivery.ID)
-	}
+	delivery := exec.streamingDelivery
 	interim, canFinalize := publisher.streamer.(bus.InterimStreamer)
 	hasReasoning := strings.TrimSpace(msg.ReasoningContent) != ""
 	if canFinalize && ts.channel == "pico" && ts.opts.AllowInterimPublish &&
@@ -351,10 +355,24 @@ func (p *Pipeline) finishToolCallStream(
 			err = publisher.FinalizeReasoning(ctx, msg.ReasoningContent)
 			reasoningStreamed = err == nil
 		}
+		if err == nil && delivery != nil {
+			if delivery.Context.Raw == nil {
+				delivery.Context.Raw = make(map[string]string, 1)
+			}
+			delivery.Context.Raw[metadataKeyOutboundKind] = outboundKindInterim
+			err = p.al.stageStreamingDelivery(ts.sessionKey, delivery, msg.Content, nil)
+		}
 		if err == nil {
 			err = interim.FinalizeInterim(ctx, msg.Content)
 		}
 		if err == nil {
+			if delivery != nil {
+				if persistErr := p.al.completeStreamingDelivery(ts.sessionKey, *delivery, msg.Content, nil, true); persistErr != nil {
+					logger.WarnCF("agent", "Failed to persist streamed interim delivery", map[string]any{
+						"session_key": ts.sessionKey, "delivery_id": delivery.ID, "error": persistErr.Error(),
+					})
+				}
+			}
 			exec.streamingPublisher = nil
 			exec.streamingDelivery = nil
 			return true, reasoningStreamed
@@ -362,6 +380,9 @@ func (p *Pipeline) finishToolCallStream(
 		logger.WarnCF("agent", "Failed to finalize interim response stream", map[string]any{
 			"channel": ts.channel, "chat_id": ts.chatID, "error": err.Error(),
 		})
+	}
+	if delivery != nil {
+		p.al.discardDelivery(ts.sessionKey, delivery.ID)
 	}
 	cancelConfiguredStreamingLLM(ctx, exec)
 	return false, false

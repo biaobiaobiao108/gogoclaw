@@ -149,6 +149,7 @@ type recordingStreamSegment struct {
 	finalUsage    *bus.ContextUsage
 	canceledCount int
 	modelNames    []string
+	deliveryID    string
 }
 
 func (s *recordingStreamSegment) Update(_ context.Context, content string) error {
@@ -172,6 +173,10 @@ func (s *recordingStreamSegment) Cancel(context.Context) {
 
 func (s *recordingStreamSegment) SetModelName(modelName string) {
 	s.modelNames = append(s.modelNames, strings.TrimSpace(modelName))
+}
+
+func (s *recordingStreamSegment) SetDeliveryID(id string) {
+	s.deliveryID = id
 }
 
 type mockStreamingChannel struct {

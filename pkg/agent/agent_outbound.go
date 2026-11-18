@@ -58,9 +58,14 @@ func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatI
 }
 
 func (al *AgentLoop) PublishResponseIfNeededChecked(ctx context.Context, channel, chatID, sessionKey, response string) error {
+	return al.publishResponseWithContext(ctx, bus.NewOutboundContext(channel, chatID, ""), sessionKey, response)
+}
+
+func (al *AgentLoop) publishResponseWithContext(ctx context.Context, destination bus.InboundContext, sessionKey, response string) error {
 	if response == "" {
 		return nil
 	}
+	channel, chatID := destination.Channel, destination.ChatID
 
 	alreadySentToSameChat := false
 	runtime := al.runtimeSnapshot()
@@ -110,7 +115,7 @@ func (al *AgentLoop) PublishResponseIfNeededChecked(ctx context.Context, channel
 			}
 		}
 	}
-	if err := al.publishTrackedResponse(ctx, channel, chatID, sessionKey, response, usage); err != nil {
+	if err := al.publishTrackedResponse(ctx, destination, sessionKey, response, usage); err != nil {
 		return err
 	}
 	logger.InfoCF("agent", "Published outbound response",
@@ -197,7 +202,8 @@ func (al *AgentLoop) publishToolCallInterim(
 		pubCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 		publishOutbound := al.bus.PublishOutbound
-		if msg.Context.Raw[metadataKeyOutboundKind] == outboundKindInterim && al.tracksPlatformDelivery(ts.sessionKey, ts.channel) {
+		if msg.Context.Raw[metadataKeyOutboundKind] == outboundKindInterim &&
+			(ts.channel == "pico" || al.tracksPlatformDelivery(ts.sessionKey, ts.channel)) {
 			publishOutbound = func(ctx context.Context, msg bus.OutboundMessage) error {
 				return al.publishTrackedOutbound(ctx, ts.sessionKey, msg)
 			}

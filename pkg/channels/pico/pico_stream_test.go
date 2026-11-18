@@ -78,6 +78,40 @@ func TestBeginStream_CreatesAndUpdatesSameMessage(t *testing.T) {
 	}
 }
 
+func TestBeginStream_OnlyCompleteTextRequestsDeliveryAck(t *testing.T) {
+	ctx := context.Background()
+	ch := newTestPicoChannel(t)
+	ch.config.Streaming = config.StreamingConfig{Enabled: true}
+	if err := ch.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer ch.Stop(ctx)
+	conn, received, cleanup := newTestPicoWebSocket(t)
+	defer cleanup()
+	ch.addConnForTest(&picoConn{id: "conn-1", conn: conn, sessionID: "sess-1"})
+	streamer, err := ch.BeginStream(ctx, "pico:sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	streamer.(*picoStreamer).SetDeliveryID("reply-1")
+	if err := streamer.Update(ctx, "short text"); err != nil {
+		t.Fatal(err)
+	}
+	draft := mustReceivePicoMessage(t, received)
+	if draft.Type != TypeMessageCreate || draft.ID != "reply-1" ||
+		draft.Payload[PayloadKeyStreamDraft] != true || draft.Payload[PayloadKeyDeliveryID] != nil {
+		t.Fatalf("draft = %+v", draft)
+	}
+	if err := streamer.Finalize(ctx, "short text"); err != nil {
+		t.Fatal(err)
+	}
+	final := mustReceivePicoMessage(t, received)
+	if final.Type != TypeMessageUpdate || final.ID != draft.ID ||
+		final.Payload[PayloadKeyDeliveryID] != "reply-1" || final.Payload[PayloadKeyStreamDraft] != false {
+		t.Fatalf("completed message = %+v", final)
+	}
+}
+
 func TestBeginStream_DefaultStreamingShowsSmallIncrements(t *testing.T) {
 	ch := newTestPicoChannel(t)
 	ch.config.Streaming = config.StreamingConfig{Enabled: true}

@@ -508,7 +508,12 @@ func (c ChannelsConfig) TracksPlatformTextDelivery(name string) bool {
 	if channel := c.Get(name); channel != nil && channel.Type != "" {
 		name = channel.Type
 	}
-	return name == ChannelTelegram || name == ChannelWeixin
+	switch name {
+	case ChannelTelegram, ChannelWeixin, ChannelDiscord, ChannelFeishu, ChannelQQ, ChannelPicoClient:
+		return true
+	default:
+		return false
+	}
 }
 
 // Get returns the Channel for the given channel name (map key), or nil if not found.

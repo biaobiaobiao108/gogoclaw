@@ -20,6 +20,10 @@ import (
 
 // writeJSON sends a JSON message to the connection with write locking.
 func (pc *picoConn) writeJSON(v any) error {
+	return pc.writeJSONBefore(v, time.Time{})
+}
+
+func (pc *picoConn) writeJSONBefore(v any, deadline time.Time) error {
 	if pc == nil || pc.conn == nil {
 		return fmt.Errorf("connection unavailable")
 	}
@@ -28,6 +32,9 @@ func (pc *picoConn) writeJSON(v any) error {
 	}
 	pc.writeMu.Lock()
 	defer pc.writeMu.Unlock()
+	if err := pc.conn.SetWriteDeadline(deadline); err != nil {
+		return err
+	}
 	return pc.conn.WriteJSON(v)
 }
 
@@ -639,6 +646,7 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	}
 
 	if !c.IsAllowedSender(sender) {
+		_ = pc.writeJSON(newErrorWithPayload("sender_not_allowed", "sender is not allowed", map[string]any{"request_id": msg.ID}))
 		return
 	}
 

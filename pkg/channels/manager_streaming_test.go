@@ -1086,6 +1086,7 @@ func TestGetStreamer_SplitOnMarkerStreamsSeparateSegments(t *testing.T) {
 	if !ok {
 		t.Fatal("split streamer should preserve ContextUsageStreamer")
 	}
+	setStreamerDeliveryID(streamer, "logical-reply")
 
 	if err := streamer.Update(context.Background(), "hello"); err != nil {
 		t.Fatalf("Update(first) error = %v", err)
@@ -1123,8 +1124,30 @@ func TestGetStreamer_SplitOnMarkerStreamsSeparateSegments(t *testing.T) {
 	if segments[1].finalUsage != usage {
 		t.Fatalf("final usage = %#v, want original usage", segments[1].finalUsage)
 	}
+	if segments[0].deliveryID != "" || segments[1].deliveryID != "logical-reply" {
+		t.Fatalf("receipt IDs = %q, %q", segments[0].deliveryID, segments[1].deliveryID)
+	}
 	if _, ok := m.streamActive.Load("test:123:session-1"); !ok {
 		t.Fatal("expected streamActive marker to be recorded after split stream finalize")
+	}
+}
+
+func TestSplitMarkerStreamer_FinalizesReceiptAfterTrailingMarker(t *testing.T) {
+	ctx := t.Context()
+	segment := &recordingStreamSegment{}
+	streamer := &splitMarkerStreamer{current: segment, deliveryID: "logical-reply"}
+	content := "hello" + MessageSplitMarker
+	if err := streamer.Update(ctx, content); err != nil {
+		t.Fatal(err)
+	}
+	if segment.deliveryID != "" {
+		t.Fatalf("draft finalized a receipt %q before the complete response", segment.deliveryID)
+	}
+	if err := streamer.Finalize(ctx, content); err != nil {
+		t.Fatal(err)
+	}
+	if segment.deliveryID != "logical-reply" {
+		t.Fatalf("last completed segment receipt = %q", segment.deliveryID)
 	}
 }
 

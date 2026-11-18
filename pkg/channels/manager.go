@@ -254,6 +254,7 @@ type turnUsageStreamer interface {
 type splitMarkerStreamer struct {
 	mu               sync.Mutex
 	current          bus.Streamer
+	lastCompleted    bus.Streamer
 	reasoning        bus.ReasoningStreamer
 	begin            func(context.Context) (bus.Streamer, error)
 	completedParts   int

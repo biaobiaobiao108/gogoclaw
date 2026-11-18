@@ -12,7 +12,7 @@ func ClassifySendError(statusCode int, rawErr error) error {
 	switch {
 	case statusCode == http.StatusTooManyRequests:
 		return fmt.Errorf("%w: %w", ErrRateLimit, rawErr)
-	case statusCode >= 500:
+	case statusCode >= 500 || statusCode == http.StatusRequestTimeout:
 		return fmt.Errorf("%w: %w", ErrDeliveryUnknown, rawErr)
 	case statusCode >= 400:
 		return fmt.Errorf("%w: %w", ErrSendFailed, rawErr)

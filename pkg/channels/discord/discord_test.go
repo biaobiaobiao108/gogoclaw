@@ -3,6 +3,7 @@ package discord
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -24,6 +25,44 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+func TestSendChunk_ClassifiesDiscordReceipt(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		status int
+		body   string
+		want   error
+	}{
+		{"rate limited", http.StatusTooManyRequests, `{"retry_after":1}`, channels.ErrRateLimit},
+		{"rejected", http.StatusForbidden, `{"code":50013}`, channels.ErrSendFailed},
+		{"server failure", http.StatusBadGateway, `{}`, channels.ErrDeliveryUnknown},
+		{"missing receipt", http.StatusOK, `{}`, channels.ErrDeliveryUnknown},
+		{"malformed response", http.StatusOK, `{"id":`, channels.ErrDeliveryUnknown},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			session, err := discordgo.New("Bot test-token")
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			session.Client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				calls++
+				if _, ok := req.Context().Deadline(); !ok {
+					t.Error("Discord request has no delivery deadline")
+				}
+				return &http.Response{
+					StatusCode: tt.status, Header: make(http.Header),
+					Body: io.NopCloser(strings.NewReader(tt.body)), Request: req,
+				}, nil
+			})
+			ch := &DiscordChannel{session: session}
+			_, err = ch.sendChunk(context.Background(), "receipt-test", "hello", "", "1")
+			if !errors.Is(err, tt.want) || calls != 1 {
+				t.Fatalf("sendChunk: calls=%d, error=%v, want one attempt and %v", calls, err, tt.want)
+			}
+		})
+	}
 }
 
 type stubTTSProvider struct{}

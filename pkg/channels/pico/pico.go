@@ -27,6 +27,7 @@ type picoConn struct {
 	writeMu   sync.Mutex
 	closed    atomic.Bool
 	cancel    context.CancelFunc // cancels per-connection goroutines (e.g. pingLoop)
+	done      <-chan struct{}
 }
 
 var allowedInlineImageMIMETypes = map[string]struct{}{
@@ -238,6 +239,7 @@ type picoStreamer struct {
 	lastAt            time.Time
 	lastContent       string
 	deliveryPublished bool
+	finalized         bool
 	reasoningLastLen  int
 	reasoningLastAt   time.Time
 	reasoningContent  string

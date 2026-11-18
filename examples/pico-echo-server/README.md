@@ -18,8 +18,8 @@ go run ./examples/pico-echo-server -addr :9090 -token secret
 ## How it works
 
 - Listens for WebSocket connections at `/ws`
-- Authenticates via `Authorization: Bearer <token>` header or `?token=<token>` query param
-- Prints received `message.send` content to stdout
+- Authenticates via the `Authorization: Bearer <token>` header
+- Prints received `message.send` content to stdout and returns a matching `message.ack`
 - Responds to `ping` with `pong`
 - Lines typed into stdin are broadcast as `message.create` to all connected clients
 
@@ -36,7 +36,8 @@ go run ./examples/pico-echo-server -addr :9090 -token secret
      "channel_list": {
        "pico_client": {
          "enabled": true,
-         "url": "ws://localhost:9090/ws",
+         "allow_from": ["pico-remote"],
+         "url": "ws://localhost:9090/ws?session_id=test-session",
          "token": "mytoken",
          "session_id": "test-session"
        }

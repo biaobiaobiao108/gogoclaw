@@ -92,6 +92,10 @@ func testServer(t *testing.T, token string) *httptest.Server {
 			}
 
 			if msg.Type == TypeMessageSend {
+				ack := newMessage(TypeMessageAck, map[string]any{"request_id": msg.ID, "status": "accepted"})
+				if err := conn.WriteJSON(ack); err != nil {
+					return
+				}
 				reply := newMessage(TypeMessageCreate, msg.Payload)
 				reply.SessionID = msg.SessionID
 				if err := conn.WriteJSON(reply); err != nil {
@@ -161,6 +165,10 @@ func TestClientChannel_SendUsesLogicalMessageID(t *testing.T) {
 			}
 			if msg.Type == TypeMessageSend {
 				received <- msg
+				ack := newMessage(TypeMessageAck, map[string]any{"request_id": msg.ID, "status": "duplicate"})
+				if err := conn.WriteJSON(ack); err != nil {
+					return
+				}
 			}
 		}
 	}))
@@ -182,12 +190,13 @@ func TestClientChannel_SendUsesLogicalMessageID(t *testing.T) {
 	}
 	defer ch.Stop(ctx)
 
-	if _, err := ch.Send(ctx, bus.OutboundMessage{
+	ids, err := ch.Send(ctx, bus.OutboundMessage{
 		ID:      "delivery-1",
 		ChatID:  "pico_client:sess-id",
 		Content: "hello",
-	}); err != nil {
-		t.Fatalf("Send: %v", err)
+	})
+	if err != nil || len(ids) != 1 || ids[0] != "delivery-1" {
+		t.Fatalf("Send: ids=%v err=%v", ids, err)
 	}
 
 	select {
@@ -197,6 +206,121 @@ func TestClientChannel_SendUsesLogicalMessageID(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for outbound message")
+	}
+}
+
+func TestPicoClient_SendDistinguishesRejectionFromUnconfirmedAcceptance(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		ack  PicoMessage
+		want error
+	}{
+		{"rejected", newErrorWithPayload("empty_content", "empty", nil), channels.ErrSendFailed},
+		{"acceptance unknown", newMessage(TypeMessageAck, map[string]any{"status": "unknown"}), channels.ErrDeliveryUnknown},
+		{"socket closed after write", PicoMessage{}, channels.ErrDeliveryUnknown},
+		{"unrelated receipt", newMessage(TypeMessageAck, map[string]any{"request_id": "unrelated", "status": "accepted"}), channels.ErrDeliveryUnknown},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			upgrader := websocket.Upgrader{}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := upgrader.Upgrade(w, r, nil)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				defer conn.Close()
+				var outbound PicoMessage
+				if err := conn.ReadJSON(&outbound); err != nil {
+					t.Error(err)
+					return
+				}
+				if tt.ack.Type != "" {
+					ack := tt.ack
+					if ack.Payload["request_id"] == nil {
+						ack.Payload["request_id"] = outbound.ID
+					}
+					if err := conn.WriteJSON(ack); err != nil {
+						t.Error(err)
+					}
+				}
+			}))
+			defer srv.Close()
+			bc := &config.Channel{Type: config.ChannelPicoClient}
+			ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{URL: wsURL(srv.URL)}, bus.NewMessageBus())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ch.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			defer ch.Stop(t.Context())
+			ids, err := ch.Send(t.Context(), bus.OutboundMessage{ID: "reply-1", Content: "hello"})
+			if !errors.Is(err, tt.want) || len(ids) != 0 {
+				t.Fatalf("Send() = %v, %v, want no receipts and %v", ids, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestPicoClient_ForwardsCompleteStreamInsteadOfDraft(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	acks := make(chan PicoMessage, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer conn.Close()
+		for _, message := range []PicoMessage{
+			{Type: TypeMessageCreate, ID: "reply-1", Payload: map[string]any{
+				PayloadKeyContent: "draft", PayloadKeyStreamDraft: true,
+			}},
+			{Type: TypeMessageUpdate, ID: "reply-1", Payload: map[string]any{
+				PayloadKeyContent: "complete message", PayloadKeyDeliveryID: "reply-1",
+			}},
+		} {
+			if err := conn.WriteJSON(message); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		var ack PicoMessage
+		if err := conn.ReadJSON(&ack); err != nil {
+			t.Error(err)
+			return
+		}
+		acks <- ack
+	}))
+	defer srv.Close()
+	mb := bus.NewMessageBus()
+	bc := &config.Channel{Type: config.ChannelPicoClient, AllowFrom: config.FlexibleStringSlice{"pico-remote"}}
+	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{URL: wsURL(srv.URL)}, mb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	if err := ch.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer ch.Stop(ctx)
+	select {
+	case msg := <-mb.InboundChan():
+		if msg.MessageID != "reply-1" || msg.Content != "complete message" {
+			t.Fatalf("inbound = %+v", msg)
+		}
+	case <-ctx.Done():
+		t.Fatal("no completed message received")
+	}
+	select {
+	case ack := <-acks:
+		if ack.Type != TypeDeliveryAck || ack.Payload[PayloadKeyDeliveryID] != "reply-1" {
+			t.Fatalf("delivery acknowledgment = %+v", ack)
+		}
+	case <-ctx.Done():
+		t.Fatal("no acknowledgment for completed message")
 	}
 }
 
@@ -327,8 +451,8 @@ func TestSend_ClosedConnection(t *testing.T) {
 		ChatID:  "pico_client:sess-close",
 		Content: "should fail",
 	})
-	if !errors.Is(err, channels.ErrSendFailed) {
-		t.Fatalf("expected ErrSendFailed, got %v", err)
+	if !errors.Is(err, channels.ErrTemporary) {
+		t.Fatalf("expected safe retry before writing, got %v", err)
 	}
 
 	ch.Stop(ctx)

@@ -226,7 +226,7 @@ func (s *splitMarkerStreamer) ClearFinalizedStreamMarker() {
 func (s *splitMarkerStreamer) updateLocked(ctx context.Context, content string) error {
 	parts := strings.Split(content, MessageSplitMarker)
 	completedLimit := len(parts) - 1
-	if err := s.finalizeCompletedPartsLocked(ctx, parts, completedLimit, nil); err != nil {
+	if err := s.finalizeCompletedPartsLocked(ctx, parts, completedLimit, -1, nil); err != nil {
 		return err
 	}
 	active := strings.TrimSpace(parts[len(parts)-1])
@@ -241,41 +241,47 @@ func (s *splitMarkerStreamer) updateLocked(ctx context.Context, content string) 
 
 func (s *splitMarkerStreamer) finalizeLocked(ctx context.Context, content string, usage *bus.ContextUsage) error {
 	parts := strings.Split(content, MessageSplitMarker)
-	return s.finalizeCompletedPartsLocked(ctx, parts, len(parts), usage)
+	last := len(parts) - 1
+	for last >= 0 && strings.TrimSpace(parts[last]) == "" {
+		last--
+	}
+	if s.deliveryID != "" && last >= 0 && last < s.completedParts && s.lastCompleted != nil {
+		return s.finishPart(ctx, s.lastCompleted, strings.TrimSpace(parts[last]), true, usage)
+	}
+	return s.finalizeCompletedPartsLocked(ctx, parts, last+1, last, usage)
 }
 
 func (s *splitMarkerStreamer) finalizeCompletedPartsLocked(
 	ctx context.Context,
 	parts []string,
-	limit int,
+	limit, receiptPart int,
 	usage *bus.ContextUsage,
 ) error {
 	for s.completedParts < limit {
 		content := strings.TrimSpace(parts[s.completedParts])
-		isLast := s.completedParts == limit-1
 		if content != "" {
 			if err := s.ensureCurrentLocked(ctx); err != nil {
 				return err
 			}
-			if isLast {
-				setStreamerDeliveryID(s.current, s.deliveryID)
-			}
-			if isLast && usage != nil {
-				if contextStreamer, ok := s.current.(bus.ContextUsageStreamer); ok {
-					if err := contextStreamer.FinalizeWithContext(ctx, content, usage); err != nil {
-						return err
-					}
-				} else if err := s.current.Finalize(ctx, content); err != nil {
-					return err
-				}
-			} else if err := s.current.Finalize(ctx, content); err != nil {
+			if err := s.finishPart(ctx, s.current, content, s.completedParts == receiptPart, usage); err != nil {
 				return err
 			}
+			s.lastCompleted = s.current
 			s.current = nil
 		}
 		s.completedParts++
 	}
 	return nil
+}
+
+func (s *splitMarkerStreamer) finishPart(ctx context.Context, streamer bus.Streamer, content string, receipt bool, usage *bus.ContextUsage) error {
+	if receipt {
+		setStreamerDeliveryID(streamer, s.deliveryID)
+		if contextual, ok := streamer.(bus.ContextUsageStreamer); ok && usage != nil {
+			return contextual.FinalizeWithContext(ctx, content, usage)
+		}
+	}
+	return streamer.Finalize(ctx, content)
 }
 
 func (s *splitMarkerStreamer) ensureCurrentLocked(ctx context.Context) error {

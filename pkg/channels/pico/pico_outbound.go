@@ -504,12 +504,12 @@ func (s *picoStreamer) sendLocked(
 			s.messageID = uuid.New().String()
 		}
 		payload := map[string]any{
-			PayloadKeyContent: content,
-			"message_id":      s.messageID,
+			PayloadKeyContent:     content,
+			"message_id":          s.messageID,
+			PayloadKeyStreamDraft: !final,
 		}
-		if s.deliveryID != "" {
+		if final && s.deliveryID != "" {
 			payload[PayloadKeyDeliveryID] = s.deliveryID
-			s.deliveryPublished = true
 		}
 		if s.modelName != "" {
 			payload[PayloadKeyModelName] = s.modelName
@@ -521,15 +521,16 @@ func (s *picoStreamer) sendLocked(
 		if err := s.channel.broadcast(s.chatID, outMsg); err != nil {
 			return err
 		}
+		s.deliveryPublished = final && s.deliveryID != ""
 	} else if content != s.lastContent || contextUsage != nil ||
-		(final && s.deliveryID != "" && !s.deliveryPublished) {
+		(final && (!s.finalized || (s.deliveryID != "" && !s.deliveryPublished))) {
 		payload := map[string]any{
-			PayloadKeyContent: content,
-			"message_id":      s.messageID,
+			PayloadKeyContent:     content,
+			"message_id":          s.messageID,
+			PayloadKeyStreamDraft: !final,
 		}
-		if s.deliveryID != "" {
+		if final && s.deliveryID != "" {
 			payload[PayloadKeyDeliveryID] = s.deliveryID
-			s.deliveryPublished = true
 		}
 		if s.modelName != "" {
 			payload[PayloadKeyModelName] = s.modelName
@@ -538,11 +539,13 @@ func (s *picoStreamer) sendLocked(
 		if err := s.channel.editMessagePayload(ctx, s.chatID, s.messageID, payload, contextUsage); err != nil {
 			return err
 		}
+		s.deliveryPublished = s.deliveryPublished || (final && s.deliveryID != "")
 	}
 
 	s.lastContent = content
 	s.lastLen = contentLen
 	s.lastAt = now
+	s.finalized = final
 	return nil
 }
 

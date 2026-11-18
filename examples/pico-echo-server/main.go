@@ -92,11 +92,19 @@ func (s *server) handleWS(w http.ResponseWriter, r *http.Request) {
 		switch msg.Type {
 		case "ping":
 			pong := picoMessage{Type: "pong", ID: msg.ID, Timestamp: time.Now().UnixMilli()}
-			conn.WriteJSON(pong)
+			if err := s.write(conn, pong); err != nil {
+				return
+			}
 
 		case "message.send":
 			content, _ := msg.Payload["content"].(string)
 			fmt.Printf("[%s] %s\n", sessionID, content)
+			if err := s.write(conn, picoMessage{
+				Type: "message.ack", ID: msg.ID, SessionID: sessionID, Timestamp: time.Now().UnixMilli(),
+				Payload: map[string]any{"request_id": msg.ID, "status": "accepted"},
+			}); err != nil {
+				return
+			}
 
 		case "typing.start":
 			log.Printf("[%s] typing...", sessionID)
@@ -108,6 +116,16 @@ func (s *server) handleWS(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[%s] unknown type: %s", sessionID, msg.Type)
 		}
 	}
+}
+
+func (s *server) write(conn *websocket.Conn, msg picoMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := conn.WriteJSON(msg); err != nil {
+		log.Printf("write %s failed: %v", msg.Type, err)
+		return err
+	}
+	return nil
 }
 
 func (s *server) broadcast(content string) {

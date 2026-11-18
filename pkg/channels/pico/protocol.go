@@ -40,6 +40,7 @@ const (
 	PayloadKeyModelName   = "model_name"
 	PayloadKeyUsage       = "usage"
 	PayloadKeyDeliveryID  = "delivery_id"
+	PayloadKeyStreamDraft = "stream_draft"
 	PayloadKeyThinking    = "thinking_level"
 
 	MessageKindThought   = "thought"

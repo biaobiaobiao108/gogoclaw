@@ -19,6 +19,7 @@ import (
 	"github.com/tencent-connect/botgo"
 	"github.com/tencent-connect/botgo/constant"
 	"github.com/tencent-connect/botgo/dto"
+	"github.com/tencent-connect/botgo/errs"
 	"github.com/tencent-connect/botgo/event"
 	"github.com/tencent-connect/botgo/openapi/options"
 	"github.com/tencent-connect/botgo/token"
@@ -203,7 +204,13 @@ func (c *QQChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string
 		return nil, channels.ErrNotRunning
 	}
 
-	chatKind := c.getChatKind(msg.ChatID)
+	if msg.ChatID == "" {
+		return nil, fmt.Errorf("chat ID is empty: %w", channels.ErrSendFailed)
+	}
+	chatKind := msg.Context.ChatType
+	if chatKind != "direct" && chatKind != "group" {
+		chatKind = c.getChatKind(msg.ChatID)
+	}
 
 	// Build message with content.
 	msgToCreate := &dto.MessageToCreate{
@@ -221,7 +228,7 @@ func (c *QQChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string
 		msgToCreate.Content = ""
 	}
 
-	c.applyPassiveReplyMetadata(msg.ChatID, msgToCreate, msg.ID)
+	c.applyPassiveReplyMetadata(msg.ChatID, msg.Context.MessageID, msgToCreate, msg.ID)
 
 	// Sanitize URLs in group messages to avoid QQ's URL blacklist rejection.
 	if chatKind == "group" {
@@ -245,16 +252,16 @@ func (c *QQChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string
 	}
 
 	if err != nil {
-		logger.ErrorCF("qq", "Failed to send message", map[string]any{
-			"chat_id":   msg.ChatID,
-			"chat_kind": chatKind,
-			"error":     err.Error(),
-		})
-		return nil, fmt.Errorf("qq send: %w", channels.ErrTemporary)
+		var apiErr *errs.Err
+		if errors.As(err, &apiErr) && apiErr.Code() >= 400 && apiErr.Code() < 600 {
+			status := apiErr.Code()
+			return nil, channels.ClassifySendError(status, fmt.Errorf("qq send HTTP %d", status))
+		}
+		return nil, fmt.Errorf("qq send: %w", channels.ErrDeliveryUnknown)
 	}
 
-	if sentMsg == nil {
-		return nil, nil
+	if sentMsg == nil || sentMsg.ID == "" {
+		return nil, fmt.Errorf("qq send response missing a message receipt: %w", channels.ErrDeliveryUnknown)
 	}
 	return []string{sentMsg.ID}, nil
 }
@@ -535,7 +542,7 @@ func (c *QQChannel) sendUploadedMedia(
 			FileInfo: fileInfo,
 		},
 	}
-	c.applyPassiveReplyMetadata(chatID, msg, operationID)
+	c.applyPassiveReplyMetadata(chatID, "", msg, operationID)
 
 	if chatKind == "group" && msg.Content != "" {
 		msg.Content = sanitizeURLs(msg.Content)
@@ -550,17 +557,18 @@ func (c *QQChannel) sendUploadedMedia(
 }
 
 func (c *QQChannel) applyPassiveReplyMetadata(
-	chatID string,
+	chatID, replyID string,
 	msg *dto.MessageToCreate,
 	operationID string,
 ) {
-	if v, ok := c.lastMsgID.Load(chatID); ok {
-		if msgID, ok := v.(string); ok && msgID != "" {
-			msg.MsgID = msgID
-
-			if operationID != "" {
-				msg.MsgSeq = channels.StableSequence("qq", chatID, operationID)
-			}
+	if replyID == "" {
+		value, _ := c.lastMsgID.Load(chatID)
+		replyID, _ = value.(string)
+	}
+	if replyID != "" {
+		msg.MsgID = replyID
+		if operationID != "" {
+			msg.MsgSeq = channels.StableSequence("qq", chatID, operationID)
 		}
 	}
 }

@@ -7,12 +7,14 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tencent-connect/botgo/dto"
+	"github.com/tencent-connect/botgo/errs"
 	"github.com/tencent-connect/botgo/openapi/options"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
@@ -615,31 +617,54 @@ func TestSend_RetriesUseStablePassiveReplySequence(t *testing.T) {
 		ctx:         context.Background(),
 	}
 	ch.SetRunning(true)
-	ch.chatType.Store("group-1", "group")
-	ch.lastMsgID.Store("group-1", "inbound-msg-1")
-	msg := bus.OutboundMessage{ID: "delivery-text-1", ChatID: "group-1", Content: "hello"}
+	msg := bus.OutboundMessage{
+		ID: "delivery-text-1", ChatID: "user-1", Content: "hello",
+		Context: bus.InboundContext{ChatType: "direct", MessageID: "inbound-msg-1"},
+	}
 
 	if _, err := ch.Send(context.Background(), msg); err != nil {
 		t.Fatalf("first Send() error = %v", err)
 	}
+	ch.lastMsgID.Store("user-1", "newer-message")
 	if _, err := ch.Send(context.Background(), msg); err != nil {
 		t.Fatalf("retry Send() error = %v", err)
 	}
 
-	if len(api.groupMessages) != 2 {
-		t.Fatalf("group messages = %d, want 2", len(api.groupMessages))
+	if len(api.groupMessages) != 0 || len(api.c2cMessages) != 2 {
+		t.Fatalf("group sends = %d, direct sends = %d", len(api.groupMessages), len(api.c2cMessages))
 	}
-	first, ok := api.groupMessages[0].(*dto.MessageToCreate)
-	if !ok {
-		t.Fatalf("first message type = %T", api.groupMessages[0])
+	want := channels.StableSequence("qq", "user-1", "delivery-text-1")
+	for _, outbound := range api.c2cMessages {
+		sent := outbound.(*dto.MessageToCreate)
+		if sent.MsgSeq != want || sent.MsgID != "inbound-msg-1" {
+			t.Fatalf("passive reply = %q/%d, want inbound-msg-1/%d", sent.MsgID, sent.MsgSeq, want)
+		}
 	}
-	second, ok := api.groupMessages[1].(*dto.MessageToCreate)
-	if !ok {
-		t.Fatalf("retry message type = %T", api.groupMessages[1])
-	}
-	want := channels.StableSequence("qq", "group-1", "delivery-text-1")
-	if first.MsgSeq != want || second.MsgSeq != want {
-		t.Fatalf("msg_seq values = %d, %d; want %d", first.MsgSeq, second.MsgSeq, want)
+}
+
+func TestSend_ClassifiesQQReceipt(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		err  error
+		want error
+	}{
+		{"rate limited", errs.New(http.StatusTooManyRequests, "rate limited"), channels.ErrRateLimit},
+		{"rejected", errs.New(http.StatusForbidden, "forbidden"), channels.ErrSendFailed},
+		{"server failure", errs.New(http.StatusBadGateway, "bad gateway"), channels.ErrDeliveryUnknown},
+		{"transport interrupted", context.DeadlineExceeded, channels.ErrDeliveryUnknown},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ch := &QQChannel{
+				BaseChannel: channels.NewBaseChannel("qq", nil, nil, nil),
+				config:      &config.QQSettings{},
+				api:         &fakeQQAPI{groupErr: tt.err},
+			}
+			ch.SetRunning(true)
+			_, err := ch.Send(context.Background(), bus.OutboundMessage{ChatID: "group-1", Content: "hello"})
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("Send() error = %v, want %v", err, tt.want)
+			}
+		})
 	}
 }
 
@@ -674,7 +699,7 @@ func (f *fakeQQAPI) PostGroupMessage(
 	_ ...options.Option,
 ) (*dto.Message, error) {
 	f.groupMessages = append(f.groupMessages, msg)
-	return &dto.Message{}, f.groupErr
+	return &dto.Message{ID: "qq-group-receipt"}, f.groupErr
 }
 
 func (f *fakeQQAPI) PostC2CMessage(
@@ -684,7 +709,7 @@ func (f *fakeQQAPI) PostC2CMessage(
 	_ ...options.Option,
 ) (*dto.Message, error) {
 	f.c2cMessages = append(f.c2cMessages, msg)
-	return &dto.Message{}, f.c2cErr
+	return &dto.Message{ID: "qq-direct-receipt"}, f.c2cErr
 }
 
 func (f *fakeQQAPI) Transport(_ context.Context, method, url string, body any) ([]byte, error) {

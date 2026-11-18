@@ -422,6 +422,38 @@ func TestAcknowledgeDeliveryUsesIndexedSession(t *testing.T) {
 	}
 }
 
+func TestStreamingDeliveryKeepsEarlyAcknowledgment(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+	key := "stream-acceptance"
+	msg := bus.NormalizeOutboundMessage(bus.OutboundMessage{
+		ID: "interim-1", Channel: "pico", ChatID: "pico:chat",
+		Context: bus.InboundContext{Raw: map[string]string{metadataKeyOutboundKind: outboundKindInterim}},
+	})
+	delivery := turnDeliveryFromOutbound(msg)
+	delivery.Status = deliveryStatusStreaming
+	if err := al.stageStreamingDelivery(key, &delivery, "working", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := al.AcknowledgeDelivery(t.Context(), "pico", "pico:chat", delivery.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := al.completeStreamingDelivery(key, delivery, "working", nil, true); err != nil {
+		t.Fatal(err)
+	}
+	store := agent.Sessions.(session.TurnCheckpointStore)
+	checkpoint, err := store.GetTurnCheckpoint(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := checkpoint.Delivery
+	if got == nil || got.Status != deliveryStatusAcknowledged || got.Content != "working" ||
+		got.Context.Raw[metadataKeyOutboundKind] != outboundKindInterim ||
+		got.AcknowledgedAt == nil || got.LeaseUntil != nil {
+		t.Fatalf("delivery after completion = %+v", got)
+	}
+}
+
 func TestRetryPendingDeliveryReconcilesInterruptedStreaming(t *testing.T) {
 	for _, tt := range []struct {
 		name       string

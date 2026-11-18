@@ -17,6 +17,7 @@ func TestClassifySendError(t *testing.T) {
 	}{
 		{"429 -> ErrRateLimit", 429, ErrRateLimit, false},
 		{"500 -> ErrDeliveryUnknown", 500, ErrDeliveryUnknown, false},
+		{"408 -> ErrDeliveryUnknown", 408, ErrDeliveryUnknown, false},
 		{"502 -> ErrDeliveryUnknown", 502, ErrDeliveryUnknown, false},
 		{"503 -> ErrDeliveryUnknown", 503, ErrDeliveryUnknown, false},
 		{"400 -> ErrSendFailed", 400, ErrSendFailed, false},

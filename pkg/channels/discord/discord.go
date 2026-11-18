@@ -3,6 +3,7 @@ package discord
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -170,7 +171,7 @@ func (c *DiscordChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]s
 
 	channelID := msg.ChatID
 	if channelID == "" {
-		return nil, fmt.Errorf("channel ID is empty")
+		return nil, fmt.Errorf("channel ID is empty: %w", channels.ErrSendFailed)
 	}
 
 	if len([]rune(msg.Content)) == 0 {
@@ -187,8 +188,9 @@ func (c *DiscordChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]s
 		}
 	}
 	trackedMsgID, hasTrackedMsg := c.currentToolFeedbackMessage(channelID)
-	c.maybeStartTTS(channelID, msg.Content, isToolFeedback)
-	if !isToolFeedback {
+	tracked := msg.Context.Raw[bus.MetadataPlatformDelivery] != ""
+	if !tracked {
+		c.maybeStartTTS(channelID, msg.Content, isToolFeedback)
 		if msgIDs, handled := c.FinalizeToolFeedbackMessage(ctx, msg); handled {
 			return msgIDs, nil
 		}
@@ -207,6 +209,9 @@ func (c *DiscordChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]s
 	)
 	if err != nil {
 		return nil, err
+	}
+	if tracked {
+		c.maybeStartTTS(channelID, msg.Content, isToolFeedback)
 	}
 	if isToolFeedback {
 		c.RecordToolFeedbackMessage(channelID, msgID, msg.Content)
@@ -509,43 +514,39 @@ func (c *DiscordChannel) sendChunk(
 	sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
 
-	type result struct {
-		id  string
-		err error
+	payload := map[string]any{
+		"content":       content,
+		"nonce":         nonce,
+		"enforce_nonce": true,
 	}
-	done := make(chan result, 1)
-	go func() {
-		payload := map[string]any{
-			"content":       content,
-			"nonce":         nonce,
-			"enforce_nonce": true,
+	if replyToID != "" {
+		payload["message_reference"] = &discordgo.MessageReference{
+			MessageID: replyToID,
+			ChannelID: channelID,
 		}
-		if replyToID != "" {
-			payload["message_reference"] = &discordgo.MessageReference{
-				MessageID: replyToID,
-				ChannelID: channelID,
-			}
-		}
-		endpoint := discordgo.EndpointChannelMessages(channelID)
-		response, err := c.session.RequestWithBucketID("POST", endpoint, payload, endpoint)
-		if err != nil {
-			done <- result{err: fmt.Errorf("discord send: %w", channels.ErrTemporary)}
-			return
-		}
-		var msg discordgo.Message
-		if err := json.Unmarshal(response, &msg); err != nil {
-			done <- result{err: fmt.Errorf("discord decode response: %w", channels.ErrTemporary)}
-			return
-		}
-		done <- result{id: msg.ID}
-	}()
-
-	select {
-	case r := <-done:
-		return r.id, r.err
-	case <-sendCtx.Done():
-		return "", fmt.Errorf("discord send: %w: %v", channels.ErrTemporary, sendCtx.Err())
 	}
+	endpoint := discordgo.EndpointChannelMessages(channelID)
+	response, err := c.session.RequestWithBucketID(
+		http.MethodPost, endpoint, payload, endpoint,
+		discordgo.WithContext(sendCtx), discordgo.WithRestRetries(0), discordgo.WithRetryOnRatelimit(false),
+	)
+	if err != nil {
+		var rateLimit *discordgo.RateLimitError
+		if errors.As(err, &rateLimit) {
+			return "", channels.ErrRateLimit
+		}
+		var restErr *discordgo.RESTError
+		if errors.As(err, &restErr) && restErr.Response != nil {
+			status := restErr.Response.StatusCode
+			return "", channels.ClassifySendError(status, fmt.Errorf("discord send HTTP %d", status))
+		}
+		return "", fmt.Errorf("discord send: %w", channels.ErrDeliveryUnknown)
+	}
+	var msg discordgo.Message
+	if err := json.Unmarshal(response, &msg); err != nil || msg.ID == "" {
+		return "", fmt.Errorf("discord send response missing a message receipt: %w", channels.ErrDeliveryUnknown)
+	}
+	return msg.ID, nil
 }
 
 // appendContent safely appends content to existing text

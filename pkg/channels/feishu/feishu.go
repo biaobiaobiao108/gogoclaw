@@ -3,6 +3,7 @@ package feishu
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -175,7 +176,7 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 				return []string{msgID}, nil
 			}
 		}
-	} else {
+	} else if msg.Context.Raw[bus.MetadataPlatformDelivery] == "" {
 		if msgIDs, handled := c.FinalizeToolFeedbackMessage(ctx, msg); handled {
 			return msgIDs, nil
 		}
@@ -225,13 +226,10 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 
 	// Check if error is due to card table limit (error code 11310)
 	// See: https://open.feishu.cn/document/server-docs/im-api/message-content-description/create_json
-	errMsg := err.Error()
-	isCardLimitError := strings.Contains(errMsg, "11310")
-
-	if isCardLimitError {
+	var rejection *messageRejection
+	if errors.As(err, &rejection) && rejection.code == 11310 {
 		logger.WarnCF("feishu", "Card send failed (table limit), falling back to text message", map[string]any{
 			"chat_id": msg.ChatID,
-			"error":   errMsg,
 		})
 
 		// Second attempt: fall back to plain text message
@@ -1123,24 +1121,7 @@ func (c *FeishuChannel) sendCard(
 			Build()).
 		Build()
 
-	resp, err := c.client.Im.V1.Message.Create(ctx, req)
-	if err != nil {
-		return "", fmt.Errorf("feishu send card: %w", channels.ErrTemporary)
-	}
-
-	if !resp.Success() {
-		c.invalidateTokenOnAuthError(resp.Code)
-		return "", fmt.Errorf("feishu api error (code=%d msg=%s): %w", resp.Code, resp.Msg, channels.ErrTemporary)
-	}
-
-	logger.DebugCF("feishu", "Feishu card message sent", map[string]any{
-		"chat_id": chatID,
-	})
-
-	if resp.Data != nil && resp.Data.MessageId != nil {
-		return *resp.Data.MessageId, nil
-	}
-	return "", nil
+	return c.createTextMessage(ctx, req)
 }
 
 // sendText sends a plain text message to a chat (fallback when card fails).
@@ -1162,23 +1143,42 @@ func (c *FeishuChannel) sendText(
 			Build()).
 		Build()
 
+	return c.createTextMessage(ctx, req)
+}
+
+type messageRejection struct {
+	code int
+}
+
+func (e *messageRejection) Error() string {
+	return fmt.Sprintf("feishu rejected message (code=%d)", e.code)
+}
+
+func (e *messageRejection) Unwrap() error { return channels.ErrSendFailed }
+
+func (c *FeishuChannel) createTextMessage(ctx context.Context, req *larkim.CreateMessageReq) (string, error) {
 	resp, err := c.client.Im.V1.Message.Create(ctx, req)
 	if err != nil {
-		return "", fmt.Errorf("feishu send text: %w", channels.ErrTemporary)
+		return "", fmt.Errorf("feishu send: %w", channels.ErrDeliveryUnknown)
 	}
-
+	status := resp.StatusCode
+	if status == http.StatusTooManyRequests || status == http.StatusRequestTimeout || status >= 500 {
+		return "", channels.ClassifySendError(status, fmt.Errorf("feishu send HTTP %d", status))
+	}
+	if resp.Code == errCodeTenantTokenInvalid {
+		c.invalidateTokenOnAuthError(resp.Code)
+		return "", fmt.Errorf("feishu tenant token invalid: %w", channels.ErrTemporary)
+	}
 	if !resp.Success() {
-		return "", fmt.Errorf("feishu text api error (code=%d msg=%s): %w", resp.Code, resp.Msg, channels.ErrTemporary)
+		return "", &messageRejection{code: resp.Code}
 	}
-
-	logger.DebugCF("feishu", "Feishu text message sent (fallback)", map[string]any{
-		"chat_id": chatID,
-	})
-
-	if resp.Data != nil && resp.Data.MessageId != nil {
-		return *resp.Data.MessageId, nil
+	if status >= 400 {
+		return "", channels.ClassifySendError(status, fmt.Errorf("feishu send HTTP %d", status))
 	}
-	return "", nil
+	if status < 200 || status >= 300 || resp.Data == nil || resp.Data.MessageId == nil || *resp.Data.MessageId == "" {
+		return "", fmt.Errorf("feishu send response missing a message receipt: %w", channels.ErrDeliveryUnknown)
+	}
+	return *resp.Data.MessageId, nil
 }
 
 // sendImage uploads an image and sends it as a message.

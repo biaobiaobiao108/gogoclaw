@@ -20,7 +20,9 @@ The central application logger masks common credential formats and sensitive str
 
 ## Text delivery and logs
 
-Telegram and Weixin text replies, scheduled output, and text from the `message` tool record recent delivery outcomes in the session. View or refresh those outcomes in Session Management. A delivery is marked accepted after the platform returns success. A timeout, interruption, or partial send is marked unknown. After restart, only queued deliveries that never started are offered again. The worker limits retries to errors the channel classifies as safe to retry.
+Telegram, Weixin, Discord, Feishu, QQ, and Pico Client record recent delivery outcomes for interim and final text replies, scheduled output, and text from the `message` tool. View or refresh those outcomes in Session Management. Platform messages are marked accepted on a platform receipt. Pico Client waits for the peer's `message.ack`. A timeout, interruption, or partial send is marked unknown. After restart, the gateway offers queued deliveries that never started again. The worker limits retries to errors the channel classifies as safe to retry.
+
+Web chat streams drafts into the same message bubble and acknowledges completed text, including interim replies before tool calls. Pico Client forwards completed stream content when the peer provides Pico stream and delivery markers.
 
 Standard debug logs include diagnostics such as turn IDs, model and tool names, and message lengths. To collect request or reply previews, use DEBUG and set `GOGOCLAW_CONTENT_DIAGNOSTICS_UNTIL` in the gateway environment before startup to a future RFC 3339 timestamp. After the deadline, new previews stop. Previously written logs stay subject to the usual retention settings.
 

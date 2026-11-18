@@ -76,7 +76,18 @@ func (al *AgentLoop) runTurnWithSteering(ctx context.Context, initialMsg bus.Inb
 
 	// Publish final response
 	if finalResponse != "" && !responsePublished {
-		al.PublishResponseIfNeeded(ctx, target.Channel, target.ChatID, target.SessionKey, finalResponse)
+		destination := bus.NewOutboundContext(target.Channel, target.ChatID, "")
+		if initialMsg.Context.Channel == target.Channel && initialMsg.Context.ChatID == target.ChatID {
+			destination.ChatType = initialMsg.Context.ChatType
+			if continued == "" {
+				destination.MessageID = initialMsg.Context.MessageID
+			}
+		}
+		if err := al.publishResponseWithContext(ctx, destination, target.SessionKey, finalResponse); err != nil {
+			logger.WarnCF("agent", "Failed to publish final response", map[string]any{
+				"channel": target.Channel, "chat_id": target.ChatID, "error": err.Error(),
+			})
+		}
 	}
 }
 

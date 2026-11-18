@@ -93,6 +93,16 @@ func (al *AgentLoop) setTurnDelivery(sessionKey string, delivery session.TurnDel
 	var updated []session.TurnDelivery
 	if err := al.updateTurnCheckpoint(store, sessionKey, func(checkpoint *session.TurnCheckpoint) error {
 		previous = checkpointDeliveries(*checkpoint)
+		for _, prior := range previous {
+			if prior.ID == delivery.ID && prior.RequiresAck && prior.Status == deliveryStatusAcknowledged {
+				delivery.Status = prior.Status
+				delivery.AcknowledgedAt = prior.AcknowledgedAt
+				delivery.LastError = ""
+				delivery.NextAttemptAt = nil
+				delivery.LeaseUntil = nil
+				break
+			}
+		}
 		checkpoint.Deliveries = upsertTurnDelivery(checkpoint.Deliveries, delivery)
 		checkpoint.Delivery = &delivery
 		updated = checkpoint.Deliveries
@@ -161,14 +171,15 @@ func containsDelivery(deliveries []session.TurnDelivery, deliveryID string) bool
 
 func (al *AgentLoop) publishTrackedResponse(
 	ctx context.Context,
-	channel, chatID, sessionKey, response string,
+	destination bus.InboundContext,
+	sessionKey, response string,
 	usage *bus.ContextUsage,
 ) error {
 	if response == "" {
 		return nil
 	}
 	msg := bus.OutboundMessage{
-		Context:      bus.NewOutboundContext(channel, chatID, ""),
+		Context:      destination,
 		SessionKey:   sessionKey,
 		Content:      response,
 		ContextUsage: usage,
@@ -353,6 +364,19 @@ func (al *AgentLoop) completeStreamingDelivery(
 	return al.setTurnDelivery(sessionKey, delivery)
 }
 
+func (al *AgentLoop) stageStreamingDelivery(
+	sessionKey string,
+	delivery *session.TurnDelivery,
+	content string,
+	contextUsage *bus.ContextUsage,
+) error {
+	delivery.Content = content
+	delivery.ContextUsage = cloneContextUsage(contextUsage)
+	leaseUntil := time.Now().UTC().Add(deliveryLeaseDuration)
+	delivery.LeaseUntil = &leaseUntil
+	return al.setTurnDelivery(sessionKey, *delivery)
+}
+
 func (al *AgentLoop) failStreamingDelivery(sessionKey string, delivery session.TurnDelivery, streamErr error) {
 	now := time.Now().UTC()
 	delivery.Status = deliveryStatusFailed
@@ -454,6 +478,9 @@ func (al *AgentLoop) retryPendingDelivery(ctx context.Context) {
 					continue
 				}
 				if candidate.Status == deliveryStatusStreaming {
+					if candidate.LeaseUntil != nil && candidate.LeaseUntil.After(time.Now().UTC()) {
+						continue
+					}
 					candidate = reconcileInterruptedStreamingDelivery(candidate, time.Now().UTC())
 					if err := al.setTurnDelivery(sessionKey, candidate); err != nil {
 						logger.WarnCF("agent", "Failed to reconcile interrupted streaming delivery", map[string]any{
@@ -482,7 +509,9 @@ func (al *AgentLoop) retryPendingDelivery(ctx context.Context) {
 				retryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 				msg := outboundFromTurnDelivery(sessionKey, delivery)
 				markTrackedDelivery(&msg, delivery)
-				markFinalOutbound(&msg)
+				if msg.Context.Raw[metadataKeyOutboundKind] == "" {
+					markFinalOutbound(&msg)
+				}
 				err = al.bus.PublishOutbound(retryCtx, msg)
 				cancel()
 				now := time.Now().UTC()
@@ -636,6 +665,8 @@ func (al *AgentLoop) acknowledgeDeliveryAt(
 	if !ok {
 		return false, nil
 	}
+	unlock := al.lockDeliveryCheckpoint(sessionKey)
+	defer unlock()
 	checkpoint, err := store.GetTurnCheckpoint(sessionKey)
 	if err != nil {
 		return false, err
@@ -658,7 +689,13 @@ func (al *AgentLoop) acknowledgeDeliveryAt(
 		candidate.AcknowledgedAt = &now
 		candidate.NextAttemptAt = nil
 		candidate.LeaseUntil = nil
-		return true, al.setTurnDelivery(sessionKey, candidate)
+		candidate.LastError = ""
+		candidate.UpdatedAt = now
+		checkpoint.Deliveries = upsertTurnDelivery(checkpoint.Deliveries, candidate)
+		if checkpoint.Delivery != nil && checkpoint.Delivery.ID == deliveryID {
+			checkpoint.Delivery = &candidate
+		}
+		return true, store.SetTurnCheckpoint(sessionKey, checkpoint)
 	}
 	return false, nil
 }
