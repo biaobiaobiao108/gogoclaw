@@ -57,6 +57,7 @@ export async function loadSessionMessages(
 }
 
 export async function loadSessionHistory(sessionId: string): Promise<{
+  title?: string
   messages: ChatMessage[]
   activities: ChatActivity[]
   plan: ChatPlanStep[]
@@ -129,6 +130,7 @@ export async function loadSessionHistory(sessionId: string): Promise<{
 
   const turn = detail.turn
   return {
+    title: detail.title,
     messages,
     contextUsage: turn?.usage,
     plan: turn?.plan ?? [],

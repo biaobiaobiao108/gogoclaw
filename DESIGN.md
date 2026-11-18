@@ -107,6 +107,8 @@ History navigation inherits the console background, 6px control radius, and 40px
 
 The desktop app menu is always expanded; page headers and the app menu edge have no collapse controls. Mobile keeps its menu drawer trigger. Conversation history retains its own left-aligned toggle.
 
+The app header places the gateway status dot next to the brand and exposes the status text to assistive technology. On the chat route, the active session title occupies the center column and truncates on one line between the brand and header actions.
+
 ### Conversation starters
 
 The ready chat state uses one text-led task list, not a card grid or icon tiles. A fixed category column aligns the four rows; the prompt itself is the button label. Starters cover creator work, writing, personal tasks, and verification rather than software engineering. Keep the empty state free of narration, sparkles, and decorative containers.

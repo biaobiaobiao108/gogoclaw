@@ -12,6 +12,8 @@ import {
 import {
   activeSessionHistoryAtom,
   archivedSessionHistoryAtom,
+  getChatState,
+  updateChatStore,
 } from "@/store/chat"
 
 const LIMIT = 20
@@ -70,6 +72,14 @@ export function useSessionHistory({
         const data = await getSessions(currentCursor, LIMIT, archived)
         if (requestId !== requestIdRef.current) return
         setLoadError(false)
+
+        const chat = getChatState()
+        const title = data.items.find(
+          (session) => session.id === chat.activeSessionId,
+        )?.title
+        if (title && title !== chat.activeSessionTitle) {
+          updateChatStore({ activeSessionTitle: title })
+        }
 
         if (archived) {
           setArchivedHistory((prev) => ({
@@ -202,7 +212,12 @@ export function useSessionHistory({
 
       try {
         await updateSessionMetadata(id, update)
-        if (update.title !== undefined) await loadSessions(true)
+        if (update.title !== undefined) {
+          if (id === getChatState().activeSessionId) {
+            updateChatStore({ activeSessionTitle: update.title })
+          }
+          await loadSessions(true)
+        }
       } catch (err) {
         console.error("Failed to update session:", err)
         toast.error(t("chat.sessionUpdateFailed"))

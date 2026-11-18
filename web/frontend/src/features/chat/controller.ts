@@ -69,9 +69,9 @@ function needsActiveSessionHydration(): boolean {
   )
 }
 
-function setActiveSessionId(sessionId: string) {
+function setActiveSessionId(sessionId: string, title?: string) {
   activeSessionIdRef = sessionId
-  updateChatStore({ activeSessionId: sessionId })
+  updateChatStore({ activeSessionId: sessionId, activeSessionTitle: title })
 }
 
 function clearBranchSwitchTimer() {
@@ -390,8 +390,11 @@ export async function hydrateActiveSession({
         return
       }
 
+      const activeSessionTitle =
+        currentState.activeSessionTitle ?? history.title
       if (currentState.messages.length > 0) {
         updateChatStore({
+          activeSessionTitle,
           messages: mergeHistoryMessages(
             history.messages,
             currentState.messages,
@@ -413,6 +416,7 @@ export async function hydrateActiveSession({
       }
 
       updateChatStore({
+        activeSessionTitle,
         messages: history.messages,
         ...(history.contextUsage ? { contextUsage: history.contextUsage } : {}),
         recentActivities: history.activities,
@@ -879,7 +883,7 @@ export function respondToApproval({
   }
 }
 
-export async function switchChatSession(sessionId: string) {
+export async function switchChatSession(sessionId: string, title?: string) {
   const selection = ++sessionSelectionGeneration
   if (sessionId === activeSessionIdRef) {
     updateChatStore({ isHistoryLoading: false })
@@ -894,7 +898,7 @@ export async function switchChatSession(sessionId: string) {
 
     historyGeneration += 1
     disconnectChatInternal({ clearDesiredConnection: false })
-    setActiveSessionId(sessionId)
+    setActiveSessionId(sessionId, title || history.title)
     updateChatStore({
       messages: history.messages,
       ...(history.contextUsage ? { contextUsage: history.contextUsage } : {}),

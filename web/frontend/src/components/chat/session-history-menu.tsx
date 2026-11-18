@@ -61,7 +61,7 @@ interface SessionHistoryMenuProps {
   archived: boolean
   onArchivedChange: (archived: boolean) => void
   onOpenChange: (open: boolean) => void
-  onSwitchSession: (sessionId: string) => void
+  onSwitchSession: (sessionId: string, title: string) => void
   onDeleteSession: (sessionId: string) => void
   onUpdateSession: (
     sessionId: string,
@@ -279,7 +279,7 @@ export function SessionHistoryMenu({
                   }
                   className="focus-visible:ring-ring flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left focus-visible:ring-2 focus-visible:outline-none"
                   onClick={() => {
-                    onSwitchSession(session.id)
+                    onSwitchSession(session.id, session.title)
                     if (normalizedQuery) setQuery("")
                     onOpenChange(false)
                   }}

@@ -169,6 +169,7 @@ export interface ChatStoreState {
   pendingApproval?: ChatApproval
   interrupted?: boolean
   activeSessionId: string
+  activeSessionTitle?: string
   hasHydratedActiveSession: boolean
   isHistoryLoading: boolean
   historyError?: boolean
@@ -194,6 +195,9 @@ const DEFAULT_CHAT_STATE: ChatStoreState = {
 }
 
 export const chatAtom = atom<ChatStoreState>(DEFAULT_CHAT_STATE)
+export const activeSessionTitleAtom = atom(
+  (get) => get(chatAtom).activeSessionTitle,
+)
 export const assistantDetailVisibilityAtom =
   atomWithStorage<AssistantDetailVisibility>(
     ASSISTANT_DETAIL_VISIBILITY_STORAGE_KEY,

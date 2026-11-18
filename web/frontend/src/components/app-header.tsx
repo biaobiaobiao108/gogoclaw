@@ -11,7 +11,8 @@ import {
   IconRefresh,
   IconSun,
 } from "@tabler/icons-react"
-import { Link } from "@tanstack/react-router"
+import { Link, useMatch } from "@tanstack/react-router"
+import { useAtomValue } from "jotai"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 
@@ -38,11 +39,28 @@ import { Separator } from "@/components/ui/separator.tsx"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { useGateway } from "@/hooks/use-gateway.ts"
 import { useTheme } from "@/hooks/use-theme.ts"
+import { cn } from "@/lib/utils"
+import { activeSessionTitleAtom } from "@/store/chat"
 
 const DOCS_URL = "https://github.com/biaobiaobiao108/gogoclaw/tree/main/docs"
 
+function ChatSessionTitle() {
+  const title = useAtomValue(activeSessionTitleAtom)
+
+  return (
+    <div className="col-start-2 row-start-1 truncate text-center text-sm font-semibold tracking-tight">
+      {title}
+    </div>
+  )
+}
+
 export function AppHeader() {
   const { i18n, t } = useTranslation()
+  const isChat = useMatch({
+    from: "/chat",
+    shouldThrow: false,
+    select: () => true,
+  })
   const { theme, toggleTheme } = useTheme()
   const {
     state: gwState,
@@ -61,14 +79,23 @@ export function AppHeader() {
   const isRestarting = gwState === "restarting"
   const isStopping = gwState === "stopping"
   const isStopped = gwState === "stopped" || gwState === "unknown"
+  const transitionLabel = isStopping
+    ? t("header.gateway.status.stopping")
+    : isRestarting
+      ? t("header.gateway.status.restarting")
+      : isStarting
+        ? t("header.gateway.status.starting")
+        : undefined
   const startBlockedReason = !canStart ? startReason : undefined
-  const gatewayStatusReason = gwError ?? startBlockedReason
-  const showNotConnectedHint =
-    !gatewayStatusReason &&
-    !isRestarting &&
-    !isStopping &&
-    canStart &&
-    (gwState === "stopped" || gwState === "error")
+  const gatewayStatusLabel =
+    gwError ??
+    startBlockedReason ??
+    transitionLabel ??
+    (isRunning
+      ? t("header.gateway.status.running")
+      : gwState !== "unknown"
+        ? t("chat.notConnected")
+        : undefined)
 
   const [showStopDialog, setShowStopDialog] = React.useState(false)
   const [showLogoutDialog, setShowLogoutDialog] = React.useState(false)
@@ -100,7 +127,7 @@ export function AppHeader() {
   }
 
   return (
-    <header className="bg-background/80 supports-backdrop-filter:bg-background/60 border-border/40 sticky top-0 z-50 flex h-11 shrink-0 items-center justify-between border-b px-3 backdrop-blur-md">
+    <header className="bg-background/80 supports-backdrop-filter:bg-background/60 border-border/40 sticky top-0 z-50 grid h-11 shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b px-3 backdrop-blur-md lg:grid-cols-[minmax(max-content,1fr)_minmax(0,1fr)_minmax(max-content,1fr)]">
       <div className="flex items-center gap-3">
         <SidebarTrigger
           className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded-md sm:hidden [&>svg]:size-4"
@@ -108,7 +135,7 @@ export function AppHeader() {
         >
           <IconMenu2 />
         </SidebarTrigger>
-        <div className="flex shrink-0 items-center">
+        <div className="flex shrink-0 items-center gap-1">
           <Link
             to="/chat"
             aria-label={t("header.home")}
@@ -119,47 +146,26 @@ export function AppHeader() {
               GoGoClaw
             </span>
           </Link>
+          <span id="gateway-status" role="status" className="flex items-center">
+            <span className="sr-only">{gatewayStatusLabel}</span>
+            <span
+              aria-hidden="true"
+              className={cn(
+                "size-1.5 rounded-full",
+                gwError || gwState === "error"
+                  ? "bg-destructive"
+                  : !canStart || transitionLabel
+                    ? "bg-warning"
+                    : isRunning
+                      ? "bg-success"
+                      : "bg-muted-foreground",
+              )}
+            />
+          </span>
         </div>
       </div>
 
-      {/* Precision status indicator */}
-      <div className="pointer-events-none absolute left-1/2 hidden h-full -translate-x-1/2 items-center justify-center lg:flex">
-        {gatewayStatusReason && (
-          <div
-            role="status"
-            className="bg-card/80 border-border/80 flex max-w-96 items-center gap-2 rounded-full border px-3 py-1 text-xs shadow-xs"
-          >
-            <span
-              className={
-                gwError
-                  ? "bg-destructive size-1.5 shrink-0 rounded-full"
-                  : "bg-warning size-1.5 shrink-0 rounded-full"
-              }
-            />
-            <span
-              className={`truncate text-[11px] tracking-tight ${gwError ? "text-destructive" : "text-warning"}`}
-            >
-              {gatewayStatusReason}
-            </span>
-          </div>
-        )}
-        {showNotConnectedHint && (
-          <div className="bg-card/80 text-muted-foreground border-border/80 flex items-center gap-2 rounded-full border px-3 py-1 text-xs shadow-xs">
-            <span className="bg-destructive size-1.5 shrink-0 rounded-full" />
-            <span className="text-[11px] tracking-tight">
-              {t("chat.notConnected")}
-            </span>
-          </div>
-        )}
-        {!gatewayStatusReason && isRunning && (
-          <div className="text-muted-foreground flex items-center gap-2 text-xs">
-            <span className="bg-success size-1.5 shrink-0 rounded-full" />
-            <span className="text-foreground/80 text-[11px] font-medium tracking-tight">
-              {t("header.gateway.status.running")}
-            </span>
-          </div>
-        )}
-      </div>
+      {isChat && <ChatSessionTitle />}
 
       <AlertDialog open={showStopDialog} onOpenChange={setShowStopDialog}>
         <AlertDialogContent>
@@ -200,7 +206,7 @@ export function AppHeader() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="text-muted-foreground flex items-center gap-1 text-sm md:gap-1.5">
+      <div className="text-muted-foreground col-start-3 row-start-1 flex items-center gap-1 justify-self-end text-sm md:gap-1.5">
         {restartRequired && (
           <Button
             variant="secondary"
@@ -224,7 +230,7 @@ export function AppHeader() {
             onClick={handleGatewayToggle}
             disabled={gwLoading}
             aria-label={t("header.gateway.action.stop")}
-            aria-describedby={gwError ? "gateway-error" : undefined}
+            aria-describedby={gwError ? "gateway-status" : undefined}
           >
             <IconPower className="h-3.5 w-3.5" />
           </Button>
@@ -243,7 +249,7 @@ export function AppHeader() {
                 ? `${t("header.gateway.action.start")}: ${startReason}`
                 : t("header.gateway.action.start")
             }
-            aria-describedby={gwError ? "gateway-error" : undefined}
+            aria-describedby={gwError ? "gateway-status" : undefined}
             data-tour="gateway-button"
             className={`h-8 gap-1.5 px-2.5 text-xs font-medium ${
               isStopped
@@ -259,22 +265,10 @@ export function AppHeader() {
               <IconPlayerPlay className="h-3.5 w-3.5" />
             )}
             <span className="hidden sm:inline">
-              {isStopping
-                ? t("header.gateway.status.stopping")
-                : isRestarting
-                  ? t("header.gateway.status.restarting")
-                  : isStarting
-                    ? t("header.gateway.status.starting")
-                    : t("header.gateway.action.start")}
+              {transitionLabel ?? t("header.gateway.action.start")}
             </span>
           </Button>
         )}
-        {gwError && (
-          <span id="gateway-error" role="status" className="sr-only">
-            {gwError}
-          </span>
-        )}
-
         <Separator
           className="mx-1 hidden h-4 sm:block"
           orientation="vertical"
