@@ -274,6 +274,12 @@ func TestSideEffectFailureNoticeOnlyUsesLatestToolOutcome(t *testing.T) {
 	}
 
 	batch = ts.progress.beginToolBatch("notice", 2, []providers.ToolCall{{ID: "four", Name: "write_file"}}, []tools.ToolPolicy{tools.StatePolicy()})
+	ts.markToolItemTerminal(batch, 0, toolItemStatusFailed, toolItemSideEffectNone, "not dispatched")
+	if notice := ts.sideEffectFailureNotice(""); !strings.Contains(notice, "write_file") {
+		t.Fatalf("failed dispatch should preserve the earlier execution failure, got %q", notice)
+	}
+
+	batch = ts.progress.beginToolBatch("notice", 3, []providers.ToolCall{{ID: "five", Name: "write_file"}}, []tools.ToolPolicy{tools.StatePolicy()})
 	ts.markToolItemTerminal(batch, 0, toolItemStatusCompleted, toolItemSideEffectPossible, "written")
 	if notice := ts.sideEffectFailureNotice(""); notice != "" {
 		t.Fatalf("successful retry should clear earlier failure, got %q", notice)

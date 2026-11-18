@@ -17,6 +17,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/mcp"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 	agenttools "github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -51,6 +52,7 @@ func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 	httpServer := httptest.NewServer(sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server }, &sdkmcp.StreamableHTTPOptions{JSONResponse: true}))
 	defer httpServer.Close()
 	provider := &mcpResultCaptureProvider{sequenceProvider: sequenceProvider{responses: []*providers.LLMResponse{
+		{ToolCalls: []providers.ToolCall{{ID: "undiscovered", Name: toolName, Arguments: map[string]any{"query": "old query"}}}},
 		{ToolCalls: []providers.ToolCall{{ID: "search", Name: agenttools.BM25SearchToolName, Arguments: map[string]any{"query": "search notes"}}}},
 		{ToolCalls: []providers.ToolCall{{ID: "echo", Name: toolName, Arguments: map[string]any{"query": "常熟阿诺"}}}},
 		{Content: "done"},
@@ -65,12 +67,21 @@ func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	ts := newTurnState(agent, makeTestProcessOpts("real-mcp"), turnEventScope{turnID: "real-mcp", context: newTurnContext(nil, nil, nil)})
-	if _, err := al.runTurn(context.Background(), ts, NewPipeline(al)); err != nil {
+	result, err := al.runTurn(context.Background(), ts, NewPipeline(al))
+	if err != nil {
 		t.Fatal(err)
 	}
 	records := ts.toolExecutionsSnapshot()
-	if len(records) != 2 || records[1].Name != toolName || !records[1].Success {
-		t.Fatalf("MCP tool did not execute: %+v", records)
+	if len(records) != 3 || records[0].Name != toolName || records[0].Success ||
+		!strings.Contains(records[0].ErrorSummary, "tool_search") || records[2].Name != toolName || !records[2].Success {
+		t.Fatalf("unexpected discovery and execution results: %+v", records)
+	}
+	checkpoint, err := agent.Sessions.(session.TurnCheckpointStore).GetTurnCheckpoint(ts.sessionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint.Status != "completed" || checkpoint.EndReason != string(TurnEndReasonCompleted) || result.finalContent != "done" {
+		t.Fatalf("status = %q, reason = %q, response = %q", checkpoint.Status, checkpoint.EndReason, result.finalContent)
 	}
 	found := false
 	for _, msg := range agent.Sessions.GetHistory(ts.sessionKey) {

@@ -48,7 +48,7 @@ func (t *BM25SearchTool) Policy() ToolPolicy {
 }
 
 func (t *BM25SearchTool) Description() string {
-	return "Search available hidden tools on-demand using natural language query describing the action you need to perform. Exposes matching tools for the next model call. Search by the action and English tool identifiers, then use the original user query as the discovered tool’s input."
+	return "Find hidden tools for the current task by English tool name or action. Use this before calling a tool that is missing from the current tool list. Matching tools become available on the next model call and stay available for this task."
 }
 
 func (t *BM25SearchTool) PromptMetadata() PromptMetadata {

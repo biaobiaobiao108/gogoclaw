@@ -124,6 +124,10 @@ func (ts *turnState) sideEffectFailureNotice(finalContent string) string {
 		if item.ReadOnly || strings.TrimSpace(item.Tool) == "" {
 			continue
 		}
+		if item.Status == toolItemStatusFailed && item.SideEffect == toolItemSideEffectNone {
+			// A failed dispatch cannot resolve uncertainty from an earlier execution.
+			continue
+		}
 		latest[item.Tool+"\x00"+item.ArgumentsFingerprint] = item
 	}
 	var uncertain []string
@@ -132,9 +136,7 @@ func (ts *turnState) sideEffectFailureNotice(finalContent string) string {
 	for _, item := range latest {
 		switch item.Status {
 		case toolItemStatusFailed:
-			if item.SideEffect != toolItemSideEffectNone {
-				failed = append(failed, item.Tool)
-			}
+			failed = append(failed, item.Tool)
 		case toolItemStatusEffectsUnknown:
 			uncertain = append(uncertain, item.Tool)
 		case toolItemStatusDenied:

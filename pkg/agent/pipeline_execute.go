@@ -107,7 +107,9 @@ func toolItemResultFields(
 		sideEffect = toolItemSideEffectNone
 	} else if result != nil && result.IsError {
 		status = toolItemStatusFailed
-		if !policy.ReadOnly {
+		if result.NotExecuted {
+			sideEffect = toolItemSideEffectNone
+		} else if !policy.ReadOnly {
 			sideEffect = toolItemSideEffectUnknown
 		}
 	}

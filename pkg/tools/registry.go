@@ -285,13 +285,17 @@ func (r *ToolRegistry) ExecuteWithContext(
 
 	tool, ok := r.Get(name)
 	if !ok {
+		message := fmt.Sprintf("tool %q not found", name)
+		if r.HasRegistered(name) {
+			message = fmt.Sprintf("tool %q has not been discovered for this task. Use tool_search with this tool name, then retry using the advertised schema. If discovery fails, report that this tool provided no result.", name)
+		}
 		logger.ErrorCF("tool", "Tool not found",
 			map[string]any{
 				"tool": name,
 			})
-		return ErrorResult(
-			fmt.Sprintf("tool %q not found", name),
-		).WithError(fmt.Errorf("tool not found"))
+		result := ErrorResult(message).WithError(fmt.Errorf("tool not found"))
+		result.NotExecuted = true
+		return result
 	}
 
 	// Validate arguments against the tool's declared schema.

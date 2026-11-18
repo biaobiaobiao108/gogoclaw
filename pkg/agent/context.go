@@ -210,7 +210,7 @@ Skills: skills/{skill-name}/SKILL.md
 }
 
 func formatToolDiscoveryRule() string {
-	return "5. **Tool Discovery** - MCP tools are loaded on demand. Use tool_search to find the action you need before assuming a capability is unavailable. Search using English tool identifiers and action words (for example, search notes), then pass the user’s original query to the discovered tool. Discovered tools remain available for this task. Use tool_search rather than MCP resource listing tools to discover tools."
+	return "5. **Tool Discovery** - MCP tools are loaded on demand for each task. If a tool from conversation history is missing from the current tool list, use tool_search before calling it. Search using English tool identifiers and action words (for example, search notes), then use the discovered tool's schema to pass the user's original query. Discovered tools remain available for this task. Use tool_search rather than MCP resource listing tools to discover tools."
 }
 
 func (cb *ContextBuilder) BuildSystemPrompt() string {

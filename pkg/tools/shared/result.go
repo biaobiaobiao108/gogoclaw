@@ -33,6 +33,9 @@ type ToolResult struct {
 	// When true, the result should be treated as an error.
 	IsError bool `json:"is_error"`
 
+	// NotExecuted indicates that dispatch failed before the tool could run.
+	NotExecuted bool `json:"not_executed,omitempty"`
+
 	// Async indicates whether the tool is running asynchronously.
 	// When true, the tool will complete later and notify via callback.
 	Async bool `json:"async"`
