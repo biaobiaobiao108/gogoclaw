@@ -8,15 +8,13 @@ package config
 import (
 	"bytes"
 	"fmt"
-	"os"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 )
 
 const (
@@ -29,19 +27,29 @@ func securityPath(configPath string) string {
 	return filepath.Join(configDir, SecurityConfigFile)
 }
 
-// loadSecurityConfig loads the security configuration from security.yml
-// and merges secure field values into the config.
-func loadSecurityConfig(cfg *Config, securityPath string) error {
+func loadSecurityConfig(cfg *Config, path string) error {
+	data, err := readOptionalConfigFile(path)
+	if err != nil {
+		return err
+	}
+	return decodeSecurityConfig(cfg, data, path)
+}
+
+func saveSecurityConfig(path string, cfg *Config) error {
+	data, err := encodeSecurityConfig(cfg)
+	if err != nil {
+		return err
+	}
+	return fileutil.WriteFileAtomic(path, data, 0o600)
+}
+
+// decodeSecurityConfig merges the secure fields from the same snapshot as config.json.
+func decodeSecurityConfig(cfg *Config, data []byte, securityPath string) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
-
-	data, err := os.ReadFile(securityPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to read security config: %w", err)
+	if len(data) == 0 {
+		return nil
 	}
 
 	// Save existing channels and ModelList before unmarshal
@@ -190,16 +198,14 @@ func applyLegacySkillsSecurityNode(cfg *Config, skillsNode *yaml.Node) error {
 	return nil
 }
 
-// saveSecurityConfig saves the security configuration to security.yml
-func saveSecurityConfig(securityPath string, sec *Config) error {
+func encodeSecurityConfig(sec *Config) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	err := enc.Encode(sec)
-	if err != nil {
-		return fmt.Errorf("failed to marshal security config: %w", err)
+	if err := enc.Encode(sec); err != nil {
+		return nil, fmt.Errorf("failed to marshal security config: %w", err)
 	}
-	return fileutil.WriteFileAtomic(securityPath, buf.Bytes(), 0o600)
+	return buf.Bytes(), nil
 }
 
 // SensitiveDataCache caches the strings.Replacer for filtering sensitive data.

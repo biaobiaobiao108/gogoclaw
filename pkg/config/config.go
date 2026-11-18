@@ -1268,9 +1268,9 @@ func (c *MCPConfig) GetMaxInlineTextChars() int {
 func LoadConfig(path string) (*Config, error) {
 	updateResolver(filepath.Dir(path))
 
-	data, err := os.ReadFile(path)
+	data, secureData, err := readConfigFiles(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			logger.WarnF(
 				"config file not found, using default config",
 				map[string]any{"path": path},
@@ -1313,7 +1313,7 @@ func LoadConfig(path string) (*Config, error) {
 		}
 
 		var m map[string]any
-		m, err = loadConfigMap(path)
+		m, err = decodeConfigMap(data, secureData)
 		if err != nil {
 			logger.ErrorCF(
 				"config",
@@ -1369,7 +1369,7 @@ func LoadConfig(path string) (*Config, error) {
 		}
 
 		var m map[string]any
-		m, err = loadConfigMap(path)
+		m, err = decodeConfigMap(data, secureData)
 		if err != nil {
 			logger.ErrorCF(
 				"config",
@@ -1420,7 +1420,7 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, err
 		}
 		var m map[string]any
-		m, err = loadConfigMap(path)
+		m, err = decodeConfigMap(data, secureData)
 		if err != nil {
 			logger.ErrorCF(
 				"config",
@@ -1464,7 +1464,7 @@ func LoadConfig(path string) (*Config, error) {
 		}
 		// Load security configuration
 		secPath := securityPath(path)
-		err = loadSecurityConfig(cfg, secPath)
+		err = decodeSecurityConfig(cfg, secureData, secPath)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("failed to load security config: %w", err)
 		}
@@ -1683,16 +1683,15 @@ func SaveConfig(path string, cfg *Config) error {
 	}()
 	cfg.ModelList = nonVirtualModels
 
-	if err := saveSecurityConfig(securityPath(path), cfg); err != nil {
-		logger.ErrorCF("config", "cannot save .security.yml", map[string]any{"error": err})
-		return err
-	}
-
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	return fileutil.WriteFileAtomic(path, data, 0o600)
+	secureData, err := encodeSecurityConfig(cfg)
+	if err != nil {
+		return err
+	}
+	return writeConfigFiles(path, data, secureData)
 }
 
 func (c *Config) WorkspacePath() string {
@@ -1755,7 +1754,11 @@ func (c *Config) ValidateModelList() error {
 }
 
 func (c *Config) SecurityCopyFrom(path string) error {
-	return loadSecurityConfig(c, securityPath(path))
+	_, secureData, err := readConfigFiles(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return decodeSecurityConfig(c, secureData, securityPath(path))
 }
 
 // ResetToDefaults backs up the current config, creates a default config,

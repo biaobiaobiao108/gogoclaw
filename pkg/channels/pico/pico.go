@@ -16,6 +16,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 )
 
 // picoConn represents a single WebSocket connection.
@@ -75,10 +76,11 @@ type PicoChannel struct {
 	approvalMu        sync.Mutex
 	approvalSessions  map[string]string
 	deliveryAck       func(context.Context, string, string, string) error
-	dedupMu           sync.Mutex
-	messageSeen       map[string]time.Time
-	dedupePath        string
-	dedupeLoaded      bool
+	inboxDir          string
+	inboxMu           sync.RWMutex
+	inbox             *memory.SQLiteStore
+	inboxWake         chan struct{}
+	inboxDone         chan struct{}
 }
 
 // SetTurnStatusProvider supplies a session-scoped snapshot for connected clients.
@@ -213,8 +215,7 @@ func NewPicoChannel(
 		},
 		connections:        make(map[string]*picoConn),
 		sessionConnections: make(map[string]map[string]*picoConn),
-		messageSeen:        make(map[string]time.Time),
-		dedupePath:         filepath.Join(config.GetHome(), "workspace", "sessions"),
+		inboxDir:           filepath.Join(config.GetHome(), "workspace", "sessions"),
 		approvalSessions:   make(map[string]string),
 	}
 	ch.progress = channels.NewToolFeedbackAnimator(ch.EditMessage)

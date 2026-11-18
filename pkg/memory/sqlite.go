@@ -36,6 +36,18 @@ CREATE TABLE IF NOT EXISTS session_meta (
 	turn_history_json BLOB NOT NULL DEFAULT '[]'
 );
 
+CREATE TABLE IF NOT EXISTS pico_inbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    received_at INTEGER NOT NULL,
+    state TEXT NOT NULL,
+    payload BLOB,
+    UNIQUE(channel, session_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS idx_pico_inbox_state ON pico_inbox(channel, state, id);
+CREATE INDEX IF NOT EXISTS idx_pico_inbox_expiry ON pico_inbox(received_at) WHERE state != 'pending';
 CREATE TABLE IF NOT EXISTS app_state (
 	namespace TEXT NOT NULL,
 	state_key TEXT NOT NULL,
@@ -314,6 +326,26 @@ func ensureSQLiteSession(ctx context.Context, tx *sql.Tx, sessionKey string, now
 
 func (s *SQLiteStore) GetHistory(ctx context.Context, sessionKey string) ([]providers.Message, error) {
 	return s.readMessages(ctx, sessionKey, true)
+}
+
+// FirstUserText reads the earliest nonblank user message in the transcript.
+func (s *SQLiteStore) FirstUserText(ctx context.Context, sessionKey string) (string, error) {
+	rows, err := s.db.QueryContext(sqliteContext(ctx),
+		"SELECT content FROM session_messages WHERE session_key = ? AND role = 'user' ORDER BY id", sessionKey)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var content string
+		if err := rows.Scan(&content); err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(content) != "" {
+			return content, nil
+		}
+	}
+	return "", rows.Err()
 }
 
 func (s *SQLiteStore) GetTranscript(ctx context.Context, sessionKey string) ([]providers.Message, error) {

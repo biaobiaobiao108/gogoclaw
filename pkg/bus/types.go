@@ -1,5 +1,7 @@
 package bus
 
+import "context"
+
 // SenderInfo provides structured sender identity information.
 type SenderInfo struct {
 	Platform    string `json:"platform,omitempty"`     // "telegram", "discord", "slack", ...
@@ -54,6 +56,10 @@ type InboundMessage struct {
 	Attachments []InboundAttachment `json:"attachments,omitempty"`
 	MediaScope  string              `json:"media_scope,omitempty"` // media lifecycle scope
 	SessionKey  string              `json:"session_key"`
+
+	// Claim and Finish connect messages from a durable inbox to the consumer.
+	Claim  func(context.Context) (bool, error) `json:"-"`
+	Finish func(context.Context)               `json:"-"`
 
 	// Convenience mirrors derived from Context for runtime consumers.
 	Channel   string `json:"channel"`

@@ -489,7 +489,10 @@ export function handlePicoMessage(
         typeof payload.target_message_id === "string"
           ? payload.target_message_id
           : ""
-      const status = payload.status === "duplicate" ? "duplicate" : "accepted"
+      const status =
+        payload.status === "duplicate" || payload.status === "unknown"
+          ? payload.status
+          : "accepted"
       if (requestId || targetMessageId) {
         updateChatStore((prev) => ({
           messages: prev.messages.map((entry) =>

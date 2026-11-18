@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/biaobiaobiao108/gogoclaw/cmd/gogoclaw/internal"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/instance"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 )
 
@@ -101,13 +103,21 @@ func newRestoreCommand() *cobra.Command {
 		Use:   "restore <backup.db>",
 		Short: "Validate and restore a SQLite backup",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			path, err := resolveDatabasePath(dbPath, workspace)
 			if err != nil {
 				return err
 			}
+			lock, err := instance.AcquireDataDirLock(internal.GetGogoclawHome())
+			if err != nil {
+				return fmt.Errorf("restore requires an offline instance: %w", err)
+			}
+			defer func() { err = errors.Join(err, lock.Release()) }()
 			result, err := memory.RestoreSQLite(cmd.Context(), args[0], path, force)
 			if err != nil {
+				if result.SafetyBackup != "" {
+					return fmt.Errorf("%w (restore safety path: %s)", err, result.SafetyBackup)
+				}
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(),
@@ -138,7 +148,7 @@ func resolveDatabasePath(dbPath, workspace string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("load config to locate workspace: %w", err)
 		}
-		workspace = cfg.Agents.Defaults.Workspace
+		workspace = cfg.WorkspacePath()
 	}
 	if workspace == "" {
 		return "", fmt.Errorf("workspace is not configured; pass --workspace or --db")

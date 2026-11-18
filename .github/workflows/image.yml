@@ -24,7 +24,25 @@ env:
   RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+      - id: commit
+        run: printf 'sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: resolve
+    uses: ./.github/workflows/ci.yml
+    with:
+      checkout_ref: ${{ needs.resolve.outputs.sha }}
+
   build:
+    needs: [resolve, verify]
     name: build-${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
@@ -41,7 +59,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ needs.resolve.outputs.sha }}
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
         with:

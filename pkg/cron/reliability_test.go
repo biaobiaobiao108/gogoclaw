@@ -2,10 +2,12 @@ package cron
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -319,5 +321,59 @@ func TestAddCommandIsPersistedBeforeScheduling(t *testing.T) {
 	got, ok := NewCronService(path, nil).GetJob(job.ID)
 	if !ok || got.Payload.Command != "echo ready" {
 		t.Fatalf("persisted command: %+v", got)
+	}
+}
+
+func TestCompletionWriteRetriesWithoutRepeatingJob(t *testing.T) {
+	dir := t.TempDir()
+	service := NewCronService(dir, nil)
+	database, err := sql.Open("sqlite", filepath.Join(dir, "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	var calls atomic.Int32
+	triggerInstalled := make(chan error, 1)
+	service.SetContextOnJob(func(ctx context.Context, _ *CronJob) (string, error) {
+		if calls.Add(1) == 1 {
+			_, err := database.ExecContext(ctx, "CREATE TRIGGER test_cron_write_failure BEFORE UPDATE ON app_state WHEN NEW.namespace = 'cron' BEGIN SELECT RAISE(ABORT, 'test failure'); END")
+			triggerInstalled <- err
+		}
+		return "", nil
+	})
+	every := int64(250)
+	job, err := service.AddJob("periodic", CronSchedule{Kind: "every", EveryMS: &every}, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer service.Stop()
+	select {
+	case err := <-triggerInstalled:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("task did not start")
+	}
+	time.Sleep(400 * time.Millisecond)
+	saved, ok := service.GetJob(job.ID)
+	if !ok || saved.State.LastStatus != "running" || calls.Load() != 1 {
+		t.Fatalf("state during write failure = %+v, calls = %d", saved, calls.Load())
+	}
+	if _, err := database.Exec("DROP TRIGGER test_cron_write_failure"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(5 * time.Second)
+	tick := time.NewTicker(25 * time.Millisecond)
+	defer tick.Stop()
+	for calls.Load() < 2 {
+		select {
+		case <-deadline:
+			t.Fatal("periodic task did not resume after writes recovered")
+		case <-tick.C:
+		}
 	}
 }

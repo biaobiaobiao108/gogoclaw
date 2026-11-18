@@ -56,54 +56,24 @@ func (al *AgentLoop) startSessionTitle(ts *turnState, exec *turnExecution) {
 	if ts.channel != "pico" || ts.depth != 0 || ts.opts.NoHistory || !strings.HasPrefix(ts.chatID, "pico:") || exec.activeProvider == nil {
 		return
 	}
-	transcript, err := session.TranscriptChecked(ts.agent.Sessions, ts.sessionKey)
-	if err != nil {
-		logger.Warnf("failed to inspect session for title: %v", err)
-		return
-	}
-	firstUser := providers.Message{}
-	foundFirstUser := false
-	for _, message := range transcript {
-		if message.Role == "user" && strings.TrimSpace(message.Content) != "" {
-			firstUser = message
-			foundFirstUser = true
-			break
-		}
-	}
-	if !foundFirstUser {
-		return
-	}
 	sessionID := strings.TrimPrefix(ts.chatID, "pico:")
 	if sessionID == "" {
 		return
 	}
 	dir := branchSessionDir(al, ts.agent)
-	isFirstMessage := len(transcript) == 1 &&
-		transcript[0].Role == "user" &&
-		transcript[0].ID != "" &&
-		(transcript[0].ID == ts.opts.Dispatch.MessageID() || transcript[0].ID == ts.turnID+"-user")
-	if !isFirstMessage {
-		store, err := memory.OpenSQLiteStore(dir)
-		if err != nil {
-			logger.Warnf("failed to inspect session title metadata: %v", err)
-			return
-		}
-		data, metaErr := store.ChatUIMeta(context.Background(), sessionID)
-		store.Close()
-		if metaErr != nil {
-			logger.Warnf("failed to inspect session title metadata: %v", metaErr)
-			return
-		}
-		title, metaErr := decodeStoredSessionTitle(data)
-		if metaErr != nil {
-			logger.Warnf("failed to inspect session title metadata: %v", metaErr)
-			return
-		}
-		if !sessionTitleNeedsRefresh(title) {
-			return
-		}
+	store, ok := ts.agent.Sessions.(*session.StoreBackend)
+	if !ok {
+		return
 	}
-	text := []rune(strings.TrimSpace(firstUser.Content))
+	firstUser, err := sessionTitleInput(al.backgroundContext(), store, sessionID, ts.sessionKey)
+	if err != nil {
+		logger.Warnf("failed to inspect session for title: %v", err)
+		return
+	}
+	if firstUser == "" {
+		return
+	}
+	text := []rune(strings.TrimSpace(firstUser))
 	if len(text) > 1000 {
 		text = text[:1000]
 	}
@@ -214,4 +184,16 @@ func (al *AgentLoop) startSessionTitle(ts *turnState, exec *turnExecution) {
 	}) {
 		al.releaseProviderRef(provider)
 	}
+}
+
+func sessionTitleInput(ctx context.Context, store *session.StoreBackend, sessionID, sessionKey string) (string, error) {
+	data, err := store.ChatUIMeta(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	title, err := decodeStoredSessionTitle(data)
+	if err != nil || !sessionTitleNeedsRefresh(title) {
+		return "", err
+	}
+	return store.FirstUserText(ctx, sessionKey)
 }

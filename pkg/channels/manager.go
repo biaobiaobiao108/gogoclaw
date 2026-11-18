@@ -83,6 +83,7 @@ func (w *channelWorker) stopped() <-chan struct{} {
 }
 
 type Manager struct {
+	initializeChannel         func(string, Channel)
 	channels                  map[string]Channel
 	workers                   map[string]*channelWorker
 	bus                       *bus.MessageBus
@@ -124,6 +125,11 @@ type mediaStoreSetter interface {
 
 // ManagerOption configures a channel Manager.
 type ManagerOption func(*Manager)
+
+// WithChannelInitializer configures each instance before it is started.
+func WithChannelInitializer(initialize func(string, Channel)) ManagerOption {
+	return func(m *Manager) { m.initializeChannel = initialize }
+}
 
 // WithRuntimeEvents injects the runtime event bus used for channel observations.
 func WithRuntimeEvents(eventBus runtimeevents.Bus) ManagerOption {

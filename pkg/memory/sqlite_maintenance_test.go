@@ -146,3 +146,31 @@ func fileMode(t *testing.T, path string) os.FileMode {
 	}
 	return info.Mode()
 }
+
+func TestRestorePreservesDamagedDatabase(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(dir, "sessions.db")
+	target := filepath.Join(dir, "damaged.db")
+	damaged := []byte("corrupt database contents")
+	if err := os.WriteFile(target, damaged, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := RestoreSQLite(t.Context(), backup, target, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CheckSQLiteIntegrity(t.Context(), target, false); err != nil {
+		t.Fatal(err)
+	}
+	preserved, err := os.ReadFile(result.SafetyBackup)
+	if err != nil || string(preserved) != string(damaged) {
+		t.Fatalf("preserved damaged source = %q, %v", preserved, err)
+	}
+}

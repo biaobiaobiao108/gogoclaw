@@ -221,21 +221,99 @@ func RestoreSQLite(ctx context.Context, backup, target string, overwrite bool) (
 	}
 
 	result := RestoreSQLiteResult{Target: target}
+	var moved []string
+	var sidecarBackup string
+	rollback := func(cause error) (RestoreSQLiteResult, error) {
+		for _, suffix := range moved {
+			if err := os.Rename(sidecarBackup+suffix, target+suffix); err != nil {
+				cause = errors.Join(cause, fmt.Errorf("restore original SQLite sidecar %s: %w", suffix, err))
+			}
+		}
+		return result, cause
+	}
 	if targetExists {
 		result.SafetyBackup = target + ".before-restore-" + time.Now().UTC().Format("20060102T150405.000000000Z")
-		if _, err := BackupSQLite(ctx, target, result.SafetyBackup); err != nil {
-			return RestoreSQLiteResult{}, fmt.Errorf("memory: create restore safety backup: %w", err)
+		if _, checkErr := CheckSQLiteIntegrity(ctx, target, false); checkErr == nil {
+			if _, err := BackupSQLite(ctx, target, result.SafetyBackup); err != nil {
+				return result, fmt.Errorf("memory: create restore safety backup: %w", err)
+			}
+			if err := checkpointRestoreTarget(ctx, target); err != nil {
+				return result, fmt.Errorf("memory: checkpoint restore target: %w", err)
+			}
+		} else {
+			if ctx.Err() != nil {
+				return result, ctx.Err()
+			}
+			result.SafetyBackup += ".damaged"
+			if err := copySQLiteFile(target, result.SafetyBackup); err != nil {
+				return result, fmt.Errorf("memory: preserve damaged database: %w", err)
+			}
 		}
+	} else {
+		result.SafetyBackup = target + ".before-restore-" + time.Now().UTC().Format("20060102T150405.000000000Z")
 	}
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		if err := os.Remove(target + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return RestoreSQLiteResult{}, fmt.Errorf("memory: remove target%s: %w", suffix, err)
+	// Keep healthy snapshots standalone even when original sidecars exist.
+	sidecarBackup = result.SafetyBackup + ".original"
+	if strings.HasSuffix(result.SafetyBackup, ".damaged") {
+		sidecarBackup = result.SafetyBackup
+	}
+	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
+		if _, err := os.Stat(target + suffix); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return rollback(err)
 		}
+		if err := os.Rename(target+suffix, sidecarBackup+suffix); err != nil {
+			return rollback(fmt.Errorf("memory: preserve target%s: %w", suffix, err))
+		}
+		moved = append(moved, suffix)
+	}
+	if err := ctx.Err(); err != nil {
+		return rollback(err)
 	}
 	if err := os.Rename(tempPath, target); err != nil {
-		return RestoreSQLiteResult{}, fmt.Errorf("memory: install restored database: %w", err)
+		return rollback(fmt.Errorf("memory: install restored database: %w", err))
+	}
+	if !targetExists && len(moved) == 0 {
+		result.SafetyBackup = ""
 	}
 	return result, nil
+}
+
+// Checkpoint a healthy target before moving its old sidecars. If the process
+// stops before the replacement, the original main file still has all commits.
+func checkpointRestoreTarget(ctx context.Context, path string) error {
+	params := url.Values{"mode": {"rw"}, "_pragma": {"busy_timeout(5000)"}}
+	db, err := sql.Open("sqlite", path+"?"+params.Encode())
+	if err != nil {
+		return err
+	}
+	var busy, walPages, checkpointed int
+	checkErr := db.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &walPages, &checkpointed)
+	if checkErr == nil && busy != 0 {
+		checkErr = errors.New("database is busy")
+	}
+	return errors.Join(checkErr, db.Close())
+}
+
+func copySQLiteFile(source, target string) error {
+	in, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(out, in)
+	if copyErr == nil {
+		copyErr = out.Sync()
+	}
+	if err := errors.Join(copyErr, out.Close()); err != nil {
+		return errors.Join(err, os.Remove(target))
+	}
+	return nil
 }
 
 func fileSize(path string) int64 {

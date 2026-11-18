@@ -465,6 +465,11 @@ func setupAndStartServices(
 		msgBus,
 		runningServices.MediaStore,
 		channels.WithRuntimeEvents(agentLoop.RuntimeEventBus()),
+		channels.WithChannelInitializer(func(name string, channel channels.Channel) {
+			if name == config.ChannelPico {
+				configurePicoChannel(agentLoop, channel)
+			}
+		}),
 	)
 	if err != nil {
 		if fms, ok := runningServices.MediaStore.(*media.FileMediaStore); ok {
@@ -474,74 +479,7 @@ func setupAndStartServices(
 	}
 
 	agentLoop.SetRuntimeDependencies(runningServices.ChannelManager, runningServices.MediaStore)
-	if channel, ok := runningServices.ChannelManager.GetChannel(config.ChannelPico); ok {
-		if provider, ok := channel.(interface {
-			SetTurnStatusProvider(func(string, bool) map[string]any)
-		}); ok {
-			provider.SetTurnStatusProvider(func(chatID string, includeRecovery bool) map[string]any {
-				turn := agentLoop.GetActiveTurnByConversation(config.ChannelPico, chatID)
-				if turn == nil {
-					result := map[string]any{"active": false}
-					if usage, err := agentLoop.ConversationUsage(config.ChannelPico, chatID, "pico-user"); err == nil {
-						result["context_usage"] = usage
-					} else {
-						result["error"] = "Unable to read task usage"
-					}
-					if pending := agentLoop.PendingApprovalByConversation(config.ChannelPico, chatID); pending != nil {
-						result["approval"] = pending
-					}
-					if completion, ok, err := agentLoop.ConversationTurnCompletion(config.ChannelPico, chatID, "pico-user"); err != nil {
-						result["error"] = "Unable to read task completion state"
-					} else if ok {
-						result["last_turn"] = completion
-					}
-					if includeRecovery {
-						interrupted, err := agentLoop.ConversationInterrupted(config.ChannelPico, chatID, "pico-user")
-						if err != nil {
-							result["error"] = "Unable to read task recovery state"
-						} else {
-							result["interrupted"] = interrupted
-						}
-					}
-					return result
-				}
-				result := map[string]any{"active": true, "turn_id": turn.TurnID, "phase": turn.Phase, "iteration": turn.Iteration, "plan": turn.Plan}
-				if len(turn.Activities) > 0 {
-					result["activities"] = turn.Activities
-					for i := len(turn.Activities) - 1; i >= 0; i-- {
-						if turn.Activities[i].Status == "running" {
-							result["activity"] = turn.Activities[i]
-							break
-						}
-					}
-				}
-				if usage, err := agentLoop.ConversationUsage(config.ChannelPico, chatID, "pico-user"); err == nil {
-					result["context_usage"] = usage
-				}
-				if pending := agentLoop.PendingApprovalByConversation(config.ChannelPico, chatID); pending != nil {
-					result["approval"] = pending
-				}
-				return result
-			})
-		}
-		if approvalChannel, ok := channel.(interface {
-			SetApprovalHandler(func(context.Context, approval.Response) error)
-			SendApprovalRequest(context.Context, approval.Request) error
-			SetDeliveryAckHandler(func(context.Context, string, string, string) error)
-			SetBranchHandler(func(context.Context, string, string) error)
-			SetSessionBusyHandler(func(string) bool)
-			SetAttachmentResolver(func(string, string) (string, int64, error))
-		}); ok {
-			approvalChannel.SetApprovalHandler(agentLoop.RespondApproval)
-			agentLoop.SetApprovalNotifier(approvalChannel.SendApprovalRequest)
-			approvalChannel.SetDeliveryAckHandler(agentLoop.AcknowledgeDelivery)
-			approvalChannel.SetBranchHandler(agentLoop.SelectBranch)
-			approvalChannel.SetSessionBusyHandler(func(sessionID string) bool {
-				return agentLoop.GetActiveTurnByConversation(config.ChannelPico, "pico:"+sessionID) != nil
-			})
-			approvalChannel.SetAttachmentResolver(agentLoop.ResolvePicoAttachment)
-		}
-	}
+
 	transcriber := asr.DetectTranscriber(cfg)
 	if transcriber != nil {
 		agentLoop.SetTranscriber(transcriber)
@@ -606,6 +544,75 @@ func setupAndStartServices(
 
 	success = true
 	return runningServices, nil
+}
+
+func configurePicoChannel(agentLoop *agent.AgentLoop, channel channels.Channel) {
+	if provider, ok := channel.(interface {
+		SetTurnStatusProvider(func(string, bool) map[string]any)
+	}); ok {
+		provider.SetTurnStatusProvider(func(chatID string, includeRecovery bool) map[string]any {
+			turn := agentLoop.GetActiveTurnByConversation(config.ChannelPico, chatID)
+			if turn == nil {
+				result := map[string]any{"active": false}
+				if usage, err := agentLoop.ConversationUsage(config.ChannelPico, chatID, "pico-user"); err == nil {
+					result["context_usage"] = usage
+				} else {
+					result["error"] = "Unable to read task usage"
+				}
+				if pending := agentLoop.PendingApprovalByConversation(config.ChannelPico, chatID); pending != nil {
+					result["approval"] = pending
+				}
+				if completion, ok, err := agentLoop.ConversationTurnCompletion(config.ChannelPico, chatID, "pico-user"); err != nil {
+					result["error"] = "Unable to read task completion state"
+				} else if ok {
+					result["last_turn"] = completion
+				}
+				if includeRecovery {
+					interrupted, err := agentLoop.ConversationInterrupted(config.ChannelPico, chatID, "pico-user")
+					if err != nil {
+						result["error"] = "Unable to read task recovery state"
+					} else {
+						result["interrupted"] = interrupted
+					}
+				}
+				return result
+			}
+			result := map[string]any{"active": true, "turn_id": turn.TurnID, "phase": turn.Phase, "iteration": turn.Iteration, "plan": turn.Plan}
+			if len(turn.Activities) > 0 {
+				result["activities"] = turn.Activities
+				for i := len(turn.Activities) - 1; i >= 0; i-- {
+					if turn.Activities[i].Status == "running" {
+						result["activity"] = turn.Activities[i]
+						break
+					}
+				}
+			}
+			if usage, err := agentLoop.ConversationUsage(config.ChannelPico, chatID, "pico-user"); err == nil {
+				result["context_usage"] = usage
+			}
+			if pending := agentLoop.PendingApprovalByConversation(config.ChannelPico, chatID); pending != nil {
+				result["approval"] = pending
+			}
+			return result
+		})
+	}
+	if approvalChannel, ok := channel.(interface {
+		SetApprovalHandler(func(context.Context, approval.Response) error)
+		SendApprovalRequest(context.Context, approval.Request) error
+		SetDeliveryAckHandler(func(context.Context, string, string, string) error)
+		SetBranchHandler(func(context.Context, string, string) error)
+		SetSessionBusyHandler(func(string) bool)
+		SetAttachmentResolver(func(string, string) (string, int64, error))
+	}); ok {
+		approvalChannel.SetApprovalHandler(agentLoop.RespondApproval)
+		agentLoop.SetApprovalNotifier(approvalChannel.SendApprovalRequest)
+		approvalChannel.SetDeliveryAckHandler(agentLoop.AcknowledgeDelivery)
+		approvalChannel.SetBranchHandler(agentLoop.SelectBranch)
+		approvalChannel.SetSessionBusyHandler(func(sessionID string) bool {
+			return agentLoop.GetActiveTurnByConversation(config.ChannelPico, "pico:"+sessionID) != nil
+		})
+		approvalChannel.SetAttachmentResolver(agentLoop.ResolvePicoAttachment)
+	}
 }
 
 func startScheduledServices(
@@ -777,13 +784,6 @@ func restartServices(
 	}
 	runningServices.CronService = newCronService
 	runningServices.HeartbeatService = newHeartbeatService
-	restartSuccess := false
-	defer func() {
-		if !restartSuccess {
-			newHeartbeatService.Stop()
-			newCronService.Stop()
-		}
-	}()
 	fmt.Println("  ✓ Cron service restarted")
 	fmt.Println("  ✓ Heartbeat service restarted")
 
@@ -804,10 +804,10 @@ func restartServices(
 	}
 	al.SetRuntimeDependencies(runningServices.ChannelManager, runningServices.MediaStore)
 
-	if err = runningServices.ChannelManager.Reload(context.Background(), cfg); err != nil {
-		return fmt.Errorf("error reload channels: %w", err)
+	channelErr := runningServices.ChannelManager.Reload(context.Background(), cfg)
+	if channelErr == nil {
+		fmt.Println("  ✓ Channels restarted.")
 	}
-	fmt.Println("  ✓ Channels restarted.")
 
 	enabledChannels := runningServices.ChannelManager.GetEnabledChannels()
 	if len(enabledChannels) > 0 {
@@ -847,7 +847,9 @@ func restartServices(
 	// NOTE: PID file is written once at startup and not updated on reload.
 	// Changing the gateway listen address requires a full restart.
 
-	restartSuccess = true
+	if channelErr != nil {
+		return fmt.Errorf("reload channels: %w", channelErr)
+	}
 	return nil
 }
 

@@ -2,6 +2,7 @@ package channels
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 )
 
 func TestManager_PlaceholderConsumedByResponse(t *testing.T) {
@@ -404,5 +406,50 @@ func TestSplitMarkerStreamerForwardsTurnUsage(t *testing.T) {
 	}
 	if inner.inputTokens != 1234 || inner.outputTokens != 567 {
 		t.Errorf("inner usage = (%d, %d), want (1234, 567)", inner.inputTokens, inner.outputTokens)
+	}
+}
+
+func TestReloadReplacesWorkerAndReportsDeliveryFailure(t *testing.T) {
+	ctx := t.Context()
+	b := bus.NewMessageBus()
+	defer b.Close()
+	channelName := "pico"
+	attempt := 0
+	RegisterFactory(channelName, func(string, string, *config.Config, *bus.MessageBus) (Channel, error) {
+		attempt++
+		if attempt == 1 {
+			return &mockChannel{}, nil
+		}
+		return &mockChannel{sendFn: func(context.Context, bus.OutboundMessage) error { return ErrSendFailed }}, nil
+	})
+	t.Cleanup(func() {
+		factoriesMu.Lock()
+		delete(factories, channelName)
+		factoriesMu.Unlock()
+	})
+	makeConfig := func(token string) *config.Config {
+		settings := config.RawNode(fmt.Sprintf("{\"token\":%q}", token))
+		return &config.Config{Channels: config.ChannelsConfig{
+			channelName: {Type: channelName, Enabled: true, Settings: settings},
+		}}
+	}
+	manager, err := NewManager(makeConfig("before"), b, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.StartAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.StopAll(ctx)
+	old := manager.workers[channelName]
+	if err := manager.Reload(ctx, makeConfig("after")); err != nil {
+		t.Fatal(err)
+	}
+	if worker := manager.workers[channelName]; worker == nil || worker == old {
+		t.Fatal("replacement worker is missing")
+	}
+	msg := testOutboundMessage(bus.OutboundMessage{Channel: channelName, ChatID: "chat", Content: "hello"})
+	if err := manager.SendMessage(ctx, msg); !errors.Is(err, ErrSendFailed) {
+		t.Fatalf("SendMessage error = %v, want permanent send failure", err)
 	}
 }

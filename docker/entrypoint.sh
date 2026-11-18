@@ -26,7 +26,7 @@ case "$1" in
     gogoclaw-launcher)
         exec "$@"
         ;;
-    agent|auth|config|cron|mcp|migrate|model|onboard|skills|status|version)
+    agent|auth|config|cron|mcp|migrate|model|onboard|skills|status|storage|version)
         exec gogoclaw "$@"
         ;;
     *)

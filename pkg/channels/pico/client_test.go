@@ -375,7 +375,7 @@ func TestPicoChannel_HandleMessageSend_AllowsMediaOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPicoChannel() error = %v", err)
 	}
-	ch.dedupePath = filepath.Join(t.TempDir(), "pico-inbound.json")
+	ch.inboxDir = filepath.Join(t.TempDir(), "sessions")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -3,7 +3,6 @@ package pico
 import (
 	"context"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -24,8 +23,11 @@ func TestHandleMessageSend_ForwardsMessageMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPicoChannel: %v", err)
 	}
-	ch.dedupePath = filepath.Join(t.TempDir(), "pico-inbound.json")
-	ch.ctx = context.Background()
+	ch.inboxDir = filepath.Join(t.TempDir(), "sessions")
+	if err := ch.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ch.Stop(context.Background()) })
 
 	ch.handleMessageSend(&picoConn{id: "conn-1", sessionID: "sess-1"}, PicoMessage{
 		Type:      TypeMessageSend,
@@ -49,72 +51,75 @@ func TestHandleMessageSend_ForwardsMessageMetadata(t *testing.T) {
 	}
 }
 
-func TestLoadMessageDedupe_AcceptsSnapshotAndRecoversCorruptState(t *testing.T) {
-	newChannel := func(t *testing.T, state string) *PicoChannel {
+func TestPicoInboxReplaysPendingButFencesStartedRequests(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	start := func() (*PicoChannel, *bus.MessageBus) {
 		t.Helper()
-		msgBus := bus.NewMessageBus()
-		bc := &config.Channel{Type: config.ChannelPico, Enabled: true}
-		cfg := &config.PicoSettings{}
-		cfg.SetToken("test-token")
-		ch, err := NewPicoChannel(bc, cfg, msgBus)
-		if err != nil {
-			t.Fatalf("NewPicoChannel: %v", err)
-		}
-		ch.dedupePath = filepath.Join(t.TempDir(), "pico-inbound.json")
-		db, err := memory.NewSQLiteStore(ch.dedupePath)
+		mb := bus.NewMessageBus()
+		configuration := &config.PicoSettings{}
+		configuration.SetToken("test-token")
+		channel, err := NewPicoChannel(&config.Channel{Type: config.ChannelPico, Enabled: true}, configuration, mb)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := db.SetAppState(nil, "pico", "inbound_dedupe", []byte(state)); err != nil {
+		channel.inboxDir = dir
+		if err := channel.Start(ctx); err != nil {
 			t.Fatal(err)
 		}
-		db.Close()
-		return ch
+		return channel, mb
 	}
-
-	t.Run("current snapshot format", func(t *testing.T) {
-		seenAt := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
-		state := fmt.Sprintf(`[{"key":"sess-1\u0000msg-1","seen_at":%q}]`, seenAt)
-		ch := newChannel(t, state)
-		claimed, err := ch.claimMessage("sess-1\x00msg-1")
-		if err != nil {
-			t.Fatalf("claimMessage existing: %v", err)
+	receive := func(mb *bus.MessageBus) bus.InboundMessage {
+		t.Helper()
+		select {
+		case msg := <-mb.InboundChan():
+			return msg
+		case <-time.After(5 * time.Second):
+			t.Fatal("pending inbound message was not dispatched")
+			return bus.InboundMessage{}
 		}
-		if claimed {
-			t.Fatal("existing message was not deduplicated")
-		}
-		claimed, err = ch.claimMessage("sess-1\x00msg-2")
-		if err != nil {
-			t.Fatalf("claimMessage new: %v", err)
-		}
-		if !claimed {
-			t.Fatal("new message should be claimed")
-		}
+	}
+	channel, mb := start()
+	conn, received, closeConn := newTestPicoWebSocket(t)
+	defer closeConn()
+	channel.handleMessageSend(&picoConn{conn: conn, sessionID: "chat"}, PicoMessage{
+		ID: "request", Payload: map[string]any{PayloadKeyContent: "keep me"},
 	})
+	ack := mustReceivePicoMessage(t, received)
+	if ack.Type != TypeMessageAck || ack.Payload["status"] != "accepted" {
+		t.Fatalf("unexpected message acknowledgement: %+v", ack)
+	}
+	receive(mb) // The first process loses its volatile queue before claiming.
+	if err := channel.Stop(ctx); err != nil {
+		t.Fatal(err)
+	}
+	mb.Close()
 
-	t.Run("legacy map format", func(t *testing.T) {
-		seenAt := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
-		state := fmt.Sprintf(`{"sess-1\u0000msg-1":%q}`, seenAt)
-		ch := newChannel(t, state)
-		claimed, err := ch.claimMessage("sess-1\x00msg-1")
-		if err != nil {
-			t.Fatalf("claimMessage: %v", err)
-		}
-		if claimed {
-			t.Fatal("legacy message was not deduplicated")
-		}
-	})
+	channel, mb = start()
+	replayed := receive(mb)
+	if replayed.Content != "keep me" || replayed.MessageID != "request" {
+		t.Fatalf("unexpected replay: %q (%s)", replayed.Content, replayed.MessageID)
+	}
+	if claimed, err := replayed.Claim(ctx); err != nil || !claimed {
+		t.Fatalf("claim = %v, %v", claimed, err)
+	}
+	if err := channel.Stop(ctx); err != nil {
+		t.Fatal(err)
+	}
+	mb.Close()
 
-	t.Run("corrupt state starts clean", func(t *testing.T) {
-		ch := newChannel(t, `{not-json`)
-		claimed, err := ch.claimMessage("sess-1\x00msg-1")
-		if err != nil {
-			t.Fatalf("claimMessage: %v", err)
-		}
-		if !claimed {
-			t.Fatal("message should be claimed after corrupt state recovery")
-		}
-	})
+	store, err := memory.OpenSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if pending, err := store.PendingPicoInbound(ctx, "pico", 0); err != nil || len(pending) != 0 {
+		t.Fatalf("started request was replayable: %v, %v", len(pending), err)
+	}
+	status, err := store.QueuePicoInbound(ctx, "chat", "request", replayed)
+	if err != nil || status != "unknown" {
+		t.Fatalf("retry of started request = %q, %v", status, err)
+	}
 }
 
 func TestCreateAndAddConnection_RespectsMaxConnectionsConcurrently(t *testing.T) {

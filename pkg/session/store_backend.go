@@ -374,6 +374,27 @@ func (b *StoreBackend) GetTranscriptChecked(key string) ([]providers.Message, er
 	return b.store.GetHistory(context.Background(), key)
 }
 
+// ChatUIMeta reads the UI metadata from the shared SQLite store.
+func (b *StoreBackend) ChatUIMeta(ctx context.Context, sessionID string) ([]byte, error) {
+	store, ok := b.store.(*memory.SQLiteStore)
+	if !ok {
+		return nil, fmt.Errorf("session store does not support chat metadata")
+	}
+	return store.ChatUIMeta(ctx, sessionID)
+}
+
+func (b *StoreBackend) FirstUserText(ctx context.Context, key string) (string, error) {
+	store, ok := b.store.(*memory.SQLiteStore)
+	if !ok {
+		return "", fmt.Errorf("session store does not support title inputs")
+	}
+	resolved, err := b.resolveSessionKeyChecked(key)
+	if err != nil {
+		return "", err
+	}
+	return store.FirstUserText(ctx, resolved)
+}
+
 // Close releases resources held by the underlying store.
 func (b *StoreBackend) Close() error {
 	return b.store.Close()

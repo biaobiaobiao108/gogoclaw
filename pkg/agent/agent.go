@@ -221,7 +221,11 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 			if !ok {
 				// A single ordered worker keeps the receive loop responsive while
 				// preserving non-routable message ordering.
-				al.enqueueSystemMessage(msg)
+				if claimInboundMessage(runCtx, msg) {
+					al.enqueueSystemMessage(msg)
+				} else {
+					media.Unpin(mediaStore, msg.Media)
+				}
 				continue
 			}
 
@@ -240,7 +244,12 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				agentID:    agentID,
 			}
 			if _, loaded := al.activeTurnStates.LoadOrStore(sessionKey, placeholder); loaded {
+				if !claimInboundMessage(runCtx, msg) {
+					media.Unpin(mediaStore, msg.Media)
+					continue
+				}
 				if al.tryHandleStopCommand(ctx, msg, sessionKey) {
+					finishInboundMessage(runCtx, msg)
 					media.Unpin(mediaStore, msg.Media)
 					continue
 				}
@@ -259,6 +268,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 					}
 				}
 				if isChatBranchMutation(msg) {
+					finishInboundMessage(runCtx, msg)
 					media.Unpin(mediaStore, msg.Media)
 					al.maybePublishError(
 						ctx,
@@ -295,6 +305,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				} else {
 					media.Unpin(mediaStore, msg.Media)
 				}
+				finishInboundMessage(runCtx, msg)
 				continue
 			}
 
@@ -384,10 +395,30 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 					return
 				}
 
-				al.runTurnWithSteering(runCtx, m)
+				if claimInboundMessage(runCtx, m) {
+					al.runTurnWithSteering(runCtx, m)
+					finishInboundMessage(runCtx, m)
+				}
 			}(msg, placeholder, mediaStore, channelManager)
 
 		}
+	}
+}
+
+func claimInboundMessage(ctx context.Context, msg bus.InboundMessage) bool {
+	if msg.Claim == nil {
+		return true
+	}
+	claimed, err := msg.Claim(ctx)
+	if err != nil && ctx.Err() == nil {
+		logger.Warnf("claim inbound message: %v", err)
+	}
+	return claimed
+}
+
+func finishInboundMessage(ctx context.Context, msg bus.InboundMessage) {
+	if msg.Finish != nil {
+		msg.Finish(ctx)
 	}
 }
 

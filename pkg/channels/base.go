@@ -391,6 +391,18 @@ func (c *BaseChannel) handleMessageWithContext(
 		MediaScope:  scope,
 	}
 	msg = bus.NormalizeInboundMessage(msg)
+	if err := c.PublishPreparedInbound(ctx, deliveryChatID, msg); err != nil {
+		if c.inboundDedup != nil {
+			c.inboundDedup.release(dedupeKey)
+		}
+		return err
+	}
+	return nil
+}
+
+// PublishPreparedInbound delivers a validated inbound message and manages its transient media and indicators.
+func (c *BaseChannel) PublishPreparedInbound(ctx context.Context, deliveryChatID string, msg bus.InboundMessage) error {
+	content := msg.Content
 	mediaStore := c.GetMediaStore()
 	mediastore.Pin(mediaStore, msg.Media)
 
@@ -428,9 +440,6 @@ func (c *BaseChannel) handleMessageWithContext(
 
 	if err := c.bus.PublishInbound(ctx, msg); err != nil {
 		mediastore.Unpin(mediaStore, msg.Media)
-		if c.inboundDedup != nil {
-			c.inboundDedup.release(dedupeKey)
-		}
 		logger.ErrorCF("channels", "Failed to publish inbound message", map[string]any{
 			"channel": c.name,
 			"chat_id": deliveryChatID,

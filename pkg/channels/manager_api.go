@@ -2,8 +2,8 @@ package channels
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"runtime/debug"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
@@ -43,52 +43,51 @@ func (m *Manager) GetEnabledChannels() []string {
 	return names
 }
 
-// Reload updates the config reference without restarting channels.
-// This is used when channel config hasn't changed but other parts of the config have.
+// Reload replaces changed channels and keeps unchanged workers running.
 func (m *Manager) Reload(ctx context.Context, cfg *config.Config) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Save old config so we can revert on error.
-	oldConfig := m.currentConfig()
-
-	// Update config early: initChannel reads the snapshot via currentConfig.
-	m.setConfig(cfg)
-
 	list := toChannelHashes(cfg)
 	added, removed := compareChannels(m.channelHashes, list)
-
-	deferFuncs := make([]func(), 0, len(removed)+len(added))
-	for _, name := range removed {
-		// Stop all channels
-		channel := m.channels[name]
-		logger.InfoCF("channels", "Stopping channel", map[string]any{
-			"channel": name,
-		})
-		if err := channel.Stop(ctx); err != nil {
-			logger.ErrorCF("channels", "Error stopping channel", map[string]any{
-				"channel": name,
-				"error":   err.Error(),
-			})
-		}
-		deferFuncs = append(deferFuncs, func() {
-			m.UnregisterChannel(name)
-		})
-	}
 	cc, err := toChannelConfig(cfg, added)
 	if err != nil {
-		logger.ErrorC("channels", fmt.Sprintf("toChannelConfig error: %v", err))
-		m.setConfig(oldConfig)
 		return err
 	}
-	err = m.initChannels(cc)
-	if err != nil {
-		logger.ErrorC("channels", fmt.Sprintf("initChannels error: %v", err))
-		m.setConfig(oldConfig)
-		return err
+	m.setConfig(cfg)
+
+	var failures []error
+	for _, name := range removed {
+		channel := m.channels[name]
+		if channel != nil {
+			if err := channel.Stop(ctx); err != nil {
+				failures = append(failures, fmt.Errorf("stop channel %s: %w", name, err))
+				delete(*cc, name)
+				continue
+			}
+			if m.mux != nil {
+				m.unregisterChannelHTTPHandler(name, channel)
+			}
+			if worker := m.workers[name]; worker != nil && worker.cancel != nil {
+				worker.cancel()
+			}
+		}
+		delete(m.workers, name)
+		delete(m.channels, name)
+		delete(m.channelHashes, name)
+	}
+	if err := m.initChannels(cc); err != nil {
+		return errors.Join(append(failures, err)...)
 	}
 	for _, name := range added {
+		if (*cc)[name] == nil {
+			continue
+		}
 		channel := m.channels[name]
+		if channel == nil {
+			failures = append(failures, fmt.Errorf("initialize channel %s", name))
+			continue
+		}
 		logger.InfoCF("channels", "Starting channel", map[string]any{
 			"channel": name,
 		})
@@ -104,6 +103,8 @@ func (m *Manager) Reload(ctx context.Context, cfg *config.Config) error {
 				runtimeevents.SeverityError,
 				ChannelLifecyclePayload{Type: channelTypeForEvent(m, name), Error: err.Error()},
 			)
+			failures = append(failures, fmt.Errorf("start channel %s: %w", name, err))
+			delete(m.channels, name)
 			continue
 		}
 		// Lazily create worker only after channel starts successfully
@@ -127,28 +128,12 @@ func (m *Manager) Reload(ctx context.Context, cfg *config.Config) error {
 			runtimeevents.SeverityInfo,
 			ChannelLifecyclePayload{Type: channelType},
 		)
-		deferFuncs = append(deferFuncs, func() {
-			m.RegisterChannel(name, channel)
-		})
-	}
-
-	// Commit hashes only on full success.
-	m.channelHashes = list
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logger.ErrorCF("channels", "channel registration goroutine panic recovered",
-					map[string]any{
-						"panic": fmt.Sprintf("%v", r),
-						"stack": string(debug.Stack()),
-					})
-			}
-		}()
-		for _, f := range deferFuncs {
-			f()
+		if m.mux != nil {
+			m.registerChannelHTTPHandler(name, channel)
 		}
-	}()
-	return nil
+		m.channelHashes[name] = list[name]
+	}
+	return errors.Join(failures...)
 }
 
 func (m *Manager) RegisterChannel(name string, channel Channel) {
@@ -201,16 +186,16 @@ func (m *Manager) SendMessage(ctx context.Context, msg bus.OutboundMessage) erro
 	if mlp, ok := w.ch.(MessageLengthProvider); ok {
 		maxLen = mlp.MaxMessageLength()
 	}
-	if chunks := splitOutboundMessageContent(msg, maxLen); len(chunks) > 1 {
-		for index, chunk := range chunks {
-			chunkMsg := outboundChunkMessage(msg, chunk, index, len(chunks))
-			m.sendWithRetry(ctx, channelName, w, chunkMsg)
+	chunks := splitOutboundMessageContent(msg, maxLen)
+	if len(chunks) == 0 {
+		_, err := m.sendWithRetry(ctx, channelName, w, msg)
+		return err
+	}
+	for index, chunk := range chunks {
+		chunkMsg := outboundChunkMessage(msg, chunk, index, len(chunks))
+		if _, err := m.sendWithRetry(ctx, channelName, w, chunkMsg); err != nil {
+			return fmt.Errorf("send channel %s chunk %d/%d: %w", channelName, index+1, len(chunks), err)
 		}
-	} else {
-		if len(chunks) == 1 {
-			msg = outboundChunkMessage(msg, chunks[0], 0, len(chunks))
-		}
-		m.sendWithRetry(ctx, channelName, w, msg)
 	}
 	return nil
 }

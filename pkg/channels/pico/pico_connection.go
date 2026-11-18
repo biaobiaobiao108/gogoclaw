@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -17,7 +16,6 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/identity"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 )
 
 // writeJSON sends a JSON message to the connection with write locking.
@@ -145,6 +143,10 @@ func (c *PicoChannel) currentConnCount() int {
 func (c *PicoChannel) Start(ctx context.Context) error {
 	logger.InfoC("pico", "Starting Pico Protocol channel")
 	c.ctx, c.cancel = context.WithCancel(ctx)
+	if err := c.startInbox(); err != nil {
+		c.cancel()
+		return err
+	}
 	c.SetRunning(true)
 	logger.InfoC("pico", "Pico Protocol channel started")
 	return nil
@@ -163,6 +165,7 @@ func (c *PicoChannel) Stop(ctx context.Context) error {
 	if c.cancel != nil {
 		c.cancel()
 	}
+	c.stopInbox()
 	if c.progress != nil {
 		c.progress.StopAll()
 	}
@@ -575,24 +578,14 @@ func (c *PicoChannel) forgetApprovalSession(approvalID, sessionID string, after 
 
 // handleMessageSend processes an inbound message.send from a client.
 func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
-	dedupeKey := pc.sessionID + "\x00" + msg.ID
-	if msg.ID != "" {
-		claimed, err := c.claimMessage(dedupeKey)
-		if err != nil {
-			pc.writeJSON(newErrorWithPayload("dedupe_failed", err.Error(), map[string]any{
-				"request_id": msg.ID,
-			}))
-			return
-		}
-		if !claimed {
-			c.writeMessageAck(pc, msg.ID, "", "duplicate")
-			return
-		}
+	inbox := c.currentInbox()
+	if inbox == nil {
+		_ = pc.writeJSON(newErrorWithPayload("send_failed", "inbound storage is unavailable", map[string]any{"request_id": msg.ID}))
+		return
 	}
 	content, _ := msg.Payload["content"].(string)
 	media, attachments, err := parsePicoAttachmentPayload(pc.sessionID, msg.Payload, c.attachmentResolve)
 	if err != nil {
-		c.releaseMessage(dedupeKey)
 		errMsg := newErrorWithPayload("invalid_media", err.Error(), map[string]any{
 			"request_id": msg.ID,
 		})
@@ -604,14 +597,12 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	editID, _ := msg.Payload["edit_message_id"].(string)
 	if (strings.TrimSpace(regenerateID) != "" || strings.TrimSpace(editID) != "") &&
 		c.sessionBusy != nil && c.sessionBusy(pc.sessionID) {
-		c.releaseMessage(dedupeKey)
 		pc.writeJSON(newErrorWithPayload("session_busy", "stop the active task before editing or regenerating an answer", map[string]any{
 			"request_id": msg.ID,
 		}))
 		return
 	}
 	if strings.TrimSpace(content) == "" && len(media) == 0 && strings.TrimSpace(regenerateID) == "" && strings.TrimSpace(editID) == "" {
-		c.releaseMessage(dedupeKey)
 		errMsg := newErrorWithPayload("empty_content", "message content is empty", map[string]any{
 			"request_id": msg.ID,
 		})
@@ -648,12 +639,11 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	}
 
 	if !c.IsAllowedSender(sender) {
-		c.releaseMessage(dedupeKey)
 		return
 	}
 
 	inboundCtx := bus.InboundContext{
-		Channel:   "pico",
+		Channel:   c.Name(),
 		ChatID:    chatID,
 		ChatType:  "direct",
 		SenderID:  senderID,
@@ -661,13 +651,22 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		Raw:       metadata,
 	}
 
-	if err := c.HandleInboundContextWithAttachments(c.ctx, chatID, content, media, attachments, inboundCtx, sender); err != nil {
-		c.releaseMessage(dedupeKey)
-		errMsg := newErrorWithPayload("send_failed", err.Error(), map[string]any{"request_id": msg.ID})
-		_ = pc.writeJSON(errMsg)
+	requestID := strings.TrimSpace(msg.ID)
+	if requestID == "" {
+		requestID = uuid.NewString()
+	}
+	inboundCtx.MessageID = requestID
+	inbound := bus.NormalizeInboundMessage(bus.InboundMessage{
+		Context: inboundCtx, Sender: sender, Content: content, Media: media, Attachments: attachments,
+		MediaScope: channels.BuildMediaScope(c.Name(), chatID, requestID),
+	})
+	status, err := inbox.QueuePicoInbound(c.ctx, sessionID, requestID, inbound)
+	if err != nil {
+		_ = pc.writeJSON(newErrorWithPayload("send_failed", err.Error(), map[string]any{"request_id": msg.ID}))
 		return
 	}
-	c.writeMessageAck(pc, msg.ID, strings.TrimSpace(editID), "accepted")
+	c.writeMessageAck(pc, msg.ID, strings.TrimSpace(editID), status)
+	c.wakeInbox()
 }
 
 func (c *PicoChannel) writeMessageAck(pc *picoConn, requestID, targetID, status string) {
@@ -682,131 +681,4 @@ func (c *PicoChannel) writeMessageAck(pc *picoConn, requestID, targetID, status 
 	ack.ID = requestID
 	ack.SessionID = pc.sessionID
 	_ = pc.writeJSON(ack)
-}
-
-func (c *PicoChannel) claimMessage(key string) (bool, error) {
-	c.dedupMu.Lock()
-	defer c.dedupMu.Unlock()
-	now := time.Now()
-	if err := c.loadMessageDedupeLocked(); err != nil {
-		return false, err
-	}
-	for existing, seenAt := range c.messageSeen {
-		if now.Sub(seenAt) > 24*time.Hour {
-			delete(c.messageSeen, existing)
-		}
-	}
-	if _, ok := c.messageSeen[key]; ok {
-		return false, nil
-	}
-	c.messageSeen[key] = now
-	if err := c.saveMessageDedupeLocked(); err != nil {
-		delete(c.messageSeen, key)
-		return false, err
-	}
-	return true, nil
-}
-
-func (c *PicoChannel) releaseMessage(key string) {
-	if key == "" || strings.HasSuffix(key, "\x00") {
-		return
-	}
-	c.dedupMu.Lock()
-	defer c.dedupMu.Unlock()
-	delete(c.messageSeen, key)
-	if err := c.saveMessageDedupeLocked(); err != nil {
-		logger.WarnCF("pico", "Failed to release inbound message reservation", map[string]any{
-			"error": err.Error(),
-		})
-	}
-}
-
-func (c *PicoChannel) loadMessageDedupeLocked() error {
-	if c.dedupeLoaded {
-		return nil
-	}
-	c.dedupeLoaded = true
-	if c.dedupePath == "" {
-		return nil
-	}
-	db, err := memory.NewSQLiteStore(c.dedupePath)
-	if err != nil {
-		return fmt.Errorf("open inbound dedupe state: %w", err)
-	}
-	defer db.Close()
-	data, err := db.GetAppState(nil, "pico", "inbound_dedupe")
-	if err != nil {
-		return fmt.Errorf("read inbound dedupe state: %w", err)
-	}
-	if len(data) == 0 {
-		return nil
-	}
-
-	type entry struct {
-		Key      string    `json:"key"`
-		SeenTime time.Time `json:"seen_at"`
-	}
-	var entries []entry
-	if err := json.Unmarshal(data, &entries); err == nil {
-		c.messageSeen = make(map[string]time.Time, len(entries))
-		for _, item := range entries {
-			if item.Key != "" {
-				c.messageSeen[item.Key] = item.SeenTime
-			}
-		}
-		return nil
-	}
-
-	var legacy map[string]time.Time
-	if err := json.Unmarshal(data, &legacy); err == nil {
-		c.messageSeen = legacy
-		if c.messageSeen == nil {
-			c.messageSeen = make(map[string]time.Time)
-		}
-		return nil
-	}
-
-	logger.WarnCF("pico", "Ignoring corrupt inbound dedupe state", map[string]any{
-		"path": c.dedupePath,
-	})
-	c.messageSeen = make(map[string]time.Time)
-	return nil
-}
-
-func (c *PicoChannel) saveMessageDedupeLocked() error {
-	if c.dedupePath == "" {
-		return nil
-	}
-	type entry struct {
-		Key      string    `json:"key"`
-		SeenTime time.Time `json:"seen_at"`
-	}
-	entries := make([]entry, 0, len(c.messageSeen))
-	for key, seenAt := range c.messageSeen {
-		entries = append(entries, entry{Key: key, SeenTime: seenAt.UTC()})
-	}
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].SeenTime.After(entries[j].SeenTime)
-	})
-	if len(entries) > 10000 {
-		entries = entries[:10000]
-		pruned := make(map[string]time.Time, len(entries))
-		for _, item := range entries {
-			pruned[item.Key] = item.SeenTime
-		}
-		c.messageSeen = pruned
-	}
-	data, err := json.Marshal(entries)
-	if err != nil {
-		return err
-	}
-	db, err := memory.NewSQLiteStore(c.dedupePath)
-	if err != nil {
-		return fmt.Errorf("open inbound dedupe state: %w", err)
-	}
-	defer db.Close()
-	if err := db.SetAppState(nil, "pico", "inbound_dedupe", data); err != nil {
-		return fmt.Errorf("write inbound dedupe state: %w", err)
-	}
-	return nil
 }

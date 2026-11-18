@@ -55,6 +55,9 @@ func (m *Manager) initChannel(typeName, channelName string) {
 		if setter, ok := ch.(interface{ SetOwner(ch Channel) }); ok {
 			setter.SetOwner(ch)
 		}
+		if m.initializeChannel != nil {
+			m.initializeChannel(channelName, ch)
+		}
 		m.channels[channelName] = ch
 		m.publishChannelEvent(
 			runtimeevents.KindChannelLifecycleInitialized,

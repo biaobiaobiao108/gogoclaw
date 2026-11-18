@@ -7,6 +7,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -447,26 +448,25 @@ func migrateV2ToV3(m map[string]any) error {
 }
 
 func loadConfigMap(path string) (map[string]any, error) {
-	var m1, m2 map[string]any
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return m1, nil
-		}
-		return nil, fmt.Errorf("failed to read config: %w", err)
+	data, secureData, err := readConfigFiles(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
 	}
-	if err = json.Unmarshal(data, &m1); err != nil {
+	if err != nil {
+		return nil, err
+	}
+	return decodeConfigMap(data, secureData)
+}
+
+func decodeConfigMap(data, secureData []byte) (map[string]any, error) {
+	var m1, m2 map[string]any
+	if err := json.Unmarshal(data, &m1); err != nil {
 		return nil, wrapJSONError(data, err, "config.json")
 	}
-	secPath := securityPath(path)
-	data, err = os.ReadFile(secPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return m1, nil
-		}
-		return nil, fmt.Errorf("failed to read security config: %w", err)
+	if len(secureData) == 0 {
+		return m1, nil
 	}
-	if err = yaml.Unmarshal(data, &m2); err != nil {
+	if err := yaml.Unmarshal(secureData, &m2); err != nil {
 		return nil, fmt.Errorf("failed to parse security config: %w", err)
 	}
 	if m2["web"] != nil || m2["skills"] != nil {
@@ -519,8 +519,7 @@ func loadConfigMap(path string) (map[string]any, error) {
 				}
 				if len(mainArr) > 0 {
 					// Merge array-style with map-style in-place
-					err = mergeModelListsWithMap(mainArr, secMap)
-					if err != nil {
+					if err := mergeModelListsWithMap(mainArr, secMap); err != nil {
 						logger.Errorf("mergeModelListsWithMap error: %v", err)
 						return nil, err
 					}

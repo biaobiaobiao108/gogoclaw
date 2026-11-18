@@ -170,7 +170,7 @@ func (cs *CronService) runLoop(stopChan chan struct{}) {
 		} else {
 			diff := *nextWake - now
 			if diff <= 0 {
-				delay = 0
+				delay = 100 * time.Millisecond
 			} else {
 				delay = time.Duration(diff) * time.Millisecond
 			}
@@ -263,44 +263,35 @@ func (cs *CronService) executeJobSnapshot(jobID string, scheduled *CronJob) {
 	startTime := time.Now().UnixMilli()
 	defer func() { cs.mu.Lock(); delete(cs.inFlight, jobID); cs.notify(); cs.mu.Unlock() }()
 
-	cs.mu.Lock()
-	if err := cs.loadStore(); err != nil {
-		log.Printf("[cron] failed to refresh job: %v", err)
-		cs.mu.Unlock()
-		return
+	cs.mu.RLock()
+	handler, contextHandler, ctx := cs.onJob, cs.onJobContext, cs.ctx
+	cs.mu.RUnlock()
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	var callbackJob *CronJob
-	for i := range cs.store.Jobs {
-		job := &cs.store.Jobs[i]
-		if job.ID == jobID && job.Enabled && (scheduled == nil || sameSchedule(job.Schedule, scheduled.Schedule)) {
-			jobCopy := cloneCronJob(*job)
-			callbackJob = &jobCopy
-			break
-		}
-	}
-	handler, contextHandler, ctx := cs.onJob, cs.onJobContext, cs.ctx
-	cs.mu.Unlock()
-
-	if callbackJob == nil {
+	if !retryJobState(ctx, jobID, "refresh", func() error {
 		cs.mu.Lock()
-		if err := cs.beginUpdate(); err != nil {
-			log.Printf("[cron] failed to load skipped job: %v", err)
-			cs.mu.Unlock()
-			return
+		defer cs.mu.Unlock()
+		if err := cs.loadStore(); err != nil {
+			return err
 		}
 		for i := range cs.store.Jobs {
 			job := &cs.store.Jobs[i]
-			if job.ID == jobID && job.State.LastStatus == "running" {
-				job.State.LastStatus = "skipped"
-				if err := cs.saveStoreUnsafe(); err != nil {
-					log.Printf("[cron] failed to save skipped job: %v", err)
-				}
+			if job.ID == jobID && job.Enabled && (scheduled == nil || sameSchedule(job.Schedule, scheduled.Schedule)) {
+				jobCopy := cloneCronJob(*job)
+				callbackJob = &jobCopy
 				break
 			}
 		}
-		cs.rollbackUpdate()
-		cs.mu.Unlock()
-		log.Printf("[cron] job %s not found, skipping", jobID)
+		return nil
+	}) {
+		return
+	}
+	if callbackJob == nil {
+		retryJobState(ctx, jobID, "save skipped job", func() error {
+			return cs.finishSkippedJob(jobID)
+		})
 		return
 	}
 
@@ -309,12 +300,9 @@ func (cs *CronService) executeJobSnapshot(jobID string, scheduled *CronJob) {
 		callbackJob.Name, jobID, callbackJob.Schedule.Kind, callbackJob.Payload.Channel)
 
 	var err error
-	if ctx != nil && ctx.Err() != nil {
+	if ctx.Err() != nil {
 		err = ctx.Err()
 	} else if contextHandler != nil {
-		if ctx == nil {
-			ctx = context.Background()
-		}
 		_, err = contextHandler(ctx, callbackJob)
 	} else if handler != nil {
 		_, err = handler(callbackJob)
@@ -324,12 +312,53 @@ func (cs *CronService) executeJobSnapshot(jobID string, scheduled *CronJob) {
 
 	execDuration := time.Now().UnixMilli() - startTime
 
-	// Now acquire lock to update state
+	retryJobState(ctx, jobID, "save completion", func() error {
+		return cs.finishJob(ctx, callbackJob, startTime, execDuration, err)
+	})
+}
+
+func retryJobState(ctx context.Context, jobID, operation string, run func() error) bool {
+	for {
+		if err := run(); err == nil {
+			return true
+		} else {
+			log.Printf("[cron] failed to %s for job %s: %v", operation, jobID, err)
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+func (cs *CronService) finishSkippedJob(jobID string) error {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 	if err := cs.beginUpdate(); err != nil {
-		log.Printf("[cron] failed to load completed job: %v", err)
-		return
+		return err
+	}
+	defer cs.rollbackUpdate()
+	for i := range cs.store.Jobs {
+		job := &cs.store.Jobs[i]
+		if job.ID == jobID && job.State.LastStatus == "running" {
+			job.State.LastStatus = "skipped"
+			if err := cs.saveStoreUnsafe(); err != nil {
+				job.State.LastStatus = "running"
+				return err
+			}
+			break
+		}
+	}
+	return nil
+}
+
+func (cs *CronService) finishJob(ctx context.Context, callbackJob *CronJob, startTime, execDuration int64, err error) (saveErr error) {
+	jobID := callbackJob.ID
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	if err := cs.beginUpdate(); err != nil {
+		return err
 	}
 	defer cs.rollbackUpdate()
 
@@ -342,10 +371,17 @@ func (cs *CronService) executeJobSnapshot(jobID string, scheduled *CronJob) {
 	}
 	if job == nil {
 		log.Printf("[cron] job %s disappeared before state update", jobID)
-		return
+		return nil
 	}
 
-	if err != nil && ctx != nil && ctx.Err() != nil {
+	// Keep the last committed state visible while an update is retried.
+	before := append([]CronJob(nil), cs.store.Jobs...)
+	defer func() {
+		if saveErr != nil {
+			cs.store.Jobs = before
+		}
+	}()
+	if err != nil && ctx.Err() != nil {
 		job.State.LastStatus = "unknown"
 		job.State.LastError = "execution interrupted; external effects may have occurred"
 		if job.Enabled && job.State.NextRunAtMS == nil && sameSchedule(job.Schedule, callbackJob.Schedule) {
@@ -355,10 +391,7 @@ func (cs *CronService) executeJobSnapshot(jobID string, scheduled *CronJob) {
 				job.State.NextRunAtMS = cs.computeNextRun(&job.Schedule, time.Now().UnixMilli())
 			}
 		}
-		if saveErr := cs.saveStoreUnsafe(); saveErr != nil {
-			log.Printf("[cron] failed to save interrupted job: %v", saveErr)
-		}
-		return
+		return cs.saveStoreUnsafe()
 	}
 
 	job.State.LastRunAtMS = &startTime
@@ -375,10 +408,7 @@ func (cs *CronService) executeJobSnapshot(jobID string, scheduled *CronJob) {
 
 	// Preserve scheduling changes made while this execution was running.
 	if job.State.NextRunAtMS != nil || !sameSchedule(job.Schedule, callbackJob.Schedule) || job.Enabled != callbackJob.Enabled || job.DeleteAfterRun != callbackJob.DeleteAfterRun {
-		if err := cs.saveStoreUnsafe(); err != nil {
-			log.Printf("[cron] failed to save store: %v", err)
-		}
-		return
+		return cs.saveStoreUnsafe()
 	}
 
 	// Compute next run time
@@ -411,13 +441,14 @@ func (cs *CronService) executeJobSnapshot(jobID string, scheduled *CronJob) {
 		}
 	}
 
+	if err := cs.saveStoreUnsafe(); err != nil {
+		return err
+	}
 	if err == nil {
 		log.Printf("[cron] ✓ job '%s' completed in %dms, next run: %s", job.Name, execDuration, nextRunStr)
 	}
 
-	if err := cs.saveStoreUnsafe(); err != nil {
-		log.Printf("[cron] failed to save store: %v", err)
-	}
+	return nil
 }
 
 func (cs *CronService) computeNextRun(schedule *CronSchedule, nowMS int64) *int64 {

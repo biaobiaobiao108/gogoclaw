@@ -24,7 +24,7 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
-			ch.dedupePath = filepath.Join(cfg.WorkspacePath(), "sessions")
+			ch.inboxDir = filepath.Join(cfg.WorkspacePath(), "sessions")
 			if channelName != config.ChannelPico {
 				ch.SetName(channelName)
 			}

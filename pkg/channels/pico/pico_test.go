@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -179,6 +180,7 @@ func newTestPicoChannel(t *testing.T) *PicoChannel {
 	}
 
 	ch.ctx = context.Background()
+	ch.inboxDir = filepath.Join(t.TempDir(), "sessions")
 	return ch
 }
 
