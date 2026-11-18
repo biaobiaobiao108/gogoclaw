@@ -1,7 +1,8 @@
-import type { ChatMessage } from "@/store/chat"
+import type { ChatMessage, ChatTurnHistory } from "@/store/chat"
 
 export type ChatReplyPart =
   | { kind: "text"; message: ChatMessage }
+  | { kind: "steering"; message: ChatMessage }
   | { kind: "process"; messages: ChatMessage[] }
 
 export interface ChatReplyRow {
@@ -10,6 +11,7 @@ export interface ChatReplyRow {
   parts: ChatReplyPart[]
   lastText?: ChatMessage
   active?: boolean
+  execution?: ChatTurnHistory
 }
 
 type ChatMessageRow = { kind: "message"; message: ChatMessage } | ChatReplyRow
@@ -29,6 +31,16 @@ export function groupChatMessages(messages: ChatMessage[]): ChatMessageRow[] {
 
   for (const message of messages) {
     if (message.role === "user") {
+      if (message.turnId) {
+        if (!reply || replyTurnId !== message.turnId) {
+          reply = { kind: "reply", id: message.turnId, parts: [] }
+          replyTurnId = message.turnId
+          awaitingToolContinuation = false
+          rows.push(reply)
+        }
+        reply.parts.push({ kind: "steering", message })
+        continue
+      }
       rows.push({ kind: "message", message })
       reply = undefined
       replyTurnId = undefined
@@ -36,7 +48,7 @@ export function groupChatMessages(messages: ChatMessage[]): ChatMessageRow[] {
       continue
     }
 
-    const turnId = TURN_MESSAGE.exec(message.id)?.[1]
+    const turnId = message.turnId || TURN_MESSAGE.exec(message.id)?.[1]
     const isThought = message.kind === "thought"
     const isToolCalls = message.kind === "tool_calls"
     const stepId = message.id.replace(/-(?:thought|tools)$/, "")

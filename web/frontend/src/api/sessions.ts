@@ -48,6 +48,7 @@ export interface SessionDetail {
   id: string
   messages: {
     message_id?: string
+    turn_id?: string
     role: "user" | "assistant"
     content: string
     created_at?: string

@@ -133,11 +133,14 @@ type processOptions struct {
 	AllowInterimPublish     bool                    // Whether tool-call interim text can be published for an inbound chat turn
 	SuppressToolFeedback    bool                    // Whether to suppress inline tool feedback messages
 	NoHistory               bool                    // If true, don't load session history (for heartbeat)
-	SkipInitialSteeringPoll bool                    // If true, skip the steering poll at loop start (used by Continue)
-	InboundContext          *bus.InboundContext     // Normalized inbound facts for events/hooks
-	RouteResult             *routing.ResolvedRoute  // Route decision snapshot for events/hooks
-	SessionScope            *session.SessionScope   // Session scope snapshot for events/hooks
-	runtime                 *runtimeSnapshot        // Dependency version captured at message intake
+	ResumeAnswer            bool                    // Finish an interrupted answer from saved context
+	ResumeReplyTurnID       string
+	ResumeIterationOffset   int
+	SkipInitialSteeringPoll bool                   // If true, skip the steering poll at loop start (used by Continue)
+	InboundContext          *bus.InboundContext    // Normalized inbound facts for events/hooks
+	RouteResult             *routing.ResolvedRoute // Route decision snapshot for events/hooks
+	SessionScope            *session.SessionScope  // Session scope snapshot for events/hooks
+	runtime                 *runtimeSnapshot       // Dependency version captured at message intake
 }
 
 type continuationTarget struct {
@@ -268,7 +271,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 						media.Unpin(mediaStore, []string{ref})
 					}
 				}
-				if isChatBranchMutation(msg) {
+				if isChatBranchMutation(msg) || msg.Context.Raw["task_action"] == "resume_answer" {
 					finishInboundMessage(runCtx, msg)
 					media.Unpin(mediaStore, msg.Media)
 					al.maybePublishError(
@@ -283,10 +286,11 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 
 				// Another turn is already active (or reserved) for this session — enqueue
 				if err := al.enqueueSteeringMessage(sessionKey, agentID, providers.Message{
-					ID:      msg.Context.MessageID,
-					Role:    "user",
-					Content: msg.Content,
-					Media:   append([]string(nil), msg.Media...),
+					ID:          msg.Context.MessageID,
+					Role:        "user",
+					Content:     msg.Content,
+					Media:       append([]string(nil), msg.Media...),
+					Attachments: providerAttachmentsFromInbound(msg.Attachments),
 				}); err != nil {
 					media.Unpin(mediaStore, msg.Media)
 					logger.WarnCF("agent", "Failed to enqueue steering message",

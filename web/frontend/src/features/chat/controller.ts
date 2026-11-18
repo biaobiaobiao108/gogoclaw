@@ -196,8 +196,7 @@ export async function connectChat() {
             JSON.stringify({
               type: "turn.status.get",
               payload: {
-                include_recovery:
-                  firstStatusRequest || Boolean(state.activeTurn),
+                include_recovery: firstStatusRequest || activeWork,
               },
             }),
           )
@@ -278,7 +277,7 @@ export async function connectChat() {
             pendingOptimisticActions.delete(requestId)
           },
           onTurnSettled: () => {
-            pendingStatusWatchUntil = 0
+            if (wasActive) pendingStatusWatchUntil = 0
             pendingOptimisticActions.clear()
             if (wasActive || hadPendingOptimisticAction)
               void refreshActiveSessionHistory(sessionId)
@@ -318,8 +317,6 @@ export async function connectChat() {
       }
       updateChatStore({
         connectionState: "disconnected",
-        isTyping: false,
-        activeTurn: undefined,
       })
       updateChatStore((prev) => ({
         messages: prev.messages.map((message) =>
@@ -479,6 +476,7 @@ interface SendChatMessageInput {
   thinkingLevel?: string
   action?: "send" | "regenerate" | "edit"
   targetMessageId?: string
+  taskAction?: "stop" | "resume_answer"
 }
 
 export function sendChatMessage({
@@ -487,6 +485,7 @@ export function sendChatMessage({
   thinkingLevel,
   action = "send",
   targetMessageId,
+  taskAction,
 }: SendChatMessageInput) {
   if (!wsRef || wsRef.readyState !== WebSocket.OPEN) {
     console.warn("WebSocket not connected")
@@ -494,6 +493,23 @@ export function sendChatMessage({
   }
 
   const normalizedContent = content.trim()
+  if (taskAction) {
+    const id = `task-${++msgIdCounter}-${Date.now()}`
+    try {
+      wsRef.send(
+        JSON.stringify({
+          type: "message.send",
+          id,
+          payload: { task_action: taskAction },
+        }),
+      )
+      pendingStatusWatchUntil = Date.now() + 10_000
+      return true
+    } catch (error) {
+      console.error("Failed to send Pico task action:", error)
+      return false
+    }
+  }
   const normalizedAttachments = attachments
     .filter(
       (attachment) =>
@@ -541,7 +557,7 @@ export function sendChatMessage({
       ).at(-1)
       const firstPart = reply?.kind === "reply" ? reply.parts[0] : undefined
       const firstMessageId =
-        firstPart?.kind === "text"
+        firstPart && firstPart.kind !== "process"
           ? firstPart.message.id
           : firstPart?.messages[0]?.id
       const start = firstMessageId
@@ -582,6 +598,7 @@ export function sendChatMessage({
         {
           id,
           role: "user",
+          turnId: prev.activeTurn?.turnId,
           content: normalizedContent,
           attachments:
             normalizedAttachments.length > 0

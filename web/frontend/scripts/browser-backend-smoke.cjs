@@ -22,6 +22,21 @@ async function unusedPort() {
 
 const chatSentinel = "private-browser-input-91372"
 const replySentinel = "private-browser-answer-63725"
+const interimSentinel = "browser-interim-accepted-88923"
+
+const stopPrompt = "fixture-stop-test"
+const stoppedText = "fixture-partial-kept"
+const resumedText = "fixture-finished-without-tools"
+const reconnectPrompt = "fixture-reconnect-test"
+const reconnectStart = "fixture-stream-before-disconnect"
+const reconnectFinal = "fixture-stream-after-reconnect"
+const steeringPrompt = "fixture-steering-test"
+const steeringInput = "take a different direction"
+const steeringStart = "fixture-opening-before-steering"
+const steeringFinal = "fixture-answer-with-steering"
+const approvalPrompt = "fixture-approval-test"
+const approvalText = "fixture-before-approval"
+const approvalFinal = "fixture-after-approval"
 
 async function startModelFixture() {
   const server = http.createServer(async (request, response) => {
@@ -37,8 +52,113 @@ async function startModelFixture() {
     const chunks = []
     for await (const chunk of request) chunks.push(chunk)
     const body = Buffer.concat(chunks).toString("utf8")
-    if (!body.includes(chatSentinel)) {
+    if (
+      ![
+        chatSentinel,
+        stopPrompt,
+        reconnectPrompt,
+        approvalPrompt,
+        steeringPrompt,
+      ].some((value) => body.includes(value))
+    ) {
       response.writeHead(400).end()
+      return
+    }
+    const input = JSON.parse(body)
+    const hasToolResult = input.messages.some(
+      (message) => message.role === "tool",
+    )
+    const latest =
+      input.messages.filter((message) => message.role === "user").at(-1)
+        ?.content ?? ""
+    const isResume = String(latest).includes("Continue the interrupted answer")
+    const isStop = !isResume && body.includes(stopPrompt)
+    const isReconnect = body.includes(reconnectPrompt)
+    const isApproval = body.includes(approvalPrompt)
+    const isSteering = body.includes(steeringPrompt)
+    const receivedSteering = body.includes(steeringInput)
+    const needsTool = !isResume && !isStop && !isReconnect && !hasToolResult
+    const text = isResume
+      ? resumedText
+      : isStop
+        ? stoppedText
+        : isReconnect
+          ? reconnectStart
+          : isApproval
+            ? hasToolResult
+              ? approvalFinal
+              : approvalText
+            : isSteering
+              ? receivedSteering
+                ? steeringFinal
+                : hasToolResult
+                  ? "superseded content"
+                  : steeringStart
+              : hasToolResult
+                ? replySentinel
+                : interimSentinel
+    if (isSteering && receivedSteering)
+      server.steeringCount = input.messages.filter(
+        (message) =>
+          message.role === "user" &&
+          String(message.content).includes(steeringInput),
+      ).length
+    if (isResume) {
+      server.resumeTools = input.tools?.length ?? 0
+      server.resumeHasPartial = body.includes(stoppedText)
+    }
+    const toolCalls = [
+      {
+        index: 0,
+        id: "call_browser_list",
+        type: "function",
+        function: {
+          name: "list_dir",
+          arguments: JSON.stringify({ path: "." }),
+        },
+      },
+    ]
+    if (hasToolResult)
+      await new Promise((resolve) =>
+        setTimeout(resolve, isSteering && !receivedSteering ? 4000 : 1800),
+      )
+    if (input.stream) {
+      response.writeHead(200, { "Content-Type": "text/event-stream" })
+      const event = (delta, reason = null) => {
+        response.write(
+          "data: " +
+            JSON.stringify({
+              id: "fixture-completion",
+              object: "chat.completion.chunk",
+              model: "fixture-chat",
+              choices: [{ index: 0, delta, finish_reason: reason }],
+            }) +
+            "\n\n",
+        )
+      }
+      event({ role: "assistant", content: text })
+      if (isStop) {
+        await new Promise((resolve) => {
+          const timeout = setTimeout(resolve, 13000)
+          response.once("close", () => {
+            clearTimeout(timeout)
+            resolve()
+          })
+        })
+        if (response.destroyed) return
+      } else if (isReconnect) {
+        for (const part of [" hold", " reconnect", " now"]) {
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+          event({ content: part })
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2200))
+        event({ content: " " + reconnectFinal })
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 650))
+      }
+      if (needsTool) event({ tool_calls: toolCalls })
+      event({}, needsTool ? "tool_calls" : "stop")
+      response.end("data: [DONE]\n\n")
       return
     }
     response.writeHead(200, { "Content-Type": "application/json" })
@@ -50,8 +170,12 @@ async function startModelFixture() {
         choices: [
           {
             index: 0,
-            message: { role: "assistant", content: replySentinel },
-            finish_reason: "stop",
+            message: {
+              role: "assistant",
+              content: text,
+              ...(needsTool ? { tool_calls: toolCalls } : {}),
+            },
+            finish_reason: needsTool ? "tool_calls" : "stop",
           },
         ],
         usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
@@ -88,7 +212,7 @@ async function checkLocalChat(page, base, model) {
           model: "fixture-chat",
           api_base: modelBase,
           api_key: "fixture-key",
-          streaming: { enabled: false },
+          streaming: { enabled: true },
         })) ??
         (await write("/api/models/default", "POST", {
           model_name: "browser-loopback-model",
@@ -98,6 +222,32 @@ async function checkLocalChat(page, base, model) {
     { gatewayPort, modelBase },
   )
   if (prepare) throw new Error(prepare)
+  await page.addInitScript(() => {
+    const NativeWebSocket = window.WebSocket
+    window.WebSocket = class extends NativeWebSocket {
+      constructor(...args) {
+        super(...args)
+        if (String(args[0]).includes("session_id=")) window.qaChatSocket = this
+      }
+    }
+  })
+  const frames = []
+  const acknowledgments = []
+  page.on("websocket", (socket) => {
+    socket.on("framereceived", ({ payload }) => {
+      try {
+        frames.push(JSON.parse(payload))
+      } catch {}
+    })
+    socket.on("framesent", ({ payload }) => {
+      try {
+        const message = JSON.parse(payload)
+        if (message.type === "delivery.ack")
+          acknowledgments.push(message.payload.delivery_id)
+      } catch {}
+    })
+  })
+
   await page.goto(`${base}/chat`)
   await page
     .locator("main")
@@ -111,13 +261,66 @@ async function checkLocalChat(page, base, model) {
     null,
     { timeout: 15000, polling: 500 },
   )
+
   const input = page.locator('textarea:not([aria-hidden="true"])')
   await input.fill(chatSentinel, { timeout: 10000 })
   await input.press("Enter")
   await page
+    .getByText(interimSentinel, { exact: true })
+    .waitFor({ timeout: 15000 })
+  const answer = page.locator("article").filter({ hasText: interimSentinel })
+  await answer
+    .locator("button[aria-expanded]")
+    .first()
+    .waitFor({ timeout: 10000 })
+  if (
+    await answer.getByRole("button", { name: /Copy message|复制消息/ }).count()
+  )
+    throw new Error(
+      "The in-progress answer exposes premature controls: " +
+        JSON.stringify(
+          frames.map((frame) => ({ type: frame.type, ...frame.payload })),
+        ),
+    )
+  await page
     .getByText(replySentinel, { exact: true })
     .waitFor({ timeout: 15000 })
 
+  const interim = page.getByText(interimSentinel, { exact: true })
+  if ((await interim.count()) !== 1)
+    throw new Error("Interim text missing or duplicated after final")
+  const deadline = Date.now() + 3500
+  let delivered
+  while (Date.now() < deadline) {
+    delivered = [interimSentinel, replySentinel].map((text) =>
+      frames.find(
+        (frame) => frame.payload?.content === text && frame.payload.delivery_id,
+      ),
+    )
+    if (
+      delivered.every(
+        (frame) => frame && acknowledgments.includes(frame.payload.delivery_id),
+      )
+    )
+      break
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  }
+  if (
+    !delivered.every(
+      (frame) => frame && acknowledgments.includes(frame.payload.delivery_id),
+    )
+  )
+    throw new Error("Missing completion acknowledgment for interim or final")
+  if (delivered.some((frame) => frame.payload.stream_draft !== false))
+    throw new Error("Completed stream did not carry its completion marker")
+  if (
+    frames.some(
+      (frame) => frame.payload?.stream_draft && frame.payload.delivery_id,
+    )
+  )
+    throw new Error("A draft unexpectedly requested a delivery acknowledgment")
+  await answer.getByText(replySentinel, { exact: true }).waitFor()
+  if ((await answer.count()) !== 1) throw new Error("Live reply is split")
   const chatURL = page.url()
   await page.reload()
   await page
@@ -146,6 +349,231 @@ async function checkLocalChat(page, base, model) {
         { cause: error },
       )
     })
+  await interim.waitFor({ timeout: 10000 })
+  if ((await interim.count()) !== 1)
+    throw new Error("Interim text duplicated after reload")
+  async function checkOneAnswer() {
+    if ((await answer.count()) !== 1)
+      throw new Error("Interim text did not stay in one reply")
+    await answer.getByText(replySentinel, { exact: true }).waitFor()
+    const process = answer.getByRole("button", {
+      name: /^(?:Thinking and tools|思考与工具)/,
+    })
+    if ((await process.getAttribute("aria-expanded")) !== "false")
+      throw new Error("The tool process should be collapsed by default")
+    const parts = await answer.textContent()
+    const toolPosition = parts.search(/1 calls|1 次调用/)
+    if (
+      parts.indexOf(interimSentinel) >= toolPosition ||
+      toolPosition >= parts.indexOf(replySentinel)
+    )
+      throw new Error("Reply segments and process are out of order: " + parts)
+    const copy = answer.getByRole("button", { name: /Copy message|复制消息/ })
+    const regenerate = answer.getByRole("button", {
+      name: /Regenerate|重新生成/,
+    })
+    await copy.waitFor()
+    if ((await copy.count()) !== 1 || (await regenerate.count()) !== 1)
+      throw new Error("Reply controls appear more than once")
+    await process.click()
+    await answer.getByText("list_dir", { exact: true }).waitFor()
+    await process.click()
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+    await copy.focus()
+    await copy.click()
+    const contents = await page.evaluate(() => navigator.clipboard.readText())
+    if (
+      contents.replaceAll("\r\n", "\n") !==
+      interimSentinel + "\n\n" + replySentinel
+    )
+      throw new Error(
+        "Copy did not include the complete reply: " + JSON.stringify(contents),
+      )
+  }
+  await checkOneAnswer()
+  if (process.env.GOGOCLAW_QA_SCREENSHOT)
+    await page.screenshot({ path: process.env.GOGOCLAW_QA_SCREENSHOT })
+  console.log(
+    "Verified one reply before/after reload, chronological process, unique controls, whole-reply copy, and completion receipts",
+  )
+  await answer.getByRole("button", { name: /Regenerate|重新生成/ }).focus()
+  await answer.getByRole("button", { name: /Regenerate|重新生成/ }).click()
+  await page
+    .getByText(replySentinel, { exact: true })
+    .waitFor({ state: "hidden", timeout: 4000 })
+  await page
+    .getByText(replySentinel, { exact: true })
+    .waitFor({ timeout: 15000 })
+  if ((await interim.count()) !== 1)
+    throw new Error("Regeneration left the old interim text")
+  console.log("Verified regeneration replaced the whole reply")
+  const newChat = () =>
+    page
+      .getByRole("button", { name: /^(New chat|新建对话)$/ })
+      .first()
+      .click()
+  const send = async (text) => {
+    await input.fill(text, { timeout: 10000 })
+    await input.press("Enter")
+  }
+  await newChat()
+  await send(reconnectPrompt)
+  await page
+    .locator("article")
+    .getByText(reconnectStart, { exact: true })
+    .waitFor({ timeout: 15000 })
+  await page.evaluate(() =>
+    window.qaChatSocket.close(1000, "fixture disconnect"),
+  )
+  await page
+    .getByText(/Reconnecting to the task|正在重新连接任务/)
+    .waitFor({ timeout: 4000 })
+  await page.getByText(new RegExp(reconnectFinal)).waitFor({ timeout: 15000 })
+  if (
+    (await page
+      .locator("article")
+      .filter({ hasText: reconnectStart })
+      .count()) !== 1
+  )
+    throw new Error("Reconnect split the reply")
+  console.log("Verified socket reconnect")
+
+  await newChat()
+  await send(steeringPrompt)
+  const steeringReply = page
+    .locator("article")
+    .filter({ hasText: steeringStart })
+  await steeringReply
+    .locator("button[aria-expanded]")
+    .first()
+    .waitFor({ timeout: 10000 })
+  await page
+    .getByPlaceholder(/Add instructions for this task|为当前任务补充指令/)
+    .waitFor()
+  await send(steeringInput)
+  await steeringReply
+    .getByText(steeringFinal, { exact: true })
+    .waitFor({ timeout: 18000 })
+  if (
+    (await steeringReply.getByText(steeringInput, { exact: true }).count()) !==
+    1
+  )
+    throw new Error(
+      "The steering instruction appears more than once or is missing",
+    )
+  await page.reload()
+  await steeringReply
+    .getByText(steeringFinal, { exact: true })
+    .waitFor({ timeout: 15000 })
+  if (
+    (await steeringReply.getByText(steeringInput, { exact: true }).count()) !==
+    1
+  )
+    throw new Error(
+      "The steering instruction appears more than once or is missing",
+    )
+  if (model.steeringCount !== 1)
+    throw new Error(
+      "The model did not receive the steering instruction exactly once",
+    )
+  console.log(
+    "Verified additional instructions stayed in the live and saved reply",
+  )
+
+  await newChat()
+  await send(stopPrompt)
+  await page
+    .locator("article")
+    .getByText(stoppedText, { exact: true })
+    .waitFor({ timeout: 15000 })
+  await page.getByRole("button", { name: /^(Stop task|停止任务)$/i }).click()
+  const continuation = page.getByRole("button", {
+    name: /^(Continue writing|继续写完回答)$/,
+  })
+  await continuation.waitFor({ timeout: 10000 })
+  await page.reload()
+  await page
+    .locator("article")
+    .getByText(stoppedText, { exact: true })
+    .waitFor({ timeout: 15000 })
+  if (await page.getByText("/stop", { exact: true }).count())
+    throw new Error("Stop leaked a command message")
+  await continuation.click()
+  await page.getByText(resumedText, { exact: true }).waitFor({ timeout: 15000 })
+  if (model.resumeTools !== 0 || !model.resumeHasPartial)
+    throw new Error("Continuation must use saved text without providing tools")
+  const stoppedReply = page.locator("article").filter({ hasText: stoppedText })
+  await stoppedReply.getByText(resumedText, { exact: true }).waitFor()
+  await page.reload()
+  await stoppedReply.getByText(resumedText, { exact: true }).waitFor()
+  console.log("Verified stop and reload, then text-only continuation")
+
+  await newChat()
+  await page.evaluate(async () => {
+    const r = await fetch("/api/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tools: {
+          approval: {
+            enabled: true,
+            yolo: false,
+            tools: ["list_dir"],
+            timeout_seconds: 90,
+          },
+        },
+      }),
+    })
+    if (!r.ok)
+      throw new Error(
+        "Failed to set fixture approval policy: " + (await r.text()),
+      )
+    const restart = await fetch("/api/gateway/restart", { method: "POST" })
+    if (!restart.ok)
+      throw new Error(
+        "Failed to restart the fixture gateway: " + (await restart.text()),
+      )
+  })
+  await page.waitForFunction(
+    async () => {
+      const response = await fetch("/api/gateway/readiness")
+      return response.ok && (await response.json()).status === "ready"
+    },
+    null,
+    { timeout: 15000, polling: 500 },
+  )
+  await page.reload()
+  await send(approvalPrompt)
+  const approve = page.getByRole("button", {
+    name: /^(Approve once|批准一次)$/i,
+  })
+  await approve.waitFor({ timeout: 15000 }).catch(async (error) => {
+    const status = frames
+      .filter(
+        (frame) =>
+          frame.type === "approval.request" || frame.type === "turn.status",
+      )
+      .slice(-5)
+    throw new Error(
+      "Approval prompt did not appear: " + JSON.stringify(status),
+      { cause: error },
+    )
+  })
+  await page
+    .getByText(/Waiting for approval|等待批准/)
+    .first()
+    .waitFor()
+  await page.reload()
+  await page
+    .locator("article")
+    .getByText(approvalText, { exact: true })
+    .waitFor({ timeout: 15000 })
+  await approve.waitFor({ timeout: 15000 })
+  await approve.click()
+  await page
+    .getByText(approvalFinal, { exact: true })
+    .waitFor({ timeout: 15000 })
+  console.log("Verified approval after reload")
   const logOutput = await page.evaluate(async () =>
     (await fetch("/api/gateway/logs")).json(),
   )
@@ -208,7 +636,10 @@ async function main() {
         : {}),
     })
     page = await browser.newPage({
-      viewport: { width: 390, height: 844 },
+      viewport: {
+        width: Number(process.env.GOGOCLAW_QA_WIDTH || 390),
+        height: 844,
+      },
     })
     await page.addInitScript(() => localStorage.setItem("theme", "dark"))
     const errors = []
@@ -404,6 +835,10 @@ async function main() {
     )
       throw new Error("Mobile page overflows")
     model = await startModelFixture()
+    await page.setViewportSize({
+      width: Number(process.env.GOGOCLAW_QA_WIDTH || 390),
+      height: 844,
+    })
     await checkLocalChat(page, base, model)
     if (errors.length) throw new Error(`Browser errors: ${errors.join(", ")}`)
     console.log(

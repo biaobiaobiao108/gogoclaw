@@ -213,7 +213,6 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 
 	// Convenience references to exec fields used throughout the turn loop.
 	messages := exec.messages
-	pendingMessages := exec.pendingMessages
 	maxMediaSize := pipeline.Cfg.Agents.Defaults.GetMaxMediaSize()
 	finalContent := exec.finalContent
 	finalizedEarly := false
@@ -243,14 +242,9 @@ turnLoop:
 				}
 			}
 
-			if iteration > 1 {
-				// For subsequent iterations, read from exec.pendingMessages which
-				// is where ExecuteTools (or initial poll) deposits steering.
-				if len(exec.pendingMessages) > 0 {
-					pendingMessages = append(pendingMessages, exec.pendingMessages...)
-					exec.pendingMessages = nil
-				}
-			} else if !ts.opts.SkipInitialSteeringPoll {
+			pendingMessages := exec.pendingMessages
+			exec.pendingMessages = nil
+			if iteration == 1 && !ts.opts.SkipInitialSteeringPoll {
 				if steerMsgs := al.dequeueSteeringMessagesForScopeWithFallback(ts.sessionKey); len(steerMsgs) > 0 {
 					pendingMessages = append(pendingMessages, steerMsgs...)
 				}
@@ -278,6 +272,12 @@ turnLoop:
 				resolvedPending := resolveMediaRefs(pendingMessages, mediaStore, maxMediaSize, 0)
 				totalContentLen := 0
 				for i, pm := range pendingMessages {
+					if ts.channel == "pico" && pm.Role == "user" {
+						pm.SteeringTurnID = ts.turnID
+						if ts.opts.ResumeReplyTurnID != "" {
+							pm.SteeringTurnID = ts.opts.ResumeReplyTurnID
+						}
+					}
 					messages = append(messages, resolvedPending[i])
 					totalContentLen += len(pm.Content)
 					if !ts.opts.NoHistory {
@@ -307,7 +307,6 @@ turnLoop:
 						TotalContentLen: totalContentLen,
 					},
 				)
-				exec.pendingMessages = nil
 			}
 
 			// Async completions are consumed exactly once, here, before the
@@ -345,7 +344,6 @@ turnLoop:
 				return turnResult{}, callErr
 			}
 			messages = exec.messages
-			pendingMessages = exec.pendingMessages
 			finalContent = exec.finalContent
 
 			switch ctrl {
@@ -546,8 +544,9 @@ func (ts *turnState) saveTurnCheckpoint(status, tool string) error {
 	return al.updateTurnCheckpoint(store, ts.sessionKey, func(previous *session.TurnCheckpoint) error {
 		checkpoint := session.TurnCheckpoint{
 			TurnID: ts.turnID, Status: status, Iteration: ts.currentIteration(), Tool: tool,
-			EndReason: string(ts.endReasonSnapshot()),
-			StartedAt: ts.startedAt.UTC(), UpdatedAt: time.Now().UTC(),
+			ReplyTurnID: ts.opts.ResumeReplyTurnID,
+			EndReason:   string(ts.endReasonSnapshot()),
+			StartedAt:   ts.startedAt.UTC(), UpdatedAt: time.Now().UTC(),
 			Activities: ts.activitiesSnapshot(),
 			ToolItems:  ts.toolItemsSnapshot(),
 			Usage:      ts.contextUsageSnapshot(),
@@ -557,6 +556,7 @@ func (ts *turnState) saveTurnCheckpoint(status, tool string) error {
 		checkpoint.Delivery = previous.Delivery
 		checkpoint.Approval = previous.Approval
 		starting := status == "running" && checkpoint.Iteration == 0
+		checkpoint.Iteration += ts.opts.ResumeIterationOffset
 		if ts.tools != nil {
 			if starting {
 				ts.tools.RestoreUsedDiscoveredTools(previous.UsedDiscoveredTools)
@@ -615,7 +615,7 @@ func (al *AgentLoop) abortTurn(ts *turnState) (turnResult, error) {
 			}
 			break
 		}
-		if len(persisted) > 0 {
+		if len(persisted) > 0 && ts.channel != "pico" {
 			msg := providers.Message{Role: "assistant", Content: "Task stopped. Completed work is retained; unfinished tool effects may be unknown. Ask me to continue when ready."}
 			if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, msg); err != nil {
 				return turnResult{}, fmt.Errorf("write interrupted turn: %w", err)
@@ -668,6 +668,12 @@ func (al *AgentLoop) repairInterruptedToolCalls(ctx context.Context, ts *turnSta
 			return err
 		}
 		repaired = true
+	}
+	if ts.channel == "pico" {
+		if !repaired {
+			return nil
+		}
+		return ts.agent.Sessions.Save(ts.sessionKey)
 	}
 	content := "The previous task was interrupted after the recorded tool results. Inspect the current state before continuing."
 	if repaired {

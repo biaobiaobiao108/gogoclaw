@@ -67,6 +67,7 @@ type turnResult struct {
 
 type ActiveTurnInfo struct {
 	TurnID       string
+	ReplyTurnID  string
 	AgentID      string
 	SessionKey   string
 	Channel      string
@@ -495,6 +496,7 @@ func (ts *turnState) snapshot() ActiveTurnInfo {
 
 	return ActiveTurnInfo{
 		TurnID:       ts.turnID,
+		ReplyTurnID:  ts.opts.ResumeReplyTurnID,
 		AgentID:      ts.agentID,
 		SessionKey:   ts.sessionKey,
 		Channel:      ts.channel,

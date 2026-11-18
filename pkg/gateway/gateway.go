@@ -579,6 +579,9 @@ func configurePicoChannel(agentLoop *agent.AgentLoop, channel channels.Channel) 
 				return result
 			}
 			result := map[string]any{"active": true, "turn_id": turn.TurnID, "phase": turn.Phase, "iteration": turn.Iteration, "plan": turn.Plan}
+			if turn.ReplyTurnID != "" {
+				result["reply_turn_id"] = turn.ReplyTurnID
+			}
 			if len(turn.Activities) > 0 {
 				result["activities"] = turn.Activities
 				for i := len(turn.Activities) - 1; i >= 0; i-- {

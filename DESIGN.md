@@ -103,6 +103,8 @@ Chat follows the requested ChatGPT direction: white / #212121 canvas, #f4f4f4 / 
 
 Each assistant turn occupies one reply. Text and collapsible process steps stay in chronological order within the reply. Copy, feedback, regenerate and recorded answer-version controls appear once below it. Source citations render as a numbered list below the relevant text. Attachments support images and other files through upload, drag/drop and paste, with pending and failed states kept in the composer.
 
+Keep the current status inside a visible reply. Approval and connection recovery take precedence over ordinary progress. Recorded execution details belong with the relevant reply when its turn is present. Instructions added during a turn appear at the point they were introduced.
+
 History navigation inherits the console background, 6px control radius, and 40px single-line rows without date metadata, leaving the full row width for the title and its right-aligned action. A 240px history pane sits below the page header; its named toggle stays on the left of that header in both open and closed states. App navigation and conversation history remain distinct controls. History search queries server-side across all sessions; pin, rename and archive are available from each row, while archived sessions use the same pane with a named filter toggle.
 
 The desktop app menu is always expanded; page headers and the app menu edge have no collapse controls. Mobile keeps its menu drawer trigger. Conversation history retains its own left-aligned toggle.

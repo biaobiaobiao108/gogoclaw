@@ -81,6 +81,7 @@ export type MessageDeliveryStatus =
 
 export interface ChatMessage {
   id: string
+  turnId?: string
   role: "user" | "assistant"
   content: string
   timestamp: number | string

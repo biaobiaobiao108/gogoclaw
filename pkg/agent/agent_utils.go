@@ -148,6 +148,9 @@ func assistantResponseID(ts *turnState, exec *turnExecution) string {
 	if exec != nil && exec.streamingDelivery != nil {
 		return exec.streamingDelivery.ID
 	}
+	if ts.opts.ResumeReplyTurnID != "" {
+		return fmt.Sprintf("%s-llm-%d", ts.opts.ResumeReplyTurnID, ts.opts.ResumeIterationOffset+ts.currentIteration())
+	}
 	return fmt.Sprintf("%s-llm-%d", ts.turnID, ts.currentIteration())
 }
 

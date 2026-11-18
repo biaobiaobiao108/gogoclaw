@@ -389,8 +389,8 @@ func (s *SQLiteStore) readMessages(ctx context.Context, sessionKey string, activ
 	return messages, nil
 }
 
-// GetTranscriptPage returns the newest messages before beforeID. The cursor is
-// the database message id and remains valid across edits and deletes.
+// GetTranscriptPage returns the newest messages before beforeID. It extends a
+// page when the oldest turn crosses the limit. The cursor is a database row ID.
 func (s *SQLiteStore) GetTranscriptPage(ctx context.Context, sessionKey string, limit int, beforeID int64) (MessagePage, error) {
 	ctx = sqliteContext(ctx)
 	if limit <= 0 {
@@ -403,8 +403,7 @@ func (s *SQLiteStore) GetTranscriptPage(ctx context.Context, sessionKey string, 
 		query += ` AND id < ?`
 		args = append(args, beforeID)
 	}
-	query += ` ORDER BY id DESC LIMIT ?`
-	args = append(args, limit+1)
+	query += ` ORDER BY id DESC`
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -416,7 +415,10 @@ func (s *SQLiteStore) GetTranscriptPage(ctx context.Context, sessionKey string, 
 		id      int64
 		message providers.Message
 	}
-	records := make([]record, 0, limit+1)
+	records := make([]record, 0, limit)
+	var olderToolResults []record
+	var boundaryTurn string
+	var boundaryNeedsToolCall, hasMore bool
 	for rows.Next() {
 		var id int64
 		var payload []byte
@@ -430,16 +432,44 @@ func (s *SQLiteStore) GetTranscriptPage(ctx context.Context, sessionKey string, 
 		if messageutil.IsTransientAssistantThoughtMessage(msg) {
 			continue
 		}
-		records = append(records, record{id: id, message: msg})
+		entry := record{id: id, message: msg}
+		turnID := msg.SteeringTurnID
+		if msg.Role == "assistant" {
+			turnID = messageutil.AssistantTurnID(msg.ID)
+		}
+		if len(records) < limit {
+			records = append(records, entry)
+			if len(records) == limit {
+				boundaryTurn = turnID
+				boundaryNeedsToolCall = msg.Role == "tool"
+			}
+			continue
+		}
+		if (boundaryTurn != "" || boundaryNeedsToolCall) && msg.Role == "tool" {
+			olderToolResults = append(olderToolResults, entry)
+			continue
+		}
+		if (msg.Role == "assistant" && boundaryNeedsToolCall) || (turnID != "" && turnID == boundaryTurn) {
+			records = append(records, olderToolResults...)
+			records = append(records, entry)
+			olderToolResults = olderToolResults[:0]
+			boundaryTurn = turnID
+			boundaryNeedsToolCall = false
+			continue
+		}
+		if boundaryTurn != "" && msg.Role == "user" && turnID == "" && len(olderToolResults) == 0 {
+			records = append(records, entry)
+			boundaryTurn = ""
+			continue
+		}
+		hasMore = true
+		break
 	}
 	if err := rows.Err(); err != nil {
 		return MessagePage{}, fmt.Errorf("memory: iterate session page: %w", err)
 	}
 
-	hasMore := len(records) > limit
-	if hasMore {
-		records = records[:limit]
-	}
+	hasMore = hasMore || len(olderToolResults) > 0
 	page := MessagePage{HasMore: hasMore}
 	for i := len(records) - 1; i >= 0; i-- {
 		page.Messages = append(page.Messages, records[i].message)

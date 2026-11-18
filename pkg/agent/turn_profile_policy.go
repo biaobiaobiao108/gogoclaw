@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
@@ -15,13 +16,19 @@ func resolveTurnProfileOptions(cfg *config.Config, opts processOptions) (process
 	if err != nil {
 		return opts, err
 	}
-	if !ok {
-		return opts, nil
+	if ok {
+		opts.TurnProfile = profile
+		if profile.HistoryMode == config.TurnProfileModeOff {
+			opts.NoHistory = true
+			opts.EnableSummary = false
+		}
 	}
-	opts.TurnProfile = profile
-	if profile.HistoryMode == config.TurnProfileModeOff {
-		opts.NoHistory = true
-		opts.EnableSummary = false
+	if opts.ResumeAnswer {
+		if opts.NoHistory {
+			return opts, fmt.Errorf("continuing an interrupted answer requires conversation history")
+		}
+		opts.TurnProfile.Enabled = true
+		opts.TurnProfile.ToolsMode = config.TurnProfileModeOff
 	}
 	return opts, nil
 }

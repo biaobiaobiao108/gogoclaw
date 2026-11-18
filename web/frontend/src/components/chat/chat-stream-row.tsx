@@ -44,6 +44,7 @@ interface ChatStreamRowContentProps {
   onRetryMessage: (messageId: string) => void
   activeTurn?: ChatStoreState["activeTurn"]
   recentActivities: ChatStoreState["recentActivities"]
+  waitingForApproval?: boolean
   expandedProcesses: Record<string, boolean>
   onToggleProcess: (messageId: string) => void
 }
@@ -72,6 +73,7 @@ export function ChatStreamRowContent({
   onRetryMessage,
   activeTurn,
   recentActivities,
+  waitingForApproval,
   expandedProcesses,
   onToggleProcess,
 }: ChatStreamRowContentProps) {
@@ -172,6 +174,10 @@ export function ChatStreamRowContent({
 
   if (row.kind === "reply") {
     const { lastText } = row
+    const lastProcess = [...row.parts]
+      .reverse()
+      .find((part) => part.kind === "process")
+    const reconnecting = connectionState !== "connected" && row.active
     const copyText =
       lastText && !row.active
         ? row.parts
@@ -185,6 +191,26 @@ export function ChatStreamRowContent({
     return (
       <article className="group w-full">
         {row.parts.map((part, index) => {
+          if (part.kind === "steering") {
+            return (
+              <div
+                key={part.message.id}
+                className="text-muted-foreground py-2 text-sm"
+              >
+                <span className="text-xs">{t("chat.steeringInstruction")}</span>
+                <UserMessage
+                  content={part.message.content}
+                  attachments={part.message.attachments}
+                  deliveryStatus={part.message.deliveryStatus}
+                  onRetry={
+                    connectionState === "connected"
+                      ? () => onRetryMessage(part.message.id)
+                      : undefined
+                  }
+                />
+              </div>
+            )
+          }
           if (part.kind === "text") {
             return (
               <AssistantMessage
@@ -206,11 +232,29 @@ export function ChatStreamRowContent({
               isTurnActive={active}
               activeTurn={active ? activeTurn : undefined}
               activities={active ? recentActivities : undefined}
+              execution={part === lastProcess ? row.execution : undefined}
+              waitingForApproval={active && waitingForApproval}
+              reconnecting={active && reconnecting}
               expanded={expandedProcesses[processId] ?? false}
               onToggle={() => onToggleProcess(processId)}
             />
           )
         })}
+        {row.active && row.parts.at(-1)?.kind !== "process" && (
+          <ActiveWorkIndicator
+            activeTurn={activeTurn}
+            activities={recentActivities}
+            waitingForApproval={waitingForApproval}
+            reconnecting={reconnecting}
+            hasText={Boolean(lastText)}
+          />
+        )}
+        {row.execution && !lastProcess && (
+          <ActivityTimeline
+            plan={row.execution.plan}
+            activities={row.execution.activities}
+          />
+        )}
         {lastText && copyText && (
           <AssistantMessageActions
             content={copyText}
@@ -234,6 +278,8 @@ export function ChatStreamRowContent({
       <ActiveWorkIndicator
         activeTurn={activeTurn}
         activities={recentActivities ?? []}
+        waitingForApproval={waitingForApproval}
+        reconnecting={connectionState !== "connected"}
       />
     )
   }

@@ -89,6 +89,7 @@ type cachedSessionRefs struct {
 
 type sessionChatMessage struct {
 	ID          string                  `json:"message_id,omitempty"`
+	TurnID      string                  `json:"turn_id,omitempty"`
 	Role        string                  `json:"role"`
 	Content     string                  `json:"content"`
 	Kind        string                  `json:"kind,omitempty"`

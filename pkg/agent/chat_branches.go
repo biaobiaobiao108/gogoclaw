@@ -99,7 +99,7 @@ func (al *AgentLoop) branchLock(sessionID string) *sync.Mutex {
 
 func findBranchRoot(history []providers.Message, assistantIndex int) (providers.Message, int) {
 	for i := assistantIndex - 1; i >= 0; i-- {
-		if history[i].Role == "user" {
+		if history[i].Role == "user" && history[i].SteeringTurnID == "" {
 			return history[i], i
 		}
 	}
@@ -430,7 +430,7 @@ func (al *AgentLoop) prepareChatBranchRequest(ctx context.Context, msg bus.Inbou
 			break
 		}
 	}
-	if targetIndex < 0 || history[targetIndex].Role != "user" {
+	if targetIndex < 0 || history[targetIndex].Role != "user" || history[targetIndex].SteeringTurnID != "" {
 		return msg, true, fmt.Errorf("user message %q not found", editID)
 	}
 	target := history[targetIndex]
@@ -455,7 +455,7 @@ func (al *AgentLoop) prepareChatBranchRequest(ctx context.Context, msg bus.Inbou
 func findBranchAnswer(history []providers.Message, userIndex int) (providers.Message, bool) {
 	var answer providers.Message
 	for index := userIndex + 1; index < len(history); index++ {
-		if history[index].Role == "user" {
+		if history[index].Role == "user" && history[index].SteeringTurnID == "" {
 			break
 		}
 		if history[index].Role != "assistant" || messageutil.IsTransientAssistantThoughtMessage(history[index]) {

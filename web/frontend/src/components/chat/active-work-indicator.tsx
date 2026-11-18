@@ -8,11 +8,19 @@ function activeLabel({
   t,
   activeTurn,
   activities,
+  waitingForApproval,
+  reconnecting,
+  hasText,
 }: {
   t: TFunction
   activeTurn?: ChatStoreState["activeTurn"]
   activities: ChatActivity[]
+  waitingForApproval?: boolean
+  reconnecting?: boolean
+  hasText?: boolean
 }) {
+  if (reconnecting) return t("chat.reconnectingReply")
+  if (waitingForApproval) return t("chat.waitingForApproval")
   const turnActivities = activeTurn?.activities ?? []
   const current =
     activeTurn?.activity ??
@@ -22,18 +30,31 @@ function activeLabel({
   if (current?.title) return current.title
   if (activeTurn?.phase === "tools") return t("chat.workingWithTools")
   if (activeTurn?.phase === "finalizing") return t("chat.workingFinalizing")
-  return t("chat.working")
+  return t(hasText ? "chat.workingContinuing" : "chat.working")
 }
 
 export function ActiveWorkIndicator({
   activeTurn,
   activities = [],
+  waitingForApproval,
+  reconnecting,
+  hasText,
 }: {
   activeTurn?: ChatStoreState["activeTurn"]
   activities?: ChatActivity[]
+  waitingForApproval?: boolean
+  reconnecting?: boolean
+  hasText?: boolean
 }) {
   const { t } = useTranslation()
-  const label = activeLabel({ t, activeTurn, activities })
+  const label = activeLabel({
+    t,
+    activeTurn,
+    activities,
+    waitingForApproval,
+    reconnecting,
+    hasText,
+  })
   const turnActivities = activeTurn?.activities ?? []
   const isTool = Boolean(
     activeTurn?.activity ??

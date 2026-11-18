@@ -72,6 +72,7 @@ export async function loadSessionHistory(sessionId: string): Promise<{
     const id = historyMessageId(message, index)
     return {
       id,
+      turnId: message.turn_id,
       role: message.role,
       content: message.content,
       kind:
@@ -174,6 +175,7 @@ export async function loadOlderSessionHistory(
       const id = historyMessageId(message, index, cursor)
       return {
         id,
+        turnId: message.turn_id,
         role: message.role,
         content: message.content,
         kind:

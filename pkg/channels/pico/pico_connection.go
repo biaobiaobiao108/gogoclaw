@@ -591,6 +591,17 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		return
 	}
 	content, _ := msg.Payload["content"].(string)
+	taskAction, _ := msg.Payload["task_action"].(string)
+	switch taskAction {
+	case "stop":
+		content = "/stop"
+	case "resume_answer":
+		content = ""
+	case "":
+	default:
+		pc.writeJSON(newErrorWithPayload("invalid_task_action", "unknown task action", map[string]any{"request_id": msg.ID}))
+		return
+	}
 	media, attachments, err := parsePicoAttachmentPayload(pc.sessionID, msg.Payload, c.attachmentResolve)
 	if err != nil {
 		errMsg := newErrorWithPayload("invalid_media", err.Error(), map[string]any{
@@ -602,14 +613,19 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 
 	regenerateID, _ := msg.Payload["regenerate_from_message_id"].(string)
 	editID, _ := msg.Payload["edit_message_id"].(string)
-	if (strings.TrimSpace(regenerateID) != "" || strings.TrimSpace(editID) != "") &&
+	if (strings.TrimSpace(regenerateID) != "" || strings.TrimSpace(editID) != "" || taskAction == "resume_answer") &&
 		c.sessionBusy != nil && c.sessionBusy(pc.sessionID) {
 		pc.writeJSON(newErrorWithPayload("session_busy", "stop the active task before editing or regenerating an answer", map[string]any{
 			"request_id": msg.ID,
 		}))
 		return
 	}
-	if strings.TrimSpace(content) == "" && len(media) == 0 && strings.TrimSpace(regenerateID) == "" && strings.TrimSpace(editID) == "" {
+	if taskAction == "resume_answer" && (len(media) > 0 || len(attachments) > 0 ||
+		strings.TrimSpace(regenerateID) != "" || strings.TrimSpace(editID) != "") {
+		pc.writeJSON(newErrorWithPayload("invalid_task_action", "resume takes no attachments or branch target", map[string]any{"request_id": msg.ID}))
+		return
+	}
+	if taskAction == "" && strings.TrimSpace(content) == "" && len(media) == 0 && strings.TrimSpace(regenerateID) == "" && strings.TrimSpace(editID) == "" {
 		errMsg := newErrorWithPayload("empty_content", "message content is empty", map[string]any{
 			"request_id": msg.ID,
 		})
@@ -626,6 +642,9 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		"platform":   "pico",
 		"session_id": sessionID,
 		"conn_id":    pc.id,
+	}
+	if taskAction != "" {
+		metadata["task_action"] = taskAction
 	}
 	for _, key := range []string{"thinking_level", "regenerate_from_message_id", "edit_message_id"} {
 		if value, ok := msg.Payload[key].(string); ok && strings.TrimSpace(value) != "" {

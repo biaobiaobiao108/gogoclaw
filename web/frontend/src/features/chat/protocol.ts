@@ -293,10 +293,17 @@ export function handlePicoMessage(
       }
       updateChatStore({
         ...(contextUsage ? { contextUsage } : {}),
+        ...(!active && (hadActiveTurn || payload.interrupted === true)
+          ? { isTyping: false }
+          : {}),
         activeTurn: active
           ? {
               turnId:
-                typeof payload.turn_id === "string" ? payload.turn_id : "",
+                typeof payload.reply_turn_id === "string"
+                  ? payload.reply_turn_id
+                  : typeof payload.turn_id === "string"
+                    ? payload.turn_id
+                    : "",
               phase: typeof payload.phase === "string" ? payload.phase : "",
               iteration: Number(payload.iteration) || 0,
               plan,
@@ -333,6 +340,8 @@ export function handlePicoMessage(
     case "message.create":
     case "media.create": {
       const messageId = (payload.message_id as string) || `pico-${Date.now()}`
+      const turnId =
+        typeof payload.turn_id === "string" ? payload.turn_id : undefined
       const deliveryId =
         typeof payload.delivery_id === "string"
           ? payload.delivery_id
@@ -363,6 +372,7 @@ export function handlePicoMessage(
                     ...msg,
                     content,
                     kind,
+                    ...(turnId ? { turnId } : {}),
                     ...(modelName ? { modelName } : {}),
                     ...(toolCalls ? { toolCalls } : {}),
                     attachments,
@@ -378,6 +388,7 @@ export function handlePicoMessage(
               role: "assistant" as const,
               content,
               kind,
+              ...(turnId ? { turnId } : {}),
               ...(modelName ? { modelName } : {}),
               ...(toolCalls ? { toolCalls } : {}),
               attachments,
@@ -400,6 +411,8 @@ export function handlePicoMessage(
 
     case "message.update": {
       const messageId = payload.message_id as string
+      const turnId =
+        typeof payload.turn_id === "string" ? payload.turn_id : undefined
       const attachments = parseAttachments(payload)
       const contextUsage = parseContextUsage(payload)
       const modelName = parseModelName(payload)
@@ -432,6 +445,7 @@ export function handlePicoMessage(
               content,
               kind,
               toolCalls,
+              ...(turnId ? { turnId } : {}),
               ...(modelName ? { modelName } : {}),
               ...(attachments ? { attachments } : {}),
               ...(deliveryId ? { deliveryId } : {}),
@@ -452,6 +466,7 @@ export function handlePicoMessage(
               content,
               kind,
               toolCalls,
+              ...(turnId ? { turnId } : {}),
               ...(modelName ? { modelName } : {}),
               ...(attachments ? { attachments } : {}),
               ...(deliveryId ? { deliveryId } : {}),

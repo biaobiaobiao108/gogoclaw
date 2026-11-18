@@ -189,6 +189,34 @@ func TestSQLiteStoreTranscriptPagination(t *testing.T) {
 	}
 }
 
+func TestSQLiteStoreTranscriptPageKeepsAssistantTurnTogether(t *testing.T) {
+	ctx := t.Context()
+	store := newSQLiteTestStore(t)
+	const turn = "main-turn-eba93893-e562-45f7-a0f8-62cfc873746a"
+	history := []providers.Message{
+		{Role: "user", Content: "older question"},
+		{Role: "user", Content: "question"},
+		{Role: "assistant", ID: turn + "-llm-1", Content: "opening"},
+		{Role: "tool", Content: "result"},
+		{Role: "user", SteeringTurnID: turn, Content: "adjust direction"},
+		{Role: "assistant", ID: turn + "-llm-2", Content: "completion"},
+	}
+	if err := store.SetHistory(ctx, "session", history); err != nil {
+		t.Fatal(err)
+	}
+	page, err := store.GetTranscriptPage(ctx, "session", 2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Messages) != 5 || page.Messages[0].Content != "question" || !page.HasMore || page.NextCursor == 0 {
+		t.Fatalf("turn split at page boundary: %+v", page)
+	}
+	older, err := store.GetTranscriptPage(ctx, "session", 2, page.NextCursor)
+	if err != nil || len(older.Messages) != 1 || older.Messages[0].Content != "older question" || older.HasMore {
+		t.Fatalf("older page = %+v, %v", older, err)
+	}
+}
+
 func TestSQLiteStoreAliasesAndTurnCheckpoints(t *testing.T) {
 	ctx := context.Background()
 	store := newSQLiteTestStore(t)

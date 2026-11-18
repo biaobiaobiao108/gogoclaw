@@ -3,6 +3,7 @@ package pico
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -531,7 +532,7 @@ func (s *picoStreamer) sendLocked(
 		setTurnUsagePayload(payload, s.turnInputTokens, s.turnOutputTokens)
 		outMsg := newMessage(TypeMessageCreate, payload)
 		outMsg.ID = s.messageID
-		if err := s.channel.broadcast(s.chatID, outMsg); err != nil {
+		if err := s.channel.broadcast(s.chatID, outMsg); err != nil && (final || !errors.Is(err, channels.ErrSendFailed)) {
 			return err
 		}
 		s.deliveryPublished = final && s.deliveryID != ""
@@ -552,7 +553,8 @@ func (s *picoStreamer) sendLocked(
 			payload[PayloadKeyModelName] = s.modelName
 		}
 		setTurnUsagePayload(payload, s.turnInputTokens, s.turnOutputTokens)
-		if err := s.channel.editMessagePayload(ctx, s.chatID, s.messageID, payload, contextUsage); err != nil {
+		if err := s.channel.editMessagePayload(ctx, s.chatID, s.messageID, payload, contextUsage); err != nil &&
+			(final || !errors.Is(err, channels.ErrSendFailed)) {
 			return err
 		}
 		s.deliveryPublished = s.deliveryPublished || (final && s.deliveryID != "")
@@ -584,7 +586,7 @@ func (s *picoStreamer) sendReasoningLocked(ctx context.Context, content string) 
 			payload[PayloadKeyModelName] = s.modelName
 		}
 		outMsg := newMessage(TypeMessageCreate, payload)
-		if err := s.channel.broadcastToSession(s.chatID, outMsg); err != nil {
+		if err := s.channel.broadcastToSession(s.chatID, outMsg); err != nil && !errors.Is(err, channels.ErrSendFailed) {
 			return err
 		}
 	} else if content != s.reasoningContent {
@@ -599,7 +601,7 @@ func (s *picoStreamer) sendReasoningLocked(ctx context.Context, content string) 
 		}
 		outMsg := newMessage(TypeMessageUpdate, payload)
 		outMsg.ID = s.reasoningID
-		if err := s.channel.broadcastToSession(s.chatID, outMsg); err != nil {
+		if err := s.channel.broadcastToSession(s.chatID, outMsg); err != nil && !errors.Is(err, channels.ErrSendFailed) {
 			return err
 		}
 	}

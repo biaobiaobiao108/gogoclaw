@@ -130,7 +130,7 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 		}
 	}
 
-	if !ts.opts.NoHistory && (strings.TrimSpace(ts.userMessage) != "" || len(ts.media) > 0) {
+	if !ts.opts.NoHistory && !ts.opts.ResumeAnswer && (strings.TrimSpace(ts.userMessage) != "" || len(ts.media) > 0) {
 		rootMsg := userPromptMessage(ts.userMessage, ts.media)
 		rootMsg.Attachments = providerAttachmentsFromInbound(ts.opts.Dispatch.Attachments)
 		rootMsg.ID = ts.opts.Dispatch.MessageID()

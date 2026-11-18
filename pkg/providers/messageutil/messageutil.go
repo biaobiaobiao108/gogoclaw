@@ -1,10 +1,21 @@
 package messageutil
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/protocoltypes"
 )
+
+var assistantTurnIDPattern = regexp.MustCompile(`(?i)^(.+-turn-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})-llm-[0-9]+(?:-thought|-tools)?$`)
+
+// AssistantTurnID returns the turn embedded in a canonical assistant message ID.
+func AssistantTurnID(messageID string) string {
+	if parts := assistantTurnIDPattern.FindStringSubmatch(messageID); parts != nil {
+		return parts[1]
+	}
+	return ""
+}
 
 // IsTransientAssistantThoughtMessage reports whether msg is an invalid
 // reasoning-only assistant history record. These "hanging" thought messages

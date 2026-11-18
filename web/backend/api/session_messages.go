@@ -178,6 +178,7 @@ func sessionTranscriptMessages(
 			chatMsg := sessionChatMessage{
 				ID:          msg.ID,
 				Role:        "user",
+				TurnID:      msg.SteeringTurnID,
 				Content:     msg.Content,
 				ModelName:   msg.ModelName,
 				CreatedAt:   msg.CreatedAt,
@@ -192,8 +193,10 @@ func sessionTranscriptMessages(
 			if messageutil.IsTransientAssistantThoughtMessage(msg) {
 				continue
 			}
+			turnID := messageutil.AssistantTurnID(msg.ID)
 			if includeThoughts {
 				if thoughtMsg, ok := assistantThoughtMessage(msg); ok {
+					thoughtMsg.TurnID = turnID
 					transcript = append(transcript, thoughtMsg)
 				}
 			}
@@ -215,11 +218,16 @@ func sessionTranscriptMessages(
 			if msg.ID != "" {
 				toolCallsMsg.ID = msg.ID + "-tools"
 			}
+			toolCallsMsg.TurnID = turnID
 			visibleToolMessages := visibleAssistantToolMessages(msg.ToolCalls, msg.ModelName, msg.CreatedAt)
+			for i := range visibleToolMessages {
+				visibleToolMessages[i].TurnID = turnID
+			}
 
 			chatMsg := sessionChatMessage{
 				ID:          msg.ID,
 				Role:        "assistant",
+				TurnID:      turnID,
 				Content:     content,
 				ModelName:   msg.ModelName,
 				CreatedAt:   msg.CreatedAt,

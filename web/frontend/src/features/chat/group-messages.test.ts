@@ -82,3 +82,26 @@ test("renders model split markers as paragraph breaks in Web replies", () => {
     parts: [{ kind: "text", message: { content: "opening\n\nclosing" } }],
   })
 })
+
+test("keeps live and saved steering in the same reply through explicit turn IDs", () => {
+  const turnId = "explicit-turn"
+  const opening = { ...message("opaque-opening", "opening"), turnId }
+  const steering = {
+    ...message("opaque-input", "change direction"),
+    role: "user" as const,
+    turnId,
+  }
+  const final = { ...message("opaque-final", "after steering"), turnId }
+  expect(groupChatMessages([opening, steering, final])).toEqual([
+    {
+      kind: "reply",
+      id: turnId,
+      lastText: final,
+      parts: [
+        { kind: "text", message: opening },
+        { kind: "steering", message: steering },
+        { kind: "text", message: final },
+      ],
+    },
+  ])
+})

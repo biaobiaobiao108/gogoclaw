@@ -40,7 +40,7 @@ function ActivityIcon({ status }: { status: string }) {
   return <IconCircle className="text-muted-foreground size-3.5" />
 }
 
-function ActivityContent({
+export function ActivityContent({
   plan = [],
   activities = [],
 }: {

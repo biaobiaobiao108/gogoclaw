@@ -3,6 +3,8 @@ package pico
 import (
 	"strings"
 	"time"
+
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/messageutil"
 )
 
 // Protocol message types.
@@ -59,6 +61,14 @@ type PicoMessage struct {
 
 // newMessage creates a PicoMessage with the given type and payload.
 func newMessage(msgType string, payload map[string]any) PicoMessage {
+	switch msgType {
+	case TypeMessageCreate, TypeMessageUpdate, TypeMediaCreate:
+		if id, ok := payload["message_id"].(string); ok {
+			if turnID := messageutil.AssistantTurnID(id); turnID != "" {
+				payload["turn_id"] = turnID
+			}
+		}
+	}
 	return PicoMessage{
 		Type:      msgType,
 		Timestamp: time.Now().UnixMilli(),

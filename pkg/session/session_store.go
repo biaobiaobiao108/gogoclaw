@@ -10,21 +10,22 @@ import (
 )
 
 type TurnCheckpoint struct {
-	Usage      *bus.ContextUsage     `json:"usage,omitempty"`
-	TurnID     string                `json:"turn_id"`
-	Status     string                `json:"status"`
-	EndReason  string                `json:"end_reason,omitempty"`
-	Iteration  int                   `json:"iteration"`
-	Tool       string                `json:"tool,omitempty"`
-	StartedAt  time.Time             `json:"started_at,omitempty"`
-	UpdatedAt  time.Time             `json:"updated_at,omitempty"`
-	Plan       []TurnPlanStep        `json:"plan,omitempty"`
-	Activities []TurnActivity        `json:"activities,omitempty"`
-	Approval   *approval.Request     `json:"approval,omitempty"`
-	Delivery   *TurnDelivery         `json:"delivery,omitempty"`
-	Deliveries []TurnDelivery        `json:"deliveries,omitempty"`
-	ToolItems  []TurnToolItem        `json:"tool_items,omitempty"`
-	Events     []TurnCheckpointEvent `json:"events,omitempty"`
+	Usage       *bus.ContextUsage     `json:"usage,omitempty"`
+	TurnID      string                `json:"turn_id"`
+	ReplyTurnID string                `json:"reply_turn_id,omitempty"`
+	Status      string                `json:"status"`
+	EndReason   string                `json:"end_reason,omitempty"`
+	Iteration   int                   `json:"iteration"`
+	Tool        string                `json:"tool,omitempty"`
+	StartedAt   time.Time             `json:"started_at,omitempty"`
+	UpdatedAt   time.Time             `json:"updated_at,omitempty"`
+	Plan        []TurnPlanStep        `json:"plan,omitempty"`
+	Activities  []TurnActivity        `json:"activities,omitempty"`
+	Approval    *approval.Request     `json:"approval,omitempty"`
+	Delivery    *TurnDelivery         `json:"delivery,omitempty"`
+	Deliveries  []TurnDelivery        `json:"deliveries,omitempty"`
+	ToolItems   []TurnToolItem        `json:"tool_items,omitempty"`
+	Events      []TurnCheckpointEvent `json:"events,omitempty"`
 
 	UsedDiscoveredTools []string `json:"used_discovered_tools,omitempty"`
 }

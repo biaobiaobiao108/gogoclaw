@@ -13,6 +13,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
 
 func (p *Pipeline) tryConfiguredStreamingLLM(
@@ -121,6 +122,23 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 		)
 	}
 	logConfiguredStreamingSummary(ts, exec, chunkCount, firstChunkAt, lastChunkAt, streamErr)
+	if ts.channel == config.ChannelPico && ts.hardAbortRequested() && !ts.opts.NoHistory {
+		p.al.discardDelivery(ts.sessionKey, delivery.ID)
+		exec.streamingDelivery = nil
+		if publisher.lastText != "" {
+			partial := providers.Message{
+				ID: delivery.ID, Role: "assistant", Content: publisher.lastText, ModelName: exec.llmModelName,
+			}
+			if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, partial); err != nil {
+				return nil, true, fmt.Errorf("save interrupted reply: %w", err)
+			}
+			ts.recordPersistedMessage(partial)
+			if err := ts.ingestMessage(context.WithoutCancel(ctx), p.al, partial); err != nil {
+				return nil, true, err
+			}
+		}
+		return nil, true, context.Canceled
+	}
 	if _, blocked := isUsageBudgetExceeded(streamErr); blocked {
 		publisher.Cancel(ctx)
 		p.al.discardDelivery(ts.sessionKey, delivery.ID)
@@ -518,6 +536,7 @@ type streamingChunkPublisher struct {
 	chatID             string
 	modelName          string
 	published          bool
+	lastText           string
 	reasoningPublished bool
 	err                error
 	deliveryID         string
@@ -554,6 +573,7 @@ func (p *streamingChunkPublisher) Update(ctx context.Context, accumulated string
 		return
 	}
 	p.published = true
+	p.lastText = accumulated
 }
 
 func (p *streamingChunkPublisher) UpdateReasoning(ctx context.Context, accumulated string) {

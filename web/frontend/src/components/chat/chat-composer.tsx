@@ -96,7 +96,9 @@ export function ChatComposer({
     inputDisabledReason === null
       ? null
       : t(`chat.disabledPlaceholder.${inputDisabledReason}`)
-  const placeholder = disabledMessage ?? t("chat.placeholder")
+  const placeholder =
+    disabledMessage ??
+    t(isRunning ? "chat.steeringPlaceholder" : "chat.placeholder")
 
   const handleKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     const nativeEvent = e.nativeEvent as Event & {
@@ -318,7 +320,7 @@ export function ChatComposer({
                     <button
                       type="button"
                       onClick={onSend}
-                      aria-label={t("chat.sendMessage")}
+                      aria-label={t("chat.steeringInstruction")}
                       className="bg-foreground text-background hover:bg-foreground/90 flex size-8 cursor-pointer items-center justify-center rounded-full shadow-xs transition-[color,background-color,transform] duration-150 ease-out active:scale-95"
                     >
                       <IconArrowUp className="size-4 stroke-[2.5]" />

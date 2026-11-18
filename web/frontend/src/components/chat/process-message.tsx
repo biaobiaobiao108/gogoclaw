@@ -1,8 +1,14 @@
 import { IconBrain, IconChevronRight, IconTool } from "@tabler/icons-react"
 import { useTranslation } from "react-i18next"
 
+import { ActivityContent } from "@/components/chat/activity-timeline"
 import { AssistantMessage } from "@/components/chat/assistant-message"
-import type { ChatActivity, ChatMessage, ChatStoreState } from "@/store/chat"
+import type {
+  ChatActivity,
+  ChatMessage,
+  ChatStoreState,
+  ChatTurnHistory,
+} from "@/store/chat"
 
 export function ProcessMessage({
   messages,
@@ -12,6 +18,9 @@ export function ProcessMessage({
   isTurnActive,
   activeTurn,
   activities = [],
+  execution,
+  waitingForApproval,
+  reconnecting,
 }: {
   messages: ChatMessage[]
   expanded: boolean
@@ -20,6 +29,9 @@ export function ProcessMessage({
   isTurnActive?: boolean
   activeTurn?: ChatStoreState["activeTurn"]
   activities?: ChatActivity[]
+  execution?: ChatTurnHistory
+  waitingForApproval?: boolean
+  reconnecting?: boolean
 }) {
   const { t } = useTranslation()
   const calls = messages.reduce(
@@ -38,15 +50,33 @@ export function ProcessMessage({
         .reverse()
         .find((activity) => activity.status === "running"))
     : undefined
-  const label = currentActivity?.title
-    ? currentActivity.title
-    : isStreamingThought
-      ? t("chat.reasoningStreamingLabel")
-      : activeTurn?.phase === "tools" || (isActive && !activeTurn && calls > 0)
-        ? t("chat.workingWithTools")
-        : activeTurn?.phase === "finalizing"
-          ? t("chat.workingFinalizing")
-          : t("chat.processLabel")
+  const issue = [...(execution?.activities ?? [])]
+    .reverse()
+    .find(
+      (activity) =>
+        activity.status === "failed" || activity.status === "effects_unknown",
+    )
+  const label = reconnecting
+    ? t("chat.reconnectingReply")
+    : waitingForApproval
+      ? t("chat.waitingForApproval")
+      : currentActivity?.title
+        ? currentActivity.title
+        : isStreamingThought
+          ? t("chat.reasoningStreamingLabel")
+          : activeTurn?.phase === "tools" ||
+              (isActive && !activeTurn && calls > 0)
+            ? t("chat.workingWithTools")
+            : activeTurn?.phase === "finalizing"
+              ? t("chat.workingFinalizing")
+              : issue
+                ? t(
+                    issue.status === "failed"
+                      ? "chat.failedToolSummary"
+                      : "chat.unknownToolSummary",
+                    { tool: issue.title },
+                  )
+                : t("chat.processLabel")
   return (
     <div className="text-muted-foreground text-sm">
       <button
@@ -80,6 +110,10 @@ export function ProcessMessage({
               isStreaming={message.id === streamingMessageId}
             />
           ))}
+          <ActivityContent
+            plan={execution?.plan}
+            activities={execution?.activities ?? turnActivities}
+          />
         </div>
       )}
     </div>

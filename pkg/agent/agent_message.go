@@ -194,6 +194,31 @@ func (al *AgentLoop) processMessageResult(
 	// agent-scoped keys supplied by the caller.
 	scopeKey := resolveScopeKey(allocation.SessionKey, msg.SessionKey)
 	sessionKey := scopeKey
+	taskAction := msg.Context.Raw["task_action"]
+	if msg.Channel == "pico" && taskAction == "stop" {
+		return processMessageResult{}, nil
+	}
+	resumeAnswer := msg.Channel == "pico" && taskAction == "resume_answer"
+	var resumeCheckpoint session.TurnCheckpoint
+	if resumeAnswer {
+		interrupted, err := al.ConversationInterrupted(msg.Channel, msg.ChatID, msg.SenderID)
+		if err != nil {
+			return processMessageResult{}, err
+		}
+		if !interrupted || al.PendingApprovalByConversation(msg.Channel, msg.ChatID) != nil {
+			return processMessageResult{}, fmt.Errorf("there is no interrupted answer available to continue")
+		}
+		if store, ok := agent.Sessions.(session.TurnCheckpointStore); ok {
+			resumeCheckpoint, err = store.GetTurnCheckpoint(sessionKey)
+			if err != nil {
+				return processMessageResult{}, err
+			}
+			if resumeCheckpoint.ReplyTurnID == "" {
+				resumeCheckpoint.ReplyTurnID = resumeCheckpoint.TurnID
+			}
+		}
+		msg.Content = "Continue the interrupted answer from the saved conversation, including any partial text and recorded tool results. Write only the continuation. For an unfinished operation whose effects are unknown, describe what remains unverified."
+	}
 	var branchHandled bool
 	var branchErr error
 	msg, branchHandled, branchErr = al.prepareChatBranchRequest(ctx, msg, agent, sessionKey)
@@ -237,13 +262,16 @@ func (al *AgentLoop) processMessageResult(
 			Attachments:    append([]bus.InboundAttachment(nil), msg.Attachments...),
 			ThinkingLevel:  strings.TrimSpace(msg.Context.Raw["thinking_level"]),
 		},
-		SenderID:            msg.SenderID,
-		SenderDisplayName:   msg.Sender.DisplayName,
-		DefaultResponse:     defaultResponse,
-		EnableSummary:       true,
-		SendResponse:        false,
-		AllowInterimPublish: true,
-		runtime:             &runtime,
+		SenderID:              msg.SenderID,
+		SenderDisplayName:     msg.Sender.DisplayName,
+		DefaultResponse:       defaultResponse,
+		EnableSummary:         true,
+		SendResponse:          false,
+		AllowInterimPublish:   true,
+		ResumeAnswer:          resumeAnswer,
+		ResumeReplyTurnID:     resumeCheckpoint.ReplyTurnID,
+		ResumeIterationOffset: resumeCheckpoint.Iteration,
+		runtime:               &runtime,
 	}
 	var err error
 	opts, err = resolveTurnProfileOptions(runtime.cfg, opts)

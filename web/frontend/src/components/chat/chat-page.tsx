@@ -607,8 +607,23 @@ export function ChatPage() {
     ) {
       rows.push({ kind: "empty" })
     }
-    const groupedRows: ChatStreamRow[] = groupChatMessages(messages)
-    const lastGroupedIndex = groupedRows.length - 1
+    const executionByTurn = new Map(
+      (turnHistory ?? []).map((turn) => [turn.turnId, turn]),
+    )
+    const groupedRows: ChatStreamRow[] = groupChatMessages(messages).map(
+      (row) => {
+        if (row.kind !== "reply") return row
+        const execution = executionByTurn.get(row.id)
+        if (!execution) return row
+        executionByTurn.delete(row.id)
+        return { ...row, execution }
+      },
+    )
+    const lastGroupedIndex = activeTurn?.turnId
+      ? groupedRows.findIndex(
+          (row) => row.kind === "reply" && row.id === activeTurn.turnId,
+        )
+      : groupedRows.length - 1
     const lastGroupedRow = groupedRows[lastGroupedIndex]
     const replyIsActive =
       Boolean(activeTurn || isTyping) && lastGroupedRow?.kind === "reply"
@@ -616,13 +631,14 @@ export function ChatPage() {
       groupedRows[lastGroupedIndex] = { ...lastGroupedRow, active: true }
     }
     rows.push(...groupedRows)
-    if (isTyping && !replyIsActive) rows.push({ kind: "working" })
+    if ((isTyping || activeTurn) && !replyIsActive)
+      rows.push({ kind: "working" })
     if (!isHistoryLoading && !historyError && !activeTurn) {
       rows.push({
         kind: "activity",
-        plan: recentPlan,
-        activities: recentActivities,
-        history: turnHistory,
+        plan: turnHistory?.length ? undefined : recentPlan,
+        activities: turnHistory?.length ? undefined : recentActivities,
+        history: [...executionByTurn.values()],
       })
     }
     return rows
@@ -914,6 +930,7 @@ export function ChatPage() {
                       onRetryMessage={retryChatMessage}
                       activeTurn={activeTurn}
                       recentActivities={recentActivities}
+                      waitingForApproval={Boolean(pendingApproval)}
                       expandedProcesses={expandedProcesses}
                       onToggleProcess={(messageId) =>
                         setExpandedProcesses((previous) => {
@@ -947,13 +964,17 @@ export function ChatPage() {
           />
 
           {activeTurn?.plan && <ChatTaskPlan steps={activeTurn.plan} />}
-          {interrupted && !activeTurn && !isTyping && canInput && (
-            <ChatInterruptedNotice
-              onContinue={() =>
-                sendMessage({ content: t("chat.continuePrompt") })
-              }
-            />
-          )}
+          {interrupted &&
+            !activeTurn &&
+            !isTyping &&
+            !pendingApproval &&
+            canInput && (
+              <ChatInterruptedNotice
+                onContinue={() =>
+                  sendMessage({ content: "", taskAction: "resume_answer" })
+                }
+              />
+            )}
           {pendingApproval && (
             <ApprovalPanel
               approval={pendingApproval}
@@ -974,7 +995,7 @@ export function ChatPage() {
             onRemoveAttachment={handleRemoveAttachment}
             onRetryAttachment={handleRetryAttachment}
             onSend={handleSend}
-            onStop={() => sendMessage({ content: "/stop" })}
+            onStop={() => sendMessage({ content: "", taskAction: "stop" })}
             isRunning={Boolean(activeTurn) || isTyping}
             onContextDetail={() => {
               sendMessage({ content: "/context", attachments: [] })
