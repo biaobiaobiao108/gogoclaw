@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
@@ -122,8 +123,30 @@ func (h *Handler) getManagedSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"messages": page.Messages, "next_cursor": page.NextCursor, "has_more": page.HasMore})
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"messages": page.Messages, "next_cursor": page.NextCursor, "has_more": page.HasMore,
+		"deliveries": recentPlatformDeliveries(decodeTurnCheckpoint(meta.Turn)),
+	})
 }
+
+type managedDelivery struct {
+	ID        string    `json:"id"`
+	Channel   string    `json:"channel"`
+	Status    string    `json:"status"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func recentPlatformDeliveries(turn session.TurnCheckpoint) []managedDelivery {
+	deliveries := make([]managedDelivery, 0, 5)
+	for i := len(turn.Deliveries) - 1; i >= 0 && len(deliveries) < 5; i-- {
+		d := turn.Deliveries[i]
+		if d.PlatformTracked {
+			deliveries = append(deliveries, managedDelivery{d.ID, d.Channel, d.Status, d.UpdatedAt})
+		}
+	}
+	return deliveries
+}
+
 func (h *Handler) deleteManagedSession(w http.ResponseWriter, r *http.Request) {
 	ref, err := h.managedRef(r.PathValue("id"))
 	if err != nil {

@@ -17,6 +17,9 @@ export function resolveChatInputDisabledReason({
   connectionState: ConnectionState
   gatewayState: GatewayState
 }): ChatInputDisabledReason | null {
+  if (!hasDefaultModel) {
+    return "noDefaultModel"
+  }
   if (gatewayState === "unknown") {
     return "gatewayUnknown"
   }
@@ -43,9 +46,6 @@ export function resolveChatInputDisabledReason({
   }
   if (connectionState === "disconnected") {
     return "websocketDisconnected"
-  }
-  if (!hasDefaultModel) {
-    return "noDefaultModel"
   }
   return null
 }

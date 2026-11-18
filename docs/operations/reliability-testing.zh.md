@@ -10,10 +10,30 @@ GOGOCLAW_HARNESS_RESTART_ROUNDS=50 go test -tags goolm,stdjson ./pkg/harness -ru
 
 Reliability stress 工作流每周执行 50 轮，也可手动运行，日志作为制品保留 30 天。Benchmark 工作流也每周运行并保存环境和结果；判断性能回退时应比较运行环境和配置相同的报告。
 
-独立 gateway 的 Compose 健康检查使用 `/ready`，表示 gateway 已完成启动；`/health` 仅表示 HTTP 进程有响应。Launcher 的检查只验证认证接口。这些检查均不能证明模型或外部频道可用，需查看控制台状态并发送测试消息确认。
+独立 gateway 的 Compose 健康检查使用 `/ready`，表示 gateway 已完成启动；`/health` 仅表示 HTTP 进程有响应。Launcher 的 Compose 检查使用独立的 `/health`，即使尚未设置首个模型也能反映控制台存活。已登录的监控端可以请求 Launcher 的 `/api/gateway/readiness` 检查网关就绪状态。这些检查均不能证明模型或外部频道可用，需查看控制台状态并发送测试消息确认。
 
-`TestStoppedDataBackupRestoresSessionAndWorkspace` 验证停止写入后复制数据并在新目录恢复，包括会话、工作区文件、定时任务、模型配置以及使用测试密钥加密的凭据。部署备份仍应遵循 [Docker 部署指南](../guides/docker.zh.md) 的停机备份步骤；该测试不能代替实际容器恢复演练，也不覆盖存放在数据目录之外的密钥。
+`TestStoppedDataBackupRestoresSessionAndWorkspace` 验证停止写入后复制数据并在新目录恢复，包括会话、附件、工作区文件、定时任务、模型配置以及使用测试密钥加密的凭据。部署备份仍应遵循 [Docker 部署指南](../guides/docker.zh.md) 的停机备份步骤；该测试不能代替实际容器恢复演练，也不覆盖存放在数据目录之外的密钥。
 
-CI 浏览器任务还会使用临时数据目录启动真实 launcher，检查首次设置、错误密码、成功登录、模型持久化和审批设置。测试通过真实 API 创建模型，并在刷新后从界面验证；审批开关通过界面修改，检查自定义规则是否保留。测试不启动模型，也不验证聊天消息投递。
+CI 浏览器任务还会使用临时数据目录启动真实 launcher，检查首次设置、错误密码、成功登录、模型持久化和审批设置。测试通过真实 API 创建模型，并在刷新后从界面验证；审批开关通过界面修改，检查自定义规则是否保留。浏览器测试还通过仅监听本机的模拟模型启动网关，发送一条消息，刷新核对历史，并检查 Launcher 日志输出中是否泄露输入或回复。
 
 应用的统一日志组件会遮蔽常见凭据格式和敏感结构化字段名，但不能保证识别所有凭据、标准库及其他程序的日志或没有可识别标签的数据。应限制日志访问，并在分享诊断信息前检查内容。
+
+## 文本投递与日志
+
+Telegram 和微信的普通文本回复、定时输出和 `message` 工具文本会在会话中记录最近的投递状态。控制台「会话管理」可以查询和刷新该状态。平台返回成功后才标记为「平台已接收」。发送中断、超时或长消息只送达部分时，会记录为平台接收状态未知。重启后仅恢复尚未开始发送的排队消息。渠道明确支持安全重试时，由渠道 worker 处理有限次重试。
+
+常规对话日志记录回合 ID、模型、工具名和消息长度等诊断信息。需要采集请求或回复预览时，使用 DEBUG 并在启动 Gateway 前设置 `GOGOCLAW_CONTENT_DIAGNOSTICS_UNTIL` 为将来的 RFC 3339 时间。到期后新日志自动停止写入正文预览，已有日志仍需按原有保留策略处理。
+
+## 容器升级与会话分页
+
+在隔离的 Docker 环境运行容器恢复演练。可选的基准镜像用于在独立的数据卷上验证升级和回滚。
+
+```sh
+GOGOCLAW_TEST_BASELINE_IMAGE=gogoclaw:previous GOGOCLAW_TEST_IMAGE=gogoclaw:candidate bash scripts/test-container-restart.sh
+```
+
+在本地可用以下命令比较同一批 300 条会话下，新 SQLite 分页与兼容路径的首屏 P95。冷测每次创建新 Handler，操作系统仍可能缓存文件。
+
+```sh
+go test -tags goolm,stdjson ./web/backend/api -run '^$' -bench '^BenchmarkSQLiteSessionListPage$' -benchtime=25x -count=1
+```

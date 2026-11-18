@@ -45,7 +45,15 @@ type Message = {
     function?: { name?: string; arguments?: string }
   }[]
 }
+type Delivery = {
+  id: string
+  channel: string
+  status: string
+  updated_at: string
+}
+
 type Page = {
+  deliveries?: Delivery[]
   messages: Message[] | null
   next_cursor: number
   has_more: boolean
@@ -61,6 +69,8 @@ export function SessionsPage() {
   const [items, setItems] = useState<Item[]>([])
   const [selected, setSelected] = useState<Item | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [deliveries, setDeliveries] = useState<Delivery[]>([])
+  const [detailRefresh, setDetailRefresh] = useState(0)
   const [cursor, setCursor] = useState(0)
   const [more, setMore] = useState(false)
   const [query, setQuery] = useState("")
@@ -92,12 +102,14 @@ export function SessionsPage() {
     if (!selected) return
     let cancelled = false
     setMessages([])
+    setDeliveries([])
     setMore(false)
     setError("")
     void request<Page>(`/api/session-management/${selected.id}`)
       .then((page) => {
         if (!cancelled) {
           setMessages(page.messages ?? [])
+          setDeliveries(page.deliveries ?? [])
           setCursor(page.next_cursor)
           setMore(page.has_more)
         }
@@ -108,7 +120,7 @@ export function SessionsPage() {
     return () => {
       cancelled = true
     }
-  }, [selected])
+  }, [detailRefresh, selected])
   const older = async () => {
     if (!selected) return
     const version = selectionVersion.current
@@ -158,7 +170,14 @@ export function SessionsPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader title={t("sessionManagement.title")}>
-        <Button variant="ghost" size="sm" onClick={() => void load()}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            void load()
+            setDetailRefresh((current) => current + 1)
+          }}
+        >
           {t("sessionManagement.refresh")}
         </Button>
       </PageHeader>
@@ -238,6 +257,34 @@ export function SessionsPage() {
               </div>
               <div className="flex-1 overflow-auto p-4">
                 <div className="mx-auto max-w-4xl space-y-4">
+                  {deliveries.length > 0 && (
+                    <section className="border-b pb-4">
+                      <h3 className="text-sm font-medium">
+                        {t("sessionManagement.deliveries")}
+                      </h3>
+                      <ul className="mt-2 space-y-1">
+                        {deliveries.map((delivery) => (
+                          <li
+                            key={delivery.id}
+                            className="flex flex-wrap items-center justify-between gap-x-3 text-sm"
+                          >
+                            <span>
+                              {delivery.channel} ·{" "}
+                              {t(
+                                `sessionManagement.deliveryStatus.${delivery.status}`,
+                              )}
+                            </span>
+                            <time
+                              className="text-muted-foreground text-xs"
+                              dateTime={delivery.updated_at}
+                            >
+                              {new Date(delivery.updated_at).toLocaleString()}
+                            </time>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
                   {more && (
                     <Button
                       variant="outline"

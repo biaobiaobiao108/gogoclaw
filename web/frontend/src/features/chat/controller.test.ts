@@ -33,7 +33,10 @@ async function withConnectedChat(run: () => Promise<void>) {
   globalThis.WebSocket = Socket as unknown as typeof WebSocket
   Object.defineProperty(globalThis, "window", {
     configurable: true,
-    value: { location: { protocol: "http:", host: "localhost" } },
+    value: {
+      location: new URL("http://localhost/chat"),
+      history: { state: null, replaceState() {} },
+    },
   })
   getDefaultStore().set(gatewayAtom, { ...originalGateway, status: "running" })
   updateChatStore({

@@ -17,7 +17,11 @@ import {
   mergeHistoryMessages,
 } from "@/features/chat/history"
 import { handlePicoMessage, type PicoMessage } from "@/features/chat/protocol"
-import { generateSessionId, readStoredSessionId } from "@/features/chat/state"
+import {
+  generateSessionId,
+  readStoredSessionId,
+  writeStoredSessionId,
+} from "@/features/chat/state"
 import { invalidateSocket, isCurrentSocket } from "@/features/chat/websocket"
 import i18n from "@/i18n"
 import {
@@ -612,11 +616,6 @@ export function sendChatMessage({
         payload,
       }),
     )
-    pendingStatusWatchUntil = Date.now() + 10_000
-    if (action === "regenerate" || action === "edit") {
-      pendingOptimisticActions.set(id, restoreOptimisticState)
-    }
-    return true
   } catch (error) {
     console.error("Failed to send pico message:", error)
     pendingOptimisticActions.delete(id)
@@ -630,6 +629,19 @@ export function sendChatMessage({
     }
     return false
   }
+
+  pendingStatusWatchUntil = Date.now() + 10_000
+  if (action === "regenerate" || action === "edit") {
+    pendingOptimisticActions.set(id, restoreOptimisticState)
+  }
+  try {
+    if (readStoredSessionId() !== previousState.activeSessionId) {
+      writeStoredSessionId(previousState.activeSessionId)
+    }
+  } catch (error) {
+    console.warn("Failed to remember the active chat session:", error)
+  }
+  return true
 }
 
 export function retryChatMessage(id: string) {

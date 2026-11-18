@@ -757,7 +757,8 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := os.ReadDir(dir); err != nil {
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
 		// Directory doesn't exist yet = no sessions
 		h.pruneSessionListCache(nil, dir)
 		w.Header().Set("Content-Type", "application/json")
@@ -768,8 +769,29 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	uiMeta := h.readChatUIMeta(dir)
 	archivedOnly := r.URL.Query().Get("archived") == "1" || r.URL.Query().Get("archived") == "true"
+	legacyList := r.URL.Query().Get("limit") == "" && r.URL.Query().Get("cursor") == ""
+	limit := 30
+	if val, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && val > 0 {
+		limit = min(val, 100)
+	}
+	cursor, cursorErr := decodeSessionListCursor(r.URL.Query().Get("cursor"))
+	if cursorErr != nil {
+		http.Error(w, "invalid session cursor", http.StatusBadRequest)
+		return
+	}
+	if !legacyList && !hasLegacySessionFiles(entries) {
+		response, err := h.readSQLiteSessionListPage(r.Context(), dir, toolFeedbackMaxArgsLength, archivedOnly, cursor, limit)
+		if err != nil {
+			logger.Warnf("failed to page sessions: %v", err)
+			http.Error(w, "failed to read sessions", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+	uiMeta := h.readChatUIMeta(dir)
 
 	items := []sessionListItem{}
 	seen := make(map[string]struct{})
@@ -844,24 +866,10 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		return items[i].ID > items[j].ID
 	})
 
-	legacyList := r.URL.Query().Get("limit") == "" && r.URL.Query().Get("cursor") == ""
-	limit := 30
-	limitStr := r.URL.Query().Get("limit")
-	if val, err := strconv.Atoi(limitStr); err == nil && val > 0 {
-		limit = val
-	}
-	if limit > 100 {
-		limit = 100
-	}
 	if legacyList {
 		limit = len(items)
 	}
 
-	cursor, cursorErr := decodeSessionListCursor(r.URL.Query().Get("cursor"))
-	if cursorErr != nil {
-		http.Error(w, "invalid session cursor", http.StatusBadRequest)
-		return
-	}
 	filtered := items[:0]
 	for _, item := range items {
 		if cursor != nil {

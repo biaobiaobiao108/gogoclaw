@@ -16,9 +16,14 @@ case "$1 $2" in
   "container inspect"|"volume inspect") exit 1 ;;
   "volume create"|"volume rm"|"rm -f") exit 0 ;;
   "run -d")
-    if grep -q '^restored$' "$SMOKE_STATE"; then
-      [[ " $* " == *-restored:/data* ]] || { echo 'restored container did not use restored volume' >&2; exit 1; }
+    if grep -q '^restored_container$' "$SMOKE_STATE"; then
+      [[ " $* " == *-data:/data*' baseline:test '* ]]
+      echo rollback_container >> "$SMOKE_STATE"
+    elif grep -q '^restored$' "$SMOKE_STATE"; then
+      [[ " $* " == *-restored:/data*' candidate:test '* ]]
       echo restored_container >> "$SMOKE_STATE"
+    else
+      [[ " $* " == *-data:/data*' baseline:test '* ]]
     fi
     ;;
   "stop "*)
@@ -42,7 +47,9 @@ case "$1 $2" in
     grep -q '^restored$' "$SMOKE_STATE"
     ;;
   "port "*)
-    if grep -q '^restored_container$' "$SMOKE_STATE"; then
+    if grep -q '^rollback_container$' "$SMOKE_STATE"; then
+      echo '127.0.0.1:55331'
+    elif grep -q '^restored_container$' "$SMOKE_STATE"; then
       echo '127.0.0.1:54221'
     elif grep -q '^restarted$' "$SMOKE_STATE"; then
       echo '127.0.0.1:53177'
@@ -86,6 +93,7 @@ if [[ -n "$origin" ]]; then
 fi
 printf '%s %s\n' "${url#http://127.0.0.1:}" "$origin" >> "$SMOKE_REQUESTS"
 case "$url" in
+  */health) printf '{"status":"ok"}\n' ;;
   */api/auth/status)
     if grep -q '^initialized$' "$SMOKE_STATE"; then
       if [[ -n "$cookie_file" ]]; then printf '{"initialized":true,"authenticated":true}\n'; else printf '{"initialized":true,"authenticated":false}\n'; fi
@@ -114,13 +122,15 @@ case "$expression" in
   '.initialized == false') [[ "$data" == *'"initialized":false'* ]] ;;
   '.initialized == true') [[ "$data" == *'"initialized":true'* ]] ;;
   '.authenticated == true') [[ "$data" == *'"authenticated":true'* ]] ;;
+  '.status == "ok"') [[ "$data" == *'"status":"ok"'* ]] ;;
   *) exit 1 ;;
 esac
 MOCK_JQ
 
 chmod +x "$bin_dir/docker" "$bin_dir/curl" "$bin_dir/jq"
 export SMOKE_STATE="$state_file" SMOKE_REQUESTS="$tmp_dir/requests"
-PATH="$bin_dir:$PATH" bash "$repo_root/scripts/test-container-restart.sh"
+GOGOCLAW_TEST_IMAGE=candidate:test GOGOCLAW_TEST_BASELINE_IMAGE=baseline:test \
+  PATH="$bin_dir:$PATH" bash "$repo_root/scripts/test-container-restart.sh"
 
 grep -q '^49123/api/auth/setup http://127.0.0.1:49123$' "$SMOKE_REQUESTS"
 grep -q '^53177/api/auth/login http://127.0.0.1:53177$' "$SMOKE_REQUESTS"
@@ -128,4 +138,7 @@ grep -q '^53177/api/auth/status $' "$SMOKE_REQUESTS"
 grep -q '^54221/api/auth/login http://127.0.0.1:54221$' "$SMOKE_REQUESTS"
 grep -q '^54221/api/auth/status $' "$SMOKE_REQUESTS"
 grep -q '^restored_container$' "$SMOKE_STATE"
-echo "Container restart and restore smoke script passed across port changes"
+grep -q '^54221/health $' "$SMOKE_REQUESTS"
+grep -q '^55331/api/auth/login http://127.0.0.1:55331$' "$SMOKE_REQUESTS"
+grep -q '^rollback_container$' "$SMOKE_STATE"
+echo "Container restart, restore and rollback script passed across port changes"

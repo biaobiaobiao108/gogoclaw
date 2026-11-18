@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { ActiveWorkIndicator } from "@/components/chat/active-work-indicator"
 import { ActivityTimeline } from "@/components/chat/activity-timeline"
 import { AssistantMessage } from "@/components/chat/assistant-message"
+import type { ChatInputDisabledReason } from "@/components/chat/chat-composer"
 import { ChatEmptyState } from "@/components/chat/chat-empty-state"
 import type { ChatStreamRow } from "@/components/chat/chat-page-logic"
 import { ProcessMessage } from "@/components/chat/process-message"
@@ -26,7 +27,7 @@ interface ChatStreamRowContentProps {
   hasDefaultModel: boolean
   hasAvailableModels: boolean
   defaultModelName: string
-  isGatewayRunning: boolean
+  inputDisabledReason: ChatInputDisabledReason | null
   onSelectPrompt: (prompt: string) => void
   branchGroup?: ChatBranchGroup
   onFeedback: (messageId: string, value: ChatFeedbackValue) => void
@@ -54,7 +55,7 @@ export function ChatStreamRowContent({
   hasDefaultModel,
   hasAvailableModels,
   defaultModelName,
-  isGatewayRunning,
+  inputDisabledReason,
   onSelectPrompt,
   branchGroup,
   onFeedback,
@@ -142,7 +143,7 @@ export function ChatStreamRowContent({
       <ChatEmptyState
         hasAvailableModels={hasAvailableModels}
         defaultModelName={defaultModelName}
-        isConnected={isGatewayRunning}
+        inputDisabledReason={inputDisabledReason}
         onSelectPrompt={onSelectPrompt}
       />
     )

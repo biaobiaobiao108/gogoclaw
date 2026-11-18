@@ -19,12 +19,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
+candidate_image="${GOGOCLAW_TEST_IMAGE:-gogoclaw:ci}"
+baseline_image="${GOGOCLAW_TEST_BASELINE_IMAGE:-$candidate_image}"
+
+start_launcher() {
+  local data_volume="$1" image="$2"
+  docker run -d --name "$GOGOCLAW_SMOKE_CONTAINER" --read-only --cap-drop ALL \
+    --security-opt no-new-privileges:true --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m \
+    -p 127.0.0.1::18800 -v "$data_volume:/data" \
+    "$image" gogoclaw-launcher -public -no-browser >/dev/null
+}
+
 docker volume create "$volume" >/dev/null
-docker run -d --name "$GOGOCLAW_SMOKE_CONTAINER" --read-only --cap-drop ALL \
-  --security-opt no-new-privileges:true --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m \
-  -p 127.0.0.1::18800 \
-  -v "$volume:/data" \
-  "${GOGOCLAW_TEST_IMAGE:-gogoclaw:ci}" gogoclaw-launcher -public -no-browser >/dev/null
+start_launcher "$volume" "$baseline_image"
 
 request() {
   local path="$1"
@@ -60,18 +67,30 @@ request /api/auth/status -fsS -b "$tmp_dir/cookies" | jq -e '.authenticated == t
 docker stop "$GOGOCLAW_SMOKE_CONTAINER" >/dev/null
 docker volume create "$restored_volume" >/dev/null
 docker run --rm --user 0 --entrypoint sh -v "$volume:/source:ro" -v "$tmp_dir:/backup" \
-  "${GOGOCLAW_TEST_IMAGE:-gogoclaw:ci}" -c 'tar czf /backup/data.tgz -C /source .'
+  "$candidate_image" -c 'tar czf /backup/data.tgz -C /source .'
 docker run --rm --user 0 --entrypoint sh -v "$restored_volume:/target" -v "$tmp_dir:/backup:ro" \
-  "${GOGOCLAW_TEST_IMAGE:-gogoclaw:ci}" -c 'tar xzf /backup/data.tgz -C /target'
+  "$candidate_image" -c 'tar xzf /backup/data.tgz -C /target'
 docker rm "$GOGOCLAW_SMOKE_CONTAINER" >/dev/null
-docker run -d --name "$GOGOCLAW_SMOKE_CONTAINER" --read-only --cap-drop ALL \
-  --security-opt no-new-privileges:true --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m \
-  -p 127.0.0.1::18800 -v "$restored_volume:/data" \
-  "${GOGOCLAW_TEST_IMAGE:-gogoclaw:ci}" gogoclaw-launcher -public -no-browser >/dev/null
+start_launcher "$restored_volume" "$candidate_image"
 wait_ready
 jq -e '.initialized == true' "$tmp_dir/status.json" >/dev/null
 request /api/auth/login -fsS -c "$tmp_dir/restored-cookies" -X POST \
   -H 'Content-Type: application/json' -H "Origin: $GOGOCLAW_SMOKE_BASE" \
   --data '{"password":"container-test-password","confirm":"container-test-password"}' >/dev/null
 request /api/auth/status -fsS -b "$tmp_dir/restored-cookies" | jq -e '.authenticated == true' >/dev/null
-echo "Container smoke passed: first setup, restart, backup, restore and login"
+request /health -fsS | jq -e '.status == "ok"' >/dev/null
+
+# The old image is started on the pre-upgrade volume. Any schema changes
+# made by the new image live only in the restored copy.
+if [[ "$baseline_image" != "$candidate_image" ]]; then
+  docker stop "$GOGOCLAW_SMOKE_CONTAINER" >/dev/null
+  docker rm "$GOGOCLAW_SMOKE_CONTAINER" >/dev/null
+  start_launcher "$volume" "$baseline_image"
+  wait_ready
+  jq -e '.initialized == true' "$tmp_dir/status.json" >/dev/null
+  request /api/auth/login -fsS -c "$tmp_dir/rollback-cookies" -X POST \
+    -H 'Content-Type: application/json' -H "Origin: $GOGOCLAW_SMOKE_BASE" \
+    --data '{"password":"container-test-password"}' >/dev/null
+  request /api/auth/status -fsS -b "$tmp_dir/rollback-cookies" | jq -e '.authenticated == true' >/dev/null
+fi
+echo "Container smoke passed: first setup, restart, backup and restored image login"

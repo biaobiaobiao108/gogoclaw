@@ -52,6 +52,8 @@ async function main() {
       deletes: 0,
       logClears: 0,
       approvalResponse: null,
+      gatewayStatus: "running",
+      gatewayStarts: 0,
     }
     const testNavigations = new Set()
     const navigate = async (url, options) => {
@@ -131,10 +133,14 @@ async function main() {
         body = { providers: [] }
       } else if (path === "/api/gateway/status") {
         body = {
-          gateway_status: "running",
-          can_start: true,
-          restart_required: false,
+          gateway_status: api.gatewayStatus,
+          gateway_start_allowed: true,
+          gateway_restart_required: false,
         }
+      } else if (path === "/api/gateway/start" && method === "POST") {
+        api.gatewayStarts++
+        api.gatewayStatus = "running"
+        body = { status: "ok" }
       } else if (path === "/api/gateway/logs" && method === "GET") {
         body = {
           logs: ["[INFO] gateway ready", "[WARN] public exposure enabled"],
@@ -239,6 +245,20 @@ async function main() {
           ],
           next_cursor: 0,
           has_more: false,
+          deliveries: [
+            {
+              id: "accepted-1",
+              channel: "telegram",
+              status: "acknowledged",
+              updated_at: "2026-11-17T05:00:00Z",
+            },
+            {
+              id: "unknown-1",
+              channel: "telegram",
+              status: "delivery_unknown",
+              updated_at: "2026-11-17T05:00:10Z",
+            },
+          ],
         }
       } else if (
         path === "/api/session-management/session-1" &&
@@ -427,6 +447,11 @@ async function main() {
     await page.getByText("telegram · main", { exact: true }).first().waitFor()
     await page.getByText("telegram · main", { exact: true }).first().click()
     await page.getByText("Checks completed.", { exact: true }).waitFor()
+    await page.getByRole("heading", { name: "最近投递" }).waitFor()
+    await page.getByText("telegram · 平台已接收", { exact: true }).waitFor()
+    await page
+      .getByText("telegram · 平台接收状态未知", { exact: true })
+      .waitFor()
     await page.getByRole("button", { name: "删除", exact: true }).click()
     const deleteDialog = page.getByRole("alertdialog")
     await deleteDialog.getByRole("button", { name: "删除" }).click()
@@ -488,6 +513,23 @@ async function main() {
       )
         throw new Error(`Config overflows at ${width}px width`)
     }
+
+    for (const width of [1280, 390]) {
+      api.gatewayStatus = "stopped"
+      await page.setViewportSize({ width, height: 844 })
+      await navigate(`${base}/chat`)
+      await page.getByRole("heading", { name: "服务尚未运行" }).waitFor()
+      await page
+        .locator("main")
+        .getByRole("button", { name: "启动服务" })
+        .click()
+    }
+    if (api.gatewayStarts !== 2)
+      throw new Error("First-run start action did not reach gateway API")
+
+    api.gatewayStatus = "error"
+    await navigate(`${base}/chat`)
+    await page.locator("main").getByRole("link", { name: /日志/ }).waitFor()
 
     if (errors.length) throw new Error(`Browser errors: ${errors.join(", ")}`)
     console.log(

@@ -1,22 +1,25 @@
 import { Link } from "@tanstack/react-router"
 import { useTranslation } from "react-i18next"
 
+import type { ChatInputDisabledReason } from "@/components/chat/chat-composer"
 import { Button } from "@/components/ui/button"
+import { useGateway } from "@/hooks/use-gateway"
 
 interface ChatEmptyStateProps {
   hasAvailableModels: boolean
   defaultModelName: string
-  isConnected: boolean
+  inputDisabledReason: ChatInputDisabledReason | null
   onSelectPrompt?: (prompt: string) => void
 }
 
 export function ChatEmptyState({
   hasAvailableModels,
   defaultModelName,
-  isConnected,
+  inputDisabledReason,
   onSelectPrompt,
 }: ChatEmptyStateProps) {
   const { t } = useTranslation()
+  const { canStart, startReason, start, loading, error } = useGateway()
 
   if (!hasAvailableModels) {
     return (
@@ -60,15 +63,47 @@ export function ChatEmptyState({
     )
   }
 
-  if (!isConnected) {
+  if (inputDisabledReason) {
+    const stopped = inputDisabledReason === "gatewayStopped"
+    const failed = inputDisabledReason === "gatewayError"
+    const detail = error ?? (!canStart ? startReason : undefined)
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <h2 className="text-foreground text-base font-semibold tracking-tight">
-          {t("chat.empty.notRunning")}
+          {stopped
+            ? t("chat.empty.notRunning")
+            : t(`chat.disabledPlaceholder.${inputDisabledReason}`)}
         </h2>
-        <p className="text-muted-foreground mt-1 max-w-sm text-xs leading-relaxed">
-          {t("chat.empty.notRunningDescription")}
-        </p>
+        {detail && (stopped || failed) && (
+          <p
+            role="status"
+            className="text-muted-foreground mt-1 max-w-sm text-xs leading-relaxed break-words"
+          >
+            {detail}
+          </p>
+        )}
+        {stopped && canStart && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="mt-4"
+            disabled={loading}
+            onClick={() => void start()}
+          >
+            {t("header.gateway.action.start")}
+          </Button>
+        )}
+        {stopped && !canStart && (
+          <Button asChild variant="outline" size="sm" className="mt-4">
+            <Link to="/models">{t("chat.empty.goToModels")}</Link>
+          </Button>
+        )}
+        {failed && (
+          <Button asChild variant="outline" size="sm" className="mt-4">
+            <Link to="/logs">{t("navigation.logs")}</Link>
+          </Button>
+        )}
       </div>
     )
   }

@@ -1,5 +1,13 @@
 {
   "sessionManagement": {
+    "deliveries": "最近投递",
+    "deliveryStatus": {
+      "queued": "等待发送",
+      "dispatching": "正在发送",
+      "acknowledged": "平台已接收",
+      "dead_letter": "投递失败",
+      "delivery_unknown": "平台接收状态未知"
+    },
     "reasoning": "思考过程",
     "toolCall": "工具调用",
     "attachment": "附件",
@@ -229,13 +237,12 @@
     "imageReadFailed": "读取“{{name}}”失败。",
     "empty": {
       "noConfiguredModel": "尚未配置模型",
-      "noConfiguredModelDescription": "请先配置至少一个带有 API Key 的 AI 模型，才能开始对话。",
+      "noConfiguredModelDescription": "添加支持的模型并将它设为默认模型。",
       "goToModels": "去模型页配置",
       "noSelectedModel": "尚未设置模型",
       "noSelectedModelDescription": "您已配置模型，但尚未设置默认模型。请选择一个模型后开始对话",
       "selectModel": "选择模型",
-      "notRunning": "服务尚未运行",
-      "notRunningDescription": "请先启动网关服务后再开始对话，可点击顶部栏中的「启动服务」按钮。"
+      "notRunning": "服务尚未运行"
     },
     "modelGroup": {
       "apikey": "API Key",

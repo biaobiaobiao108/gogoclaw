@@ -12,6 +12,8 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/credential"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/cron"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/protocoltypes"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
 
@@ -58,11 +60,30 @@ func TestStoppedDataBackupRestoresSessionAndWorkspace(t *testing.T) {
 	}
 	backend := session.NewStoreBackend(store)
 	const key = "agent:main:backup-test"
+	attachmentPath := filepath.Join("sessions", ".attachments", "backup-test", "fixture.txt")
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(source, attachmentPath)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	const attachmentContent = "isolated backup attachment"
+	if err := os.WriteFile(filepath.Join(source, attachmentPath), []byte(attachmentContent), 0600); err != nil {
+		t.Fatal(err)
+	}
 	result, err := Run(context.Background(), Scenario{Name: "backup", SessionKey: key, Workspace: filepath.Join(source, "workspace"), Session: backend, UserMessage: "backup marker 482", Steps: []ModelStep{Text("saved marker 482")}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = result.Verify(Expect{NoError: true}); err != nil {
+		t.Fatal(err)
+	}
+	store, err = memory.NewSQLiteStore(filepath.Join(source, "sessions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend = session.NewStoreBackend(store)
+	if err = session.AppendChecked(backend, key, providers.Message{
+		Role:        "user",
+		Attachments: []protocoltypes.Attachment{{Type: "file", Ref: "fixture.txt", Filename: "fixture.txt"}},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err = backend.Close(); err != nil {
@@ -112,8 +133,15 @@ func TestStoppedDataBackupRestoresSessionAndWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(history) != 2 || history[0].Content != "backup marker 482" || history[1].Content != "saved marker 482" {
+	if len(history) != 3 || history[0].Content != "backup marker 482" || history[1].Content != "saved marker 482" {
 		t.Fatalf("restored history: %+v", history)
+	}
+	if len(history[2].Attachments) != 1 || history[2].Attachments[0].Ref != "fixture.txt" {
+		t.Fatal("restored session attachment reference is missing")
+	}
+	attachment, err := os.ReadFile(filepath.Join(restored, attachmentPath))
+	if err != nil || string(attachment) != attachmentContent {
+		t.Fatalf("restored attachment does not match fixture: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(restored, "workspace", filename))
 	if err != nil || string(data) != content {

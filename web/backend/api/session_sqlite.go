@@ -2,11 +2,15 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
 func (h *Handler) scanSQLiteSessionRefs(dir string) ([]picoJSONLSessionRef, error) {
@@ -123,4 +127,86 @@ func sessionFileFromMeta(meta memory.SessionMeta) sessionFile {
 		Turn:        decodeTurnCheckpoint(meta.Turn),
 		TurnHistory: decodeTurnCheckpointHistory(meta.TurnHistory),
 	}
+}
+
+func hasLegacySessionFiles(entries []os.DirEntry) bool {
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			ext := filepath.Ext(entry.Name())
+			if ext == ".jsonl" || ext == ".json" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (h *Handler) readSQLiteSessionListPage(
+	ctx context.Context, dir string, maxArgs int, archived bool, cursor *sessionListCursor, limit int,
+) (sessionListResponse, error) {
+	response := sessionListResponse{Items: []sessionListItem{}}
+	store, err := memory.OpenSQLiteStore(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return response, nil
+	}
+	if err != nil {
+		return response, err
+	}
+	defer store.Close()
+
+	var after *memory.PicoSessionListEntry
+	if cursor != nil {
+		updated, err := time.Parse(time.RFC3339Nano, cursor.Updated)
+		if err != nil {
+			return response, err
+		}
+		after = &memory.PicoSessionListEntry{ID: cursor.ID, Pinned: cursor.Pinned, UpdatedAt: updated}
+	}
+	for len(response.Items) <= limit {
+		batchSize := limit + 1 - len(response.Items)
+		entries, err := store.ListPicoSessionPage(ctx, legacyPicoSessionPrefix, archived, after, batchSize)
+		if err != nil {
+			return response, err
+		}
+		if len(entries) == 0 {
+			break
+		}
+		byKey := make(map[string]memory.PicoSessionListEntry, len(entries))
+		for _, entry := range entries {
+			byKey[entry.Key] = entry
+		}
+		summaries := make(map[string]sessionListItem, len(entries))
+		err = store.VisitPicoSessionTranscripts(ctx, entries, func(key string, messages []providers.Message) {
+			entry := byKey[key]
+			sess := sessionFile{Created: entry.CreatedAt, Updated: entry.UpdatedAt, Messages: messages}
+			summaries[key] = buildSessionListItem(entry.ID, sess, maxArgs)
+		})
+		if err != nil {
+			return response, err
+		}
+		for _, entry := range entries {
+			item, found := summaries[entry.Key]
+			if item.MessageCount == 0 && !entry.HasSummary {
+				continue
+			}
+			if !found {
+				item = buildSessionListItem(entry.ID, sessionFile{Created: entry.CreatedAt, Updated: entry.UpdatedAt}, maxArgs)
+			}
+			var ui chatUISessionMeta
+			_ = json.Unmarshal(entry.UIMeta, &ui)
+			applySessionMeta(&item, ui)
+			h.ensureSessionTitle(dir, entry.ID, &item, chatUIMetaFile{Sessions: map[string]chatUISessionMeta{entry.ID: ui}})
+			response.Items = append(response.Items, item)
+		}
+		if len(entries) < batchSize {
+			break
+		}
+		after = &entries[len(entries)-1]
+	}
+	if len(response.Items) > limit {
+		response.HasMore = true
+		response.Items = response.Items[:limit]
+		response.NextCursor = encodeSessionListCursor(response.Items[limit-1])
+	}
+	return response, nil
 }

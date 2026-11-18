@@ -894,7 +894,7 @@ export function ChatPage() {
                       hasDefaultModel={hasDefaultModel}
                       hasAvailableModels={hasAvailableModels}
                       defaultModelName={defaultModelName}
-                      isGatewayRunning={isGatewayRunning}
+                      inputDisabledReason={inputDisabledReason}
                       onSelectPrompt={(prompt) => setInput(prompt)}
                       branchGroup={
                         row.kind === "message"

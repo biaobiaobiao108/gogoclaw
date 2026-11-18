@@ -110,6 +110,10 @@ var gatewayProcessMatcher = isLikelyGatewayProcess
 // getGatewayHealth checks the gateway health endpoint and returns the status response.
 // Returns (*health.StatusResponse, statusCode, error). If error is not nil, the other values are not valid.
 func (h *Handler) getGatewayHealth(cfg *config.Config, timeout time.Duration) (*health.StatusResponse, int, error) {
+	return getGatewayHealthByURL(h.gatewayProbeURL(cfg, "/health"), timeout)
+}
+
+func (h *Handler) gatewayProbeURL(cfg *config.Config, path string) string {
 	// Prefer port/host from pidData when available.
 	var port int
 	var host string
@@ -129,9 +133,7 @@ func (h *Handler) getGatewayHealth(cfg *config.Config, timeout time.Duration) (*
 		host = gatewayProbeHost(h.effectiveGatewayBindHost(cfg))
 	}
 
-	url := "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/health"
-
-	return getGatewayHealthByURL(url, timeout)
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + path
 }
 
 func getGatewayHealthByURL(url string, timeout time.Duration) (*health.StatusResponse, int, error) {
@@ -296,6 +298,7 @@ func (h *Handler) sanitizeGatewayPidData(pidData *ppid.PidFileData, cfg *config.
 // registerGatewayRoutes binds gateway lifecycle endpoints to the ServeMux.
 func (h *Handler) registerGatewayRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/gateway/status", h.handleGatewayStatus)
+	mux.HandleFunc("GET /api/gateway/readiness", h.handleGatewayReadiness)
 	mux.HandleFunc("GET /api/gateway/logs", h.handleGatewayLogs)
 	mux.HandleFunc("POST /api/gateway/logs/clear", h.handleGatewayClearLogs)
 	mux.HandleFunc("POST /api/gateway/start", h.handleGatewayStart)
@@ -473,6 +476,23 @@ func (h *Handler) gatewayStatusData() map[string]any {
 	}
 
 	return data
+}
+
+func (h *Handler) handleGatewayReadiness(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	cfg, err := config.LoadConfig(h.configPath)
+	if err == nil {
+		status, code, probeErr := getGatewayHealthByURL(h.gatewayProbeURL(cfg, "/ready"), 800*time.Millisecond)
+		if probeErr == nil && ((code == http.StatusOK && status.Status == "ready") ||
+			(code == http.StatusServiceUnavailable && status.Status == "not ready")) {
+			w.WriteHeader(code)
+			_ = json.NewEncoder(w).Encode(status)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_ = json.NewEncoder(w).Encode(health.StatusResponse{Status: "unavailable"})
 }
 
 // handleGatewayLogs returns buffered gateway logs, optionally incrementally.

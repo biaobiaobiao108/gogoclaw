@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -2098,5 +2100,158 @@ func TestHandleSessions_IgnoresMetaJSONInLegacyFallback(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Fatalf("len(items) = %d, want 0", len(items))
+	}
+}
+
+func TestSQLiteSessionListPagination(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, fixture := range []struct {
+		id string
+		ui string
+	}{
+		{"pinned", `{"pinned":true,"title":"Pinned title"}`},
+		{"older", `{}`},
+		{"archived", `{"archived":true}`},
+		{"newer", `{}`},
+		{"hidden-thought", `{}`},
+	} {
+		content := fixture.id
+		role := "user"
+		if fixture.id == "hidden-thought" {
+			role, content = "tool", ""
+		}
+		err := store.AddFullMessage(nil, legacyPicoSessionPrefix+fixture.id, providers.Message{Role: role, Content: content})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpdateChatUIMeta(context.Background(), fixture.id, func([]byte) ([]byte, error) {
+			return []byte(fixture.ui), nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	h := NewHandler(configPath)
+	get := func(query string) sessionListResponse {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		h.handleListSessions(rec, httptest.NewRequest(http.MethodGet, "/api/sessions?limit=1"+query, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("list %s = %d %s", query, rec.Code, rec.Body)
+		}
+		var response sessionListResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+
+	query := ""
+	for i, id := range []string{"pinned", "newer", "older"} {
+		page := get(query)
+		if len(page.Items) != 1 || page.Items[0].ID != id || page.Items[0].MessageCount != 1 || page.HasMore != (i < 2) {
+			t.Fatalf("page for %s = %+v", id, page)
+		}
+		if i == 0 && (!page.Items[0].Pinned || page.Items[0].Title != "Pinned title") {
+			t.Fatalf("pinned metadata = %+v", page.Items[0])
+		}
+		query = "&cursor=" + page.NextCursor
+	}
+	if page := get("&archived=1"); len(page.Items) != 1 || page.Items[0].ID != "archived" || page.HasMore {
+		t.Fatalf("archived page = %+v", page)
+	}
+}
+
+func BenchmarkSQLiteSessionListPage(b *testing.B) {
+	root := b.TempDir()
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.Workspace = root
+	configPath := filepath.Join(root, "config.json")
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		b.Fatal(err)
+	}
+
+	dir := filepath.Join(root, "sessions")
+	store, err := memory.NewSQLiteStore(dir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	ctx := context.Background()
+	for i := range 300 {
+		id := strconv.Itoa(i)
+		for j := range 12 {
+			err := store.AddFullMessage(ctx, legacyPicoSessionPrefix+id, providers.Message{
+				Role: "user", Content: "benchmark message " + strconv.Itoa(j),
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+		if err := store.UpdateChatUIMeta(ctx, id, func([]byte) ([]byte, error) {
+			return []byte(`{"title":"benchmark message 0","title_source":"auto"}`), nil
+		}); err != nil {
+			b.Fatal(err)
+		}
+	}
+	if err := store.Close(); err != nil {
+		b.Fatal(err)
+	}
+
+	for _, legacy := range []bool{false, true} {
+		name := "SQLite"
+		if legacy {
+			marker := filepath.Join(dir, "benchmark-legacy.jsonl")
+			if err := os.WriteFile(marker, nil, 0o600); err != nil {
+				b.Fatal(err)
+			}
+			name = "Compatibility"
+		}
+		for _, cold := range []bool{true, false} {
+			mode := "Hot"
+			if cold {
+				mode = "ColdHandler"
+			}
+			b.Run(name+"/"+mode, func(b *testing.B) {
+				h := NewHandler(configPath)
+				req := httptest.NewRequest(http.MethodGet, "/api/sessions?limit=30", nil)
+				samples := make([]time.Duration, 0, b.N)
+				check := func(rec *httptest.ResponseRecorder) {
+					b.Helper()
+					var page sessionListResponse
+					if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &page) != nil ||
+						len(page.Items) != 30 || !page.HasMore {
+						b.Fatalf("unexpected page: %d %s", rec.Code, rec.Body)
+					}
+				}
+				if !cold {
+					rec := httptest.NewRecorder()
+					h.handleListSessions(rec, req)
+					check(rec)
+				}
+
+				b.ResetTimer()
+				for range b.N {
+					if cold {
+						h = NewHandler(configPath)
+					}
+					rec := httptest.NewRecorder()
+					start := time.Now()
+					h.handleListSessions(rec, req)
+					samples = append(samples, time.Since(start))
+					check(rec)
+				}
+				b.StopTimer()
+				slices.Sort(samples)
+				p95 := samples[(len(samples)*95+99)/100-1]
+				b.ReportMetric(float64(p95)/float64(time.Millisecond), "ms/p95")
+			})
+		}
 	}
 }

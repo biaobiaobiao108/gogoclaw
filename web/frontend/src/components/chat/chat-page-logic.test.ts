@@ -17,17 +17,24 @@ const userMessage: ChatMessage = {
 }
 
 describe("chat page logic", () => {
-  test("keeps gateway readiness ahead of websocket and model errors", () => {
+  test("prioritizes default model setup, then gateway and connection state", () => {
     expect(
       resolveChatInputDisabledReason({
         hasDefaultModel: false,
         connectionState: "disconnected",
         gatewayState: "starting",
       }),
-    ).toBe("gatewayStarting")
+    ).toBe("noDefaultModel")
     expect(
       resolveChatInputDisabledReason({
-        hasDefaultModel: false,
+        hasDefaultModel: true,
+        connectionState: "disconnected",
+        gatewayState: "stopped",
+      }),
+    ).toBe("gatewayStopped")
+    expect(
+      resolveChatInputDisabledReason({
+        hasDefaultModel: true,
         connectionState: "connecting",
         gatewayState: "running",
       }),

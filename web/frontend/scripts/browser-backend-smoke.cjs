@@ -3,6 +3,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE)
 const { spawn } = require("node:child_process")
 const fs = require("node:fs/promises")
 const net = require("node:net")
+const http = require("node:http")
 const os = require("node:os")
 const path = require("node:path")
 
@@ -19,6 +20,142 @@ async function unusedPort() {
   return port
 }
 
+const chatSentinel = "private-browser-input-91372"
+const replySentinel = "private-browser-answer-63725"
+
+async function startModelFixture() {
+  const server = http.createServer(async (request, response) => {
+    if (request.method === "GET" && request.url === "/v1/models") {
+      response.writeHead(200, { "Content-Type": "application/json" })
+      response.end(JSON.stringify({ data: [{ id: "fixture-chat" }] }))
+      return
+    }
+    if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
+      response.writeHead(404).end()
+      return
+    }
+    const chunks = []
+    for await (const chunk of request) chunks.push(chunk)
+    const body = Buffer.concat(chunks).toString("utf8")
+    if (!body.includes(chatSentinel)) {
+      response.writeHead(400).end()
+      return
+    }
+    response.writeHead(200, { "Content-Type": "application/json" })
+    response.end(
+      JSON.stringify({
+        id: "fixture-completion",
+        object: "chat.completion",
+        model: "fixture-chat",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: replySentinel },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+      }),
+    )
+  })
+  await new Promise((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", resolve)
+  })
+  return server
+}
+
+async function checkLocalChat(page, base, model) {
+  const gatewayPort = await unusedPort()
+  const modelBase = `http://127.0.0.1:${model.address().port}/v1`
+  const prepare = await page.evaluate(
+    async ({ gatewayPort, modelBase }) => {
+      async function write(path, method, body) {
+        const response = await fetch(path, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+        return response.ok ? null : `${path}: ${await response.text()}`
+      }
+      return (
+        (await write("/api/config", "PATCH", {
+          gateway: { host: "127.0.0.1", port: gatewayPort, log_level: "debug" },
+        })) ??
+        (await write("/api/models", "POST", {
+          model_name: "browser-loopback-model",
+          provider: "openai",
+          model: "fixture-chat",
+          api_base: modelBase,
+          api_key: "fixture-key",
+          streaming: { enabled: false },
+        })) ??
+        (await write("/api/models/default", "POST", {
+          model_name: "browser-loopback-model",
+        }))
+      )
+    },
+    { gatewayPort, modelBase },
+  )
+  if (prepare) throw new Error(prepare)
+  await page.goto(`${base}/chat`)
+  await page
+    .locator("main")
+    .getByRole("button", { name: /Start Gateway|启动服务/ })
+    .click({ timeout: 10000 })
+  await page.waitForFunction(
+    async () => {
+      const response = await fetch("/api/gateway/readiness")
+      return response.ok && (await response.json()).status === "ready"
+    },
+    null,
+    { timeout: 15000, polling: 500 },
+  )
+  const input = page.locator('textarea:not([aria-hidden="true"])')
+  await input.fill(chatSentinel, { timeout: 10000 })
+  await input.press("Enter")
+  await page
+    .getByText(replySentinel, { exact: true })
+    .waitFor({ timeout: 15000 })
+
+  const chatURL = page.url()
+  await page.reload()
+  await page
+    .getByText(replySentinel, { exact: true })
+    .waitFor({ timeout: 10000 })
+    .catch(async (error) => {
+      const data = await page.evaluate(async () => {
+        const id = localStorage.getItem("gogoclaw:last-session-id")
+        const list = await fetch("/api/sessions?limit=30").then((res) =>
+          res.text(),
+        )
+        const detail = id
+          ? await fetch(`/api/sessions/${encodeURIComponent(id)}`).then((res) =>
+              res.text(),
+            )
+          : ""
+        return {
+          id,
+          list,
+          detail,
+          body: document.body.innerText.slice(0, 1000),
+        }
+      })
+      throw new Error(
+        `Chat reload at ${chatURL} failed: ${JSON.stringify(data)}`,
+        { cause: error },
+      )
+    })
+  const logOutput = await page.evaluate(async () =>
+    (await fetch("/api/gateway/logs")).json(),
+  )
+  const log = (logOutput.logs ?? []).join("\n")
+  if (!log.includes("LLM request") || !log.includes("turn_id"))
+    throw new Error("Launcher log output is missing turn diagnostics")
+  if (log.includes(chatSentinel) || log.includes(replySentinel))
+    throw new Error("Launcher log output contains conversation content")
+}
+
 async function main() {
   const launcher = process.env.GOGOCLAW_TEST_LAUNCHER
   const cli = process.env.GOGOCLAW_TEST_CLI
@@ -30,6 +167,8 @@ async function main() {
   let output = ""
   let child
   let browser
+  let page
+  let model
   try {
     child = spawn(
       launcher,
@@ -55,7 +194,7 @@ async function main() {
       token = output.match(/#setup_token=([^\s]+)/)?.[1]
       if (token) {
         try {
-          if ((await fetch(`${base}/api/auth/status`)).ok) break
+          if ((await fetch(`${base}/health`)).ok) break
         } catch {}
       }
       if (child.exitCode !== null) throw new Error(`Launcher exited: ${output}`)
@@ -68,7 +207,7 @@ async function main() {
         ? { executablePath: process.env.GOGOCLAW_BROWSER_EXECUTABLE }
         : {}),
     })
-    const page = await browser.newPage({
+    page = await browser.newPage({
       viewport: { width: 390, height: 844 },
     })
     await page.addInitScript(() => localStorage.setItem("theme", "dark"))
@@ -101,6 +240,23 @@ async function main() {
     const skip = page.getByRole("button", { name: /跳过引导|Skip/i })
     await skip.waitFor()
     await skip.click()
+    const modelSetup = page.getByRole("link", {
+      name: /Go to Models|去模型页配置/i,
+    })
+    await modelSetup.waitFor()
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 })
+      if (!(await modelSetup.isVisible()))
+        throw new Error(`First-run model action missing at ${width}px`)
+    }
+    const readiness = await page.evaluate(async () => {
+      const response = await fetch("/api/gateway/readiness")
+      return { code: response.status, body: await response.json() }
+    })
+    if (readiness.code !== 503 || readiness.body.status !== "unavailable")
+      throw new Error(
+        "Unconfigured gateway should report unavailable independently of Launcher health",
+      )
     const status = await page.evaluate(async () =>
       (await fetch("/api/auth/status")).json(),
     )
@@ -247,11 +403,20 @@ async function main() {
       )
     )
       throw new Error("Mobile page overflows")
+    model = await startModelFixture()
+    await checkLocalChat(page, base, model)
     if (errors.length) throw new Error(`Browser errors: ${errors.join(", ")}`)
     console.log(
-      "Real-backend browser smoke passed: setup, login, model persistence, usage localization and approval settings",
+      "Real-backend browser smoke passed: setup, login, model persistence, approval settings, gateway readiness, chat reload and log privacy",
     )
   } finally {
+    if (model && page) {
+      await page
+        .evaluate(() => fetch("/api/gateway/stop", { method: "POST" }))
+        .catch(() => {})
+      model.closeAllConnections()
+      await new Promise((resolve) => model.close(resolve))
+    }
     if (browser) await browser.close()
     if (child && child.exitCode === null) {
       child.kill()

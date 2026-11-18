@@ -1,5 +1,13 @@
 {
   "sessionManagement": {
+    "deliveries": "Recent deliveries",
+    "deliveryStatus": {
+      "queued": "Queued",
+      "dispatching": "Sending",
+      "acknowledged": "Accepted by platform",
+      "dead_letter": "Delivery failed",
+      "delivery_unknown": "Platform acceptance unknown"
+    },
     "reasoning": "Reasoning",
     "toolCall": "Tool call",
     "attachment": "Attachment",
@@ -229,13 +237,12 @@
     "imageReadFailed": "Failed to read \"{{name}}\".",
     "empty": {
       "noConfiguredModel": "No Model Configured",
-      "noConfiguredModelDescription": "You need to configure at least one AI model with an API key before you can start chatting.",
+      "noConfiguredModelDescription": "Add a supported model and set it as your default.",
       "goToModels": "Go to Models",
       "noSelectedModel": "No Model Selected",
       "noSelectedModelDescription": "You have configured models, but none is set as default. Select a model before starting chat.",
       "selectModel": "Select a model",
-      "notRunning": "Gateway Not Running",
-      "notRunningDescription": "Start the gateway service to begin chatting. Use the Start Gateway button in the top bar."
+      "notRunning": "Gateway Not Running"
     },
     "modelGroup": {
       "apikey": "API Key",
