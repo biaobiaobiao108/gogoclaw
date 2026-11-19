@@ -102,7 +102,7 @@ func newChatUIMeta() chatUIMetaFile {
 
 func (h *Handler) loadChatUIMeta(dir string) (chatUIMetaFile, error) {
 	meta := newChatUIMeta()
-	store, err := memory.OpenSQLiteStore(dir)
+	store, err := memory.OpenSQLiteStoreReadOnly(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return meta, nil
 	}

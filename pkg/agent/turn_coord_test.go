@@ -1330,6 +1330,27 @@ func TestRunTurn_HardAbort(t *testing.T) {
 	}
 }
 
+func TestRunTurn_StoppedPicoInputIsNotReplayed(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &simpleConvProvider{})
+	defer cleanup()
+	opts := makeTestProcessOpts("pico-stopped-before-append")
+	canceled := false
+	opts.picoUserReceipt = &bus.InboundReceipt{Cancel: func(context.Context) (bool, error) {
+		canceled = true
+		return true, nil
+	}}
+	ts := newTurnState(agent, opts, turnEventScope{
+		turnID: "pico-stopped-before-append", context: newTurnContext(nil, nil, nil),
+	})
+	ts.requestHardAbort()
+	if _, err := al.runTurn(t.Context(), ts, NewPipeline(al)); err != nil {
+		t.Fatal(err)
+	}
+	if !canceled {
+		t.Fatal("stopped input remains pending")
+	}
+}
+
 func TestRunTurn_SteeringMessageInjection(t *testing.T) {
 	provider := &simpleConvProvider{}
 	al, agent, cleanup := newTurnCoordTestLoop(t, provider)

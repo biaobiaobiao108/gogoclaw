@@ -294,19 +294,27 @@ func OpenSQLiteStoreReadOnly(dir string) (*SQLiteStore, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, err
 	}
-	absolute, err := filepath.Abs(path)
+	dsn, err := sqliteFileDSN(path, url.Values{
+		"mode":    {"ro"},
+		"_pragma": {"busy_timeout(5000)"},
+	})
 	if err != nil {
 		return nil, err
+	}
+	return connectSQLiteStore(path, dsn)
+}
+
+func sqliteFileDSN(path string, params url.Values) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
 	}
 	uriPath := filepath.ToSlash(absolute)
 	if !strings.HasPrefix(uriPath, "/") {
 		uriPath = "/" + uriPath
 	}
-	uri := url.URL{Scheme: "file", Path: uriPath, RawQuery: url.Values{
-		"mode":    {"ro"},
-		"_pragma": {"busy_timeout(5000)"},
-	}.Encode()}
-	return connectSQLiteStore(path, uri.String())
+	uri := url.URL{Scheme: "file", Path: uriPath, RawQuery: params.Encode()}
+	return uri.String(), nil
 }
 
 func connectSQLiteStore(path, dsn string) (*SQLiteStore, error) {

@@ -385,12 +385,24 @@ func executeReload(
 	debug bool,
 ) (err error) {
 	startedAt := time.Now()
+	healthServer := runningServices.HealthServer
+	if healthServer != nil {
+		healthServer.SetReady(false)
+		healthServer.RegisterCheck("reload", func() (bool, string) { return false, "configuration reload in progress" })
+	}
 	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayReloadStarted, startedAt, nil)
 	defer runningServices.reloading.Store(false)
 	defer func() {
 		if err != nil {
+			if healthServer != nil {
+				healthServer.RegisterCheck("reload", func() (bool, string) { return false, "configuration reload failed; check gateway logs" })
+			}
 			publishGatewayEvent(agentLoop, runtimeevents.KindGatewayReloadFailed, startedAt, err)
 			return
+		}
+		if healthServer != nil {
+			healthServer.RegisterCheck("reload", func() (bool, string) { return true, "configuration applied" })
+			healthServer.SetReady(true)
 		}
 		publishGatewayEvent(agentLoop, runtimeevents.KindGatewayReloadCompleted, startedAt, nil)
 	}()

@@ -5,9 +5,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
 
 func TestProjectTurnContextUsesSavedProjectAndPersistsSources(t *testing.T) {
@@ -31,14 +33,14 @@ func TestProjectTurnContextUsesSavedProjectAndPersistsSources(t *testing.T) {
 	}
 	if err := store.ReplaceChatProjectFileChunks(ctx, project.ID, file.ID, []memory.ChatProjectChunk{{
 		Ordinal: 1, Locator: "Lines 1-3", Content: "If the cache alarm fires, use the blue failover procedure.", TokenCount: 12,
-	}}); err != nil {
+	}}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SetSessionChatProject(ctx, "session-one", project.ID); err != nil {
 		t.Fatal(err)
 	}
 	ts := &turnState{
-		agent: &AgentInstance{Workspace: workspace}, channel: "pico", chatID: "pico:session-one",
+		agent: &AgentInstance{Workspace: workspace, Sessions: session.NewStoreBackend(store)}, channel: "pico", chatID: "pico:session-one",
 		userMessage: "What should I do when the cache alarm fires?", turnID: "turn-one",
 		opts: processOptions{Dispatch: DispatchRequest{InboundContext: &bus.InboundContext{Raw: map[string]string{}}}},
 	}
@@ -68,7 +70,7 @@ func TestProjectTurnContextUsesSavedProjectAndPersistsSources(t *testing.T) {
 	}
 }
 
-func TestProjectTurnContextRejectsMissingExplicitProject(t *testing.T) {
+func TestProjectTurnContextIgnoresStaleProjectFromInbox(t *testing.T) {
 	workspace := t.TempDir()
 	store, err := memory.NewSQLiteStore(filepath.Join(workspace, "sessions"))
 	if err != nil {
@@ -76,13 +78,13 @@ func TestProjectTurnContextRejectsMissingExplicitProject(t *testing.T) {
 	}
 	defer store.Close()
 	ts := &turnState{
-		agent: &AgentInstance{Workspace: workspace}, channel: "pico", chatID: "pico:missing-project",
+		agent: &AgentInstance{Workspace: workspace, Sessions: session.NewStoreBackend(store)}, channel: "pico", chatID: "pico:missing-project",
 		userMessage: "hello", turnID: "turn-missing",
 		opts: processOptions{Dispatch: DispatchRequest{InboundContext: &bus.InboundContext{Raw: map[string]string{
-			chatProjectMetadataKey: "deleted-project",
+			memory.PicoProjectMetadataKey: "deleted-project",
 		}}}},
 	}
-	if _, err := (&Pipeline{}).loadProjectTurnContext(context.Background(), ts, true); err == nil {
-		t.Fatal("expected missing project error")
+	if project, err := (&Pipeline{}).loadProjectTurnContext(t.Context(), ts, true); project != nil || err != nil {
+		t.Fatalf("project = %#v, error = %v", project, err)
 	}
 }

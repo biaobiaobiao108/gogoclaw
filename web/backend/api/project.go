@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -302,9 +303,11 @@ func (h *Handler) handleUploadChatProjectFile(w http.ResponseWriter, r *http.Req
 		http.Error(w, "failed to record project file", http.StatusInternalServerError)
 		return
 	}
-	file, err = h.indexChatProjectFile(r, store, project.ID, file)
+	file, err = indexChatProjectFile(r.Context(), dir, store, file)
 	if err != nil {
 		logger.Warnf("failed to index project file %s: %v", filename, err)
+		http.Error(w, "failed to index project file", http.StatusInternalServerError)
+		return
 	}
 	writeJSON(w, http.StatusCreated, file)
 }
@@ -353,7 +356,7 @@ func (h *Handler) handleDeleteChatProjectFile(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) handleReindexChatProjectFile(w http.ResponseWriter, r *http.Request) {
-	_, store, project, ok := h.loadChatProjectForRequest(w, r)
+	dir, store, project, ok := h.loadChatProjectForRequest(w, r)
 	if !ok {
 		return
 	}
@@ -367,7 +370,7 @@ func (h *Handler) handleReindexChatProjectFile(w http.ResponseWriter, r *http.Re
 		http.Error(w, "failed to read project file", http.StatusInternalServerError)
 		return
 	}
-	file, err = h.indexChatProjectFile(r, store, project.ID, file)
+	file, err = indexChatProjectFile(r.Context(), dir, store, file)
 	if err != nil {
 		http.Error(w, "failed to reindex project file", http.StatusInternalServerError)
 		return
@@ -433,38 +436,33 @@ func (h *Handler) loadChatProjectForRequest(w http.ResponseWriter, r *http.Reque
 	return dir, store, project, true
 }
 
-func (h *Handler) indexChatProjectFile(r *http.Request, store *memory.SQLiteStore, projectID string, file memory.ChatProjectFile) (memory.ChatProjectFile, error) {
-	dir, err := h.sessionsDir()
-	if err != nil {
-		return file, err
-	}
-	path := filepath.Join(projectFilesDir(dir, projectID), file.StoredName)
+func indexChatProjectFile(requestContext context.Context, dir string, store *memory.SQLiteStore, file memory.ChatProjectFile) (memory.ChatProjectFile, error) {
+	path := filepath.Join(projectFilesDir(dir, file.ProjectID), file.StoredName)
 	sections, err := chatproject.Extract(path, file.OriginalName)
-	if err != nil {
-		_ = store.UpdateChatProjectFileStatus(r.Context(), file.ID, "failed", err.Error(), time.Time{})
-		file.Status, file.Error = "failed", err.Error()
-		return file, nil
-	}
 	chunks := chatproject.ChunkSections(sections, chatproject.DefaultChunkTokens, chatproject.DefaultOverlapTokens)
-	if len(chunks) == 0 {
-		message := "file contains no extractable text"
-		_ = store.UpdateChatProjectFileStatus(r.Context(), file.ID, "failed", message, time.Time{})
-		file.Status, file.Error = "failed", message
-		return file, nil
-	}
 	stored := make([]memory.ChatProjectChunk, 0, len(chunks))
 	for _, chunk := range chunks {
 		stored = append(stored, memory.ChatProjectChunk{
 			Ordinal: chunk.Ordinal, Locator: chunk.Locator, Content: chunk.Content, TokenCount: chunk.TokenCount,
 		})
 	}
-	if err := store.ReplaceChatProjectFileChunks(r.Context(), projectID, file.ID, stored); err != nil {
-		_ = store.UpdateChatProjectFileStatus(r.Context(), file.ID, "failed", "failed to save extracted text", time.Time{})
-		return file, err
+	// The original is already durable. Finish recording its index state even
+	// when the uploading browser disconnects.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(requestContext), 30*time.Second)
+	defer cancel()
+	if err == nil && len(stored) == 0 {
+		err = errors.New("file contains no extractable text")
 	}
 	now := time.Now()
-	if err := store.UpdateChatProjectFileStatus(r.Context(), file.ID, "ready", "", now); err != nil {
-		return file, err
+	if err == nil {
+		err = store.ReplaceChatProjectFileChunks(ctx, file.ProjectID, file.ID, stored, now)
+	}
+	if err != nil {
+		if statusErr := store.UpdateChatProjectFileStatus(ctx, file.ID, "failed", err.Error(), time.Time{}); statusErr != nil {
+			return file, errors.Join(err, statusErr)
+		}
+		file.Status, file.Error, file.IndexedAt = "failed", err.Error(), time.Time{}
+		return file, nil
 	}
 	file.Status, file.Error, file.IndexedAt = "ready", "", now
 	return file, nil

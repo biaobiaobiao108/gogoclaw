@@ -836,7 +836,10 @@ func TestParallelMessageProcessing_DifferentSessionsProcessedConcurrently(t *tes
 	msgBus := bus.NewMessageBus()
 	defer msgBus.Close()
 
-	// Create a slow mock provider that tracks concurrency
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	overlap := make(chan struct{})
+	// Keep the first call in flight until another session reaches the provider.
 	provider := &concurrentMockProvider{
 		responseFunc: func(callID int) string {
 			mu.Lock()
@@ -846,11 +849,16 @@ func TestParallelMessageProcessing_DifferentSessionsProcessedConcurrently(t *tes
 			currentActive := len(activeTurns)
 			if currentActive > maxConcurrent {
 				maxConcurrent = currentActive
+				if maxConcurrent == 2 {
+					close(overlap)
+				}
 			}
 			mu.Unlock()
 
-			// Simulate some processing time
-			time.Sleep(100 * time.Millisecond)
+			select {
+			case <-overlap:
+			case <-ctx.Done():
+			}
 
 			mu.Lock()
 			delete(activeTurns, turnID)
@@ -864,18 +872,12 @@ func TestParallelMessageProcessing_DifferentSessionsProcessedConcurrently(t *tes
 	al := NewAgentLoop(cfg, msgBus, provider)
 	defer al.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	// Start the agent loop
 	go func() {
 		if err := al.Run(ctx); err != nil {
 			t.Logf("Agent loop error: %v", err)
 		}
 	}()
-
-	// Give the loop time to start
-	time.Sleep(50 * time.Millisecond)
 
 	// Send 3 messages from different sessions
 	sessions := []string{"user1", "user2", "user3"}
@@ -908,7 +910,8 @@ func TestParallelMessageProcessing_DifferentSessionsProcessedConcurrently(t *tes
 	case <-done:
 		// All turns completed successfully
 	case <-time.After(5 * time.Second):
-		t.Fatal("timeout waiting for turns to complete")
+		cancel()
+		t.Fatal("different sessions did not reach the provider concurrently")
 	}
 
 	// Verify that we had concurrent executions

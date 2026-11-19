@@ -718,6 +718,9 @@ func main() {
 	if _, err = apiHandler.EnsurePicoChannel(); err != nil {
 		logger.ErrorC("web", fmt.Sprintf("Warning: failed to ensure pico channel on startup: %v", err))
 	}
+	if err = apiHandler.InitializeSessionStore(); err != nil {
+		logger.Warnf("could not initialize the Launcher session database: %v", err)
+	}
 	apiHandler.SetServerOptions(portNum, effectivePublic, explicitPublic, launcherCfg.AllowedCIDRs)
 	apiHandler.SetServerAccessOptions(
 		launcherCfg.AllowLocalhostBypass,

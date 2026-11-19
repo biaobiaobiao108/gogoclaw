@@ -140,6 +140,7 @@ type processOptions struct {
 	RouteResult             *routing.ResolvedRoute // Route decision snapshot for events/hooks
 	SessionScope            *session.SessionScope  // Session scope snapshot for events/hooks
 	runtime                 *runtimeSnapshot       // Dependency version captured at message intake
+	picoUserReceipt         *bus.InboundReceipt
 }
 
 type continuationTarget struct {
@@ -393,7 +394,11 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 					defer channelManager.InvokeTypingStop(m.Channel, m.ChatID)
 				}
 
-				if !ph.pendingStop.Load() && claimInboundMessage(runCtx, m) {
+				deferredClaim := al.deferPicoUserClaim(m)
+				if deferredClaim {
+					defer m.Receipt.Release()
+				}
+				if !ph.pendingStop.Load() && (deferredClaim || claimInboundMessage(runCtx, m)) {
 					al.runTurnWithSteering(runCtx, m)
 					finishInboundMessage(runCtx, m)
 					return
@@ -423,6 +428,22 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 
 		}
 	}
+}
+
+func (al *AgentLoop) deferPicoUserClaim(msg bus.InboundMessage) bool {
+	if msg.Receipt == nil || !msg.Receipt.PersistUser || msg.Context.Raw["task_action"] != "" || isChatBranchMutation(msg) {
+		return false
+	}
+	command, _ := commands.CommandName(msg.Content)
+	if command == "use" || command == "stop" {
+		return false
+	}
+	if al.cmdRegistry != nil {
+		if _, registered := al.cmdRegistry.Lookup(command); registered {
+			return false
+		}
+	}
+	return true
 }
 
 func claimInboundMessage(ctx context.Context, msg bus.InboundMessage) bool {

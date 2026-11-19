@@ -17,6 +17,8 @@ import (
 )
 
 const maxExpandedOOXMLBytes = 32 << 20
+const maxExtractedTextBytes = 32 << 20
+const maxPDFPages = 4096
 
 var supportedExtensions = map[string]struct{}{
 	".pdf": {}, ".docx": {}, ".xlsx": {}, ".pptx": {},
@@ -62,14 +64,23 @@ func extractPDF(path string) ([]Section, error) {
 		return nil, fmt.Errorf("open PDF: %w", err)
 	}
 	defer file.Close()
-	sections := make([]Section, 0, reader.NumPage())
-	for pageNumber := 1; pageNumber <= reader.NumPage(); pageNumber++ {
+	pageCount := reader.NumPage()
+	if pageCount < 1 || pageCount > maxPDFPages {
+		return nil, fmt.Errorf("PDF page count must be between 1 and %d", maxPDFPages)
+	}
+	sections := make([]Section, 0, min(pageCount, 256))
+	remaining := maxExtractedTextBytes
+	for pageNumber := 1; pageNumber <= pageCount; pageNumber++ {
 		page := reader.Page(pageNumber)
 		text, err := page.GetPlainText(nil)
 		if err != nil {
 			return nil, fmt.Errorf("extract PDF page %d: %w", pageNumber, err)
 		}
 		if text = normalizeExtractedText(text); text != "" {
+			remaining -= len(text)
+			if remaining < 0 {
+				return nil, fmt.Errorf("PDF text exceeds %d bytes", maxExtractedTextBytes)
+			}
 			sections = append(sections, Section{Locator: fmt.Sprintf("Page %d", pageNumber), Content: text})
 		}
 	}
@@ -89,7 +100,8 @@ func extractDOCX(path string) ([]Section, error) {
 	if entry == nil {
 		return nil, fmt.Errorf("DOCX document.xml is missing")
 	}
-	data, err := readZipEntryLimited(entry)
+	remaining := int64(maxExpandedOOXMLBytes)
+	data, err := readZipEntryLimited(entry, &remaining)
 	if err != nil {
 		return nil, err
 	}
@@ -150,8 +162,9 @@ func extractPPTX(path string) ([]Section, error) {
 	}
 	sort.Slice(entries, func(i, j int) bool { return naturalFileLess(entries[i].Name, entries[j].Name) })
 	sections := make([]Section, 0, len(entries))
+	remaining := int64(maxExpandedOOXMLBytes)
 	for index, entry := range entries {
-		data, err := readZipEntryLimited(entry)
+		data, err := readZipEntryLimited(entry, &remaining)
 		if err != nil {
 			return nil, err
 		}
@@ -172,13 +185,17 @@ func extractXLSX(path string) ([]Section, error) {
 		return nil, fmt.Errorf("open XLSX: %w", err)
 	}
 	defer archive.Close()
-	shared := make([]string, 0)
+	var shared []string
+	remaining := int64(maxExpandedOOXMLBytes)
 	if entry := findZipEntry(archive.File, "xl/sharedStrings.xml"); entry != nil {
-		data, err := readZipEntryLimited(entry)
+		data, err := readZipEntryLimited(entry, &remaining)
 		if err != nil {
 			return nil, err
 		}
-		shared = extractXMLTexts(data, "t")
+		shared, err = extractXLSXSharedStrings(data)
+		if err != nil {
+			return nil, err
+		}
 	}
 	entries := make([]*zip.File, 0)
 	for _, entry := range archive.File {
@@ -189,12 +206,13 @@ func extractXLSX(path string) ([]Section, error) {
 	}
 	sort.Slice(entries, func(i, j int) bool { return naturalFileLess(entries[i].Name, entries[j].Name) })
 	sections := make([]Section, 0)
+	textRemaining := maxExtractedTextBytes
 	for sheetIndex, entry := range entries {
-		data, err := readZipEntryLimited(entry)
+		data, err := readZipEntryLimited(entry, &remaining)
 		if err != nil {
 			return nil, err
 		}
-		rows, err := extractXLSXRows(data, shared)
+		rows, err := extractXLSXRows(data, shared, &textRemaining)
 		if err != nil {
 			return nil, err
 		}
@@ -213,7 +231,31 @@ func extractXLSX(path string) ([]Section, error) {
 	return sections, nil
 }
 
-func extractXLSXRows(data []byte, shared []string) ([][]string, error) {
+func extractXLSXSharedStrings(data []byte) ([]string, error) {
+	var table struct {
+		Items []struct {
+			Text string `xml:"t"`
+			Runs []struct {
+				Text string `xml:"t"`
+			} `xml:"r"`
+		} `xml:"si"`
+	}
+	if err := xml.Unmarshal(data, &table); err != nil {
+		return nil, fmt.Errorf("parse XLSX shared strings: %w", err)
+	}
+	shared := make([]string, 0, len(table.Items))
+	for _, item := range table.Items {
+		var text strings.Builder
+		text.WriteString(item.Text)
+		for _, run := range item.Runs {
+			text.WriteString(run.Text)
+		}
+		shared = append(shared, text.String())
+	}
+	return shared, nil
+}
+
+func extractXLSXRows(data []byte, shared []string, remaining *int) ([][]string, error) {
 	decoder := xml.NewDecoder(bytes.NewReader(data))
 	rows := make([][]string, 0)
 	var row []string
@@ -260,6 +302,10 @@ func extractXLSXRows(data []byte, shared []string) ([][]string, error) {
 						cell = shared[index]
 					}
 				}
+				*remaining -= len(cell) + len(" | ")
+				if *remaining < 0 {
+					return nil, fmt.Errorf("XLSX text exceeds %d bytes", maxExtractedTextBytes)
+				}
 				row = append(row, cell)
 			case "row":
 				rows = append(rows, append([]string(nil), row...))
@@ -270,9 +316,17 @@ func extractXLSXRows(data []byte, shared []string) ([][]string, error) {
 }
 
 func extractText(path string) ([]Section, error) {
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("read text file: %w", err)
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxExtractedTextBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read text file: %w", err)
+	}
+	if len(data) > maxExtractedTextBytes {
+		return nil, fmt.Errorf("text file exceeds %d bytes", maxExtractedTextBytes)
 	}
 	if bytes.IndexByte(data, 0) >= 0 {
 		return nil, fmt.Errorf("file contains binary data")
@@ -350,8 +404,8 @@ func findZipEntry(entries []*zip.File, name string) *zip.File {
 	return nil
 }
 
-func readZipEntryLimited(entry *zip.File) ([]byte, error) {
-	if entry.UncompressedSize64 > maxExpandedOOXMLBytes {
+func readZipEntryLimited(entry *zip.File, remaining *int64) ([]byte, error) {
+	if entry.UncompressedSize64 > uint64(*remaining) {
 		return nil, fmt.Errorf("document XML expands beyond %d bytes", maxExpandedOOXMLBytes)
 	}
 	reader, err := entry.Open()
@@ -359,11 +413,12 @@ func readZipEntryLimited(entry *zip.File) ([]byte, error) {
 		return nil, fmt.Errorf("open document XML: %w", err)
 	}
 	defer reader.Close()
-	data, err := io.ReadAll(io.LimitReader(reader, maxExpandedOOXMLBytes+1))
+	data, err := io.ReadAll(io.LimitReader(reader, *remaining+1))
 	if err != nil {
 		return nil, fmt.Errorf("read document XML: %w", err)
 	}
-	if len(data) > maxExpandedOOXMLBytes {
+	*remaining -= int64(len(data))
+	if *remaining < 0 {
 		return nil, fmt.Errorf("document XML expands beyond %d bytes", maxExpandedOOXMLBytes)
 	}
 	return data, nil

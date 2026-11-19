@@ -95,6 +95,7 @@ export function ProjectSettingsDialog({
   const [name, setName] = useState("")
   const [instructions, setInstructions] = useState("")
   const [files, setFiles] = useState<ChatProjectFile[]>([])
+  const [retryingFiles, setRetryingFiles] = useState<string[]>([])
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([])
   const [loading, setLoading] = useState(false)
   const [loadFailed, setLoadFailed] = useState(false)
@@ -260,8 +261,9 @@ export function ProjectSettingsDialog({
   }
 
   const retryFile = async (file: ChatProjectFile) => {
-    if (!project) return
+    if (!project || retryingFiles.includes(file.id)) return
     const projectID = project.id
+    setRetryingFiles((previous) => [...previous, file.id])
     setFiles((previous) =>
       previous.map((item) =>
         item.id === file.id ? { ...item, status: "processing" } : item,
@@ -289,6 +291,8 @@ export function ProjectSettingsDialog({
             : item,
         ),
       )
+    } finally {
+      setRetryingFiles((previous) => previous.filter((id) => id !== file.id))
     }
   }
 
@@ -544,17 +548,16 @@ export function ProjectSettingsDialog({
                             {t("chat.openProjectFile")}
                           </a>
                         )}
-                        {file.status === "failed" && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={t("chat.retryProjectFile")}
-                            onClick={() => void retryFile(file)}
-                          >
-                            <IconRefresh />
-                          </Button>
-                        )}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={t("chat.retryProjectFile")}
+                          disabled={retryingFiles.includes(file.id)}
+                          onClick={() => void retryFile(file)}
+                        >
+                          <IconRefresh />
+                        </Button>
                         <Button
                           type="button"
                           variant="ghost"

@@ -19,6 +19,8 @@ type PicoInboxMessage struct {
 
 var ErrPicoInboundInFlight = errors.New("Pico request already claimed")
 
+const PicoProjectMetadataKey = "chat_project_id"
+
 // QueuePicoInbound persists the payload and deduplication key in the same row.
 func (s *SQLiteStore) QueuePicoInbound(ctx context.Context, sessionID, requestID string, msg bus.InboundMessage) (string, error) {
 	payload, err := json.Marshal(msg)
@@ -52,6 +54,39 @@ func (s *SQLiteStore) QueuePicoInbound(ctx context.Context, sessionID, requestID
 			status = "unknown"
 		case "done":
 			status = "duplicate"
+		}
+	} else if projectID := msg.Context.Raw[PicoProjectMetadataKey]; projectID != "" {
+		id, err := res.LastInsertId()
+		if err != nil {
+			return "", err
+		}
+		var existing bool
+		if err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS(SELECT 1 FROM pico_inbox WHERE session_id = ? AND id < ?)
+				OR EXISTS(SELECT 1 FROM chat_session_projects WHERE session_id = ?)
+				OR EXISTS(SELECT 1 FROM chat_ui_meta WHERE session_id = ?)
+				OR EXISTS(SELECT 1 FROM session_meta WHERE session_key = 'agent:main:pico:direct:pico:' || ?
+					OR CASE WHEN json_valid(CAST(scope_json AS TEXT)) THEN
+						json_extract(CAST(scope_json AS TEXT), '$.channel') = 'pico' AND
+						(json_extract(CAST(scope_json AS TEXT), '$.values.chat') IN ('direct:pico:' || ?, 'direct:' || ?)
+						OR json_extract(CAST(scope_json AS TEXT), '$.values.sender') = 'pico:' || ?)
+					END)`, sessionID, id, sessionID, sessionID, sessionID, sessionID, sessionID, sessionID).Scan(&existing); err != nil {
+			return "", err
+		}
+		if !existing {
+			result, err := tx.ExecContext(ctx, `
+				INSERT INTO chat_session_projects(session_id, project_id, created_at)
+				SELECT ?, id, ? FROM chat_projects WHERE id = ?`, sessionID, time.Now().UnixNano(), projectID)
+			if err != nil {
+				return "", err
+			}
+			count, err := result.RowsAffected()
+			if err != nil {
+				return "", err
+			}
+			if count == 0 {
+				return "", ErrChatProjectNotFound
+			}
 		}
 	}
 	return status, tx.Commit()
@@ -107,6 +142,15 @@ func (s *SQLiteStore) CancelPicoInbound(ctx context.Context, id int64) (bool, er
 // AppendPicoSteering hands a pending request to the transcript atomically.
 // A cancellation or another consumer may have already taken the request.
 func (s *SQLiteStore) AppendPicoSteering(ctx context.Context, id int64, sessionKey string, msg providers.Message) (bool, error) {
+	return s.appendPicoInboundMessage(ctx, id, sessionKey, msg, "done")
+}
+
+// ClaimPicoUser records the input before execution can perform any side effects.
+func (s *SQLiteStore) ClaimPicoUser(ctx context.Context, id int64, sessionKey string, msg providers.Message) (bool, error) {
+	return s.appendPicoInboundMessage(ctx, id, sessionKey, msg, "processing")
+}
+
+func (s *SQLiteStore) appendPicoInboundMessage(ctx context.Context, id int64, sessionKey string, msg providers.Message, state string) (bool, error) {
 	ctx = sqliteContext(ctx)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -114,7 +158,7 @@ func (s *SQLiteStore) AppendPicoSteering(ctx context.Context, id int64, sessionK
 	}
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx,
-		"UPDATE pico_inbox SET state = 'done', payload = NULL WHERE id = ? AND state = 'pending'", id)
+		"UPDATE pico_inbox SET state = ?, payload = CASE WHEN ? = 'done' THEN NULL ELSE payload END WHERE id = ? AND state = 'pending'", state, state, id)
 	if err != nil {
 		return false, err
 	}

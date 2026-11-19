@@ -27,7 +27,7 @@ func TestExtractDOCX(t *testing.T) {
 func TestExtractXLSXSharedStrings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sample.xlsx")
 	writeZipFixture(t, path, map[string]string{
-		"xl/sharedStrings.xml": `<sst xmlns="x"><si><t>Name</t></si><si><t>Alice</t></si></sst>`,
+		"xl/sharedStrings.xml": `<sst xmlns="x"><si><r><t>Project </t></r><r><t>name</t></r></si><si><t>Alice</t></si></sst>`,
 		"xl/worksheets/sheet1.xml": `<worksheet xmlns="x"><sheetData>` +
 			`<row><c t="s"><v>0</v></c><c t="s"><v>1</v></c></row>` +
 			`</sheetData></worksheet>`,
@@ -36,7 +36,7 @@ func TestExtractXLSXSharedStrings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sections) != 1 || sections[0].Content != "Name | Alice" || sections[0].Locator != "Sheet 1, row 1" {
+	if len(sections) != 1 || sections[0].Content != "Project name | Alice" || sections[0].Locator != "Sheet 1, row 1" {
 		t.Fatalf("sections = %#v", sections)
 	}
 }
@@ -48,9 +48,24 @@ func TestChunkSectionsOverlapAndLimit(t *testing.T) {
 		t.Fatalf("expected multiple chunks, got %#v", chunks)
 	}
 	for _, chunk := range chunks {
-		if ApproxTokens(chunk.Content) > 140 {
+		if ApproxTokens(chunk.Content) > 120 {
 			t.Fatalf("chunk token count too large: %d", ApproxTokens(chunk.Content))
 		}
+	}
+}
+
+func TestSplitLargeMixedTextPreservesContentAndBudget(t *testing.T) {
+	source := strings.Repeat("项目验收 alpha。", 100000)
+	parts := SplitByTokenBudget(source, 520)
+	var joined strings.Builder
+	for _, part := range parts {
+		if ApproxTokens(part) > 520 {
+			t.Fatalf("part exceeds budget: %d", ApproxTokens(part))
+		}
+		joined.WriteString(strings.ReplaceAll(part, " ", ""))
+	}
+	if joined.String() != strings.ReplaceAll(source, " ", "") {
+		t.Fatal("split lost text")
 	}
 }
 

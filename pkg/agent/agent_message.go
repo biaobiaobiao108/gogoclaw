@@ -168,6 +168,7 @@ func (al *AgentLoop) processMessageResult(
 ) (processMessageResult, error) {
 	runtime, release := al.retainRuntime()
 	defer release()
+	deferUserClaim := sessionClaimed && al.deferPicoUserClaim(msg)
 	msg = al.prepareInboundMessageForAgentWithRuntime(ctx, msg, runtime)
 
 	logger.InfoCF(
@@ -282,11 +283,23 @@ func (al *AgentLoop) processMessageResult(
 	if err != nil {
 		return processMessageResult{}, err
 	}
+	if deferUserClaim {
+		if opts.NoHistory || (strings.TrimSpace(opts.Dispatch.UserMessage) == "" && len(opts.Dispatch.Media) == 0) {
+			// Turns without a user transcript still need a fence before execution.
+			if !claimInboundMessage(ctx, msg) {
+				return processMessageResult{}, context.Canceled
+			}
+		} else {
+			opts.picoUserReceipt = msg.Receipt
+		}
+	}
 
-	// context-dependent commands check their own Runtime fields and report
-	// "unavailable" when the required capability is nil.
-	if response, handled := al.handleCommand(ctx, msg, agent, &opts); handled {
-		return processMessageResult{content: response}, nil
+	// Only the submitted text can be a command for durable Pico messages.
+	// Transcription and attachment processing run before the transcript commit.
+	if !deferUserClaim {
+		if response, handled := al.handleCommand(ctx, msg, agent, &opts); handled {
+			return processMessageResult{content: response}, nil
+		}
 	}
 
 	if pending := al.takePendingSkills(opts.Dispatch.SessionKey); len(pending) > 0 {

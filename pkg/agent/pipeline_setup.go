@@ -145,7 +145,19 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 		if rootMsg.ID == "" {
 			rootMsg.ID = ts.turnID + "-user"
 		}
-		if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, rootMsg); err != nil {
+		if receipt := ts.opts.picoUserReceipt; receipt != nil {
+			store, ok := ts.agent.Sessions.(*session.StoreBackend)
+			if !ok {
+				return nil, fmt.Errorf("session store does not support Pico inbox")
+			}
+			claimed, err := store.ClaimPicoUser(ctx, ts.sessionKey, rootMsg, receipt)
+			if err != nil {
+				return nil, fmt.Errorf("claim Pico input and save user message: %w", err)
+			}
+			if !claimed {
+				return nil, context.Canceled
+			}
+		} else if err := session.AppendChecked(ts.agent.Sessions, ts.sessionKey, rootMsg); err != nil {
 			return nil, fmt.Errorf("save user message: %w", err)
 		}
 		ts.recordPersistedMessage(rootMsg)

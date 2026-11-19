@@ -200,8 +200,10 @@ func TestTurnProfile_ProcessMessageUsesEnabledTurnProfile(t *testing.T) {
 	}
 	provider := &turnProfileCaptureProvider{}
 	al := newTurnProfileAgentLoop(t, cfg, provider)
+	t.Cleanup(al.Close)
 
-	_, err := al.processMessage(context.Background(), bus.InboundMessage{
+	claims := 0
+	_, err := al.processMessageWithClaim(t.Context(), bus.InboundMessage{
 		Context: bus.InboundContext{
 			Channel:  "pico",
 			ChatID:   "pico:sess-1",
@@ -209,9 +211,17 @@ func TestTurnProfile_ProcessMessageUsesEnabledTurnProfile(t *testing.T) {
 			SenderID: "pico-user",
 		},
 		Content: "hello from pico",
-	})
+		Receipt: &bus.InboundReceipt{PersistUser: true},
+		Claim: func(context.Context) (bool, error) {
+			claims++
+			return true, nil
+		},
+	}, true)
 	if err != nil {
 		t.Fatalf("processMessage() error = %v", err)
+	}
+	if claims != 1 {
+		t.Fatalf("Pico claims = %d, want 1 for a turn with history disabled", claims)
 	}
 	if len(provider.messages) != 2 {
 		t.Fatalf("provider messages len = %d, want system + current user", len(provider.messages))

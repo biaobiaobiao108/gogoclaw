@@ -2,17 +2,15 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
 
 const (
-	chatProjectMetadataKey      = "chat_project_id"
 	projectContextMaxChunks     = 8
 	projectContextMaxTokens     = 3000
 	projectContextMaxFileChunks = 4
@@ -34,36 +32,17 @@ func (p *Pipeline) loadProjectTurnContext(ctx context.Context, ts *turnState, pe
 	if sessionID == "" || strings.TrimSpace(ts.agent.Workspace) == "" {
 		return nil, nil
 	}
-	store, err := memory.OpenSQLiteStore(filepath.Join(ts.agent.Workspace, "sessions"))
-	if errors.Is(err, os.ErrNotExist) {
-		if explicit := projectIDFromTurn(ts); explicit != "" {
-			return nil, fmt.Errorf("project no longer exists")
-		}
+	backend, ok := ts.agent.Sessions.(*session.StoreBackend)
+	if !ok {
 		return nil, nil
 	}
-	if err != nil {
-		return nil, fmt.Errorf("open project store: %w", err)
+	store := backend.SQLiteStore()
+	if store == nil {
+		return nil, nil
 	}
-	defer store.Close()
-
-	var project *memory.ChatProject
-	if explicit := projectIDFromTurn(ts); explicit != "" {
-		loaded, err := store.GetChatProject(ctx, explicit)
-		if errors.Is(err, memory.ErrChatProjectNotFound) {
-			return nil, fmt.Errorf("project no longer exists")
-		}
-		if err != nil {
-			return nil, fmt.Errorf("load project: %w", err)
-		}
-		if err := store.SetSessionChatProject(ctx, sessionID, loaded.ID); err != nil {
-			return nil, fmt.Errorf("assign project: %w", err)
-		}
-		project = &loaded
-	} else {
-		project, err = store.SessionChatProject(ctx, sessionID)
-		if err != nil {
-			return nil, fmt.Errorf("load assigned project: %w", err)
-		}
+	project, err := store.SessionChatProject(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("load assigned project: %w", err)
 	}
 	if project == nil {
 		return nil, nil
@@ -107,13 +86,6 @@ func (p *Pipeline) loadProjectTurnContext(ctx context.Context, ts *turnState, pe
 		}
 	}
 	return result, nil
-}
-
-func projectIDFromTurn(ts *turnState) string {
-	if ts == nil || ts.opts.Dispatch.InboundContext == nil {
-		return ""
-	}
-	return strings.TrimSpace(ts.opts.Dispatch.InboundContext.Raw[chatProjectMetadataKey])
 }
 
 func selectProjectChunks(matches []memory.ChatProjectChunkMatch) []memory.ChatProjectChunkMatch {

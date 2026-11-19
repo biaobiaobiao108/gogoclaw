@@ -28,6 +28,9 @@ func toChannelHashes(cfg *config.Config) map[string]string {
 			continue
 		}
 		hiddenValues(key, value, ch.Get(key))
+		if key == config.ChannelPico || value["type"] == config.ChannelPico {
+			value["inbox_workspace"] = cfg.WorkspacePath()
+		}
 		valueBytes, err := json.Marshal(value)
 		if err != nil {
 			log.Printf("[manager_channel] failed to marshal channel %s config: %v", key, err)

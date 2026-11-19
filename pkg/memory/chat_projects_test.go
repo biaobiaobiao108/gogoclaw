@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
@@ -36,7 +37,8 @@ func TestChatProjectsAssignmentChunksAndSourceProvenance(t *testing.T) {
 	if err := store.ReplaceChatProjectFileChunks(ctx, project.ID, file.ID, []ChatProjectChunk{
 		{Ordinal: 1, Locator: "Lines 1-4", Content: "The launch codename is seabird retrieval.", TokenCount: 9},
 		{Ordinal: 2, Locator: "Lines 5-8", Content: "The support window closes on Friday.", TokenCount: 8},
-	}); err != nil {
+		{Ordinal: 3, Locator: "Lines 9-12", Content: "项目验收标准为核心用例全部通过。", TokenCount: 16},
+	}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	matches, err := store.SearchChatProjectChunks(ctx, project.ID, "seabird", 20)
@@ -45,6 +47,10 @@ func TestChatProjectsAssignmentChunksAndSourceProvenance(t *testing.T) {
 	}
 	if len(matches) != 1 || matches[0].Filename != "notes.md" || matches[0].Locator != "Lines 1-4" {
 		t.Fatalf("matches = %#v", matches)
+	}
+	matches, err = store.SearchChatProjectChunks(ctx, project.ID, "项目验收标准是什么？", 20)
+	if err != nil || len(matches) != 1 || matches[0].Ordinal != 3 {
+		t.Fatalf("Chinese question matches = %#v, error = %v", matches, err)
 	}
 	if err := store.ReplaceChatProjectTurnSources(ctx, sessionID, "turn-one", []ChatProjectTurnSource{{
 		ProjectID: project.ID, FileID: file.ID, Filename: file.OriginalName, Locator: matches[0].Locator,

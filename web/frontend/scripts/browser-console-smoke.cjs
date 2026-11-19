@@ -293,8 +293,14 @@ async function main() {
         body = usageResponse()
       } else if (path === "/api/sessions") {
         body = { items: [], has_more: false }
+      } else if (path === "/api/projects") {
+        body = []
       } else if (path.startsWith("/api/sessions/")) {
         body = { messages: [], has_more: false }
+      } else {
+        status = 501
+        body = { error: `missing browser mock: ${method} ${path}` }
+        errors.push(body.error)
       }
 
       if (status === 204) {

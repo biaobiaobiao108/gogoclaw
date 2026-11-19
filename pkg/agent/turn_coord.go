@@ -53,6 +53,17 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 	al.registerActiveTurn(ts)
 	defer al.flushDeferredFollowUps(ts)
 	defer al.clearActiveTurn(ts)
+	if receipt := ts.opts.picoUserReceipt; receipt != nil {
+		defer func() {
+			// An explicit stop consumes a pending input. A canceled worker
+			// leaves it pending so Gateway can retry it after restart.
+			if ctx.Err() == nil && ts.hardAbortRequested() {
+				if _, err := receipt.Cancel(ctx); err != nil {
+					logger.Warnf("cancel stopped Pico input: %v", err)
+				}
+			}
+		}()
+	}
 	turnStatus := TurnEndStatusCompleted
 	if ts.agent != nil {
 		var providerRefs []providers.LLMProvider

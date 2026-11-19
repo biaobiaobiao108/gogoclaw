@@ -2,15 +2,57 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
+
+func TestIndexProjectFileFinishesAfterRequestCancellation(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	project, err := store.CreateChatProject(t.Context(), "Review", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := store.CreateChatProjectFile(t.Context(), memory.ChatProjectFile{
+		ID: "review", ProjectID: project.ID, OriginalName: "review.txt", StoredName: "review.txt", Status: "processing",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filesDir := projectFilesDir(dir, project.ID)
+	if err := os.MkdirAll(filesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filesDir, file.StoredName), []byte("The shipment is ready."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if indexed, err := indexChatProjectFile(ctx, dir, store, file); err != nil || indexed.Status != "ready" {
+		t.Fatalf("index result = %#v, error = %v", indexed, err)
+	}
+	saved, err := store.GetChatProjectFile(t.Context(), project.ID, file.ID)
+	if err != nil || saved.Status != "ready" || saved.IndexedAt.IsZero() {
+		t.Fatalf("saved file = %#v, error = %v", saved, err)
+	}
+	chunks, err := store.ChatProjectFileChunks(t.Context(), project.ID, file.ID)
+	if err != nil || len(chunks) != 1 {
+		t.Fatalf("saved chunks = %#v, error = %v", chunks, err)
+	}
+}
 
 func TestProjectFilesAndSessionOwnership(t *testing.T) {
 	_, mux, dir := setupChatFeatureTest(t)

@@ -136,8 +136,20 @@ async function main() {
         }
       } else if (path === "/api/sessions") {
         body = { items: [], has_more: false }
+      } else if (path === "/api/projects") {
+        body = []
+      } else if (path === "/api/channels/catalog") {
+        body = { channels: [] }
+      } else if (path === "/api/config" && request.method() === "GET") {
+        body = { channel_list: [] }
+      } else if (path === "/api/uploads/config") {
+        body = { max_media_size: 8 }
       } else if (path.startsWith("/api/sessions/")) {
         body = { messages: [], has_more: false }
+      } else {
+        status = 501
+        body = { error: `missing browser mock: ${request.method()} ${path}` }
+        errors.push(body.error)
       }
       await route.fulfill({
         status,

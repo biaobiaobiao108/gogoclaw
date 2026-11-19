@@ -51,10 +51,11 @@ type InboundAttachment struct {
 // InboundReceipt identifies a pending SQLite inbox row while the agent
 // holds it for steering or cancellation.
 type InboundReceipt struct {
-	ID      int64
-	Store   string
-	Release func()
-	Cancel  func(context.Context) (bool, error)
+	ID          int64
+	Store       string
+	PersistUser bool
+	Release     func()
+	Cancel      func(context.Context) (bool, error)
 }
 
 type InboundMessage struct {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,8 +17,10 @@ import (
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/agent"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/health"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
@@ -223,6 +227,46 @@ func TestCreateStartupProviderPreservesConfiguredModelAlias(t *testing.T) {
 	}
 	if got := cfg.Agents.Defaults.GetModelName(); got != "primary" {
 		t.Fatalf("default model changed to %q, want configured alias %q", got, "primary")
+	}
+}
+
+func TestFailedReloadKeepsGatewayUnreadyUntilSuccessfulRetry(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.Workspace = t.TempDir()
+	cfg.Agents.Defaults.ModelName = ""
+	msgBus := bus.NewMessageBus()
+	t.Cleanup(msgBus.Close)
+	var provider providers.LLMProvider = &startupBlockedProvider{reason: "test"}
+	al := agent.NewAgentLoop(cfg, msgBus, provider)
+	t.Cleanup(al.Close)
+	manager, err := channels.NewManager(cfg, msgBus, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := health.NewServer("127.0.0.1", 0, "")
+	status.SetReady(true)
+	mux := http.NewServeMux()
+	status.RegisterOnMux(mux)
+	running := &services{ChannelManager: manager, HealthServer: status}
+	t.Cleanup(func() { stopAndCleanupServices(running, serviceShutdownTimeout, false) })
+
+	invalid := *cfg
+	invalid.Agents.Defaults.ModelName = "missing-model"
+	if err := executeReload(t.Context(), al, &invalid, &provider, running, msgBus, true, true); err == nil {
+		t.Fatal("reload with a missing default model succeeded")
+	}
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/ready", nil))
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "configuration reload failed") {
+		t.Fatalf("readiness after failed reload = %d, %s", response.Code, response.Body)
+	}
+	if err := executeReload(t.Context(), al, cfg, &provider, running, msgBus, true, true); err != nil {
+		t.Fatal(err)
+	}
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/ready", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("readiness after successful reload = %d, %s", response.Code, response.Body)
 	}
 }
 

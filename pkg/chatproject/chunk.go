@@ -84,16 +84,11 @@ func ChunkSections(sections []Section, maxTokens, overlapTokens int) []Chunk {
 }
 
 func ApproxTokens(value string) int {
-	cjk := 0
-	other := 0
+	weight := 0
 	for _, r := range value {
-		if unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hiragana, r) || unicode.Is(unicode.Katakana, r) || unicode.Is(unicode.Hangul, r) {
-			cjk++
-		} else if !unicode.IsSpace(r) {
-			other++
-		}
+		weight += tokenWeight(r)
 	}
-	return cjk + (other+3)/4
+	return (weight + 3) / 4
 }
 
 func SplitByTokenBudget(value string, tokenBudget int) []string {
@@ -110,30 +105,21 @@ func splitByTokenBudget(value string, tokenBudget int) []string {
 	runes := []rune(value)
 	parts := make([]string, 0)
 	for len(runes) > 0 {
-		best := len(runes)
-		if approxRuneTokens(runes) > tokenBudget {
-			low, high := 1, len(runes)
-			for low < high {
-				mid := (low + high + 1) / 2
-				if approxRuneTokens(runes[:mid]) <= tokenBudget {
-					low = mid
-				} else {
-					high = mid - 1
-				}
-			}
-			best = max(1, low)
-		}
-		cut := best
-		for cut > best/2 && cut < len(runes) {
-			r := runes[cut]
-			if unicode.IsSpace(r) || unicode.IsPunct(r) {
-				cut++
+		end, weight, boundary := 0, 0, 0
+		for end < len(runes) {
+			r := runes[end]
+			weight += tokenWeight(r)
+			if (weight+3)/4 > tokenBudget {
 				break
 			}
-			cut--
+			end++
+			if unicode.IsSpace(r) || unicode.IsPunct(r) {
+				boundary = end
+			}
 		}
-		if cut <= 0 {
-			cut = best
+		cut := end
+		if end < len(runes) && boundary > end/2 {
+			cut = boundary
 		}
 		part := strings.TrimSpace(string(runes[:cut]))
 		if part != "" {
@@ -152,23 +138,25 @@ func tokenTail(value string, tokenBudget int) string {
 		return ""
 	}
 	runes := []rune(strings.TrimSpace(value))
-	for len(runes) > 0 && approxRuneTokens(runes) > tokenBudget {
-		runes = runes[1:]
+	start, weight := len(runes), 0
+	for start > 0 {
+		weight += tokenWeight(runes[start-1])
+		if (weight+3)/4 > tokenBudget {
+			break
+		}
+		start--
 	}
-	return strings.TrimSpace(string(runes))
+	return strings.TrimSpace(string(runes[start:]))
 }
 
-func approxRuneTokens(value []rune) int {
-	cjk := 0
-	other := 0
-	for _, r := range value {
-		if unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hiragana, r) || unicode.Is(unicode.Katakana, r) || unicode.Is(unicode.Hangul, r) {
-			cjk++
-		} else if !unicode.IsSpace(r) {
-			other++
-		}
+func tokenWeight(r rune) int {
+	if unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hiragana, r) || unicode.Is(unicode.Katakana, r) || unicode.Is(unicode.Hangul, r) {
+		return 4
 	}
-	return cjk + (other+3)/4
+	if unicode.IsSpace(r) {
+		return 0
+	}
+	return 1
 }
 
 func itoa(value int) string {

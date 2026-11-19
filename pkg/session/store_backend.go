@@ -159,6 +159,11 @@ func NewStoreBackend(store memory.Store) *StoreBackend {
 	return &StoreBackend{store: store}
 }
 
+func (b *StoreBackend) SQLiteStore() *memory.SQLiteStore {
+	store, _ := b.store.(*memory.SQLiteStore)
+	return store
+}
+
 func (b *StoreBackend) resolveSessionKey(sessionKey string) string {
 	resolved, err := b.resolveSessionKeyChecked(sessionKey)
 	if err != nil {
@@ -406,18 +411,31 @@ func (b *StoreBackend) Close() error {
 }
 
 func (b *StoreBackend) AppendPicoSteering(ctx context.Context, key string, msg providers.Message) (bool, error) {
-	store, ok := b.store.(*memory.SQLiteStore)
-	if !ok {
-		return false, fmt.Errorf("session store does not support Pico steering")
-	}
-	if msg.InboundReceipt.Store != store.DBPath() {
-		return false, fmt.Errorf("Pico inbox and session history use different workspaces")
-	}
-	resolved, err := b.resolveSessionKeyChecked(key)
+	store, resolved, err := b.resolvePicoReceipt(key, msg.InboundReceipt)
 	if err != nil {
 		return false, err
 	}
 	return store.AppendPicoSteering(ctx, msg.InboundReceipt.ID, resolved, msg)
+}
+
+func (b *StoreBackend) ClaimPicoUser(ctx context.Context, key string, msg providers.Message, receipt *bus.InboundReceipt) (bool, error) {
+	store, resolved, err := b.resolvePicoReceipt(key, receipt)
+	if err != nil {
+		return false, err
+	}
+	return store.ClaimPicoUser(ctx, receipt.ID, resolved, msg)
+}
+
+func (b *StoreBackend) resolvePicoReceipt(key string, receipt *bus.InboundReceipt) (*memory.SQLiteStore, string, error) {
+	store, ok := b.store.(*memory.SQLiteStore)
+	if !ok {
+		return nil, "", fmt.Errorf("session store does not support Pico inbox")
+	}
+	if receipt.Store != store.DBPath() {
+		return nil, "", fmt.Errorf("Pico inbox and session history use different workspaces")
+	}
+	resolved, err := b.resolveSessionKeyChecked(key)
+	return store, resolved, err
 }
 
 // ListSessions returns all known session keys.

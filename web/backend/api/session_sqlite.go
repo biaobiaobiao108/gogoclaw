@@ -13,8 +13,25 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
-func (h *Handler) scanSQLiteSessionRefs(dir string) ([]picoJSONLSessionRef, error) {
+// InitializeSessionStore upgrades an existing workspace before read-only routes
+// run, including when Launcher starts before Gateway.
+func (h *Handler) InitializeSessionStore() error {
+	dir, err := h.sessionsDir()
+	if err != nil {
+		return err
+	}
 	store, err := memory.OpenSQLiteStore(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return store.Close()
+}
+
+func (h *Handler) scanSQLiteSessionRefs(dir string) ([]picoJSONLSessionRef, error) {
+	store, err := memory.OpenSQLiteStoreReadOnly(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -48,7 +65,7 @@ func (h *Handler) scanSQLiteSessionRefs(dir string) ([]picoJSONLSessionRef, erro
 }
 
 func (h *Handler) readSQLiteSessionInfo(dir, sessionKey string) (sessionFile, bool, error) {
-	store, err := memory.OpenSQLiteStore(dir)
+	store, err := memory.OpenSQLiteStoreReadOnly(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return sessionFile{}, false, nil
 	}
@@ -76,7 +93,7 @@ func (h *Handler) readSQLiteSession(dir, sessionKey string) (sessionFile, bool, 
 	if err != nil || !found {
 		return sess, found, err
 	}
-	store, err := memory.OpenSQLiteStore(dir)
+	store, err := memory.OpenSQLiteStoreReadOnly(dir)
 	if err != nil {
 		return sessionFile{}, false, err
 	}
@@ -102,7 +119,7 @@ func (h *Handler) readSQLiteSessionListItem(dir, sessionKey, sessionID string, m
 }
 
 func (h *Handler) readSQLiteSessionPage(dir, sessionKey string, limit int, beforeID int64) (sessionMessagesPage, error) {
-	store, err := memory.OpenSQLiteStore(dir)
+	store, err := memory.OpenSQLiteStoreReadOnly(dir)
 	if err != nil {
 		return sessionMessagesPage{}, err
 	}
@@ -145,7 +162,7 @@ func (h *Handler) readSQLiteSessionListPage(
 	ctx context.Context, dir string, maxArgs int, archived bool, projectFilter string, cursor *sessionListCursor, limit int,
 ) (sessionListResponse, error) {
 	response := sessionListResponse{Items: []sessionListItem{}}
-	store, err := memory.OpenSQLiteStore(dir)
+	store, err := memory.OpenSQLiteStoreReadOnly(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return response, nil
 	}

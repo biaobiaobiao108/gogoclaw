@@ -87,9 +87,10 @@ func (c *PicoChannel) publishInbox(ctx context.Context, store *memory.SQLiteStor
 			}
 			msg := item.Message
 			msg.Receipt = &bus.InboundReceipt{
-				ID:      item.ID,
-				Store:   store.DBPath(),
-				Release: func() { queued.Delete(item.ID) },
+				ID:          item.ID,
+				Store:       store.DBPath(),
+				PersistUser: true,
+				Release:     func() { queued.Delete(item.ID) },
 				Cancel: func(runCtx context.Context) (bool, error) {
 					defer queued.Delete(item.ID)
 					return store.CancelPicoInbound(runCtx, item.ID)

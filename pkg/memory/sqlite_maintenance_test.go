@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -63,6 +64,38 @@ func TestSQLiteBackupAndRestore(t *testing.T) {
 	}
 	if len(history) != 1 || history[0].Content != "before backup" {
 		t.Fatalf("restored history = %+v", history)
+	}
+}
+
+func TestRestoreSQLiteIncludesCommittedWAL(t *testing.T) {
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "source.db")
+	source, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	source.SetMaxOpenConns(1)
+	if _, err := source.ExecContext(ctx, `PRAGMA journal_mode=WAL;
+		CREATE TABLE example (value TEXT); INSERT INTO example VALUES ('checkpointed');
+		PRAGMA wal_checkpoint(TRUNCATE); INSERT INTO example VALUES ('in WAL');`); err != nil {
+		t.Fatal(err)
+	}
+	if fileSize(path+"-wal") == 0 {
+		t.Fatal("fixture has no outstanding WAL")
+	}
+	target := filepath.Join(t.TempDir(), "restored.db")
+	if _, err := RestoreSQLite(ctx, path, target, false); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var count int
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM example WHERE value IN ('checkpointed', 'in WAL')").Scan(&count); err != nil || count != 2 {
+		t.Fatalf("restored committed rows = %d, error = %v", count, err)
 	}
 }
 

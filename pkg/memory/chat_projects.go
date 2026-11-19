@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const (
@@ -379,12 +380,25 @@ func (s *SQLiteStore) DeleteChatProjectFile(ctx context.Context, projectID, file
 	return nil
 }
 
-func (s *SQLiteStore) ReplaceChatProjectFileChunks(ctx context.Context, projectID, fileID string, chunks []ChatProjectChunk) error {
+func (s *SQLiteStore) ReplaceChatProjectFileChunks(ctx context.Context, projectID, fileID string, chunks []ChatProjectChunk, indexedAt time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("memory: begin project file index: %w", err)
 	}
 	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE chat_project_files SET status = 'ready', error = '', indexed_at = ?
+		WHERE project_id = ? AND id = ?`, timeToNanos(indexedAt), projectID, fileID)
+	if err != nil {
+		return fmt.Errorf("memory: mark project file ready: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrChatProjectFileNotFound
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM chat_project_file_chunks WHERE file_id = ?`, fileID); err != nil {
 		return fmt.Errorf("memory: clear project file chunks: %w", err)
 	}
@@ -590,17 +604,43 @@ func scanChatProjectChunkMatch(scanner chatProjectScanner) (ChatProjectChunkMatc
 }
 
 func chatProjectFTSQuery(query string) string {
-	terms := strings.Fields(query)
-	if len(terms) == 0 {
-		return ""
-	}
-	escaped := make([]string, 0, len(terms))
-	for _, term := range terms {
-		term = strings.TrimSpace(strings.ReplaceAll(term, `"`, `""`))
-		if len([]rune(term)) < 3 {
-			continue
+	const maxTerms = 48
+	escaped := make([]string, 0, maxTerms)
+	seen := make(map[string]bool)
+	appendTerm := func(term string) {
+		if len(escaped) < maxTerms && !seen[term] {
+			seen[term] = true
+			escaped = append(escaped, `"`+term+`"`)
 		}
-		escaped = append(escaped, `"`+term+`"`)
+	}
+	isCJK := func(r rune) bool {
+		return unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hiragana, r) ||
+			unicode.Is(unicode.Katakana, r) || unicode.Is(unicode.Hangul, r)
+	}
+	for _, word := range strings.FieldsFunc(query, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && !unicode.IsMark(r)
+	}) {
+		runes := []rune(word)
+		for start := 0; start < len(runes) && len(escaped) < maxTerms; {
+			cjk := isCJK(runes[start])
+			end := start + 1
+			for end < len(runes) && isCJK(runes[end]) == cjk {
+				end++
+			}
+			if end-start >= 3 {
+				if cjk {
+					for i := start; i+3 <= end && len(escaped) < maxTerms; i++ {
+						appendTerm(string(runes[i : i+3]))
+					}
+				} else {
+					appendTerm(string(runes[start:end]))
+				}
+			}
+			start = end
+		}
+		if len(escaped) == maxTerms {
+			break
+		}
 	}
 	return strings.Join(escaped, " OR ")
 }

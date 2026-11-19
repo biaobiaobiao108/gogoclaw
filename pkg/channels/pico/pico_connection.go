@@ -594,24 +594,14 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	}
 	projectID := ""
 	if rawProjectID, supplied := msg.Payload["project_id"]; supplied {
-		if value, ok := rawProjectID.(string); ok {
-			projectID = strings.TrimSpace(value)
+		value, ok := rawProjectID.(string)
+		if !ok && rawProjectID != nil {
+			_ = pc.writeJSON(newErrorWithPayload("invalid_project", "project ID must be a string", map[string]any{"request_id": msg.ID}))
+			return
 		}
+		projectID = strings.TrimSpace(value)
 		if projectID == "none" || projectID == "null" {
 			projectID = ""
-		}
-		if projectID != "" {
-			if _, err := inbox.GetChatProject(c.ctx, projectID); errors.Is(err, memory.ErrChatProjectNotFound) {
-				_ = pc.writeJSON(newErrorWithPayload("project_not_found", "project no longer exists", map[string]any{"request_id": msg.ID}))
-				return
-			} else if err != nil {
-				_ = pc.writeJSON(newErrorWithPayload("project_unavailable", "project is temporarily unavailable", map[string]any{"request_id": msg.ID}))
-				return
-			}
-		}
-		if err := inbox.SetSessionChatProject(c.ctx, pc.sessionID, projectID); err != nil {
-			_ = pc.writeJSON(newErrorWithPayload("project_unavailable", "failed to assign project", map[string]any{"request_id": msg.ID}))
-			return
 		}
 	}
 	content, _ := msg.Payload["content"].(string)
@@ -667,8 +657,8 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		"session_id": sessionID,
 		"conn_id":    pc.id,
 	}
-	if projectID != "" {
-		metadata["chat_project_id"] = projectID
+	if projectID != "" && taskAction == "" && strings.TrimSpace(regenerateID) == "" && strings.TrimSpace(editID) == "" {
+		metadata[memory.PicoProjectMetadataKey] = projectID
 	}
 	if taskAction != "" {
 		metadata["task_action"] = taskAction
@@ -715,6 +705,10 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		MediaScope: channels.BuildMediaScope(c.Name(), chatID, requestID),
 	})
 	status, err := inbox.QueuePicoInbound(c.ctx, sessionID, requestID, inbound)
+	if errors.Is(err, memory.ErrChatProjectNotFound) {
+		_ = pc.writeJSON(newErrorWithPayload("project_not_found", "project no longer exists", map[string]any{"request_id": msg.ID}))
+		return
+	}
 	if err != nil {
 		_ = pc.writeJSON(newErrorWithPayload("send_failed", err.Error(), map[string]any{"request_id": msg.ID}))
 		return

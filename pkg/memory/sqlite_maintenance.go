@@ -52,7 +52,10 @@ func CheckSQLiteIntegrity(ctx context.Context, path string, full bool) (SQLiteIn
 		"mode":    {"ro"},
 		"_pragma": {"query_only(1)", "busy_timeout(5000)"},
 	}
-	dsn := path + "?" + params.Encode()
+	dsn, err := sqliteFileDSN(path, params)
+	if err != nil {
+		return SQLiteIntegrityReport{}, err
+	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return SQLiteIntegrityReport{}, fmt.Errorf("memory: open database for integrity check: %w", err)
@@ -134,19 +137,7 @@ func BackupSQLite(ctx context.Context, source, destination string) (SQLiteIntegr
 		return SQLiteIntegrityReport{}, fmt.Errorf("memory: create backup directory: %w", err)
 	}
 
-	params := url.Values{
-		"mode":    {"rw"},
-		"_pragma": {"busy_timeout(5000)", "foreign_keys(1)"},
-	}
-	db, err := sql.Open("sqlite", source+"?"+params.Encode())
-	if err != nil {
-		return SQLiteIntegrityReport{}, fmt.Errorf("memory: open database for backup: %w", err)
-	}
-	defer db.Close()
-	db.SetMaxOpenConns(1)
-
-	escaped := strings.ReplaceAll(destinationAbs, "'", "''")
-	if _, err := db.ExecContext(ctx, "VACUUM INTO '"+escaped+"'"); err != nil {
+	if err := snapshotSQLite(ctx, sourceAbs, destinationAbs); err != nil {
 		_ = os.Remove(destination)
 		return SQLiteIntegrityReport{}, fmt.Errorf("memory: create backup: %w", err)
 	}
@@ -162,6 +153,21 @@ func BackupSQLite(ctx context.Context, source, destination string) (SQLiteIntegr
 	return report, nil
 }
 
+func snapshotSQLite(ctx context.Context, source, destination string) error {
+	params := url.Values{"mode": {"ro"}, "_pragma": {"busy_timeout(5000)", "foreign_keys(1)"}}
+	dsn, err := sqliteFileDSN(source, params)
+	if err != nil {
+		return err
+	}
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	_, err = db.ExecContext(ctx, "VACUUM INTO ?", destination)
+	return err
+}
+
 // RestoreSQLite validates a backup, creates a safety copy of the current
 // database, then atomically replaces the target.
 func RestoreSQLite(ctx context.Context, backup, target string, overwrite bool) (RestoreSQLiteResult, error) {
@@ -169,7 +175,15 @@ func RestoreSQLite(ctx context.Context, backup, target string, overwrite bool) (
 	if _, err := CheckSQLiteIntegrity(ctx, backup, false); err != nil {
 		return RestoreSQLiteResult{}, fmt.Errorf("memory: validate restore source: %w", err)
 	}
-	if strings.EqualFold(filepath.Clean(backup), filepath.Clean(target)) {
+	sourcePath, err := filepath.Abs(backup)
+	if err != nil {
+		return RestoreSQLiteResult{}, err
+	}
+	targetPath, err := filepath.Abs(target)
+	if err != nil {
+		return RestoreSQLiteResult{}, err
+	}
+	if strings.EqualFold(sourcePath, targetPath) {
 		return RestoreSQLiteResult{}, errors.New("memory: restore source and target must differ")
 	}
 	targetExists := false
@@ -195,26 +209,18 @@ func RestoreSQLite(ctx context.Context, backup, target string, overwrite bool) (
 		temp.Close()
 		return RestoreSQLiteResult{}, err
 	}
-	source, err := os.Open(backup)
-	if err != nil {
-		temp.Close()
+	if err := temp.Close(); err != nil {
 		return RestoreSQLiteResult{}, err
 	}
-	_, copyErr := io.Copy(temp, source)
-	closeSourceErr := source.Close()
-	syncErr := temp.Sync()
-	closeTempErr := temp.Close()
-	if copyErr != nil {
-		return RestoreSQLiteResult{}, fmt.Errorf("memory: copy restore source: %w", copyErr)
+	if err := snapshotSQLite(ctx, sourcePath, tempPath); err != nil {
+		return RestoreSQLiteResult{}, fmt.Errorf("memory: snapshot restore source: %w", err)
 	}
-	if closeSourceErr != nil {
-		return RestoreSQLiteResult{}, closeSourceErr
+	temp, err = os.OpenFile(tempPath, os.O_RDWR, 0)
+	if err != nil {
+		return RestoreSQLiteResult{}, err
 	}
-	if syncErr != nil {
-		return RestoreSQLiteResult{}, syncErr
-	}
-	if closeTempErr != nil {
-		return RestoreSQLiteResult{}, closeTempErr
+	if err := errors.Join(temp.Sync(), temp.Close()); err != nil {
+		return RestoreSQLiteResult{}, err
 	}
 	if _, err := CheckSQLiteIntegrity(ctx, tempPath, false); err != nil {
 		return RestoreSQLiteResult{}, fmt.Errorf("memory: validate staged restore: %w", err)
