@@ -12,6 +12,7 @@ import {
   getManagedSessions,
   type ManagedSession,
   type ManagedSessionPage,
+  SessionRuntimeActiveError,
 } from "@/api/session-management"
 import { PageHeader } from "@/components/page-header"
 import {
@@ -100,8 +101,8 @@ export function SessionsPage() {
       })
     } catch (e) {
       setError(
-        String(e).includes("stop gateway before deleting sessions")
-          ? t("sessionManagement.stopGateway")
+        e instanceof SessionRuntimeActiveError
+          ? t("sessionManagement.stopRuntime")
           : String(e),
       )
     } finally {

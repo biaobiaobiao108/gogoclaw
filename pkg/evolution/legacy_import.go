@@ -26,14 +26,33 @@ func (s *Store) ImportLegacy() error {
 
 	const marker = "legacy-import-v1"
 	done, err := db.GetAppState(nil, "evolution", marker)
-	if err != nil || len(done) != 0 {
+	if err != nil {
 		return err
+	}
+	if string(done) == s.paths.Workspace {
+		return nil
 	}
 	tx, err := db.BeginAppStateUpdate(nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+
+	if len(done) != 0 {
+		previous := string(done)
+		if previous == "1" {
+			previous, err = s.previousWorkspace(tx)
+			if err != nil {
+				return err
+			}
+		}
+		if previous != "" && previous != s.paths.Workspace {
+			if err := s.moveWorkspaceState(tx, previous); err != nil {
+				return err
+			}
+		}
+		return s.commitWorkspaceImport(tx, marker)
+	}
 
 	var tasks, patterns []LearningRecord
 	for _, path := range []string{
@@ -70,6 +89,9 @@ func (s *Store) ImportLegacy() error {
 		{s.stateKey(s.paths.PatternRecords), mergeLearningRecordsByID(nil, patterns)},
 	} {
 		for _, record := range collection.records {
+			if collection.key == s.stateKey(s.paths.TaskRecords) {
+				record.DiscoveryKey = discoveryTaskKey(record)
+			}
 			data, err := json.Marshal(record)
 			if err != nil {
 				return err
@@ -128,10 +150,85 @@ func (s *Store) ImportLegacy() error {
 	if err := s.importLegacyProfiles(tx); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`INSERT OR IGNORE INTO app_state(namespace, state_key, value) VALUES ('evolution', ?, '1')`, marker); err != nil {
+	return s.commitWorkspaceImport(tx, marker)
+}
+
+func (s *Store) commitWorkspaceImport(tx *sql.Tx, marker string) error {
+	if _, err := tx.Exec(`INSERT INTO app_state(namespace, state_key, value) VALUES ('evolution', ?, ?)
+		ON CONFLICT(namespace, state_key) DO UPDATE SET value = excluded.value`, marker, s.paths.Workspace); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// Earlier databases recorded only that import ran. The workspace owning a
+// moved database can be inferred when its saved state has one workspace.
+func (s *Store) previousWorkspace(tx *sql.Tx) (string, error) {
+	rows, err := tx.Query(`SELECT json_extract(payload, '$.workspace_id') AS workspace FROM evolution_records
+		UNION SELECT json_extract(draft.value, '$.workspace_id') FROM app_state, json_each(app_state.value) AS draft
+			WHERE namespace = 'evolution' AND state_key = ?
+		UNION SELECT json_extract(value, '$.workspace_id') FROM app_state
+			WHERE namespace = 'evolution' AND state_key GLOB ?`,
+		s.stateKey(s.paths.SkillDrafts), s.stateKey(s.paths.ProfilesDir)+"/*")
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	var previous string
+	var ambiguous bool
+	for rows.Next() {
+		var workspace sql.NullString
+		if err := rows.Scan(&workspace); err != nil {
+			return "", err
+		}
+		if workspace.String == s.paths.Workspace {
+			return s.paths.Workspace, nil
+		}
+		if workspace.String != "" {
+			ambiguous = ambiguous || (previous != "" && previous != workspace.String)
+			previous = workspace.String
+		}
+	}
+	if ambiguous {
+		return "", errors.New("cannot identify the previous evolution workspace")
+	}
+	return previous, rows.Err()
+}
+
+func (s *Store) moveWorkspaceState(tx *sql.Tx, previous string) error {
+	current := s.paths.Workspace
+	if _, err := tx.Exec(`UPDATE evolution_records SET payload = json_set(payload, '$.workspace_id', ?)
+		WHERE json_extract(payload, '$.workspace_id') = ?`, current, previous); err != nil {
+		return err
+	}
+	draftsKey := s.stateKey(s.paths.SkillDrafts)
+	var drafts []SkillDraft
+	if err := readEvolutionState(tx, draftsKey, &drafts); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	changed := false
+	for i := range drafts {
+		if drafts[i].WorkspaceID == previous {
+			if drafts[i].BackupPath == "" && drafts[i].PublishedVersion != "" && drafts[i].BaseVersion != missingSkillVersion {
+				drafts[i].BackupPath = filepath.ToSlash(filepath.Join(workspaceScopeDir(previous), skillBackupPath(drafts[i])))
+			}
+			drafts[i].WorkspaceID = current
+			changed = true
+		}
+	}
+	if changed {
+		if err := writeEvolutionState(tx, draftsKey, drafts); err != nil {
+			return err
+		}
+	}
+	profiles := s.stateKey(s.paths.ProfilesDir) + "/"
+	newKey := profiles + workspaceScopeDir(current) + "/"
+	_, err := tx.Exec(`UPDATE app_state SET value = json_set(value, '$.workspace_id', ?),
+		state_key = CASE WHEN state_key = ? || json_extract(value, '$.skill_name') || '.json'
+			THEN state_key ELSE ? || json_extract(value, '$.skill_name') || '.json' END
+		WHERE namespace = 'evolution' AND state_key GLOB ? AND json_extract(value, '$.workspace_id') = ?`,
+		current, profiles, newKey, profiles+"*", previous)
+	return err
 }
 
 func (s *Store) importLegacyProfiles(tx *sql.Tx) error {

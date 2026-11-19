@@ -167,6 +167,7 @@ export interface ChatStoreState {
   recentActivities?: ChatActivity[]
   recentPlan?: ChatPlanStep[]
   turnHistory?: ChatTurnHistory[]
+  historyTurn?: { turnId: string; status: string }
   pendingApproval?: ChatApproval
   interrupted?: boolean
   activeSessionId: string

@@ -7,6 +7,7 @@ func (s *SQLiteStore) UpdateEvolutionDecisions(collection string, decisions []by
 		SET payload = json_patch(record.payload, json_object(
 			'considered_at', json_extract(decision.value, '$.considered_at'),
 			'judged_by', json_extract(decision.value, '$.judged_by'),
+			'discovery_key', json_extract(decision.value, '$.discovery_key'),
 			'judged_success', json(decision.value -> '$.success')
 		))
 		FROM json_each(?) AS decision
@@ -20,10 +21,7 @@ func (s *SQLiteStore) ListEvolutionRecords(ctx context.Context, collection strin
 	return s.listEvolutionRecords(ctx, `SELECT payload FROM evolution_records WHERE collection = ? ORDER BY id`, collection)
 }
 
-func (s *SQLiteStore) ListPendingEvolutionTasks(ctx context.Context, collection, workspace string, limit int) ([][]byte, error) {
-	return s.listEvolutionRecords(ctx, `SELECT payload FROM evolution_records
-		WHERE collection = ? AND json_extract(payload, '$.workspace_id') = ?
-		AND json_extract(payload, '$.kind') IN ('task', 'case')
+const pendingEvolutionTaskFilter = `json_extract(payload, '$.kind') IN ('task', 'case')
 		AND coalesce(json_extract(payload, '$.status'), '') IN ('', 'new')
 		AND json_extract(payload, '$.success') IS NOT NULL
 		AND lower(trim(coalesce(json_extract(payload, '$.session_key'), ''))) <> 'heartbeat'
@@ -31,8 +29,28 @@ func (s *SQLiteStore) ListPendingEvolutionTasks(ctx context.Context, collection,
 		AND trim(coalesce(json_extract(payload, '$.summary'), '')) <> ''
 		AND (json_extract(payload, '$.success') = 0
 			OR trim(coalesce(json_extract(payload, '$.final_output'), '')) <> ''
-			OR json_array_length(payload, '$.tool_executions') > 0)
+			OR json_array_length(payload, '$.tool_executions') > 0)`
+
+func (s *SQLiteStore) ListPendingEvolutionTasks(ctx context.Context, collection, workspace string, limit int) ([][]byte, error) {
+	return s.listEvolutionRecords(ctx, `SELECT payload FROM evolution_records
+		WHERE collection = ? AND json_extract(payload, '$.workspace_id') = ?
+		AND `+pendingEvolutionTaskFilter+`
 		ORDER BY json_extract(payload, '$.considered_at'), id LIMIT ?`, collection, workspace, limit)
+}
+
+func (s *SQLiteStore) ListRelatedEvolutionTasks(ctx context.Context, collection, workspace, keys, excludedIDs string, limit int) ([][]byte, error) {
+	return s.listEvolutionRecords(ctx, `WITH related AS (
+		SELECT id, payload, row_number() OVER (
+			PARTITION BY json_extract(payload, '$.discovery_key')
+			ORDER BY json_extract(payload, '$.considered_at'), id
+		) AS rank
+		FROM evolution_records
+		WHERE collection = ? AND json_extract(payload, '$.workspace_id') = ?
+		AND json_extract(payload, '$.discovery_key') IN (SELECT value FROM json_each(?))
+		AND json_extract(payload, '$.id') NOT IN (SELECT value FROM json_each(?))
+		AND `+pendingEvolutionTaskFilter+`
+	)
+	SELECT payload FROM related ORDER BY rank, id LIMIT ?`, collection, workspace, keys, excludedIDs, limit)
 }
 
 func (s *SQLiteStore) ListEvolutionTasksByIDs(ctx context.Context, collection, workspace string, ids []byte) ([][]byte, error) {

@@ -82,5 +82,11 @@ export async function getManagedTranscript(
 }
 
 export async function deleteManagedSession(id: string): Promise<void> {
-  await request(`${route}/${encodeURIComponent(id)}`, { method: "DELETE" })
+  const response = await launcherFetch(`${route}/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  })
+  if (response.status === 409) throw new SessionRuntimeActiveError()
+  if (!response.ok) throw new Error((await response.text()).trim())
 }
+
+export class SessionRuntimeActiveError extends Error {}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,6 +119,146 @@ func assertStoredSkill(t *testing.T, path, expected string) {
 	if err != nil || string(body) != expected {
 		t.Fatalf("skill = %q, expected %q, error = %v", body, expected, err)
 	}
+}
+
+func TestPublicationRetryChecksEvidenceBeforeWriting(t *testing.T) {
+	root, store, runtime, _, published := publishWeatherSkill(t)
+	path := filepath.Join(root, "skills", "weather", "SKILL.md")
+	drafts, err := store.LoadDrafts()
+	if err != nil || len(drafts) != 1 {
+		t.Fatalf("drafts = %+v, %v", drafts, err)
+	}
+	draft := drafts[0]
+	draft.Status = evolution.DraftStatusCandidate
+	if err := store.SaveDrafts([]evolution.SkillDraft{draft}); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a crash after writing the intent and before changing the file.
+	if err := os.WriteFile(path, []byte(weatherSkillBase), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	current, err := runtime.ReviewDraft(root, draft.ID)
+	if err != nil || current.ReviewToken == "" {
+		t.Fatalf("first review = %+v, %v", current, err)
+	}
+	if err := store.SavePatternRecords([]evolution.LearningRecord{{
+		ID: "pattern", Kind: evolution.RecordKindPattern, WorkspaceID: root, Status: "new",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := runtime.ReviewDraft(root, draft.ID)
+	if err != nil || stale.ReviewToken != "" || stale.Issue == "" {
+		t.Fatalf("stale preview = %+v, %v", stale, err)
+	}
+	if err := runtime.ActOnDraft(context.Background(), root, draft.ID, "publish", current.ReviewToken); !errors.Is(err, evolution.ErrDraftAction) {
+		t.Fatalf("stale publication = %v", err)
+	}
+	assertStoredSkill(t, path, weatherSkillBase)
+
+	// A crash after the file write can still finish the authorized publication.
+	if err := store.SaveDrafts([]evolution.SkillDraft{draft}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(published), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.ActOnDraft(context.Background(), root, draft.ID, "publish", current.ReviewToken); err != nil {
+		t.Fatalf("failed to finish an already-written publication: %v", err)
+	}
+}
+
+func TestMovedWorkspaceRetainsPublishedSkillRollback(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("legacy_path_%t", legacy), func(t *testing.T) {
+			root, store, runtime, draftID, published := publishWeatherSkill(t)
+			if legacy {
+				drafts, err := store.LoadDrafts()
+				if err != nil || len(drafts) != 1 {
+					t.Fatalf("drafts = %+v, %v", drafts, err)
+				}
+				drafts[0].BackupPath = filepath.Join(evolution.NewPaths(root, "").BackupsDir, filepath.FromSlash(drafts[0].BackupPath))
+				if err := store.SaveDrafts(drafts); err != nil {
+					t.Fatal(err)
+				}
+				db, err := sql.Open("sqlite", filepath.Join(root, "sessions", "sessions.db"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = db.Exec(`UPDATE app_state SET value = '1' WHERE namespace = 'evolution' AND state_key = 'legacy-import-v1'`)
+				if closeErr := errors.Join(err, db.Close()); closeErr != nil {
+					t.Fatal(closeErr)
+				}
+			}
+			moved := filepath.Join(t.TempDir(), "renamed-workspace")
+			if err := os.Rename(root, moved); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(moved, "skills", "weather", "SKILL.md")
+			assertStoredSkill(t, path, published)
+			review, err := runtime.ReviewDraft(moved, draftID)
+			if err != nil || !review.CanRollback {
+				t.Fatalf("review after move = %+v, %v", review, err)
+			}
+			if err := runtime.ActOnDraft(context.Background(), moved, draftID, "rollback", ""); err != nil {
+				t.Fatal(err)
+			}
+			assertStoredSkill(t, path, weatherSkillBase)
+			movedStore := evolution.NewStore(evolution.NewPaths(moved, ""))
+			profile, err := movedStore.LoadProfile("weather")
+			if err != nil || profile.WorkspaceID != moved || profile.CurrentVersion != "" {
+				t.Fatalf("profile after rollback = %+v, %v", profile, err)
+			}
+			patterns, err := movedStore.LoadPatternRecords()
+			if err != nil || len(patterns) != 1 || patterns[0].WorkspaceID != moved {
+				t.Fatalf("patterns after move = %+v, %v", patterns, err)
+			}
+		})
+	}
+}
+
+const weatherSkillBase = "---\nname: weather\ndescription: weather guide\n---\n# Weather\nOriginal instructions.\n"
+
+func publishWeatherSkill(t *testing.T) (string, *evolution.Store, *evolution.Runtime, string, string) {
+	t.Helper()
+	root := t.TempDir()
+	path := filepath.Join(root, "skills", "weather", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(weatherSkillBase), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := evolution.NewStore(evolution.NewPaths(root, ""))
+	if err := store.SavePatternRecords([]evolution.LearningRecord{{
+		ID: "pattern", WorkspaceID: root, Kind: evolution.RecordKindPattern, Status: "ready",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	const draftID = "draft"
+	if err := store.SaveDrafts([]evolution.SkillDraft{{
+		ID: draftID, WorkspaceID: root, SourceRecordID: "pattern", TargetSkillName: "weather",
+		DraftType: evolution.DraftTypeWorkflow, ChangeKind: evolution.ChangeKindAppend,
+		HumanSummary: "Add weather instructions", BodyOrPatch: "Collect the latest observation.",
+		Status: evolution.DraftStatusCandidate,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := evolution.NewRuntime(evolution.RuntimeOptions{Config: config.EvolutionConfig{Enabled: true, Mode: "apply"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := runtime.ReviewDraft(root, draftID)
+	if err != nil || review.ReviewToken == "" {
+		t.Fatalf("review = %+v, %v", review, err)
+	}
+	if err := runtime.ActOnDraft(context.Background(), root, draftID, "publish", review.ReviewToken); err != nil {
+		t.Fatal(err)
+	}
+	published, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root, store, runtime, draftID, string(published)
 }
 
 func TestFailureEvidenceBlocksOlderDraftUntilPatternRecovers(t *testing.T) {

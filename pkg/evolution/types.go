@@ -81,6 +81,7 @@ type LearningRecord struct {
 	SessionKey           string                `json:"session_key,omitempty"`
 	TaskHash             string                `json:"task_hash,omitempty"`
 	Summary              string                `json:"summary"`
+	DiscoveryKey         string                `json:"discovery_key,omitempty"`
 	UserGoal             string                `json:"user_goal,omitempty"`
 	FinalOutput          string                `json:"final_output,omitempty"`
 	Source               map[string]any        `json:"source,omitempty"`

@@ -103,6 +103,9 @@ func (s *Store) appendRecords(ctx context.Context, path string, records []Learni
 func (s *Store) writeRecords(ctx context.Context, path string, records []LearningRecord, replace bool) error {
 	payloads := make([][]byte, 0, len(records))
 	for _, record := range records {
+		if path == s.paths.TaskRecords {
+			record.DiscoveryKey = discoveryTaskKey(record)
+		}
 		data, err := json.Marshal(record)
 		if err != nil {
 			return err
@@ -170,6 +173,38 @@ func (s *Store) loadTaskEvidence(ctx context.Context, ids []string) ([]LearningR
 	return decodeLearningRecords(payloads)
 }
 
+func (s *Store) loadRelatedTasks(ctx context.Context, window []LearningRecord, limit int) ([]LearningRecord, error) {
+	if len(window) != limit {
+		return nil, nil // A partial window already contains every pending task.
+	}
+	keys := make([]string, 0, len(window))
+	ids := make([]string, 0, len(window))
+	for _, record := range window {
+		if key := discoveryTaskKey(record); key != "" {
+			keys = append(keys, key)
+		}
+		ids = append(ids, record.ID)
+	}
+	encodedKeys, err := json.Marshal(keys)
+	if err != nil {
+		return nil, err
+	}
+	encodedIDs, err := json.Marshal(ids)
+	if err != nil {
+		return nil, err
+	}
+	db, err := memory.NewSQLiteStore(filepath.Join(s.paths.Workspace, "sessions"))
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	payloads, err := db.ListRelatedEvolutionTasks(ctx, s.stateKey(s.paths.TaskRecords), s.paths.Workspace, string(encodedKeys), string(encodedIDs), limit)
+	if err != nil {
+		return nil, err
+	}
+	return decodeLearningRecords(payloads)
+}
+
 func (s *Store) SaveTaskDecisions(records []LearningRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -180,11 +215,12 @@ func (s *Store) SaveTaskDecisions(records []LearningRecord) error {
 		ConsideredAt any    `json:"considered_at"`
 		JudgedBy     string `json:"judged_by"`
 		Success      *bool  `json:"success"`
+		DiscoveryKey string `json:"discovery_key"`
 	}
 	updates := make([]decision, 0, len(records))
 	for _, record := range records {
 		updates = append(updates, decision{
-			record.ID, record.WorkspaceID, record.ConsideredAt, record.JudgedBy, record.JudgedSuccess,
+			record.ID, record.WorkspaceID, record.ConsideredAt, record.JudgedBy, record.JudgedSuccess, discoveryTaskKey(record),
 		})
 	}
 	data, err := json.Marshal(updates)

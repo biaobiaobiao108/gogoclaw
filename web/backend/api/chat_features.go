@@ -158,10 +158,15 @@ func (h *Handler) readChatUIMeta(dir string) chatUIMetaFile {
 }
 
 func (h *Handler) cleanupDeletedSessionData(dir, sessionID string) error {
+	return errors.Join(
+		h.removeChatUISessionMeta(dir, sessionID),
+		h.cleanupDeletedSessionAttachments(dir, sessionID),
+		chatmeta.RemoveBranchSession(dir, sessionID),
+	)
+}
+
+func (h *Handler) cleanupDeletedSessionAttachments(dir, sessionID string) error {
 	var cleanupErrs []error
-	if err := h.removeChatUISessionMeta(dir, sessionID); err != nil {
-		cleanupErrs = append(cleanupErrs, fmt.Errorf("remove chat metadata: %w", err))
-	}
 	if validAttachmentSessionID(sessionID) {
 		dirs, err := h.sessionDirs()
 		if err != nil {
@@ -183,9 +188,6 @@ func (h *Handler) cleanupDeletedSessionData(dir, sessionID string) error {
 			}
 			h.attachmentMu.Unlock()
 		}
-	}
-	if err := chatmeta.RemoveBranchSession(dir, sessionID); err != nil {
-		cleanupErrs = append(cleanupErrs, fmt.Errorf("remove answer branches: %w", err))
 	}
 	return errors.Join(cleanupErrs...)
 }

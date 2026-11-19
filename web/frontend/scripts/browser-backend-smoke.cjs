@@ -511,18 +511,21 @@ async function checkLocalChat(page, base, model) {
     throw new Error("Continuation must use saved text without providing tools")
   const stoppedReply = page.locator("article").filter({ hasText: stoppedText })
   await stoppedReply.getByText(resumedText, { exact: true }).waitFor()
-  await page.waitForFunction(
-    async (text) => {
+  const savedDeadline = Date.now() + 10000
+  for (;;) {
+    const saved = await page.evaluate(async (text) => {
       const id = localStorage.getItem("gogoclaw:last-session-id")
       if (!id) return false
       const response = await fetch(`/api/sessions/${encodeURIComponent(id)}`)
       if (!response.ok) return false
       const { messages } = await response.json()
       return messages.some((message) => message.content === text)
-    },
-    resumedText,
-    { timeout: 10000, polling: 250 },
-  )
+    }, resumedText)
+    if (saved) break
+    if (Date.now() >= savedDeadline)
+      throw new Error("Continuation was not saved")
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
   await page.reload()
   await stoppedReply.getByText(resumedText, { exact: true }).waitFor()
   console.log("Verified stop and reload, then text-only continuation")

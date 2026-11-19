@@ -14,10 +14,19 @@ type cachedPatternPlan struct {
 }
 
 // Plan clusters using goals before sending the more expensive completion evidence for judging.
-func (c *LLMPatternClusterer) planPatterns(ctx context.Context, workspace string, records, existing []LearningRecord, ratio float64) ([]llmCluster, []LearningRecord) {
+func (c *LLMPatternClusterer) planPatterns(ctx context.Context, workspace string, records, related, existing []LearningRecord, ratio float64) ([]llmCluster, []LearningRecord) {
 	var evidence []LearningRecord
 	completed := 0
 	for _, record := range records {
+		if record.WorkspaceID == workspace && coldPathEvidenceRejectReason(record) == "" {
+			evidence = append(evidence, record)
+			if *record.Success {
+				completed++
+			}
+		}
+	}
+	windowEvidence := evidence
+	for _, record := range related {
 		if record.WorkspaceID == workspace && coldPathEvidenceRejectReason(record) == "" {
 			evidence = append(evidence, record)
 			if *record.Success {
@@ -51,7 +60,7 @@ func (c *LLMPatternClusterer) planPatterns(ctx context.Context, workspace string
 	allLocallyMatched := len(local) == 1 && (len(known) == 0 || known[local[0].Label].ID != "") &&
 		len(local[0].TaskRecordIDs) == len(evidence)
 	if !allLocallyMatched {
-		if semantic, ok := c.discoverPatterns(ctx, workspace, evidence, existing); ok {
+		if semantic, ok := c.discoverPatterns(ctx, workspace, windowEvidence, existing); ok {
 			clusters = reconcileTaskClusters(semantic, local, known, c.minCount)
 		}
 	}

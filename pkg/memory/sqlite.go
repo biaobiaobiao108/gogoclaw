@@ -66,6 +66,9 @@ CREATE TABLE IF NOT EXISTS evolution_records (
 );
 
 CREATE INDEX IF NOT EXISTS evolution_records_collection_id ON evolution_records(collection, id);
+CREATE INDEX IF NOT EXISTS evolution_records_discovery ON evolution_records(
+	collection, json_extract(payload, '$.workspace_id'), json_extract(payload, '$.discovery_key')
+);
 
 CREATE TABLE IF NOT EXISTS chat_ui_meta (
 	session_id TEXT PRIMARY KEY,
@@ -1385,6 +1388,25 @@ func (s *SQLiteStore) DeleteSession(ctx context.Context, sessionKey string) (boo
 
 // DeletePicoSession also cancels accepted requests for the browser session ID.
 func (s *SQLiteStore) DeletePicoSession(ctx context.Context, sessionKey, picoSessionID string, gatewayRunning bool) (bool, error) {
+	return s.deleteSession(ctx, sessionKey, picoSessionID, gatewayRunning, false)
+}
+
+const sessionCleanupNamespace = "session_attachment_cleanup"
+
+func (s *SQLiteStore) DeleteManagedSession(ctx context.Context, sessionKey, picoSessionID string) (bool, error) {
+	return s.deleteSession(ctx, sessionKey, picoSessionID, false, true)
+}
+
+func (s *SQLiteStore) PendingSessionCleanup(ctx context.Context, sessionKey string) (string, error) {
+	data, err := s.GetAppState(ctx, sessionCleanupNamespace, sessionKey)
+	return string(data), err
+}
+
+func (s *SQLiteStore) CompleteSessionCleanup(ctx context.Context, sessionKey string) error {
+	return s.DeleteAppState(ctx, sessionCleanupNamespace, sessionKey)
+}
+
+func (s *SQLiteStore) deleteSession(ctx context.Context, sessionKey, picoSessionID string, gatewayRunning, managed bool) (bool, error) {
 	ctx = sqliteContext(ctx)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1420,6 +1442,19 @@ func (s *SQLiteStore) DeletePicoSession(ctx context.Context, sessionKey, picoSes
 		if _, err := tx.ExecContext(ctx, `UPDATE pico_inbox SET state = 'done', payload = NULL
 			WHERE session_id = ? AND state != 'done'`, picoSessionID); err != nil {
 			return false, fmt.Errorf("memory: cancel deleted session inbox: %w", err)
+		}
+		if managed && rows > 0 {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM chat_ui_meta WHERE session_id = ?`, picoSessionID); err != nil {
+				return false, fmt.Errorf("memory: delete session UI metadata: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM app_state WHERE namespace = 'chat_branches' AND state_key = ?`, picoSessionID); err != nil {
+				return false, fmt.Errorf("memory: delete session branches: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO app_state(namespace, state_key, value)
+				VALUES (?, ?, ?) ON CONFLICT(namespace, state_key) DO UPDATE SET value = excluded.value`,
+				sessionCleanupNamespace, sessionKey, []byte(picoSessionID)); err != nil {
+				return false, fmt.Errorf("memory: record pending session attachment cleanup: %w", err)
+			}
 		}
 	}
 	if err := tx.Commit(); err != nil {

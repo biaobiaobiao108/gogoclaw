@@ -2,16 +2,71 @@ package evolution_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/evolution"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
+
+func TestPendingEvidenceCanClusterAcrossWindows(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	store := evolution.NewStore(evolution.NewPaths(root, ""))
+	completed := true
+	now := time.Now().UTC()
+	var records []evolution.LearningRecord
+	const goal = "Summarize the latest weather observations"
+	for i := 0; i < 96; i++ {
+		summary := fmt.Sprintf("Review outcome %c%c", 'a'+rune(i/26), 'a'+rune(i%26))
+		if i == 0 || i == 48 {
+			summary = goal
+		}
+		records = append(records, evolution.LearningRecord{
+			ID: fmt.Sprint(i), Kind: evolution.RecordKindTask, WorkspaceID: root,
+			Status: "new", Success: &completed, Summary: summary, FinalOutput: "Report completed.", CreatedAt: now,
+		})
+	}
+	if err := store.AppendTaskRecords(ctx, records); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a backlog written before the discovery key was stored.
+	db, err := sql.Open("sqlite", filepath.Join(root, "sessions", "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`UPDATE evolution_records SET payload = json_remove(payload, '$.discovery_key')`)
+	if closeErr := errors.Join(err, db.Close()); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	rt, err := evolution.NewRuntime(evolution.RuntimeOptions{
+		Config: config.EvolutionConfig{Enabled: true, Mode: "draft", MinTaskCount: 2},
+		Now: func() time.Time {
+			now = now.Add(time.Second)
+			return now
+		},
+		PatternClusterer: evolution.NewLLMPatternClusterer(nil, "", nil, 2, nil),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := rt.RunColdPathOnce(ctx, root); err != nil {
+			t.Fatal(err)
+		}
+	}
+	patterns, err := store.LoadPatternRecords()
+	if err != nil || len(patterns) != 1 || len(patterns[0].EvidenceRecordIDs) != 2 {
+		t.Fatalf("expected one pattern with both successes, got %+v (%v)", patterns, err)
+	}
+}
 
 type efficiencyProvider struct {
 	t       *testing.T

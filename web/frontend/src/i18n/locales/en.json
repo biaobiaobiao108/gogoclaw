@@ -12,7 +12,7 @@
     "toolCall": "Tool call",
     "attachment": "Attachment",
     "media": "Media",
-    "stopGateway": "Stop the gateway before deleting sessions.",
+    "stopRuntime": "Stop the running gateway or CLI agent before deleting sessions.",
     "title": "Sessions",
     "refresh": "Refresh",
     "search": "Search channel, user or session ID",

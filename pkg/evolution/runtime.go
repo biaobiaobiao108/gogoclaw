@@ -276,7 +276,11 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 		clusterer, planned := rt.patternClusterer.(*LLMPatternClusterer)
 		inputs := taskRecords
 		if planned {
-			plans, inputs = clusterer.planPatterns(ctx, workspace, taskRecords, patternRecords, rt.cfg.EffectiveMinSuccessRatio())
+			related, err := store.loadRelatedTasks(ctx, taskRecords, evidenceLimit)
+			if err != nil {
+				return err
+			}
+			plans, inputs = clusterer.planPatterns(ctx, workspace, taskRecords, related, patternRecords, rt.cfg.EffectiveMinSuccessRatio())
 		}
 		recordsForOrganizer, evidenceRecordsForOrganizer, inputErr := rt.recordsForColdPathInputs(
 			ctx,
@@ -457,7 +461,18 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 		if draft.Status == DraftStatusCandidate {
 			for _, previous := range existingDrafts {
 				if previous.WorkspaceID == workspace && previous.SourceRecordID == rule.ID &&
-					previous.Status == DraftStatusCandidate && previous.PublishedVersion == "" && previous.ID != draft.ID {
+					previous.Status == DraftStatusCandidate && previous.ID != draft.ID {
+					if previous.PublishedVersion != "" {
+						base, err := currentSkillVersion(workspace, previous.TargetSkillName)
+						if err != nil {
+							return err
+						}
+						if base != previous.BaseVersion {
+							continue // The publication may already be live.
+						}
+						previous.PublishedVersion = ""
+						previous.BackupPath = ""
+					}
 					previous.Status = DraftStatusSuperseded
 					changes = append(changes, previous)
 				}

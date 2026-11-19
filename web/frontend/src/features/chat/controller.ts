@@ -162,6 +162,7 @@ export async function connectChat() {
     const wsUrl = `${wsScheme}//${window.location.host}/pico/ws`
     const url = `${wsUrl}?session_id=${encodeURIComponent(sessionId)}`
     const socket = new WebSocket(url)
+    let checkedInitialCompletion = false
 
     if (generation !== connectionGeneration()) {
       isConnecting = false
@@ -232,6 +233,7 @@ export async function connectChat() {
               recentActivities: history.activities,
               recentPlan: history.plan,
               turnHistory: history.turnHistory,
+              historyTurn: history.historyTurn,
               branches: history.branches ?? [],
               historyCursor: prev.hasLoadedOlderHistory
                 ? prev.historyCursor
@@ -281,10 +283,24 @@ export async function connectChat() {
             restore()
             pendingOptimisticActions.delete(requestId)
           },
-          onTurnSettled: () => {
+          onTurnSettled: (completion) => {
             if (wasActive) pendingStatusWatchUntil = 0
             pendingOptimisticActions.clear()
-            if (wasActive || hadPendingOptimisticAction)
+            let historyChanged = false
+            if (
+              !checkedInitialCompletion &&
+              completion &&
+              ["completed", "failed", "interrupted"].includes(completion.status)
+            ) {
+              checkedInitialCompletion = true
+              // The current turn can finish after the initial HTTP history
+              // response but before the new socket sees any live frames.
+              const loaded = previousState.historyTurn
+              historyChanged =
+                loaded?.turnId !== completion.turnId ||
+                loaded.status !== completion.status
+            }
+            if (wasActive || hadPendingOptimisticAction || historyChanged)
               void refreshActiveSessionHistory(
                 sessionId,
                 hadPendingOptimisticAction,
@@ -415,6 +431,7 @@ export async function hydrateActiveSession({
           recentActivities: history.activities,
           recentPlan: history.plan,
           turnHistory: history.turnHistory,
+          historyTurn: history.historyTurn,
           branches: history.branches ?? [],
           hasHydratedActiveSession: true,
           isHistoryLoading: false,
@@ -432,6 +449,7 @@ export async function hydrateActiveSession({
         recentActivities: history.activities,
         recentPlan: history.plan,
         turnHistory: history.turnHistory,
+        historyTurn: history.historyTurn,
         branches: history.branches ?? [],
         isTyping: false,
         hasHydratedActiveSession: true,
@@ -751,6 +769,7 @@ export async function refreshActiveSessionHistory(
       recentActivities: history.activities,
       recentPlan: history.plan,
       turnHistory: history.turnHistory,
+      historyTurn: history.historyTurn,
       branches: history.branches ?? [],
       historyCursor: preservePagination
         ? current.historyCursor
@@ -969,6 +988,7 @@ export async function switchChatSession(sessionId: string, title?: string) {
       recentActivities: history.activities,
       recentPlan: history.plan,
       turnHistory: history.turnHistory,
+      historyTurn: history.historyTurn,
       branches: history.branches ?? [],
       isTyping: false,
       hasHydratedActiveSession: true,
@@ -1006,6 +1026,7 @@ export async function newChatSession() {
     recentActivities: undefined,
     recentPlan: undefined,
     turnHistory: undefined,
+    historyTurn: undefined,
     branches: undefined,
     contextUsage: undefined,
     historyCursor: undefined,

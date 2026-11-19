@@ -14,21 +14,28 @@ import {
   sendChatMessage,
   switchChatSession,
 } from "./controller"
+import type { PicoMessage } from "./protocol"
 
-async function withConnectedChat(run: () => Promise<void>) {
+async function withConnectedChat(
+  run: (receive: (message: PicoMessage) => void) => Promise<void>,
+) {
   const originalSocket = globalThis.WebSocket
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window")
   const originalGateway = getDefaultStore().get(gatewayAtom)
+  let socket: Socket
   class Socket {
     static OPEN = 1
     static CONNECTING = 0
     readyState = 1
     onopen = null
-    onmessage = null
+    onmessage: ((event: { data: string }) => void) | null = null
     onclose = null
     onerror = null
     send() {}
     close() {}
+    constructor() {
+      socket = this
+    }
   }
   globalThis.WebSocket = Socket as unknown as typeof WebSocket
   Object.defineProperty(globalThis, "window", {
@@ -46,7 +53,9 @@ async function withConnectedChat(run: () => Promise<void>) {
   })
   try {
     await connectChat()
-    await run()
+    await run((message) =>
+      socket.onmessage?.({ data: JSON.stringify(message) }),
+    )
   } finally {
     disconnectChat()
     globalThis.WebSocket = originalSocket
@@ -153,6 +162,58 @@ test("settled history clears a stale typing indicator when no new work arrives",
     await refreshActiveSessionHistory()
     expect(getChatState().messages[0]?.id).toBe("recovered")
     expect(getChatState().isTyping).toBe(false)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test("the first idle socket status recovers a continuation missed during reload", async () => {
+  const originalFetch = globalThis.fetch
+  let requests = 0
+  globalThis.fetch = (async (_url: string | URL | Request) => {
+    requests += 1
+    return Response.json({
+      messages: [
+        { message_id: "partial", role: "assistant", content: "partial" },
+        { message_id: "continuation", role: "assistant", content: "finished" },
+      ],
+      updated: "2026-01-01",
+      turn: { turn_id: "resumed-turn", status: "completed" },
+    })
+  }) as typeof fetch
+  try {
+    await withConnectedChat(async (receive) => {
+      updateChatStore({
+        messages: [
+          {
+            id: "partial",
+            role: "assistant",
+            content: "partial",
+            timestamp: 1,
+          },
+        ],
+        historyTurn: { turnId: "first-turn", status: "interrupted" },
+      })
+      const status: PicoMessage = {
+        type: "turn.status",
+        payload: {
+          active: false,
+          last_turn: {
+            turn_id: "resumed-turn",
+            status: "completed",
+            end_reason: "completed",
+          },
+        },
+      }
+      receive(status)
+      await Bun.sleep(0)
+      expect(getChatState().messages.map((message) => message.id)).toEqual([
+        "partial",
+        "continuation",
+      ])
+      receive(status)
+      expect(requests).toBe(1)
+    })
   } finally {
     globalThis.fetch = originalFetch
   }

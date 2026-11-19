@@ -17,7 +17,7 @@ import {
 
 export interface PicoMessageHandlerOptions {
   onBranchUpdated?: () => void
-  onTurnSettled?: () => void
+  onTurnSettled?: (completion?: { turnId: string; status: string }) => void
   onRequestError?: (requestId: string) => void
 }
 
@@ -322,7 +322,7 @@ export function handlePicoMessage(
           : { pendingApproval: undefined }),
       })
       if (!active && (hadActiveTurn || !getChatState().isTyping))
-        options.onTurnSettled?.()
+        options.onTurnSettled?.(completion)
       break
     }
     case "session.title": {

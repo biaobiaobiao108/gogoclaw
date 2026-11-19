@@ -62,6 +62,7 @@ export async function loadSessionHistory(sessionId: string): Promise<{
   activities: ChatActivity[]
   plan: ChatPlanStep[]
   turnHistory: ChatTurnHistory[]
+  historyTurn?: { turnId: string; status: string }
   contextUsage?: ContextUsage
   nextCursor?: string
   hasOlder: boolean
@@ -136,6 +137,9 @@ export async function loadSessionHistory(sessionId: string): Promise<{
     contextUsage: turn?.usage,
     plan: turn?.plan ?? [],
     activities: toActivities(turn?.activities),
+    historyTurn: turn?.turn_id
+      ? { turnId: turn.turn_id, status: turn.status }
+      : undefined,
     turnHistory: (detail.turn_history ?? [])
       .filter((item) => item.turn_id)
       .map((item) => ({

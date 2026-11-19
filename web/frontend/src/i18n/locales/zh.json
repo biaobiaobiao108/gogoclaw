@@ -12,7 +12,7 @@
     "toolCall": "工具调用",
     "attachment": "附件",
     "media": "媒体",
-    "stopGateway": "请先停止 Gateway，再删除会话。",
+    "stopRuntime": "请先停止正在运行的 Gateway 或命令行 Agent，再删除会话。",
     "title": "会话管理",
     "refresh": "刷新",
     "search": "搜索渠道、用户或会话 ID",

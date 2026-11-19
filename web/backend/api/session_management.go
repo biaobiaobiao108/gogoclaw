@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/instance"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
@@ -37,6 +39,8 @@ type managedSessionPage struct {
 	Items      []managedSession `json:"items"`
 	NextCursor string           `json:"next_cursor,omitempty"`
 }
+
+const managedSessionRuntimeConflict = "stop the running GoGoClaw instance before deleting sessions"
 
 func managedID(dir, key string) string {
 	b, _ := json.Marshal(managedSessionID{dir, key})
@@ -188,16 +192,31 @@ func (h *Handler) deleteManagedSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.gatewayAvailableForProxy() {
-		http.Error(w, "stop gateway before deleting sessions", http.StatusConflict)
+		http.Error(w, managedSessionRuntimeConflict, http.StatusConflict)
 		return
 	}
-	// Serialize with launcher-controlled gateway starts while modifying both stores.
+	// Cover launcher starts before the child has acquired the runtime lock.
 	gateway.mu.Lock()
 	defer gateway.mu.Unlock()
 	if gateway.cmd != nil && gateway.cmd.Process != nil {
-		http.Error(w, "stop gateway before deleting sessions", http.StatusConflict)
+		http.Error(w, managedSessionRuntimeConflict, http.StatusConflict)
 		return
 	}
+	lock, err := instance.AcquireDataDirLock(globalConfigDir())
+	if errors.Is(err, fileutil.ErrFileLockHeld) {
+		http.Error(w, managedSessionRuntimeConflict, http.StatusConflict)
+		return
+	}
+	if err != nil {
+		logger.Warnf("failed to lock the data directory for session deletion: %v", err)
+		http.Error(w, "failed to lock the data directory", http.StatusInternalServerError)
+		return
+	}
+	defer func() {
+		if err := lock.Release(); err != nil {
+			logger.Warnf("failed to release the data directory lock: %v", err)
+		}
+	}()
 	store, err := memory.OpenSQLiteStore(ref.Dir)
 	if err != nil {
 		http.Error(w, "session store unavailable", 404)
@@ -205,24 +224,35 @@ func (h *Handler) deleteManagedSession(w http.ResponseWriter, r *http.Request) {
 	}
 	defer store.Close()
 	meta, err := store.GetSessionMeta(r.Context(), ref.Key)
-	if err != nil || meta.CreatedAt.IsZero() {
-		http.Error(w, "session not found", 404)
+	if err != nil {
+		http.Error(w, "failed to read session", http.StatusInternalServerError)
 		return
 	}
-	pico, isPico := sessionRefFromMeta(meta)
-	removed, err := store.DeletePicoSession(r.Context(), ref.Key, pico.ID, false)
+	var cleanupID string
+	var removed bool
+	if meta.CreatedAt.IsZero() {
+		cleanupID, err = store.PendingSessionCleanup(r.Context(), ref.Key)
+	} else {
+		pico, _ := sessionRefFromMeta(meta)
+		cleanupID = pico.ID
+		removed, err = store.DeleteManagedSession(r.Context(), ref.Key, cleanupID)
+	}
 	if err != nil {
 		logger.Warnf("failed to delete session %s: %v", ref.Key, err)
 		http.Error(w, "failed to delete session", http.StatusInternalServerError)
 		return
 	}
-	if !removed {
+	if !removed && cleanupID == "" {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
-	if isPico {
-		if err := h.cleanupDeletedSessionData(ref.Dir, pico.ID); err != nil {
-			logger.Warnf("failed to clean chat data for deleted session %s: %v", pico.ID, err)
+	if cleanupID != "" {
+		err := h.cleanupDeletedSessionAttachments(ref.Dir, cleanupID)
+		if err == nil {
+			err = store.CompleteSessionCleanup(r.Context(), ref.Key)
+		}
+		if err != nil {
+			logger.Warnf("failed to clean chat data for deleted session %s: %v", cleanupID, err)
 			h.pruneSessionListCache(nil, ref.Dir)
 			http.Error(w, "session deleted but failed to clean associated data", http.StatusInternalServerError)
 			return

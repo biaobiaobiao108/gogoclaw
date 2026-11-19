@@ -217,10 +217,6 @@ func (rt *Runtime) ReviewDraft(workspace, id string) (DraftReview, error) {
 	if draft.Status != DraftStatusCandidate {
 		return review, nil
 	}
-	if !sourceReady && draft.PublishedVersion == "" {
-		review.Issue = "source evidence changed or is below the learning threshold"
-		return review, nil
-	}
 	current, exists, err := loadCurrentSkillBody(workspace, draft.TargetSkillName)
 	if err != nil {
 		return review, err
@@ -228,6 +224,10 @@ func (rt *Runtime) ReviewDraft(workspace, id string) (DraftReview, error) {
 	base := skillVersion(current, exists)
 	if draft.PublishedVersion != "" && base == draft.PublishedVersion {
 		review.ReviewToken = reviewToken(draft, draft.BaseVersion)
+		return review, nil
+	}
+	if !sourceReady {
+		review.Issue = "source evidence changed or is below the learning threshold"
 		return review, nil
 	}
 	if draft.BaseVersion != "" && draft.BaseVersion != base {
@@ -328,17 +328,6 @@ func (rt *Runtime) ActOnDraft(ctx context.Context, workspace, id, action, token 
 		if !rt.cfg.AllowsDraftPublication() || (draft.Status != DraftStatusCandidate && draft.Status != DraftStatusAccepted) {
 			return ErrDraftAction
 		}
-		if draft.PublishedVersion == "" {
-			patterns, err := store.LoadPatternRecords()
-			if err != nil {
-				return err
-			}
-			if !slices.ContainsFunc(patterns, func(record LearningRecord) bool {
-				return hasCurrentDraftEvidence(draft, record)
-			}) {
-				return ErrDraftAction
-			}
-		}
 		return rt.publishReviewedDraft(ctx, workspace, store, draft, token)
 	case "rollback":
 		if draft.Status == DraftStatusRolledBack {
@@ -369,6 +358,22 @@ func (rt *Runtime) publishReviewedDraft(ctx context.Context, workspace string, s
 		token != reviewToken(draft, base) {
 		return ErrDraftConflict
 	}
+	patterns, err := store.LoadPatternRecords()
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(patterns, func(record LearningRecord) bool {
+		return hasCurrentDraftEvidence(draft, record)
+	}) {
+		if draft.PublishedVersion != "" {
+			// The file is still at the base version. Clear the abandoned intent
+			// so this stale draft can be rejected or superseded.
+			draft.PublishedVersion = ""
+			draft.BackupPath = ""
+			return errors.Join(ErrDraftAction, store.SaveDrafts([]SkillDraft{draft}))
+		}
+		return ErrDraftAction
+	}
 	rendered, err := checkedRenderedDraft(draft, current, exists)
 	if err != nil {
 		return err
@@ -376,12 +381,19 @@ func (rt *Runtime) publishReviewedDraft(ctx context.Context, workspace string, s
 	draft.BaseVersion = base
 	draft.PublishedVersion = contentVersion(rendered)
 	if exists {
-		draft.BackupPath = filepath.Join(store.paths.BackupsDir, workspaceScopeDir(workspace),
-			draft.TargetSkillName, contentVersion(draft.ID), "SKILL.md")
-		if err := os.MkdirAll(filepath.Dir(draft.BackupPath), 0o700); err != nil {
+		relative := filepath.Join(workspaceScopeDir(workspace), skillBackupPath(draft))
+		backupPath := filepath.Join(store.paths.BackupsDir, relative)
+		draft.BackupPath = filepath.ToSlash(relative)
+		if !usesDefaultWorkspaceState(store.paths, workspace) {
+			draft.BackupPath, err = filepath.Abs(backupPath)
+			if err != nil {
+				return err
+			}
+		}
+		if err := os.MkdirAll(filepath.Dir(backupPath), 0o700); err != nil {
 			return err
 		}
-		if err := fileutil.WriteFileAtomic(draft.BackupPath, []byte(current), 0o600); err != nil {
+		if err := fileutil.WriteFileAtomic(backupPath, []byte(current), 0o600); err != nil {
 			return err
 		}
 	}
@@ -428,14 +440,7 @@ func (rt *Runtime) rollbackPublishedDraft(workspace string, store *Store, draft 
 	var restored string
 	hadOriginal := draft.BaseVersion != missingSkillVersion
 	if hadOriginal {
-		expected := filepath.Join(store.paths.BackupsDir, workspaceScopeDir(workspace), draft.TargetSkillName,
-			contentVersion(draft.ID), "SKILL.md")
-		// A draft can predate a change to the configured backup directory.
-		path := expected
-		if draft.BackupPath != "" {
-			path = draft.BackupPath
-		}
-		backup, err := os.ReadFile(path)
+		backup, err := readSkillBackup(store.paths, draft)
 		if err != nil {
 			return err
 		}
@@ -477,6 +482,42 @@ func (rt *Runtime) rollbackPublishedDraft(workspace string, store *Store, draft 
 			Version: draft.ID, Action: "rollback", Timestamp: rt.now(), DraftID: draft.ID, Rollback: true,
 		})
 	})
+}
+
+func skillBackupPath(draft SkillDraft) string {
+	return filepath.Join(draft.TargetSkillName, contentVersion(draft.ID), "SKILL.md")
+}
+
+func readSkillBackup(paths Paths, draft SkillDraft) ([]byte, error) {
+	if err := skills.ValidateSkillName(draft.TargetSkillName); err != nil {
+		return nil, err
+	}
+	relative := skillBackupPath(draft)
+	legacyScope := workspaceScopeDir(draft.WorkspaceID)
+	if draft.BackupPath != "" {
+		// Old records contain the previous backup root. Keep the workspace
+		// directory from that path when looking under the current backup root.
+		segments := strings.Split(strings.ReplaceAll(draft.BackupPath, "\\", "/"), "/")
+		if len(segments) >= 4 {
+			scope := segments[len(segments)-4]
+			if scope != "" && scope != "." && scope != ".." && filepath.IsLocal(scope) {
+				legacyScope = scope
+			}
+		}
+	}
+	candidates := []string{
+		filepath.Join(paths.BackupsDir, legacyScope, relative),
+	}
+	if filepath.IsAbs(draft.BackupPath) {
+		candidates = append(candidates, draft.BackupPath)
+	}
+	for _, path := range candidates {
+		body, err := os.ReadFile(path)
+		if !errors.Is(err, os.ErrNotExist) {
+			return body, err
+		}
+	}
+	return nil, os.ErrNotExist
 }
 
 func isCurrentPublishedDraft(store *Store, draft SkillDraft) (bool, error) {

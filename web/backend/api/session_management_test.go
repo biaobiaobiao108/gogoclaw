@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/biaobiaobiao108/gogoclaw/pkg/instance"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/seahorse"
 )
@@ -186,5 +188,123 @@ func TestManagedDeleteFailurePreservesIndex(t *testing.T) {
 	var count int
 	if err := index.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("index lost: count=%d err=%v", count, err)
+	}
+}
+
+func TestManagedDeleteWaitsForRuntimeLock(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	const key = "cli:default"
+	if err := store.AddMessage(nil, key, "user", "history"); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := instance.AcquireDataDirLock(globalConfigDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+
+	mux := http.NewServeMux()
+	NewHandler(configPath).registerManagedSessionRoutes(mux)
+	path := "/api/session-management/" + managedID(dir, key)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, path, nil))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("delete while runtime held lock: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("session lost while runtime held lock: %d", rec.Code)
+	}
+}
+
+func TestManagedDeleteRetriesCleanup(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	const key, id = "session-key", "review-session"
+	scope := json.RawMessage(`{"version":1,"agent_id":"main","channel":"pico","values":{"sender":"pico:review-session"}}`)
+	if err := store.UpsertSessionMeta(nil, key, scope, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddMessage(nil, key, "user", "history"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateChatUIMeta(nil, id, func([]byte) ([]byte, error) {
+		return []byte(`{"title":"test"}`), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetAppState(nil, "chat_branches", id, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", store.DBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TRIGGER deny_ui_delete BEFORE DELETE ON chat_ui_meta
+		BEGIN SELECT RAISE(ABORT, 'test failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	NewHandler(configPath).registerManagedSessionRoutes(mux)
+	path := "/api/session-management/" + managedID(dir, key)
+	call := func(method string, want int) {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(method, path, nil))
+		if rec.Code != want {
+			t.Fatalf("%s: status %d, want %d: %s", method, rec.Code, want, rec.Body.String())
+		}
+	}
+	call(http.MethodDelete, http.StatusInternalServerError)
+	call(http.MethodGet, http.StatusOK)
+	if _, err := db.Exec("DROP TRIGGER deny_ui_delete"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Prevent completing the cleanup record even after the filesystem work.
+	if _, err := db.Exec(`CREATE TRIGGER deny_cleanup_completion BEFORE DELETE ON app_state
+		WHEN OLD.namespace = 'session_attachment_cleanup'
+		BEGIN SELECT RAISE(ABORT, 'test failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	attachmentDir := filepath.Join(dir, ".attachments", id)
+	if err := os.MkdirAll(attachmentDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	call(http.MethodDelete, http.StatusInternalServerError)
+	call(http.MethodGet, http.StatusNotFound)
+	if pending, err := store.PendingSessionCleanup(nil, key); err != nil || pending != id {
+		t.Fatalf("cleanup record: %q, %v", pending, err)
+	}
+	if meta, err := store.ChatUIMeta(nil, id); err != nil || meta != nil {
+		t.Fatalf("session UI metadata remained: %s, %v", meta, err)
+	}
+	if branches, err := store.GetAppState(nil, "chat_branches", id); err != nil || branches != nil {
+		t.Fatalf("session branches remained: %s, %v", branches, err)
+	}
+	if _, err := db.Exec("DROP TRIGGER deny_cleanup_completion"); err != nil {
+		t.Fatal(err)
+	}
+	call(http.MethodDelete, http.StatusNoContent)
+	if _, err := os.Stat(attachmentDir); !os.IsNotExist(err) {
+		t.Fatalf("attachment directory still exists: %v", err)
+	}
+	if pending, err := store.PendingSessionCleanup(nil, key); err != nil || pending != "" {
+		t.Fatalf("cleanup record remains: %q, %v", pending, err)
 	}
 }
