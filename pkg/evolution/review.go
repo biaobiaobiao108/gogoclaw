@@ -109,6 +109,27 @@ func hasDraftForEvidence(drafts []SkillDraft, workspace, ruleID, version string,
 	return false
 }
 
+// A single corroborating success is rarely worth rewriting a published guide.
+// Pending candidates still get a current revision so they remain reviewable.
+func shouldWaitForMoreDraftEvidence(drafts []SkillDraft, rule LearningRecord) bool {
+	var latest SkillDraft
+	for _, draft := range drafts {
+		if draft.WorkspaceID == rule.WorkspaceID && draft.SourceRecordID == rule.ID &&
+			(latest.ID == "" || draft.CreatedAt.After(latest.CreatedAt)) {
+			latest = draft
+		}
+	}
+	return latest.Status == DraftStatusAccepted && latest.PublishedVersion != "" &&
+		latest.EvidenceCount > 0 && len(patternEvidenceIDs(rule)) == latest.EvidenceCount+1 &&
+		len(rule.TaskRecordIDs) == latest.EvidenceSuccesses+1 && latest.EvidenceRoute == draftEvidenceRoute(rule)
+}
+
+func draftEvidenceRoute(rule LearningRecord) string {
+	matches := slices.Clone(rule.MatchedSkillNames)
+	slices.Sort(matches)
+	return contentVersion(strings.Join(rule.WinningPath, "\x00") + "\x01" + strings.Join(matches, "\x00"))
+}
+
 type DraftReview struct {
 	Draft       SkillDraft       `json:"draft"`
 	Diff        string           `json:"diff"`

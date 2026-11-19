@@ -16,6 +16,7 @@ import (
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/skills"
 )
 
@@ -29,6 +30,7 @@ type RuntimeOptions struct {
 	DraftGenerator      DraftGenerator
 	GeneratorFactory    func(workspace string) DraftGenerator
 	SuccessJudgeFactory func(workspace string) SuccessJudge
+	RecordModelUsage    func(stage, model string, usage providers.UsageInfo)
 }
 
 type Runtime struct {
@@ -43,6 +45,7 @@ type Runtime struct {
 	draftGenerator      DraftGenerator
 	generatorFactory    func(workspace string) DraftGenerator
 	successJudgeFactory func(workspace string) SuccessJudge
+	recordModelUsage    func(stage, model string, usage providers.UsageInfo)
 }
 
 type TurnCaseInput struct {
@@ -83,6 +86,7 @@ func NewRuntime(opts RuntimeOptions) (*Runtime, error) {
 		draftGenerator:      opts.DraftGenerator,
 		generatorFactory:    opts.GeneratorFactory,
 		successJudgeFactory: opts.SuccessJudgeFactory,
+		recordModelUsage:    opts.RecordModelUsage,
 	}, nil
 }
 
@@ -242,6 +246,9 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 	}
 	defer unlock()
 
+	if rt.recordModelUsage != nil {
+		ctx = context.WithValue(ctx, modelUsageKey{}, rt.recordModelUsage)
+	}
 	store := rt.storeForWorkspace(workspace)
 	if err := rt.importWorkspace(store); err != nil {
 		return err
@@ -265,20 +272,33 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 	admittedCount := 0
 	newRuleCount := 0
 	if rt.patternClusterer != nil {
+		var plans []llmCluster
+		clusterer, planned := rt.patternClusterer.(*LLMPatternClusterer)
+		inputs := taskRecords
+		if planned {
+			plans, inputs = clusterer.planPatterns(ctx, workspace, taskRecords, patternRecords, rt.cfg.EffectiveMinSuccessRatio())
+		}
 		recordsForOrganizer, evidenceRecordsForOrganizer, inputErr := rt.recordsForColdPathInputs(
 			ctx,
 			workspace,
-			taskRecords,
+			inputs,
 		)
 		if inputErr != nil {
 			return inputErr
 		}
-		recordsForOrganizer = rt.filterRecordsByMinSuccessRatio(
-			workspace,
-			evidenceRecordsForOrganizer,
-			recordsForOrganizer,
-		)
-		if err := store.SaveTaskDecisions(evidenceRecordsForOrganizer); err != nil {
+		decisions := evidenceRecordsForOrganizer
+		if planned && len(taskRecords) == evidenceLimit {
+			// Rotate a full window so ungrouped rows cannot hide newer evidence.
+			now := rt.now().UTC()
+			for i := range taskRecords {
+				taskRecords[i].ConsideredAt = &now
+			}
+			decisions = mergeLearningRecordsByID(taskRecords, decisions)
+		}
+		if !planned {
+			recordsForOrganizer = rt.filterRecordsByMinSuccessRatio(workspace, evidenceRecordsForOrganizer, recordsForOrganizer)
+		}
+		if err := store.SaveTaskDecisions(decisions); err != nil {
 			return err
 		}
 		admittedCount = countTaskLearningRecords(recordsForOrganizer)
@@ -291,7 +311,11 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 		})
 		var rules []LearningRecord
 		var clusteredTaskIDs []string
-		if len(evidenceRecordsForOrganizer) == 0 || (len(patternRecords) == 0 && admittedCount < rt.cfg.EffectiveMinTaskCount()) {
+		if planned {
+			rules, clusteredTaskIDs = clusterer.validateAndBuildPatternsWithEvidence(
+				workspace, plans, recordsForOrganizer, evidenceRecordsForOrganizer, patternRecords, rt.cfg.EffectiveMinSuccessRatio(),
+			)
+		} else if len(evidenceRecordsForOrganizer) == 0 || (len(patternRecords) == 0 && admittedCount < rt.cfg.EffectiveMinTaskCount()) {
 			// Keep gathering evidence until there are enough successful samples.
 		} else if clusterer, ok := rt.patternClusterer.(evidencePatternClusterer); ok {
 			rules, clusteredTaskIDs, err = clusterer.BuildPatternsWithEvidence(
@@ -387,6 +411,9 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 		}
 		evidence := draftEvidenceForRule(rule, evidenceTasks)
 		rule = enrichRuleWithDraftEvidence(rule, evidence)
+		if shouldWaitForMoreDraftEvidence(existingDrafts, rule) {
+			continue
+		}
 		matches, err := recaller.RecallSimilarSkills(rule)
 		if err != nil {
 			return err
@@ -410,6 +437,9 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 		draft.ID = "draft-" + rule.ID + "-" + version[:12]
 		draft.EvidenceVersion = version
 		draft.EvidenceIDs = append([]string(nil), recentEvidenceIDs(patternEvidenceIDs(rule))...)
+		draft.EvidenceCount = len(patternEvidenceIDs(rule))
+		draft.EvidenceSuccesses = len(rule.TaskRecordIDs)
+		draft.EvidenceRoute = draftEvidenceRoute(rule)
 		draft = rt.finalizeDraft(workspace, rule, matches, evidence, draft)
 		if draft.Status == DraftStatusCandidate {
 			current, exists, loadErr := loadCurrentSkillBody(workspace, draft.TargetSkillName)
@@ -472,51 +502,88 @@ func (rt *Runtime) recordsForColdPathInputs(
 		}
 		return a.CreatedAt.Before(b.CreatedAt)
 	})
-	admitted := make([]LearningRecord, 0, len(candidates))
-	evidence := make([]LearningRecord, 0, len(candidates))
 	judge := rt.successJudgeForWorkspace(workspace)
 	judgeKey := ""
 	if keyed, ok := judge.(interface{ cacheKey() string }); ok {
 		judgeKey = keyed.cacheKey()
 	}
 	now := rt.now().UTC()
-	judgeUnavailable := false
-	for _, record := range candidates {
-		if err := ctx.Err(); err != nil {
-			return nil, nil, err
-		}
+	var pending []int
+	for i := range candidates {
+		record := &candidates[i]
 		record.ConsideredAt = &now
 		if record.TurnStatus != "" {
 			completed := record.TurnStatus == "completed"
 			record.Success = &completed
 		}
-		if record.Success != nil && *record.Success && judge != nil {
-			switch {
-			case judgeKey != "" && record.JudgedBy == judgeKey && record.JudgedSuccess != nil:
-				record.Success = record.JudgedSuccess
-			case judgeUnavailable:
-				record.Success = nil
-			default:
-				decision, err := judge.JudgeTaskRecord(ctx, record)
-				if err != nil {
-					return nil, nil, err
-				}
-				if decision.Deferred {
-					judgeUnavailable = true
-					record.Success = nil
-				} else {
-					record.Success = &decision.Success
-					record.JudgedSuccess = record.Success
-					record.JudgedBy = judgeKey
-				}
-			}
+		if record.Success == nil || !*record.Success || judge == nil {
+			continue
 		}
-		evidence = append(evidence, record)
+		if judgeKey != "" && record.JudgedBy == judgeKey && record.JudgedSuccess != nil {
+			record.Success = record.JudgedSuccess
+			continue
+		}
+		pending = append(pending, i)
+	}
+	if err := judgePendingTasks(ctx, judge, judgeKey, candidates, pending); err != nil {
+		return nil, nil, err
+	}
+	var admitted []LearningRecord
+	for _, record := range candidates {
 		if record.Success != nil && *record.Success {
 			admitted = append(admitted, record)
 		}
 	}
-	return admitted, evidence, nil
+	return admitted, candidates, nil
+}
+
+func judgePendingTasks(ctx context.Context, judge SuccessJudge, judgeKey string, records []LearningRecord, pending []int) error {
+	batch, batched := judge.(batchSuccessJudge)
+	batchSize := 1
+	if batched {
+		batchSize = successJudgeBatchSize
+	}
+	for len(pending) > 0 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		indices := pending[:min(batchSize, len(pending))]
+		var decisions []TaskSuccessDecision
+		var err error
+		if batched {
+			selected := make([]LearningRecord, len(indices))
+			for i, index := range indices {
+				selected[i] = records[index]
+			}
+			decisions, err = batch.judgeTaskRecords(ctx, selected)
+		} else {
+			var decision TaskSuccessDecision
+			decision, err = judge.JudgeTaskRecord(ctx, records[indices[0]])
+			decisions = []TaskSuccessDecision{decision}
+		}
+		if err != nil {
+			return err
+		}
+		known := 0
+		for i, index := range indices {
+			record := &records[index]
+			if decisions[i].Deferred {
+				record.Success, record.JudgedSuccess, record.JudgedBy = nil, nil, ""
+				continue
+			}
+			record.Success = &decisions[i].Success
+			record.JudgedSuccess, record.JudgedBy = record.Success, judgeKey
+			known++
+		}
+		pending = pending[len(indices):]
+		if known == 0 {
+			for _, index := range pending {
+				records[index].Success = nil
+			}
+			break
+		}
+	}
+	return ctx.Err()
 }
 
 func learningToolOutcomes(executions []ToolExecutionRecord) []ToolExecutionRecord {

@@ -238,7 +238,6 @@ func TestLLMDraftGenerator_BuildPromptIncludesTaskEvidence(t *testing.T) {
 	prompt := provider.lastMessages[1].Content
 	for _, want := range []string{
 		"Source task evidence",
-		"main-turn-6",
 		"调用三一定理计算100",
 		"100 + 31 = 131",
 		"three-one-theorem -> four-two-theorem -> five-three-theorem",
@@ -247,6 +246,9 @@ func TestLLMDraftGenerator_BuildPromptIncludesTaskEvidence(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
+	}
+	if strings.Contains(prompt, "main-turn-6") {
+		t.Fatal("draft request should omit internal evidence IDs")
 	}
 }
 

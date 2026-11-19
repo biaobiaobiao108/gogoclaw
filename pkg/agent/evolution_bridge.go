@@ -13,6 +13,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/evolution"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/usage"
 )
 
 type evolutionBridge struct {
@@ -60,6 +61,7 @@ func newEvolutionBridge(
 		SuccessJudgeFactory: func(workspace string) evolution.SuccessJudge {
 			return evolution.NewLLMTaskSuccessJudge(provider, modelID)
 		},
+		RecordModelUsage: evolutionUsageRecorder(registry, cfg),
 	})
 	if err != nil {
 		return nil, err
@@ -87,6 +89,33 @@ func newEvolutionBridge(
 	}
 
 	return bridge, nil
+}
+
+func evolutionUsageRecorder(registry *AgentRegistry, cfg *config.Config) func(string, string, providers.UsageInfo) {
+	if registry == nil {
+		return nil
+	}
+	agent := registry.GetDefaultAgent()
+	if agent == nil || agent.usageLedger == nil {
+		return nil
+	}
+	name := cfg.Agents.Defaults.GetModelName()
+	backend := effectiveDefaultProvider(cfg.Agents.Defaults.Provider)
+	if modelCfg, err := cfg.GetModelConfig(name); err == nil && modelCfg != nil {
+		backend, _ = modelProviderAndIDForResolution(backend, modelCfg)
+	}
+	return func(stage, model string, tokens providers.UsageInfo) {
+		input, output := int64(tokens.PromptTokens), int64(tokens.CompletionTokens)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := agent.usageLedger.RecordUsage(ctx, usage.Record{
+			AgentID: agent.ID, Channel: "evolution-" + stage, Provider: backend, Model: name, ModelID: model,
+			InputTokens: input, OutputTokens: output, TotalTokens: int64(tokens.TotalTokens),
+			CostNanos: usage.CostNanos(input, output, agent.usageRates(backend, name, model)),
+		}); err != nil {
+			logger.WarnCF("evolution", "Failed to record model usage", map[string]any{"phase": stage, "error": err.Error()})
+		}
+	}
 }
 
 func resolvedEvolutionModelID(cfg *config.Config, provider providers.LLMProvider) string {

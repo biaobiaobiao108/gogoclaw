@@ -133,6 +133,9 @@ type SkillDraft struct {
 	ScanFindings       []string    `json:"scan_findings,omitempty"`
 	EvidenceVersion    string      `json:"evidence_version,omitempty"`
 	EvidenceIDs        []string    `json:"evidence_ids,omitempty"`
+	EvidenceCount      int         `json:"evidence_count,omitempty"`
+	EvidenceSuccesses  int         `json:"evidence_successes,omitempty"`
+	EvidenceRoute      string      `json:"evidence_route,omitempty"`
 	BaseVersion        string      `json:"base_version,omitempty"`
 	PublishedVersion   string      `json:"published_version,omitempty"`
 	BackupPath         string      `json:"backup_path,omitempty"`

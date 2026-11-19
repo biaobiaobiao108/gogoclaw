@@ -245,7 +245,7 @@ func TestLLMPatternClusterer_RejectsClusterBelowEvidenceSuccessRatio(t *testing.
 		t.Fatalf("clusteredIDs = %v, want none", clusteredIDs)
 	}
 	prompt := provider.messages[1].Content
-	if !strings.Contains(prompt, `"success": true`) || !strings.Contains(prompt, `"success": false`) {
+	if !strings.Contains(prompt, `"success":true`) || !strings.Contains(prompt, `"success":false`) {
 		t.Fatalf("prompt should include success and failure evidence:\n%s", prompt)
 	}
 }

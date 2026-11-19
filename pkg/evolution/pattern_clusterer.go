@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -103,10 +104,16 @@ func (c *HeuristicPatternClusterer) BuildPatterns(
 func (c *HeuristicPatternClusterer) BuildPatternsWithEvidence(
 	_ context.Context, workspace string, successful, evidence, existing []LearningRecord, ratio float64,
 ) ([]LearningRecord, []string, error) {
+	clusters := localTaskClusters(workspace, evidence, heuristicClusterKey)
+	patterns, ids := buildPatternsWithEvidence(workspace, clusters, successful, evidence, existing, ratio, c.minCaseCount, c.now())
+	return patterns, ids, nil
+}
+
+func localTaskClusters(workspace string, evidence []LearningRecord, keyFor func(LearningRecord) string) []llmCluster {
 	groups := make(map[string][]LearningRecord)
 	var keys []string
 	for _, task := range evidence {
-		key := heuristicClusterKey(task)
+		key := keyFor(task)
 		if task.WorkspaceID != workspace || key == "" {
 			continue
 		}
@@ -125,8 +132,7 @@ func (c *HeuristicPatternClusterer) BuildPatternsWithEvidence(
 			TaskRecordIDs: collectRecordIDs(group), Reason: "heuristic cluster by normalized task summary",
 		})
 	}
-	patterns, ids := buildPatternsWithEvidence(workspace, clusters, successful, evidence, existing, ratio, c.minCaseCount, c.now())
-	return patterns, ids, nil
+	return clusters
 }
 
 type LLMPatternClusterer struct {
@@ -135,6 +141,7 @@ type LLMPatternClusterer struct {
 	fallback PatternClusterer
 	minCount int
 	now      func() time.Time
+	plans    sync.Map
 }
 
 type llmClusterResponse struct {
@@ -600,13 +607,8 @@ func updatePatternEvidence(pattern *LearningRecord, evidence []LearningRecord) [
 }
 
 func parseLLMClusterResponse(content string) (llmClusterResponse, bool) {
-	normalized := strings.TrimSpace(content)
-	normalized = strings.TrimPrefix(normalized, "```json")
-	normalized = strings.TrimPrefix(normalized, "```")
-	normalized = strings.TrimSuffix(normalized, "```")
-	normalized = strings.TrimSpace(normalized)
 	var payload llmClusterResponse
-	if err := json.Unmarshal([]byte(normalized), &payload); err != nil {
+	if err := json.Unmarshal(modelJSON(content), &payload); err != nil {
 		return llmClusterResponse{}, false
 	}
 	return payload, true
@@ -616,7 +618,7 @@ func buildPatternClusterPrompt(workspace string, tasks []LearningRecord, existin
 	type taskPayload struct {
 		ID                 string `json:"id"`
 		Summary            string `json:"summary"`
-		FinalOutputExcerpt string `json:"final_output_excerpt"`
+		FinalOutputExcerpt string `json:"final_output_excerpt,omitempty"`
 		Success            *bool  `json:"success,omitempty"`
 	}
 	type patternPayload struct {
@@ -643,7 +645,7 @@ func buildPatternClusterPrompt(workspace string, tasks []LearningRecord, existin
 		}
 		payload.ExistingPatterns = append(payload.ExistingPatterns, patternPayload{
 			Label:   strings.TrimSpace(pattern.Label),
-			Summary: strings.TrimSpace(pattern.Summary),
+			Summary: summarizeText(pattern.Summary, 160),
 		})
 		if len(payload.ExistingPatterns) >= maxColdPathEvidence {
 			break
@@ -652,12 +654,12 @@ func buildPatternClusterPrompt(workspace string, tasks []LearningRecord, existin
 	for _, task := range tasks {
 		payload.Tasks = append(payload.Tasks, taskPayload{
 			ID:                 task.ID,
-			Summary:            task.Summary,
+			Summary:            summarizeText(task.Summary, 160),
 			FinalOutputExcerpt: summarizeText(task.FinalOutput, 800),
 			Success:            task.Success,
 		})
 	}
-	data, err := json.MarshalIndent(payload, "", "  ")
+	data, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Sprintf("tasks: %d", len(tasks))
 	}

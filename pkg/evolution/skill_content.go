@@ -69,9 +69,9 @@ func summarizeMatchedSkillExcerpts(matches []skills.SkillInfo) string {
 	for _, excerpt := range excerpts {
 		header := excerpt.Name
 		if excerpt.Description != "" {
-			header += ": " + excerpt.Description
+			header += ": " + summarizeText(excerpt.Description, 140)
 		}
-		parts = append(parts, fmt.Sprintf("### %s\n%s", header, excerpt.Body))
+		parts = append(parts, fmt.Sprintf("### %s\n%s", header, summarizeText(excerpt.Body, 480)))
 	}
 	return strings.Join(parts, "\n\n")
 }

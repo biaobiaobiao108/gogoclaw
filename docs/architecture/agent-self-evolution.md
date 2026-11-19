@@ -14,7 +14,11 @@ GoGoClaw can turn recurring task evidence into workspace skill drafts. Self-evol
 
 The background recorder saves a short goal and output excerpt, the turn status, used skills, and tool names and outcomes. Heartbeat turns are ignored. Drafting evaluates eligible records in batches. A finished turn supplies an execution status. A separate model decision determines whether it achieved the goal. Decision results are cached, a failed judge request leaves the result unknown, and failed turns can count against a cluster even when they produced no final text.
 
-Related cases have to meet the configured evidence count and success threshold. New failures update the success rate of matching patterns. Changes to the evidence block publication of older candidates. Once a pattern meets the threshold, a valid new revision supersedes the earlier candidate and retains its history.
+The cold path groups matching goals locally. When semantic grouping is needed, the model receives only the compact goals and turn outcomes. Cases can reach the completion judge when they could form a reusable pattern or match an existing one. The judge handles up to eight cases per request, keeps missing or inconclusive verdicts unknown, and reuses known verdicts.
+
+Related cases have to meet the configured evidence count and success threshold. New failures update the success rate of matching patterns. Changes to the evidence block publication of older candidates. Once a pattern meets the threshold, a valid new revision supersedes the earlier candidate and retains its history. After a skill has been published, one additional success using the same skill path waits for more evidence before triggering a new draft.
+
+Draft generation receives a small set of sample and skill excerpts. The Usage dashboard reports provider-reported tokens in the `evolution-judge`, `evolution-cluster`, and `evolution-draft` channel rows.
 
 `after_turn` schedules drafting after a turn, `scheduled` uses the configured local `HH:MM` times, and `manual` waits for a user request. In Draft or Apply mode, open **Settings → Evolution → Evolution drafts** and select **Generate drafts** to run it on demand.
 
