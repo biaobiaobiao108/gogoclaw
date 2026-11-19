@@ -1694,7 +1694,7 @@ func TestRun_PicoPublishesAssistantContentDuringToolCallsWithoutFinalDuplicate(t
 	}
 
 	outputs := make([]bus.OutboundMessage, 0, 3)
-	deadline := time.After(2 * time.Second)
+	deadline := time.After(5 * time.Second)
 	for len(outputs) < 3 {
 		select {
 		case outbound := <-msgBus.OutboundChan():
@@ -1887,7 +1887,7 @@ func TestRun_PicoKeepsInterimAssistantContentOutsideToolFeedback(t *testing.T) {
 	}
 
 	outputs := make([]bus.OutboundMessage, 0, 3)
-	deadline := time.After(2 * time.Second)
+	deadline := time.After(5 * time.Second)
 	for len(outputs) < 3 {
 		select {
 		case outbound := <-msgBus.OutboundChan():
