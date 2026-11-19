@@ -137,6 +137,17 @@ async function main() {
           gateway_start_allowed: true,
           gateway_restart_required: false,
         }
+      } else if (path === "/api/gateway/readiness") {
+        body = {
+          status: "ready",
+          config_state: "applied",
+          checks: {
+            reload: {
+              status: "pass",
+              timestamp: "2026-11-19T00:00:00Z",
+            },
+          },
+        }
       } else if (path === "/api/gateway/start" && method === "POST") {
         api.gatewayStarts++
         api.gatewayStatus = "running"

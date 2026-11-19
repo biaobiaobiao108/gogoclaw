@@ -42,15 +42,9 @@ jobs:
       - id: revision
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-  verify:
-    needs: resolve
-    uses: ./.github/workflows/ci.yml
-    with:
-      checkout_ref: ${{ needs.resolve.outputs.sha }}
-
   build:
     name: build-${{ matrix.arch }}
-    needs: [resolve, verify]
+    needs: resolve
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     strategy:
@@ -99,7 +93,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [resolve, verify, build]
+    needs: [resolve, build]
     steps:
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
         with:

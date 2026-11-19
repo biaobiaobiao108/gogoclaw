@@ -179,12 +179,19 @@ func (sm *SubagentManager) beginTask(
 	return subagentTask
 }
 
-func (sm *SubagentManager) finishTask(taskID string, result *ToolResult, err error) {
+func (sm *SubagentManager) finishTask(
+	taskID string,
+	result *ToolResult,
+	err error,
+	delivered func(),
+) {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
 	task, ok := sm.tasks[taskID]
 	if !ok {
+		sm.mu.Unlock()
+		if delivered != nil {
+			delivered()
+		}
 		return
 	}
 	switch {
@@ -201,7 +208,15 @@ func (sm *SubagentManager) finishTask(taskID string, result *ToolResult, err err
 	case result != nil:
 		task.Result = result.ForLLM
 	}
-	task.signalDone()
+	sm.mu.Unlock()
+
+	// Publish the terminal state before delivering the result so status queries
+	// triggered by the callback always observe completion. Wait still blocks
+	// until delivery has finished.
+	defer task.signalDone()
+	if delivered != nil {
+		delivered()
+	}
 }
 
 func (task *SubagentTask) signalDone() {
@@ -247,7 +262,7 @@ func (sm *SubagentManager) runTask(
 	// Check if context is already canceled before starting
 	select {
 	case <-ctx.Done():
-		sm.finishTask(task.ID, nil, ctx.Err())
+		sm.finishTask(task.ID, nil, ctx.Err(), nil)
 		return
 	default:
 	}

@@ -167,12 +167,14 @@ Task: %s`,
 			if err != nil {
 				result = ErrorResult(fmt.Sprintf("Spawn failed: %v", err)).WithError(err)
 			}
-			// Call callback if provided
-			if cb != nil {
-				cb(ctx, result)
-			}
 			if trackedTask != nil {
-				t.manager.finishTask(trackedTask.ID, result, err)
+				t.manager.finishTask(trackedTask.ID, result, err, func() {
+					if cb != nil {
+						cb(ctx, result)
+					}
+				})
+			} else if cb != nil {
+				cb(ctx, result)
 			}
 		}
 		if runner, ok := t.spawner.(BackgroundRunner); ok {
