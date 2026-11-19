@@ -95,8 +95,8 @@ func currentTurnMessages(messages []providers.Message, currentTurnStart int) []p
 }
 
 // resolveMediaRefs resolves media:// refs in messages.
-// For user messages: images get path tags only ([image:/path]) so the LLM
-// can decide whether to view them via load_image or operate on the file.
+// Current user images are attached directly, with path tags available for file
+// operations. Historical user images retain only their path tags.
 // For tool messages: images are base64-encoded and appended as a synthetic
 // user message only after the contiguous tool-message block ends, so we don't
 // break the tool-results-must-immediately-follow-assistant constraint that
@@ -177,10 +177,14 @@ func resolveMediaRefs(
 			mime := detectMIME(localPath, meta)
 			pathTags = append(pathTags, buildPathTag(mime, localPath))
 
-			if m.Role == "tool" && idx >= currentTurnStart && strings.HasPrefix(mime, "image/") {
+			if idx >= currentTurnStart && (m.Role == "user" || m.Role == "tool") && strings.HasPrefix(mime, "image/") {
 				dataURL := encodeImageToDataURL(localPath, mime, info, maxSize)
 				if dataURL != "" {
-					pendingToolImages = append(pendingToolImages, dataURL)
+					if m.Role == "tool" {
+						pendingToolImages = append(pendingToolImages, dataURL)
+					} else {
+						resolved = append(resolved, dataURL)
+					}
 				}
 			}
 		}

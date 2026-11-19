@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -18,7 +19,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
-func TestResolveMediaRefs_ImageInjectsPathTag(t *testing.T) {
+func TestResolveMediaRefs_CurrentUserImageIncludesBytesAndPathTag(t *testing.T) {
 	store := media.NewFileMediaStore()
 	dir := t.TempDir()
 
@@ -46,13 +47,18 @@ func TestResolveMediaRefs_ImageInjectsPathTag(t *testing.T) {
 	}
 	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
 
-	if len(result[0].Media) != 0 {
-		t.Fatalf("expected 0 media (images use path tags), got %d", len(result[0].Media))
+	wantMedia := "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngHeader)
+	if len(result[0].Media) != 1 || result[0].Media[0] != wantMedia {
+		t.Fatalf("current user image media = %v, want %v", result[0].Media, wantMedia)
 	}
 	localPath, _, _ := store.ResolveWithMeta(ref)
 	expectedContent := "describe this [image:" + localPath + "]"
 	if result[0].Content != expectedContent {
 		t.Fatalf("expected content %q, got %q", expectedContent, result[0].Content)
+	}
+	history := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 1)
+	if len(history[0].Media) != 0 || history[0].Content != expectedContent {
+		t.Fatalf("historical image = %+v, want only path tag", history[0])
 	}
 }
 
@@ -399,8 +405,8 @@ func TestResolveMediaRefs_UsesMetaContentType(t *testing.T) {
 	}
 	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
 
-	if len(result[0].Media) != 0 {
-		t.Fatalf("expected 0 media (images use path tags), got %d", len(result[0].Media))
+	if len(result[0].Media) != 1 || !strings.HasPrefix(result[0].Media[0], "data:image/jpeg;base64,") {
+		t.Fatalf("expected one JPEG image, got %v", result[0].Media)
 	}
 	localPath, _, _ := store.ResolveWithMeta(ref)
 	expectedContent := "hi [image:" + localPath + "]"
@@ -630,8 +636,8 @@ func TestResolveMediaRefs_MixedImageAndFile(t *testing.T) {
 	}
 	result := resolveMediaRefs(messages, store, config.DefaultMaxMediaSize, 0)
 
-	if len(result[0].Media) != 0 {
-		t.Fatalf("expected 0 media (all types use path tags), got %d", len(result[0].Media))
+	if len(result[0].Media) != 1 || !strings.HasPrefix(result[0].Media[0], "data:image/png;base64,") {
+		t.Fatalf("expected only the PNG as media, got %v", result[0].Media)
 	}
 	imgLocalPath, _, _ := store.ResolveWithMeta(imgRef)
 	pdfLocalPath, _, _ := store.ResolveWithMeta(fileRef)

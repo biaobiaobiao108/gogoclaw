@@ -331,8 +331,8 @@ func TestAgentLoop_UserAttachmentRoutesToImageModelAfterMediaResolution(t *testi
 	if !slices.Equal(visionProvider.pathTagSeen, []bool{true}) {
 		t.Fatalf("visionProvider pathTagSeen = %v, want %v", visionProvider.pathTagSeen, []bool{true})
 	}
-	if !slices.Equal(visionProvider.mediaSeen, []bool{false}) {
-		t.Fatalf("visionProvider mediaSeen = %v, want %v", visionProvider.mediaSeen, []bool{false})
+	if !slices.Equal(visionProvider.mediaSeen, []bool{true}) {
+		t.Fatalf("visionProvider mediaSeen = %v, want %v", visionProvider.mediaSeen, []bool{true})
 	}
 }
 

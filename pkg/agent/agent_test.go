@@ -1285,7 +1285,7 @@ func (p *resolvedImagePathVisionProvider) Chat(
 			hasPathTag = true
 		}
 		for _, ref := range msg.Media {
-			if strings.TrimSpace(ref) != "" {
+			if strings.HasPrefix(ref, "data:image/png;base64,") {
 				hasMedia = true
 				break
 			}
@@ -1297,8 +1297,8 @@ func (p *resolvedImagePathVisionProvider) Chat(
 	if !hasPathTag {
 		return nil, fmt.Errorf("vision provider expected resolved image path tag %q", pathTag)
 	}
-	if hasMedia {
-		return nil, fmt.Errorf("vision provider expected resolved attachment turn without raw media refs")
+	if !hasMedia {
+		return nil, fmt.Errorf("vision provider expected the uploaded PNG in the model request")
 	}
 
 	return &providers.LLMResponse{

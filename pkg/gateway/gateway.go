@@ -36,6 +36,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/instance"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/netbind"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/pid"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
@@ -198,6 +199,10 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	agentLoop, err := agent.NewAgentLoopChecked(cfg, msgBus, provider)
 	if err != nil {
 		return fmt.Errorf("initialize agent: %w", err)
+	}
+	if err := recoverPicoInbox(cfg.WorkspacePath()); err != nil {
+		agentLoop.Close()
+		return fmt.Errorf("recover interrupted Pico requests: %w", err)
 	}
 	msgBus.SetEventPublisher(agentLoop.RuntimeEventBus())
 	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayStart, startedAt, nil)
@@ -597,6 +602,18 @@ func setupAndStartServices(
 
 	success = true
 	return runningServices, nil
+}
+
+func recoverPicoInbox(workspace string) error {
+	store, err := memory.OpenSQLiteStore(filepath.Join(workspace, "sessions"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	recoverErr := store.RecoverPicoInbound(context.Background())
+	return errors.Join(recoverErr, store.Close())
 }
 
 func configurePicoChannel(agentLoop *agent.AgentLoop, channel channels.Channel) {

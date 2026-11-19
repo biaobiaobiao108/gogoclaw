@@ -7,10 +7,63 @@ package anthropicmessages
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestChatStreamSendsImageContent(t *testing.T) {
+	wantMessages := `[
+		{"role":"user","content":[
+			{"type":"text","text":"Inspect this"},
+			{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aW1hZ2U="}}
+		]},
+		{"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"load_image","input":{}}]},
+		{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":"Image loaded"}]},
+		{"role":"user","content":[
+			{"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"anBlZw=="}},
+			{"type":"image","source":{"type":"url","url":"https://example.com/image.png"}}
+		]}
+	]`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Messages []any `json:"messages"`
+			Stream   bool  `json:"stream"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var want []any
+		if err := json.Unmarshal([]byte(wantMessages), &want); err != nil {
+			t.Errorf("decode expected messages: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if !request.Stream || !reflect.DeepEqual(request.Messages, want) {
+			t.Errorf("unexpected streaming request: %+v", request)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer server.Close()
+
+	provider := NewProviderWithTimeout("test-key", server.URL, "", 0)
+	_, err := provider.ChatStreamEvents(t.Context(), []Message{
+		{Role: "user", Content: "Inspect this", Media: []string{"data:image/png;base64,aW1hZ2U="}},
+		{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_1", Name: "load_image"}}},
+		{Role: "tool", ToolCallID: "call_1", Content: "Image loaded"},
+		{Role: "user", Media: []string{"data:image/jpeg;base64,anBlZw==", "https://example.com/image.png"}},
+	}, nil, "test-model", map[string]any{"max_tokens": 64}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestParseStreamResponse_StreamsThinkingAndText(t *testing.T) {
 	stream := strings.Join([]string{

@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
@@ -58,6 +59,21 @@ func TestClaimPicoUserCommitsWithTranscript(t *testing.T) {
 	history, err := store.GetTranscript(ctx, "session")
 	if err != nil || len(history) != 1 || history[0].ID != "request" {
 		t.Fatalf("transcript = %#v, error = %v", history, err)
+	}
+	if removed, err := store.DeletePicoSession(ctx, "session", "session", true); removed || !errors.Is(err, ErrPicoInboundInFlight) {
+		t.Fatalf("delete during active claim = %v, %v", removed, err)
+	}
+	if err := store.RecoverPicoInbound(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if status, err := store.QueuePicoInbound(ctx, "session", "request", inbound); err != nil || status != "unknown" {
+		t.Fatalf("retry after recovery = %q, %v", status, err)
+	}
+	if pending, err := store.PendingPicoInbound(ctx, "pico", 0); err != nil || len(pending) != 0 {
+		t.Fatalf("interrupted request replayed: %#v, %v", pending, err)
+	}
+	if removed, err := store.DeletePicoSession(ctx, "session", "session", true); !removed || err != nil {
+		t.Fatalf("delete after recovery = %v, %v", removed, err)
 	}
 }
 

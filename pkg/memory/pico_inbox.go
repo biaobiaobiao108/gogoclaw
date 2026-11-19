@@ -50,7 +50,7 @@ func (s *SQLiteStore) QueuePicoInbound(ctx context.Context, sessionID, requestID
 			return "", err
 		}
 		switch state {
-		case "processing":
+		case "processing", "interrupted":
 			status = "unknown"
 		case "done":
 			status = "duplicate"
@@ -126,6 +126,13 @@ func (s *SQLiteStore) ClaimPicoInbound(ctx context.Context, id int64) (bool, err
 
 func (s *SQLiteStore) FinishPicoInbound(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, "UPDATE pico_inbox SET state = 'done', payload = NULL WHERE id = ? AND state = 'processing'", id)
+	return err
+}
+
+// RecoverPicoInbound runs at gateway process startup, before any new claims.
+// Keep interrupted deliveries deduplicated without treating them as active.
+func (s *SQLiteStore) RecoverPicoInbound(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE pico_inbox SET state = 'interrupted' WHERE state = 'processing'")
 	return err
 }
 
@@ -205,7 +212,7 @@ func (s *SQLiteStore) MigratePicoInbox(ctx context.Context) error {
 		if sessionID == "" || requestID == "" || time.Since(seen) >= 24*time.Hour {
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO pico_inbox(channel, session_id, request_id, received_at, state) VALUES('pico', ?, ?, ?, 'processing') ON CONFLICT(channel, session_id, request_id) DO NOTHING", sessionID, requestID, seen.UnixMilli()); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO pico_inbox(channel, session_id, request_id, received_at, state) VALUES('pico', ?, ?, ?, 'interrupted') ON CONFLICT(channel, session_id, request_id) DO NOTHING", sessionID, requestID, seen.UnixMilli()); err != nil {
 			return err
 		}
 	}

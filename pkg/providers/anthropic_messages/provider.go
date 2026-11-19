@@ -321,10 +321,9 @@ func buildRequestBody(
 					"content": []map[string]any{toolResultBlock},
 				})
 			} else {
-				// Regular user message
 				apiMessages = append(apiMessages, map[string]any{
 					"role":    "user",
-					"content": msg.Content,
+					"content": buildUserContent(msg),
 				})
 			}
 
@@ -471,6 +470,34 @@ func buildTools(tools []ToolDefinition) []any {
 		result[i] = toolDef
 	}
 	return result
+}
+
+func buildUserContent(msg Message) any {
+	var images []any
+	for _, mediaURL := range msg.Media {
+		var source map[string]any
+		switch {
+		case strings.HasPrefix(mediaURL, "data:image/"):
+			header, data, ok := strings.Cut(mediaURL, ",")
+			mime, encoded := strings.CutSuffix(strings.TrimPrefix(header, "data:"), ";base64")
+			if !ok || !encoded || data == "" {
+				continue
+			}
+			source = map[string]any{"type": "base64", "media_type": mime, "data": data}
+		case strings.HasPrefix(mediaURL, "https://"), strings.HasPrefix(mediaURL, "http://"):
+			source = map[string]any{"type": "url", "url": mediaURL}
+		default:
+			continue
+		}
+		images = append(images, map[string]any{"type": "image", "source": source})
+	}
+	if len(images) == 0 {
+		return msg.Content
+	}
+	if msg.Content == "" {
+		return images
+	}
+	return append([]any{map[string]any{"type": "text", "text": msg.Content}}, images...)
 }
 
 // parseResponseBody parses Anthropic Messages API response.
