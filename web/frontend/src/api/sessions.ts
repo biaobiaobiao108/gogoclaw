@@ -10,6 +10,8 @@ export interface SessionSummary {
   updated: string
   pinned?: boolean
   archived?: boolean
+  project_id?: string
+  project_name?: string
 }
 
 export interface SessionSearchResult extends SessionSummary {
@@ -22,6 +24,15 @@ export interface SessionSource {
   title?: string
   url: string
   snippet?: string
+}
+
+export interface SessionProjectSource {
+  project_id: string
+  file_id: string
+  filename: string
+  locator?: string
+  snippet?: string
+  content_url?: string
 }
 
 export interface SessionBranchItem {
@@ -74,7 +85,10 @@ export interface SessionDetail {
       }
     }[]
     sources?: SessionSource[]
+    project_sources?: SessionProjectSource[]
   }[]
+  project_id?: string
+  project_name?: string
   title?: string
   summary: string
   created: string
@@ -116,10 +130,12 @@ export async function getSessions(
   cursor?: string,
   limit: number = 30,
   archived = false,
+  projectId?: string,
 ): Promise<SessionListPage> {
   const params = new URLSearchParams({ limit: limit.toString() })
   if (cursor) params.set("cursor", cursor)
   if (archived) params.set("archived", "1")
+  if (projectId) params.set("project_id", projectId)
 
   const res = await launcherFetch(`/api/sessions?${params.toString()}`)
   if (!res.ok) {
@@ -173,7 +189,12 @@ export async function searchSessions(
 
 export async function updateSessionMetadata(
   id: string,
-  update: { title?: string; pinned?: boolean; archived?: boolean },
+  update: {
+    title?: string
+    pinned?: boolean
+    archived?: boolean
+    project_id?: string | null
+  },
 ): Promise<void> {
   const res = await launcherFetch(`/api/sessions/${encodeURIComponent(id)}`, {
     method: "PATCH",

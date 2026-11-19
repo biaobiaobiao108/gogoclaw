@@ -78,18 +78,20 @@ func (s *SQLiteStore) ManagedSessionDetailMeta(ctx context.Context, key string) 
 }
 
 type PicoSessionListEntry struct {
-	Key        string
-	ID         string
-	Pinned     bool
-	UpdatedAt  time.Time
-	CreatedAt  time.Time
-	HasSummary bool
-	UIMeta     json.RawMessage
+	Key         string
+	ID          string
+	Pinned      bool
+	UpdatedAt   time.Time
+	CreatedAt   time.Time
+	HasSummary  bool
+	UIMeta      json.RawMessage
+	ProjectID   string
+	ProjectName string
 }
 
 // ListPicoSessionPage ranks only lightweight session and UI metadata. Transcripts
 // can then be loaded for the selected rows to preserve their visible counts.
-func (s *SQLiteStore) ListPicoSessionPage(ctx context.Context, legacyPrefix string, archived bool, after *PicoSessionListEntry, limit int) ([]PicoSessionListEntry, error) {
+func (s *SQLiteStore) ListPicoSessionPage(ctx context.Context, legacyPrefix string, archived bool, projectFilter string, after *PicoSessionListEntry, limit int) ([]PicoSessionListEntry, error) {
 	var pinned, updated, id any
 	if after != nil {
 		pinned, updated, id = after.Pinned, after.UpdatedAt.UnixNano(), after.ID
@@ -124,17 +126,21 @@ func (s *SQLiteStore) ListPicoSessionPage(ctx context.Context, legacyPrefix stri
 			))
 		), decorated AS (
 			SELECT d.session_key, d.updated_at, d.created_at, d.has_summary, d.id,
-				CASE WHEN json_valid(CAST(u.metadata_json AS TEXT)) THEN CAST(u.metadata_json AS TEXT) ELSE '{}' END AS ui
+				CASE WHEN json_valid(CAST(u.metadata_json AS TEXT)) THEN CAST(u.metadata_json AS TEXT) ELSE '{}' END AS ui,
+				coalesce(sp.project_id, '') AS project_id, coalesce(p.name, '') AS project_name
 			FROM dedup d LEFT JOIN chat_ui_meta u ON u.session_id = d.id
+			LEFT JOIN chat_session_projects sp ON sp.session_id = d.id
+			LEFT JOIN chat_projects p ON p.id = sp.project_id
 			WHERE d.rank = 1
 		), ordered AS (
 			SELECT *, coalesce(json_extract(ui, '$.pinned'), 0) = 1 AS pinned
 			FROM decorated WHERE (coalesce(json_extract(ui, '$.archived'), 0) = 1) = ?2
+				AND (?7 = '' OR (?7 = 'none' AND project_id = '') OR project_id = ?7)
 		)
-		SELECT session_key, updated_at, created_at, has_summary, id, pinned, ui FROM ordered
+		SELECT session_key, updated_at, created_at, has_summary, id, pinned, ui, project_id, project_name FROM ordered
 		WHERE ?3 IS NULL OR (pinned, updated_at, id) < (?3, ?4, ?5)
 		ORDER BY pinned DESC, updated_at DESC, id DESC LIMIT ?6
-	`, legacyPrefix, archived, pinned, updated, id, limit)
+	`, legacyPrefix, archived, pinned, updated, id, limit, projectFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +151,8 @@ func (s *SQLiteStore) ListPicoSessionPage(ctx context.Context, legacyPrefix stri
 		var entry PicoSessionListEntry
 		var updated, created int64
 		var ui string
-		if err := rows.Scan(&entry.Key, &updated, &created, &entry.HasSummary, &entry.ID, &entry.Pinned, &ui); err != nil {
+		if err := rows.Scan(&entry.Key, &updated, &created, &entry.HasSummary, &entry.ID, &entry.Pinned, &ui,
+			&entry.ProjectID, &entry.ProjectName); err != nil {
 			return nil, err
 		}
 		entry.UpdatedAt = time.Unix(0, updated)

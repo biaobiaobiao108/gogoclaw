@@ -235,6 +235,7 @@ export async function connectChat() {
               turnHistory: history.turnHistory,
               historyTurn: history.historyTurn,
               branches: history.branches ?? [],
+              activeProjectId: history.projectId || undefined,
               historyCursor: prev.hasLoadedOlderHistory
                 ? prev.historyCursor
                 : history.nextCursor,
@@ -433,6 +434,7 @@ export async function hydrateActiveSession({
           turnHistory: history.turnHistory,
           historyTurn: history.historyTurn,
           branches: history.branches ?? [],
+          activeProjectId: history.projectId || undefined,
           hasHydratedActiveSession: true,
           isHistoryLoading: false,
           historyError: false,
@@ -451,6 +453,7 @@ export async function hydrateActiveSession({
         turnHistory: history.turnHistory,
         historyTurn: history.historyTurn,
         branches: history.branches ?? [],
+        activeProjectId: history.projectId || undefined,
         isTyping: false,
         hasHydratedActiveSession: true,
         isHistoryLoading: false,
@@ -656,6 +659,8 @@ export function sendChatMessage({
       })),
     }
     if (thinkingLevel) payload.thinking_level = thinkingLevel
+    const activeProjectId = getChatState().activeProjectId
+    if (activeProjectId) payload.project_id = activeProjectId
     if (action === "regenerate" && targetMessageId)
       payload.regenerate_from_message_id = targetMessageId
     if (action === "edit" && targetMessageId)
@@ -707,6 +712,9 @@ export function retryChatMessage(id: string) {
         id,
         payload: {
           content: message.content,
+          ...(getChatState().activeProjectId
+            ? { project_id: getChatState().activeProjectId }
+            : {}),
           media: (message.attachments ?? [])
             .filter((item) => item.url.startsWith("data:image/"))
             .map((item) => item.url),
@@ -771,6 +779,7 @@ export async function refreshActiveSessionHistory(
       turnHistory: history.turnHistory,
       historyTurn: history.historyTurn,
       branches: history.branches ?? [],
+      activeProjectId: history.projectId || undefined,
       historyCursor: preservePagination
         ? current.historyCursor
         : history.nextCursor,
@@ -990,6 +999,7 @@ export async function switchChatSession(sessionId: string, title?: string) {
       turnHistory: history.turnHistory,
       historyTurn: history.historyTurn,
       branches: history.branches ?? [],
+      activeProjectId: history.projectId || undefined,
       isTyping: false,
       hasHydratedActiveSession: true,
       isHistoryLoading: false,
@@ -1013,7 +1023,7 @@ export async function switchChatSession(sessionId: string, title?: string) {
   }
 }
 
-export async function newChatSession() {
+export async function newChatSession(projectId?: string) {
   sessionSelectionGeneration += 1
   historyGeneration += 1
   disconnectChatInternal({ clearDesiredConnection: false })
@@ -1034,6 +1044,7 @@ export async function newChatSession() {
     hasLoadedOlderHistory: false,
     isLoadingOlderHistory: false,
     historyError: false,
+    activeProjectId: projectId || undefined,
   })
 
   if (store.get(gatewayAtom).status === "running") {

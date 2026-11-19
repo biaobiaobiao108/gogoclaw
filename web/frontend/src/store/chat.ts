@@ -36,6 +36,15 @@ export interface ChatSource {
   snippet?: string
 }
 
+export interface ChatProjectSource {
+  projectId: string
+  fileId: string
+  filename: string
+  locator?: string
+  snippet?: string
+  contentUrl?: string
+}
+
 export interface ChatBranchVersion {
   id: string
   preview: string
@@ -93,6 +102,7 @@ export interface ChatMessage {
   deliveryStatus?: MessageDeliveryStatus
   feedback?: ChatFeedbackValue
   sources?: ChatSource[]
+  projectSources?: ChatProjectSource[]
 }
 
 export interface ContextUsage {
@@ -172,6 +182,7 @@ export interface ChatStoreState {
   interrupted?: boolean
   activeSessionId: string
   activeSessionTitle?: string
+  activeProjectId?: string
   hasHydratedActiveSession: boolean
   isHistoryLoading: boolean
   historyError?: boolean
@@ -200,6 +211,9 @@ const DEFAULT_CHAT_STATE: ChatStoreState = {
 export const chatAtom = atom<ChatStoreState>(DEFAULT_CHAT_STATE)
 export const activeSessionTitleAtom = atom(
   (get) => get(chatAtom).activeSessionTitle,
+)
+export const activeChatProjectIdAtom = atom(
+  (get) => get(chatAtom).activeProjectId,
 )
 export const assistantDetailVisibilityAtom =
   atomWithStorage<AssistantDetailVisibility>(

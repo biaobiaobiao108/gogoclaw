@@ -35,6 +35,7 @@ import {
   type ChatAttachment,
   type ChatBranchGroup,
   type ChatFeedbackValue,
+  type ChatProjectSource,
   type ChatSource,
   type ChatToolCall,
 } from "@/store/chat"
@@ -47,6 +48,7 @@ interface AssistantMessageProps {
   toolCalls?: ChatToolCall[]
   isStreaming?: boolean
   sources?: ChatSource[]
+  projectSources?: ChatProjectSource[]
 }
 
 export const AssistantMessage = memo(function AssistantMessage({
@@ -57,6 +59,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   toolCalls = [],
   isStreaming = false,
   sources = [],
+  projectSources = [],
 }: AssistantMessageProps) {
   const { t } = useTranslation()
   const isThought = kind === "thought"
@@ -246,6 +249,58 @@ export const AssistantMessage = memo(function AssistantMessage({
                   <span className="min-w-0">{source.title || source.url}</span>
                   <IconExternalLink className="size-3 shrink-0" />
                 </a>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {!isCollapsedBlock && projectSources.length > 0 && (
+        <div className="border-border/60 mt-1 border-t pt-2 text-xs">
+          <div className="text-muted-foreground mb-2">
+            {t("chat.projectSourcesLabel")}
+          </div>
+          <ol className="space-y-1.5">
+            {projectSources.map((source, index) => (
+              <li
+                key={`${source.fileId}-${index}`}
+                className="flex min-w-0 items-start gap-2"
+              >
+                <span className="text-muted-foreground w-4 shrink-0 text-right tabular-nums">
+                  {index + 1}
+                </span>
+                <details className="group/source min-w-0 flex-1">
+                  <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-sm px-1 py-0.5">
+                    <IconFileText className="text-muted-foreground size-3.5 shrink-0" />
+                    <span className="text-foreground truncate">
+                      {source.filename}
+                    </span>
+                    {source.locator && (
+                      <span className="text-muted-foreground shrink-0 font-mono text-[11px]">
+                        {source.locator}
+                      </span>
+                    )}
+                    <IconChevronDown className="text-muted-foreground ml-auto size-3 shrink-0 transition-transform duration-[var(--motion-state)] group-open/source:rotate-180 motion-reduce:rotate-0 motion-reduce:transition-none" />
+                  </summary>
+                  <div className="mt-1 space-y-1.5 pl-5">
+                    {source.snippet && (
+                      <p className="text-muted-foreground bg-muted/35 rounded-md p-2 leading-relaxed whitespace-pre-wrap">
+                        {source.snippet}
+                      </p>
+                    )}
+                    {source.contentUrl && (
+                      <a
+                        href={source.contentUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-accent focus-visible:ring-ring inline-flex min-h-6 items-center gap-1 rounded-sm px-1 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+                      >
+                        {t("chat.openProjectFile")}
+                        <IconExternalLink className="size-3" />
+                      </a>
+                    )}
+                  </div>
+                </details>
               </li>
             ))}
           </ol>

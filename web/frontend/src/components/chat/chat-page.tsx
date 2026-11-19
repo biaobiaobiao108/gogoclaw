@@ -81,6 +81,7 @@ export function ChatPage() {
     pendingApproval,
     interrupted,
     activeSessionId,
+    activeProjectId,
     contextUsage,
     branches,
     isBranchSwitching,
@@ -232,17 +233,22 @@ export function ChatPage() {
   const canInput = composerDisabledReason === null
 
   const {
-    sessions,
-    hasMore,
-    loadError,
-    loadErrorMessage,
-    isLoading: isLoadingHistory,
+    projects,
+    groups,
+    collapsed: collapsedProjects,
+    projectsLoading,
+    projectsError,
     deleteError,
     archived: showingArchived,
     setArchived,
     loadSessions,
+    loadGroup,
+    toggleProject,
     handleDeleteSession,
     handleUpdateSession,
+    createChatProject,
+    updateChatProject,
+    deleteChatProject,
   } = useSessionHistory({
     activeSessionId,
     onDeletedActiveSession: () => handleNewChat(),
@@ -255,12 +261,23 @@ export function ChatPage() {
     })
   }, [newChat])
 
+  const handleNewChatInProject = useCallback(
+    (projectId: string) => {
+      void newChat(projectId)
+      setHistoryOpen(false)
+      requestAnimationFrame(() => {
+        composerTextareaRef.current?.focus()
+      })
+    },
+    [newChat],
+  )
+
   useEffect(() => {
-    void loadSessions(true)
+    void loadSessions()
   }, [activeSessionId, Boolean(activeTurn), isTyping, showingArchived])
 
   useEffect(() => {
-    const refresh = () => void loadSessions(true)
+    const refresh = () => void loadSessions()
     window.addEventListener("session-title-updated", refresh)
     return () => window.removeEventListener("session-title-updated", refresh)
   }, [loadSessions])
@@ -821,23 +838,29 @@ export function ChatPage() {
       </PageHeader>
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <SessionHistoryMenu
-          sessions={sessions}
+          projects={projects}
+          groups={groups}
+          collapsedProjects={collapsedProjects}
           activeSessionId={activeSessionId}
-          hasMore={hasMore}
-          loadError={loadError}
-          loadErrorMessage={loadErrorMessage}
-          isLoading={isLoadingHistory}
+          activeProjectId={activeProjectId}
+          projectsLoading={projectsLoading}
+          projectsError={projectsError}
           deleteError={deleteError}
           collapsed={historyCollapsed}
           open={historyOpen}
           onOpenChange={setHistoryOpen}
-          onRefresh={() => void loadSessions(true)}
-          onLoadMore={() => void loadSessions(false)}
+          onRefresh={() => void loadSessions()}
+          onLoadGroup={(groupKey) => void loadGroup(groupKey, false)}
+          onToggleProject={toggleProject}
           onSwitchSession={switchSession}
           onDeleteSession={handleDeleteSession}
           archived={showingArchived}
           onArchivedChange={setArchived}
           onUpdateSession={handleUpdateSession}
+          onCreateProject={createChatProject}
+          onUpdateProject={updateChatProject}
+          onDeleteProject={deleteChatProject}
+          onNewChatInProject={handleNewChatInProject}
         />
         <div className="relative flex min-w-0 flex-1 flex-col">
           {modelsError && (

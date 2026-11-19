@@ -57,6 +57,15 @@ type sessionChatSource struct {
 	Snippet string `json:"snippet,omitempty"`
 }
 
+type sessionChatProjectSource struct {
+	ProjectID  string `json:"project_id"`
+	FileID     string `json:"file_id"`
+	Filename   string `json:"filename"`
+	Locator    string `json:"locator,omitempty"`
+	Snippet    string `json:"snippet,omitempty"`
+	ContentURL string `json:"content_url,omitempty"`
+}
+
 type sessionSearchResult struct {
 	ID           string `json:"id"`
 	Title        string `json:"title"`
@@ -69,6 +78,8 @@ type sessionSearchResult struct {
 	Updated      string `json:"updated"`
 	Pinned       bool   `json:"pinned,omitempty"`
 	Archived     bool   `json:"archived,omitempty"`
+	ProjectID    string `json:"project_id,omitempty"`
+	ProjectName  string `json:"project_name,omitempty"`
 }
 
 type sessionBranchView struct {
@@ -284,9 +295,10 @@ func (h *Handler) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Title    *string `json:"title"`
-		Pinned   *bool   `json:"pinned"`
-		Archived *bool   `json:"archived"`
+		Title     *string         `json:"title"`
+		Pinned    *bool           `json:"pinned"`
+		Archived  *bool           `json:"archived"`
+		ProjectID json.RawMessage `json:"project_id"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 32*1024)).Decode(&body); err != nil {
 		http.Error(w, "invalid session metadata", http.StatusBadRequest)
@@ -309,9 +321,43 @@ func (h *Handler) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to save session metadata", http.StatusInternalServerError)
 		return
 	}
+	if body.ProjectID != nil {
+		projectID := ""
+		if string(bytes.TrimSpace(body.ProjectID)) != "null" {
+			if err := json.Unmarshal(body.ProjectID, &projectID); err != nil {
+				http.Error(w, "invalid project id", http.StatusBadRequest)
+				return
+			}
+		}
+		store, err := memory.NewSQLiteStore(dir)
+		if err != nil {
+			http.Error(w, "failed to open session store", http.StatusInternalServerError)
+			return
+		}
+		err = store.SetSessionChatProject(r.Context(), sessionID, projectID)
+		closeErr := store.Close()
+		if errors.Is(err, memory.ErrChatProjectNotFound) {
+			http.Error(w, "project not found", http.StatusNotFound)
+			return
+		}
+		if err != nil || closeErr != nil {
+			http.Error(w, "failed to move session", http.StatusInternalServerError)
+			return
+		}
+	}
 
 	meta := h.readChatUIMeta(dir)
-	writeJSON(w, http.StatusOK, map[string]any{"id": sessionID, "title": meta.Sessions[sessionID].Title, "pinned": meta.Sessions[sessionID].Pinned, "archived": meta.Sessions[sessionID].Archived})
+	projectID, projectName := "", ""
+	if store, openErr := memory.OpenSQLiteStoreReadOnly(dir); openErr == nil {
+		if project, projectErr := store.SessionChatProject(r.Context(), sessionID); projectErr == nil && project != nil {
+			projectID, projectName = project.ID, project.Name
+		}
+		_ = store.Close()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id": sessionID, "title": meta.Sessions[sessionID].Title, "pinned": meta.Sessions[sessionID].Pinned,
+		"archived": meta.Sessions[sessionID].Archived, "project_id": projectID, "project_name": projectName,
+	})
 }
 
 func (h *Handler) handleSetSessionFeedback(w http.ResponseWriter, r *http.Request) {
@@ -458,6 +504,20 @@ func (h *Handler) handleSearchSessions(w http.ResponseWriter, r *http.Request) {
 	if len(results) > limit {
 		results = results[:limit]
 	}
+	if store, openErr := memory.OpenSQLiteStoreReadOnly(dir); openErr == nil {
+		ids := make([]string, 0, len(results))
+		for _, result := range results {
+			ids = append(ids, result.ID)
+		}
+		if projects, projectErr := store.SessionChatProjectIDs(r.Context(), ids); projectErr == nil {
+			for i := range results {
+				if project, ok := projects[results[i].ID]; ok {
+					results[i].ProjectID, results[i].ProjectName = project.ID, project.Name
+				}
+			}
+		}
+		_ = store.Close()
+	}
 	writeJSON(w, http.StatusOK, results)
 }
 
@@ -465,6 +525,7 @@ func searchSessionResultForItem(item sessionListItem, normalizedQuery string) (s
 	base := sessionSearchResult{
 		ID: item.ID, Title: item.Title, Preview: item.Preview, MessageCount: item.MessageCount,
 		Created: item.Created, Updated: item.Updated, Pinned: item.Pinned, Archived: item.Archived,
+		ProjectID: item.ProjectID, ProjectName: item.ProjectName,
 	}
 	if strings.Contains(strings.ToLower(item.Title), normalizedQuery) || strings.Contains(strings.ToLower(item.Preview), normalizedQuery) {
 		base.Snippet = item.Preview
@@ -481,6 +542,7 @@ func searchSessionMessages(
 	base := sessionSearchResult{
 		ID: item.ID, Title: item.Title, Preview: item.Preview, MessageCount: item.MessageCount,
 		Created: item.Created, Updated: item.Updated, Pinned: item.Pinned, Archived: item.Archived,
+		ProjectID: item.ProjectID, ProjectName: item.ProjectName,
 	}
 	for _, message := range messages {
 		if message.Role != "user" && message.Role != "assistant" {
@@ -541,6 +603,7 @@ func (h *Handler) searchJSONLSession(
 		result := sessionSearchResult{
 			ID: item.ID, Title: item.Title, Preview: item.Preview, MessageCount: item.MessageCount,
 			Created: item.Created, Updated: item.Updated, Pinned: item.Pinned, Archived: item.Archived,
+			ProjectID: item.ProjectID, ProjectName: item.ProjectName,
 			MessageID: message.ID, MessageRole: message.Role,
 			Snippet: searchSnippet(message.Content, rawQuery, 120),
 		}

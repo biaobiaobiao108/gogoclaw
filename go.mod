@@ -22,6 +22,7 @@ require (
 	github.com/h2non/filetype v1.1.3
 	github.com/kagisearch/kagi-openapi-golang v0.0.0-20260526215348-96575e864d62
 	github.com/larksuite/oapi-sdk-go/v3 v3.12.2
+	github.com/ledongthuc/pdf v0.0.0-20261020125853-5e46805f718e
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/muesli/termenv v0.16.0

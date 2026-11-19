@@ -1,0 +1,105 @@
+package memory
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+)
+
+func TestChatProjectsAssignmentChunksAndSourceProvenance(t *testing.T) {
+	store, err := NewSQLiteStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	project, err := store.CreateChatProject(ctx, "Product Notes", "Use the project files.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateChatProject(ctx, "product notes", ""); !errors.Is(err, ErrChatProjectNameExists) {
+		t.Fatalf("duplicate project error = %v", err)
+	}
+	const sessionID = "project-session"
+	if err := store.SetSessionChatProject(ctx, sessionID, project.ID); err != nil {
+		t.Fatal(err)
+	}
+	file, err := store.CreateChatProjectFile(ctx, ChatProjectFile{
+		ID: "file-one", ProjectID: project.ID, OriginalName: "notes.md", StoredName: "file-one.md",
+		ContentType: "text/markdown", SizeBytes: 42, Status: "ready",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceChatProjectFileChunks(ctx, project.ID, file.ID, []ChatProjectChunk{
+		{Ordinal: 1, Locator: "Lines 1-4", Content: "The launch codename is seabird retrieval.", TokenCount: 9},
+		{Ordinal: 2, Locator: "Lines 5-8", Content: "The support window closes on Friday.", TokenCount: 8},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	matches, err := store.SearchChatProjectChunks(ctx, project.ID, "seabird", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 || matches[0].Filename != "notes.md" || matches[0].Locator != "Lines 1-4" {
+		t.Fatalf("matches = %#v", matches)
+	}
+	if err := store.ReplaceChatProjectTurnSources(ctx, sessionID, "turn-one", []ChatProjectTurnSource{{
+		ProjectID: project.ID, FileID: file.ID, Filename: file.OriginalName, Locator: matches[0].Locator,
+		Snippet: "The launch codename is seabird.", Ordinal: 1,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteChatProject(ctx, project.ID); err != nil {
+		t.Fatal(err)
+	}
+	if assigned, err := store.SessionChatProject(ctx, sessionID); err != nil || assigned != nil {
+		t.Fatalf("assignment after delete = %#v, %v", assigned, err)
+	}
+	sources, err := store.ChatProjectTurnSources(ctx, sessionID, []string{"turn-one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources["turn-one"]) != 1 || sources["turn-one"][0].Filename != "notes.md" {
+		t.Fatalf("sources after project delete = %#v", sources)
+	}
+}
+
+func TestListPicoSessionPageFiltersByProject(t *testing.T) {
+	store, err := NewSQLiteStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	project, err := store.CreateChatProject(ctx, "Research", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sessionID := range []string{"in-project", "outside"} {
+		if err := store.AddFullMessage(ctx, legacyListPrefix+sessionID, providers.Message{Role: "user", Content: "hello " + sessionID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.SetSessionChatProject(ctx, "in-project", project.ID); err != nil {
+		t.Fatal(err)
+	}
+	assigned, err := store.ListPicoSessionPage(ctx, legacyListPrefix, false, project.ID, nil, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assigned) != 1 || assigned[0].ID != "in-project" || assigned[0].ProjectName != "Research" {
+		t.Fatalf("assigned page = %#v", assigned)
+	}
+	uncategorized, err := store.ListPicoSessionPage(ctx, legacyListPrefix, false, "none", nil, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(uncategorized) != 1 || uncategorized[0].ID != "outside" {
+		t.Fatalf("uncategorized page = %#v", uncategorized)
+	}
+}
+
+const legacyListPrefix = "agent:main:pico:direct:pico:"

@@ -18,6 +18,12 @@ import (
 func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution, error) {
 	cfg := p.Cfg
 	maxMediaSize := cfg.Agents.Defaults.GetMaxMediaSize()
+	newUserTurn := !ts.opts.NoHistory && !ts.opts.ResumeAnswer &&
+		(strings.TrimSpace(ts.userMessage) != "" || len(ts.media) > 0)
+	projectContext, err := p.loadProjectTurnContext(ctx, ts, newUserTurn)
+	if err != nil {
+		return nil, err
+	}
 
 	var history []providers.Message
 	var summary string
@@ -47,6 +53,7 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 	ts.recordSkillContextSnapshot(skillContextTriggerInitialBuild, contextualSkills)
 	initialPromptReq := promptBuildRequestForTurn(ts, history, summary, ts.userMessage, ts.media, cfg)
 	initialPromptReq.ActiveSkills = append([]string(nil), contextualSkills...)
+	appendProjectPromptParts(&initialPromptReq, projectContext)
 	messages := ts.agent.ContextBuilder.BuildMessagesFromPrompt(initialPromptReq)
 	currentTurnStart := len(messages)
 	if strings.TrimSpace(ts.userMessage) != "" || len(ts.media) > 0 {
@@ -94,6 +101,7 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 						cfg,
 					)
 					rebuildPromptReq.ActiveSkills = append([]string(nil), contextualSkills...)
+					appendProjectPromptParts(&rebuildPromptReq, projectContext)
 					rebuilt := ts.agent.ContextBuilder.BuildMessagesFromPrompt(rebuildPromptReq)
 					rebuiltCurrentTurnStart := len(rebuilt)
 					if strings.TrimSpace(ts.userMessage) != "" || len(ts.media) > 0 {
@@ -130,7 +138,7 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 		}
 	}
 
-	if !ts.opts.NoHistory && !ts.opts.ResumeAnswer && (strings.TrimSpace(ts.userMessage) != "" || len(ts.media) > 0) {
+	if newUserTurn {
 		rootMsg := userPromptMessage(ts.userMessage, ts.media)
 		rootMsg.Attachments = providerAttachmentsFromInbound(ts.opts.Dispatch.Attachments)
 		rootMsg.ID = ts.opts.Dispatch.MessageID()

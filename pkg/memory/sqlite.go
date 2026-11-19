@@ -75,6 +75,87 @@ CREATE TABLE IF NOT EXISTS chat_ui_meta (
 	metadata_json BLOB NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS chat_projects (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+	instructions TEXT NOT NULL DEFAULT '',
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS chat_projects_name
+	ON chat_projects(name COLLATE NOCASE, id);
+
+CREATE TABLE IF NOT EXISTS chat_session_projects (
+	session_id TEXT PRIMARY KEY,
+	project_id TEXT NOT NULL REFERENCES chat_projects(id) ON DELETE CASCADE,
+	created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS chat_session_projects_project
+	ON chat_session_projects(project_id, session_id);
+
+CREATE TABLE IF NOT EXISTS chat_project_files (
+	id TEXT PRIMARY KEY,
+	project_id TEXT NOT NULL REFERENCES chat_projects(id) ON DELETE CASCADE,
+	original_name TEXT NOT NULL,
+	stored_name TEXT NOT NULL,
+	content_type TEXT NOT NULL DEFAULT '',
+	size_bytes INTEGER NOT NULL DEFAULT 0,
+	status TEXT NOT NULL,
+	error TEXT NOT NULL DEFAULT '',
+	created_at INTEGER NOT NULL,
+	indexed_at INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS chat_project_files_project
+	ON chat_project_files(project_id, created_at, id);
+
+CREATE TABLE IF NOT EXISTS chat_project_file_chunks (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	file_id TEXT NOT NULL REFERENCES chat_project_files(id) ON DELETE CASCADE,
+	project_id TEXT NOT NULL REFERENCES chat_projects(id) ON DELETE CASCADE,
+	ordinal INTEGER NOT NULL,
+	locator TEXT NOT NULL DEFAULT '',
+	content TEXT NOT NULL,
+	token_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS chat_project_file_chunks_project
+	ON chat_project_file_chunks(project_id, file_id, ordinal);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS chat_project_file_chunks_fts USING fts5(
+	chunk_id,
+	content,
+	tokenize="trigram"
+);
+
+CREATE TRIGGER IF NOT EXISTS chat_project_file_chunks_ai AFTER INSERT ON chat_project_file_chunks BEGIN
+	INSERT INTO chat_project_file_chunks_fts(chunk_id, content) VALUES (new.id, new.content);
+END;
+CREATE TRIGGER IF NOT EXISTS chat_project_file_chunks_ad AFTER DELETE ON chat_project_file_chunks BEGIN
+	DELETE FROM chat_project_file_chunks_fts WHERE chunk_id = old.id;
+END;
+CREATE TRIGGER IF NOT EXISTS chat_project_file_chunks_au AFTER UPDATE ON chat_project_file_chunks BEGIN
+	DELETE FROM chat_project_file_chunks_fts WHERE chunk_id = old.id;
+	INSERT INTO chat_project_file_chunks_fts(chunk_id, content) VALUES (new.id, new.content);
+END;
+
+CREATE TABLE IF NOT EXISTS chat_project_turn_sources (
+	session_id TEXT NOT NULL,
+	turn_id TEXT NOT NULL,
+	ordinal INTEGER NOT NULL,
+	project_id TEXT NOT NULL,
+	file_id TEXT NOT NULL,
+	filename TEXT NOT NULL,
+	locator TEXT NOT NULL DEFAULT '',
+	snippet TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY(session_id, turn_id, ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS chat_project_turn_sources_session
+	ON chat_project_turn_sources(session_id, turn_id);
+
 CREATE TABLE IF NOT EXISTS session_messages (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	session_key TEXT NOT NULL REFERENCES session_meta(session_key) ON DELETE CASCADE,
@@ -122,7 +203,7 @@ CREATE TABLE IF NOT EXISTS usage_session (
 	cost_nanos INTEGER NOT NULL DEFAULT 0
 );
 
-PRAGMA user_version = 3;
+PRAGMA user_version = 4;
 `
 
 // SQLiteStore persists session state in a single SQLite database. Logical
@@ -1429,6 +1510,14 @@ func (s *SQLiteStore) deleteSession(ctx context.Context, sessionKey, picoSession
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM usage_session WHERE session_key = ?`, sessionKey); err != nil {
 		return false, fmt.Errorf("memory: delete session usage: %w", err)
+	}
+	if picoSessionID != "" {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM chat_session_projects WHERE session_id = ?`, picoSessionID); err != nil {
+			return false, fmt.Errorf("memory: delete session project assignment: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM chat_project_turn_sources WHERE session_id = ?`, picoSessionID); err != nil {
+			return false, fmt.Errorf("memory: delete session project sources: %w", err)
+		}
 	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM session_meta WHERE session_key = ?`, sessionKey)
 	if err != nil {

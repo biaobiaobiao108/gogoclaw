@@ -142,7 +142,7 @@ func hasLegacySessionFiles(entries []os.DirEntry) bool {
 }
 
 func (h *Handler) readSQLiteSessionListPage(
-	ctx context.Context, dir string, maxArgs int, archived bool, cursor *sessionListCursor, limit int,
+	ctx context.Context, dir string, maxArgs int, archived bool, projectFilter string, cursor *sessionListCursor, limit int,
 ) (sessionListResponse, error) {
 	response := sessionListResponse{Items: []sessionListItem{}}
 	store, err := memory.OpenSQLiteStore(dir)
@@ -164,7 +164,7 @@ func (h *Handler) readSQLiteSessionListPage(
 	}
 	for len(response.Items) <= limit {
 		batchSize := limit + 1 - len(response.Items)
-		entries, err := store.ListPicoSessionPage(ctx, legacyPicoSessionPrefix, archived, after, batchSize)
+		entries, err := store.ListPicoSessionPage(ctx, legacyPicoSessionPrefix, archived, projectFilter, after, batchSize)
 		if err != nil {
 			return response, err
 		}
@@ -195,6 +195,8 @@ func (h *Handler) readSQLiteSessionListPage(
 			var ui chatUISessionMeta
 			_ = json.Unmarshal(entry.UIMeta, &ui)
 			applySessionMeta(&item, ui)
+			item.ProjectID = entry.ProjectID
+			item.ProjectName = entry.ProjectName
 			h.ensureSessionTitle(dir, entry.ID, &item, chatUIMetaFile{Sessions: map[string]chatUISessionMeta{entry.ID: ui}})
 			response.Items = append(response.Items, item)
 		}
@@ -209,4 +211,36 @@ func (h *Handler) readSQLiteSessionListPage(
 		response.NextCursor = encodeSessionListCursor(response.Items[limit-1])
 	}
 	return response, nil
+}
+
+func (h *Handler) applySessionProjectMappings(ctx context.Context, dir string, items []sessionListItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	store, err := memory.OpenSQLiteStoreReadOnly(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	projects, err := store.SessionChatProjectIDs(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for i := range items {
+		if project, ok := projects[items[i].ID]; ok {
+			items[i].ProjectID = project.ID
+			items[i].ProjectName = project.Name
+		} else {
+			items[i].ProjectID = ""
+			items[i].ProjectName = ""
+		}
+	}
+	return nil
 }

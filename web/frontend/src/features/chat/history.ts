@@ -67,6 +67,7 @@ export async function loadSessionHistory(sessionId: string): Promise<{
   nextCursor?: string
   hasOlder: boolean
   branches?: ChatBranchGroup[]
+  projectId?: string
 }> {
   const detail = await getSessionHistory(sessionId, { limit: 80 })
   const messages = detail.messages.map((message, index) => {
@@ -88,6 +89,14 @@ export async function loadSessionHistory(sessionId: string): Promise<{
         attachments: message.attachments,
       }),
       sources: message.sources,
+      projectSources: message.project_sources?.map((source) => ({
+        projectId: source.project_id,
+        fileId: source.file_id,
+        filename: source.filename,
+        locator: source.locator,
+        snippet: source.snippet,
+        contentUrl: source.content_url,
+      })),
       feedback: detail.feedback?.[id],
       timestamp: message.created_at ?? detail.updated,
     }
@@ -162,6 +171,7 @@ export async function loadSessionHistory(sessionId: string): Promise<{
         createdAt: version.created_at,
       })),
     })),
+    projectId: detail.project_id,
   }
 }
 
@@ -194,6 +204,14 @@ export async function loadOlderSessionHistory(
           attachments: message.attachments,
         }),
         sources: message.sources,
+        projectSources: message.project_sources?.map((source) => ({
+          projectId: source.project_id,
+          fileId: source.file_id,
+          filename: source.filename,
+          locator: source.locator,
+          snippet: source.snippet,
+          contentUrl: source.content_url,
+        })),
         feedback: detail.feedback?.[id],
         timestamp: message.created_at ?? detail.updated,
       }

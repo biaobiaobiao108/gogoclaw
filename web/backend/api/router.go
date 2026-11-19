@@ -101,6 +101,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Session history
 	h.registerSessionRoutes(mux)
+	h.registerChatProjectRoutes(mux)
 	h.registerManagedSessionRoutes(mux)
 	h.registerUsageRoutes(mux)
 

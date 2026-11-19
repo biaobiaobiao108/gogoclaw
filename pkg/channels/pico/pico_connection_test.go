@@ -28,6 +28,10 @@ func TestHandleMessageSend_ForwardsMessageMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ch.Stop(context.Background()) })
+	project, err := ch.currentInbox().CreateChatProject(context.Background(), "Test Project", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	ch.handleMessageSend(&picoConn{id: "conn-1", sessionID: "sess-1"}, PicoMessage{
 		Type:      TypeMessageSend,
@@ -35,6 +39,7 @@ func TestHandleMessageSend_ForwardsMessageMetadata(t *testing.T) {
 		SessionID: "another-session",
 		Payload: map[string]any{
 			PayloadKeyContent: "hello",
+			"project_id":      project.ID,
 		},
 	})
 
@@ -46,8 +51,40 @@ func TestHandleMessageSend_ForwardsMessageMetadata(t *testing.T) {
 		if got := inbound.Context.Raw["session_id"]; got != "sess-1" {
 			t.Fatalf("session_id raw = %q, want sess-1", got)
 		}
+		if got := inbound.Context.Raw["chat_project_id"]; got != project.ID {
+			t.Fatalf("chat_project_id raw = %q, want %q", got, project.ID)
+		}
+		assigned, err := ch.currentInbox().SessionChatProject(context.Background(), "sess-1")
+		if err != nil || assigned == nil || assigned.ID != project.ID {
+			t.Fatalf("assigned project = %#v, %v", assigned, err)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("expected inbound pico message")
+	}
+}
+
+func TestHandleMessageSend_RejectsMissingProject(t *testing.T) {
+	msgBus := bus.NewMessageBus()
+	cfg := &config.PicoSettings{}
+	cfg.SetToken("test-token")
+	ch, err := NewPicoChannel(&config.Channel{Type: config.ChannelPico, Enabled: true}, cfg, msgBus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch.inboxDir = filepath.Join(t.TempDir(), "sessions")
+	if err := ch.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer ch.Stop(context.Background())
+	conn, received, cleanup := newTestPicoWebSocket(t)
+	defer cleanup()
+	ch.handleMessageSend(&picoConn{id: "conn-project", conn: conn, sessionID: "sess-project"}, PicoMessage{
+		Type: TypeMessageSend, ID: "msg-project",
+		Payload: map[string]any{PayloadKeyContent: "hello", "project_id": "missing-project"},
+	})
+	response := mustReceivePicoMessage(t, received)
+	if response.Type != TypeError || response.Payload["code"] != "project_not_found" {
+		t.Fatalf("response = %#v", response)
 	}
 }
 

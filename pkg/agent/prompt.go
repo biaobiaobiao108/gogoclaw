@@ -45,24 +45,26 @@ const (
 type PromptSourceID string
 
 const (
-	PromptSourceKernel         PromptSourceID = "runtime.kernel"
-	PromptSourceHierarchy      PromptSourceID = "runtime.hierarchy"
-	PromptSourceWorkspace      PromptSourceID = "workspace.definition"
-	PromptSourceRuntime        PromptSourceID = "runtime.context"
-	PromptSourceSummary        PromptSourceID = "context.summary"
-	PromptSourceMemory         PromptSourceID = "memory:workspace"
-	PromptSourceSkillCatalog   PromptSourceID = "skill:index"
-	PromptSourceActiveSkills   PromptSourceID = "skill:active"
-	PromptSourceAgentDiscovery PromptSourceID = "agent:discovery"
-	PromptSourceToolRegistry   PromptSourceID = "tool_registry:native"
-	PromptSourceToolDiscovery  PromptSourceID = "tool_registry:discovery"
-	PromptSourceOutputPolicy   PromptSourceID = "runtime.output"
-	PromptSourceSubTurnProfile PromptSourceID = "subturn.profile"
-	PromptSourceUserMessage    PromptSourceID = "turn:user_message"
-	PromptSourceSteering       PromptSourceID = "turn:steering"
-	PromptSourceSubTurnResult  PromptSourceID = "turn:subturn_result"
-	PromptSourceToolResult     PromptSourceID = "turn:tool_result"
-	PromptSourceInterrupt      PromptSourceID = "turn:interrupt"
+	PromptSourceKernel              PromptSourceID = "runtime.kernel"
+	PromptSourceHierarchy           PromptSourceID = "runtime.hierarchy"
+	PromptSourceWorkspace           PromptSourceID = "workspace.definition"
+	PromptSourceRuntime             PromptSourceID = "runtime.context"
+	PromptSourceSummary             PromptSourceID = "context.summary"
+	PromptSourceMemory              PromptSourceID = "memory:workspace"
+	PromptSourceSkillCatalog        PromptSourceID = "skill:index"
+	PromptSourceActiveSkills        PromptSourceID = "skill:active"
+	PromptSourceAgentDiscovery      PromptSourceID = "agent:discovery"
+	PromptSourceToolRegistry        PromptSourceID = "tool_registry:native"
+	PromptSourceToolDiscovery       PromptSourceID = "tool_registry:discovery"
+	PromptSourceOutputPolicy        PromptSourceID = "runtime.output"
+	PromptSourceSubTurnProfile      PromptSourceID = "subturn.profile"
+	PromptSourceUserMessage         PromptSourceID = "turn:user_message"
+	PromptSourceSteering            PromptSourceID = "turn:steering"
+	PromptSourceSubTurnResult       PromptSourceID = "turn:subturn_result"
+	PromptSourceToolResult          PromptSourceID = "turn:tool_result"
+	PromptSourceInterrupt           PromptSourceID = "turn:interrupt"
+	PromptSourceProjectInstructions PromptSourceID = "chat:project_instructions"
+	PromptSourceProjectMaterials    PromptSourceID = "chat:project_materials"
 )
 
 type PromptCachePolicy string
@@ -190,6 +192,20 @@ func builtinPromptSources() []PromptSourceDescriptor {
 			Description:     "Native provider tool definitions",
 			Allowed:         []PromptPlacement{{Layer: PromptLayerCapability, Slot: PromptSlotTooling}},
 			StableByDefault: true,
+		},
+		{
+			ID:              PromptSourceProjectInstructions,
+			Owner:           "chat-project",
+			Description:     "Instructions shared by every conversation in a chat project",
+			Allowed:         []PromptPlacement{{Layer: PromptLayerInstruction, Slot: PromptSlotWorkspace}},
+			StableByDefault: false,
+		},
+		{
+			ID:              PromptSourceProjectMaterials,
+			Owner:           "chat-project",
+			Description:     "Retrieved reference excerpts and file paths from a chat project",
+			Allowed:         []PromptPlacement{{Layer: PromptLayerContext, Slot: PromptSlotMemory}},
+			StableByDefault: false,
 		},
 		{
 			ID:              PromptSourceSkillCatalog,

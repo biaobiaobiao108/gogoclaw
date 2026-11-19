@@ -2,6 +2,7 @@ package api
 
 import (
 	"bufio"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -61,6 +62,8 @@ type sessionListItem struct {
 	Updated      string `json:"updated"`
 	Pinned       bool   `json:"pinned,omitempty"`
 	Archived     bool   `json:"archived,omitempty"`
+	ProjectID    string `json:"project_id,omitempty"`
+	ProjectName  string `json:"project_name,omitempty"`
 	updatedAt    time.Time
 }
 
@@ -88,17 +91,18 @@ type cachedSessionRefs struct {
 }
 
 type sessionChatMessage struct {
-	ID          string                  `json:"message_id,omitempty"`
-	TurnID      string                  `json:"turn_id,omitempty"`
-	Role        string                  `json:"role"`
-	Content     string                  `json:"content"`
-	Kind        string                  `json:"kind,omitempty"`
-	ModelName   string                  `json:"model_name,omitempty"`
-	CreatedAt   *time.Time              `json:"created_at,omitempty"`
-	Media       []string                `json:"media,omitempty"`
-	Attachments []sessionChatAttachment `json:"attachments,omitempty"`
-	ToolCalls   []utils.VisibleToolCall `json:"tool_calls,omitempty"`
-	Sources     []sessionChatSource     `json:"sources,omitempty"`
+	ID             string                     `json:"message_id,omitempty"`
+	TurnID         string                     `json:"turn_id,omitempty"`
+	Role           string                     `json:"role"`
+	Content        string                     `json:"content"`
+	Kind           string                     `json:"kind,omitempty"`
+	ModelName      string                     `json:"model_name,omitempty"`
+	CreatedAt      *time.Time                 `json:"created_at,omitempty"`
+	Media          []string                   `json:"media,omitempty"`
+	Attachments    []sessionChatAttachment    `json:"attachments,omitempty"`
+	ToolCalls      []utils.VisibleToolCall    `json:"tool_calls,omitempty"`
+	Sources        []sessionChatSource        `json:"sources,omitempty"`
+	ProjectSources []sessionChatProjectSource `json:"project_sources,omitempty"`
 }
 
 type sessionMessagesPage struct {
@@ -771,6 +775,11 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	archivedOnly := r.URL.Query().Get("archived") == "1" || r.URL.Query().Get("archived") == "true"
+	projectFilter := strings.TrimSpace(r.URL.Query().Get("project_id"))
+	if projectFilter != "" && projectFilter != "none" && !validAttachmentSessionID(projectFilter) {
+		http.Error(w, "invalid project filter", http.StatusBadRequest)
+		return
+	}
 	legacyList := r.URL.Query().Get("limit") == "" && r.URL.Query().Get("cursor") == ""
 	limit := 30
 	if val, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && val > 0 {
@@ -782,7 +791,7 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !legacyList && !hasLegacySessionFiles(entries) {
-		response, err := h.readSQLiteSessionListPage(r.Context(), dir, toolFeedbackMaxArgsLength, archivedOnly, cursor, limit)
+		response, err := h.readSQLiteSessionListPage(r.Context(), dir, toolFeedbackMaxArgsLength, archivedOnly, projectFilter, cursor, limit)
 		if err != nil {
 			logger.Warnf("failed to page sessions: %v", err)
 			http.Error(w, "failed to read sessions", http.StatusInternalServerError)
@@ -855,6 +864,20 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.pruneSessionListCache(validCacheKeys, dir)
+	if err := h.applySessionProjectMappings(r.Context(), dir, items); err != nil {
+		logger.Warnf("failed to apply project ownership to sessions: %v", err)
+		http.Error(w, "failed to read session projects", http.StatusInternalServerError)
+		return
+	}
+	if projectFilter != "" {
+		filteredByProject := items[:0]
+		for _, item := range items {
+			if item.ProjectID == projectFilter || (projectFilter == "none" && item.ProjectID == "") {
+				filteredByProject = append(filteredByProject, item)
+			}
+		}
+		items = filteredByProject
+	}
 
 	// Pinned sessions come first; remaining sessions use update time descending.
 	sort.Slice(items, func(i, j int) bool {
@@ -1023,9 +1046,18 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	messages := detailSessionMessages(sessionID, sess.Messages, toolFeedbackMaxArgsLength)
+	projectSources := h.loadSessionProjectSources(r.Context(), dir, sessionID, messages)
+	applyProjectSourcesToMessages(messages, projectSources)
 	uiMeta := h.readChatUIMeta(dir)
 	item := buildSessionListItem(sessionID, sess, toolFeedbackMaxArgsLength)
 	applySessionMeta(&item, uiMeta.Sessions[sessionID])
+	projectID, projectName := "", ""
+	if store, openErr := memory.OpenSQLiteStoreReadOnly(dir); openErr == nil {
+		if project, projectErr := store.SessionChatProject(r.Context(), sessionID); projectErr == nil && project != nil {
+			projectID, projectName = project.ID, project.Name
+		}
+		_ = store.Close()
+	}
 	branches, branchErr := h.readSessionBranches(dir, sessionID)
 	if branchErr != nil {
 		logger.Warnf("failed to read chat branches for session %s: %v", sessionID, branchErr)
@@ -1046,7 +1078,67 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		"turn_history": sess.TurnHistory,
 		"feedback":     uiMeta.Sessions[sessionID].Feedback,
 		"branches":     publicBranchGroups(branches),
+		"project_id":   projectID,
+		"project_name": projectName,
 	})
+}
+
+func (h *Handler) loadSessionProjectSources(ctx context.Context, dir, sessionID string, messages []sessionChatMessage) map[string][]sessionChatProjectSource {
+	turnIDs := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, message := range messages {
+		turnID := strings.TrimSpace(message.TurnID)
+		if turnID == "" || message.Role != "assistant" {
+			continue
+		}
+		if _, ok := seen[turnID]; ok {
+			continue
+		}
+		seen[turnID] = struct{}{}
+		turnIDs = append(turnIDs, turnID)
+	}
+	if len(turnIDs) == 0 {
+		return nil
+	}
+	store, err := memory.OpenSQLiteStoreReadOnly(dir)
+	if err != nil {
+		return nil
+	}
+	defer store.Close()
+	stored, err := store.ChatProjectTurnSources(ctx, sessionID, turnIDs)
+	if err != nil {
+		return nil
+	}
+	result := make(map[string][]sessionChatProjectSource, len(stored))
+	for turnID, sources := range stored {
+		for _, source := range sources {
+			contentURL := ""
+			if source.ContentAvailable {
+				contentURL = projectFileContentURL(source.ProjectID, source.FileID)
+			}
+			result[turnID] = append(result[turnID], sessionChatProjectSource{
+				ProjectID: source.ProjectID, FileID: source.FileID, Filename: source.Filename,
+				Locator: source.Locator, Snippet: source.Snippet,
+				ContentURL: contentURL,
+			})
+		}
+	}
+	return result
+}
+
+func applyProjectSourcesToMessages(messages []sessionChatMessage, sources map[string][]sessionChatProjectSource) {
+	if len(sources) == 0 {
+		return
+	}
+	lastAssistant := make(map[string]int)
+	for i, message := range messages {
+		if message.Role == "assistant" && strings.TrimSpace(message.TurnID) != "" {
+			lastAssistant[message.TurnID] = i
+		}
+	}
+	for turnID, index := range lastAssistant {
+		messages[index].ProjectSources = append([]sessionChatProjectSource(nil), sources[turnID]...)
+	}
 }
 
 func sessionTurnMayBeActive(status string) bool {

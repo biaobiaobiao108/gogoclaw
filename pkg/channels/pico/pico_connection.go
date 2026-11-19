@@ -3,6 +3,7 @@ package pico
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/identity"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 )
 
 // writeJSON sends a JSON message to the connection with write locking.
@@ -590,6 +592,28 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		_ = pc.writeJSON(newErrorWithPayload("send_failed", "inbound storage is unavailable", map[string]any{"request_id": msg.ID}))
 		return
 	}
+	projectID := ""
+	if rawProjectID, supplied := msg.Payload["project_id"]; supplied {
+		if value, ok := rawProjectID.(string); ok {
+			projectID = strings.TrimSpace(value)
+		}
+		if projectID == "none" || projectID == "null" {
+			projectID = ""
+		}
+		if projectID != "" {
+			if _, err := inbox.GetChatProject(c.ctx, projectID); errors.Is(err, memory.ErrChatProjectNotFound) {
+				_ = pc.writeJSON(newErrorWithPayload("project_not_found", "project no longer exists", map[string]any{"request_id": msg.ID}))
+				return
+			} else if err != nil {
+				_ = pc.writeJSON(newErrorWithPayload("project_unavailable", "project is temporarily unavailable", map[string]any{"request_id": msg.ID}))
+				return
+			}
+		}
+		if err := inbox.SetSessionChatProject(c.ctx, pc.sessionID, projectID); err != nil {
+			_ = pc.writeJSON(newErrorWithPayload("project_unavailable", "failed to assign project", map[string]any{"request_id": msg.ID}))
+			return
+		}
+	}
 	content, _ := msg.Payload["content"].(string)
 	taskAction, _ := msg.Payload["task_action"].(string)
 	switch taskAction {
@@ -642,6 +666,9 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		"platform":   "pico",
 		"session_id": sessionID,
 		"conn_id":    pc.id,
+	}
+	if projectID != "" {
+		metadata["chat_project_id"] = projectID
 	}
 	if taskAction != "" {
 		metadata["task_action"] = taskAction

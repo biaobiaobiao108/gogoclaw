@@ -218,6 +218,7 @@ export function ChatStreamRowContent({
                 content={part.message.content}
                 attachments={part.message.attachments}
                 sources={part.message.sources}
+                projectSources={part.message.projectSources}
                 isStreaming={part.message.id === streamingMessageId}
               />
             )
