@@ -326,7 +326,7 @@ export function handlePicoMessage(
       break
     }
     case "session.title": {
-      window.dispatchEvent(new Event("session-title-updated"))
+      window.dispatchEvent(new Event("chat-session-list-updated"))
       break
     }
     case "branch.updated": {

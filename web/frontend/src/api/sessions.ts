@@ -138,13 +138,16 @@ export async function getSessions(
   limit: number = 30,
   archived = false,
   projectId?: string,
+  signal?: AbortSignal,
 ): Promise<SessionListPage> {
   const params = new URLSearchParams({ limit: limit.toString() })
   if (cursor) params.set("cursor", cursor)
   if (archived) params.set("archived", "1")
   if (projectId) params.set("project_id", projectId)
 
-  const res = await launcherFetch(`/api/sessions?${params.toString()}`)
+  const res = await launcherFetch(`/api/sessions?${params.toString()}`, {
+    signal,
+  })
   if (!res.ok) {
     throw new Error(`Failed to fetch sessions: ${res.status}`)
   }
@@ -153,7 +156,7 @@ export async function getSessions(
 
 export async function getSessionHistory(
   id: string,
-  options?: { cursor?: string; limit?: number },
+  options?: { cursor?: string; limit?: number; signal?: AbortSignal },
 ): Promise<SessionDetail> {
   const params = new URLSearchParams()
   if (options?.cursor) params.set("cursor", options.cursor)
@@ -161,6 +164,7 @@ export async function getSessionHistory(
   const query = params.size > 0 ? `?${params.toString()}` : ""
   const res = await launcherFetch(
     `/api/sessions/${encodeURIComponent(id)}${query}`,
+    { signal: options?.signal },
   )
   if (!res.ok) {
     throw new Error(`Failed to fetch session ${id}: ${res.status}`)

@@ -1,4 +1,4 @@
-import { IconLayoutSidebar, IconPlus } from "@tabler/icons-react"
+import { IconLayoutSidebar, IconLoader2, IconPlus } from "@tabler/icons-react"
 import { Link } from "@tanstack/react-router"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useAtom } from "jotai"
@@ -50,7 +50,6 @@ import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
 import { useIsHistorySheet } from "@/hooks/use-mobile"
 import { usePicoChat } from "@/hooks/use-pico-chat"
-import { useSessionHistory } from "@/hooks/use-session-history"
 import { isFirstUse, setFirstUse } from "@/lib/first-use"
 import { type ChatDraft, chatDraftsAtom, getChatState } from "@/store/chat"
 import type { ChatAttachment, ChatMessage } from "@/store/chat"
@@ -82,7 +81,7 @@ export function ChatPage() {
     pendingApproval,
     interrupted,
     activeSessionId,
-    activeProjectId,
+    pendingSessionId,
     contextUsage,
     branches,
     isBranchSwitching,
@@ -251,28 +250,6 @@ export function ChatPage() {
         : inputDisabledReason
   const canInput = composerDisabledReason === null
 
-  const {
-    projects,
-    groups,
-    collapsed: collapsedProjects,
-    projectsLoading,
-    projectsError,
-    deleteError,
-    archived: showingArchived,
-    setArchived,
-    loadSessions,
-    loadGroup,
-    toggleProject,
-    handleDeleteSession,
-    handleUpdateSession,
-    createChatProject,
-    updateChatProject,
-    deleteChatProject,
-  } = useSessionHistory({
-    activeSessionId,
-    onDeletedActiveSession: () => handleNewChat(),
-  })
-
   const handleNewChat = useCallback(() => {
     void newChat()
     requestAnimationFrame(() => {
@@ -290,16 +267,6 @@ export function ChatPage() {
     },
     [newChat],
   )
-
-  useEffect(() => {
-    void loadSessions()
-  }, [activeSessionId, Boolean(activeTurn), isTyping, showingArchived])
-
-  useEffect(() => {
-    const refresh = () => void loadSessions()
-    window.addEventListener("session-title-updated", refresh)
-    return () => window.removeEventListener("session-title-updated", refresh)
-  }, [loadSessions])
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const el = scrollRef.current
@@ -823,7 +790,11 @@ export function ChatPage() {
               else setHistoryOpen(true)
             }}
           >
-            <IconLayoutSidebar className="size-4" />
+            {isHistorySheet && pendingSessionId ? (
+              <IconLoader2 className="size-4 animate-spin motion-reduce:animate-none" />
+            ) : (
+              <IconLayoutSidebar className="size-4" />
+            )}
             <span className="hidden lg:inline">{t("chat.history")}</span>
           </Button>
         }
@@ -857,28 +828,12 @@ export function ChatPage() {
       </PageHeader>
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <SessionHistoryMenu
-          projects={projects}
-          groups={groups}
-          collapsedProjects={collapsedProjects}
           activeSessionId={activeSessionId}
-          activeProjectId={activeProjectId}
-          projectsLoading={projectsLoading}
-          projectsError={projectsError}
-          deleteError={deleteError}
           collapsed={historyCollapsed}
           open={historyOpen}
           onOpenChange={setHistoryOpen}
-          onRefresh={() => void loadSessions()}
-          onLoadGroup={(groupKey) => void loadGroup(groupKey, false)}
-          onToggleProject={toggleProject}
           onSwitchSession={switchSession}
-          onDeleteSession={handleDeleteSession}
-          archived={showingArchived}
-          onArchivedChange={setArchived}
-          onUpdateSession={handleUpdateSession}
-          onCreateProject={createChatProject}
-          onUpdateProject={updateChatProject}
-          onDeleteProject={deleteChatProject}
+          onDeletedActiveSession={handleNewChat}
           onNewChatInProject={handleNewChatInProject}
         />
         <div className="relative flex min-w-0 flex-1 flex-col">

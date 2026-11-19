@@ -71,7 +71,10 @@ export function historyMetadataPatch(
   }
 }
 
-export async function loadSessionHistory(sessionId: string): Promise<{
+export async function loadSessionHistory(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<{
   title?: string
   messages: ChatMessage[]
   activities: ChatActivity[]
@@ -84,7 +87,7 @@ export async function loadSessionHistory(sessionId: string): Promise<{
   branches?: ChatBranchGroup[]
   projectId?: string
 }> {
-  const detail = await getSessionHistory(sessionId, { limit: 80 })
+  const detail = await getSessionHistory(sessionId, { limit: 80, signal })
   const messages = detail.messages.map((message, index) => {
     const id = historyMessageId(message, index)
     return {

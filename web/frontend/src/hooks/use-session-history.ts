@@ -1,5 +1,5 @@
 import { useAtomValue } from "jotai"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
@@ -37,7 +37,6 @@ export interface SessionHistoryGroupState {
 }
 
 interface UseSessionHistoryOptions {
-  activeSessionId: string
   onDeletedActiveSession: () => void
 }
 
@@ -59,13 +58,13 @@ function groupKey(projectID?: string | null) {
 function readCollapsedState(): Record<string, boolean> {
   try {
     const raw = window.localStorage.getItem(COLLAPSED_STORAGE_KEY)
-    if (!raw) return {}
+    if (!raw) return { [UNCATEGORIZED_KEY]: false }
     const parsed = JSON.parse(raw)
     return parsed && typeof parsed === "object"
-      ? (parsed as Record<string, boolean>)
-      : {}
+      ? { [UNCATEGORIZED_KEY]: false, ...parsed }
+      : { [UNCATEGORIZED_KEY]: false }
   } catch {
-    return {}
+    return { [UNCATEGORIZED_KEY]: false }
   }
 }
 
@@ -83,148 +82,180 @@ function sortProjects(projects: ChatProject[]) {
   )
 }
 
+type View = "active" | "archived"
+type Groups = Record<string, SessionHistoryGroupState>
+type LoadMode = "ensure" | "more" | "refresh"
+
+function retainItems(previous: SessionSummary[], next: SessionSummary[]) {
+  const byID = new Map(previous.map((item) => [item.id, item]))
+  const items = next.map((item) => {
+    const old = byID.get(item.id)
+    return old &&
+      Object.keys(item).length === Object.keys(old).length &&
+      Object.entries(item).every(
+        ([key, value]) => old[key as keyof SessionSummary] === value,
+      )
+      ? old
+      : item
+  })
+  return items.length === previous.length &&
+    items.every((item, index) => item === previous[index])
+    ? previous
+    : items
+}
+
 export function useSessionHistory({
-  activeSessionId,
   onDeletedActiveSession,
 }: UseSessionHistoryOptions) {
   const { t } = useTranslation()
   const activeProjectId = useAtomValue(activeChatProjectIdAtom)
-  const [archived, setArchivedState] = useState(false)
+  const [view, setView] = useState<View>("active")
+  const viewRef = useRef<View>("active")
+  const [views, setViews] = useState<Record<View, Groups>>({
+    active: {},
+    archived: {},
+  })
+  const viewsRef = useRef(views)
   const [projects, setProjects] = useState<ChatProject[]>([])
+  const projectsRef = useRef(projects)
   const [projectsLoading, setProjectsLoading] = useState(true)
   const [projectsError, setProjectsError] = useState(false)
-  const [groups, setGroupsState] = useState<
-    Record<string, SessionHistoryGroupState>
-  >(() => ({ [UNCATEGORIZED_KEY]: emptyGroup(UNCATEGORIZED_KEY) }))
-  const [collapsed, setCollapsedState] =
-    useState<Record<string, boolean>>(readCollapsedState)
-  const [deleteError, setDeleteError] = useState(false)
-  const groupsRef = useRef(groups)
-  const projectsRef = useRef(projects)
+  const projectsRequest = useRef<Promise<void> | null>(null)
+  const projectsRevision = useRef(0)
+  const [collapsed, setCollapsedState] = useState(readCollapsedState)
   const collapsedRef = useRef(collapsed)
-  const requestSeq = useRef<Record<string, number>>({})
+  const [deleteError, setDeleteError] = useState(false)
+  const requests = useRef(new Map<string, AbortController>())
 
   const setGroups = useCallback(
-    (
-      update: (
-        previous: Record<string, SessionHistoryGroupState>,
-      ) => Record<string, SessionHistoryGroupState>,
-    ) => {
-      setGroupsState((previous) => {
-        const next = update(previous)
-        groupsRef.current = next
-        return next
-      })
+    (scope: View, update: (previous: Groups) => Groups) => {
+      const previous = viewsRef.current
+      const groups = update(previous[scope])
+      if (groups === previous[scope]) return
+      const next = { ...previous, [scope]: groups }
+      viewsRef.current = next
+      setViews(next)
     },
     [],
   )
 
   const setProjectsValue = useCallback((next: ChatProject[]) => {
+    projectsRevision.current++
     projectsRef.current = next
     setProjects(next)
   }, [])
 
-  const setCollapsed = useCallback(
-    (
-      update: (previous: Record<string, boolean>) => Record<string, boolean>,
-    ) => {
-      setCollapsedState((previous) => {
-        const next = update(previous)
-        collapsedRef.current = next
-        writeCollapsedState(next)
-        return next
-      })
+  const setCollapsed = useCallback((key: string, isCollapsed: boolean) => {
+    if (collapsedRef.current[key] === isCollapsed) return
+    const next = { ...collapsedRef.current, [key]: isCollapsed }
+    collapsedRef.current = next
+    setCollapsedState(next)
+    writeCollapsedState(next)
+  }, [])
+
+  const refreshProjects = useCallback(
+    (force = false) => {
+      if (!force && projectsRequest.current) return projectsRequest.current
+      const revision = projectsRevision.current
+      const request = getProjects()
+        .then((next) => {
+          if (
+            projectsRequest.current !== request ||
+            projectsRevision.current !== revision
+          )
+            return
+          setProjectsValue(sortProjects(next))
+          setProjectsError(false)
+        })
+        .catch((error) => {
+          if (projectsRequest.current !== request) return
+          console.error("Failed to load chat projects:", error)
+          setProjectsError(true)
+        })
+        .finally(() => {
+          if (projectsRequest.current !== request) return
+          projectsRequest.current = null
+          setProjectsLoading(false)
+        })
+      projectsRequest.current = request
+      return request
     },
-    [],
+    [setProjectsValue],
   )
 
-  const refreshProjects = useCallback(async () => {
-    setProjectsLoading(true)
-    setProjectsError(false)
-    try {
-      const next = sortProjects(await getProjects())
-      setProjectsValue(next)
-      setCollapsed((previous) => {
-        const updated = { ...previous }
-        if (updated[UNCATEGORIZED_KEY] === undefined) {
-          updated[UNCATEGORIZED_KEY] = false
-        }
-        for (const project of next) {
-          if (updated[project.id] === undefined) {
-            updated[project.id] = project.id !== activeProjectId
-          }
-        }
-        if (activeProjectId) updated[activeProjectId] = false
-        return updated
-      })
-      return next
-    } catch (error) {
-      console.error("Failed to load chat projects:", error)
-      setProjectsError(true)
-      return projectsRef.current
-    } finally {
-      setProjectsLoading(false)
-    }
-  }, [activeProjectId, setCollapsed, setProjectsValue])
-
   const loadGroup = useCallback(
-    async (key: string, reset = false) => {
-      const current = groupsRef.current[key] ?? emptyGroup(key)
-      if (!reset) {
-        if (current.isLoading || (current.hasLoaded && !current.hasMore)) return
+    async (key: string, mode: LoadMode, scope = viewRef.current) => {
+      const ticket = `${scope}:${key}`
+      const pending = requests.current.get(ticket)
+      const current = viewsRef.current[scope][key] ?? emptyGroup(key)
+      if (mode === "ensure" && (current.hasLoaded || pending)) return
+      if (
+        mode === "more" &&
+        (pending || (current.hasLoaded && !current.hasMore))
+      )
+        return
+      pending?.abort()
+      const request = new AbortController()
+      requests.current.set(ticket, request)
+      // Refreshes keep existing rows and pagination visible until a replacement is ready.
+      const showLoading = mode !== "refresh" || !current.hasLoaded
+      if (
+        showLoading !== current.isLoading ||
+        current.loadError ||
+        !current.hasLoaded
+      ) {
+        setGroups(scope, (previous) => ({
+          ...previous,
+          [key]: { ...current, isLoading: showLoading, loadError: false },
+        }))
       }
-      const requestId = (requestSeq.current[key] ?? 0) + 1
-      requestSeq.current[key] = requestId
-      const cursor = reset ? undefined : current.cursor
-      setGroups((previous) => ({
-        ...previous,
-        [key]: {
-          ...(previous[key] ?? emptyGroup(key)),
-          isLoading: true,
-          loadError: false,
-          ...(reset
-            ? {
-                items: [],
-                cursor: undefined,
-                hasMore: true,
-                hasLoaded: false,
-              }
-            : {}),
-        },
-      }))
       try {
-        const data = await getSessions(
-          cursor,
-          LIMIT,
-          archived,
-          key === UNCATEGORIZED_KEY ? UNCATEGORIZED_KEY : key,
+        const depth =
+          mode === "refresh" ? Math.max(LIMIT, current.items.length) : LIMIT
+        let cursor = mode === "more" ? current.cursor : undefined
+        const items = new Map(
+          (mode === "more" ? current.items : []).map((item) => [item.id, item]),
         )
-        if (requestSeq.current[key] !== requestId) return
+        let hasMore: boolean
+        do {
+          const page = await getSessions(
+            cursor,
+            Math.min(100, mode === "refresh" ? depth - items.size : LIMIT),
+            scope === "archived",
+            key,
+            request.signal,
+          )
+          if (requests.current.get(ticket) !== request) return
+          for (const item of page.items) items.set(item.id, item)
+          hasMore = Boolean(
+            page.has_more && page.next_cursor && page.next_cursor !== cursor,
+          )
+          cursor = page.next_cursor
+        } while (mode === "refresh" && hasMore && items.size < depth)
         const chat = getChatState()
-        const activeTitle = data.items.find(
-          (session) => session.id === chat.activeSessionId,
-        )?.title
+        const activeTitle = items.get(chat.activeSessionId)?.title
         if (activeTitle && activeTitle !== chat.activeSessionTitle) {
           updateChatStore({ activeSessionTitle: activeTitle })
         }
-        setGroups((previous) => {
-          const existing = previous[key] ?? emptyGroup(key)
-          const items = reset
-            ? data.items
-            : [
-                ...existing.items,
-                ...data.items.filter(
-                  (item) =>
-                    !existing.items.some((entry) => entry.id === item.id),
-                ),
-              ]
+        setGroups(scope, (previous) => {
+          const group = previous[key]
+          const next = retainItems(group?.items ?? [], [...items.values()])
+          if (
+            group?.hasLoaded &&
+            !group.isLoading &&
+            !group.loadError &&
+            next === group.items &&
+            cursor === group.cursor &&
+            hasMore === group.hasMore
+          )
+            return previous
           return {
             ...previous,
             [key]: {
               key,
-              items,
-              cursor: data.next_cursor,
-              hasMore: data.has_more,
+              items: next,
+              cursor,
+              hasMore,
               hasLoaded: true,
               isLoading: false,
               loadError: false,
@@ -232,142 +263,235 @@ export function useSessionHistory({
           }
         })
       } catch (error) {
-        if (requestSeq.current[key] !== requestId) return
+        if (requests.current.get(ticket) !== request || request.signal.aborted)
+          return
         console.error("Failed to fetch chat group:", error)
-        setGroups((previous) => ({
+        setGroups(scope, (previous) => ({
           ...previous,
-          [key]: {
-            ...(previous[key] ?? emptyGroup(key)),
-            isLoading: false,
-            loadError: true,
-          },
+          [key]: { ...previous[key], isLoading: false, loadError: true },
         }))
+      } finally {
+        if (requests.current.get(ticket) === request)
+          requests.current.delete(ticket)
       }
-    },
-    [archived, setGroups],
-  )
-
-  const visibleGroupKeys = useCallback(() => {
-    const keys = new Set<string>([UNCATEGORIZED_KEY])
-    for (const project of projectsRef.current) {
-      if (collapsedRef.current[project.id] === false) keys.add(project.id)
-    }
-    if (activeProjectId) keys.add(activeProjectId)
-    return [...keys]
-  }, [activeProjectId])
-
-  const refresh = useCallback(async () => {
-    const nextProjects = await refreshProjects()
-    const keys = new Set<string>([UNCATEGORIZED_KEY])
-    for (const project of nextProjects) {
-      if (collapsedRef.current[project.id] === false) keys.add(project.id)
-    }
-    if (activeProjectId) keys.add(activeProjectId)
-    await Promise.all([...keys].map((key) => loadGroup(key, true)))
-  }, [activeProjectId, loadGroup, refreshProjects])
-
-  const setArchived = useCallback(
-    (value: boolean) => {
-      requestSeq.current = {}
-      setGroups(() => ({ [UNCATEGORIZED_KEY]: emptyGroup(UNCATEGORIZED_KEY) }))
-      setArchivedState(value)
     },
     [setGroups],
   )
 
+  const loadVisibleGroups = useCallback(
+    (scope: View, mode: LoadMode) => {
+      const keys = [
+        UNCATEGORIZED_KEY,
+        ...projectsRef.current.map(({ id }) => id),
+      ].filter((key) => collapsedRef.current[key] === false)
+      return Promise.all(keys.map((key) => loadGroup(key, mode, scope)))
+    },
+    [loadGroup],
+  )
+
+  useEffect(() => {
+    void loadVisibleGroups(viewRef.current, "ensure")
+    let mounted = true
+    void refreshProjects().then(() => {
+      if (mounted) void loadVisibleGroups(viewRef.current, "ensure")
+    })
+    const controllerMap = requests.current
+    return () => {
+      mounted = false
+      for (const request of controllerMap.values()) request.abort()
+      controllerMap.clear()
+    }
+  }, [loadVisibleGroups, refreshProjects])
+
+  useEffect(() => {
+    if (activeProjectId) {
+      setCollapsed(activeProjectId, false)
+      void loadGroup(activeProjectId, "ensure")
+    }
+  }, [activeProjectId, loadGroup, setCollapsed])
+
+  useEffect(() => {
+    const timers = new Map<string, ReturnType<typeof setTimeout>>()
+    const refreshActiveGroup = () => {
+      const chat = getChatState()
+      const key = groupKey(chat.activeProjectId)
+      const archived = viewsRef.current.archived[key]?.items.some(
+        (item) => item.id === chat.activeSessionId,
+      )
+      const scope = archived ? "archived" : "active"
+      const ticket = `${scope}:${key}`
+      const timer = timers.get(ticket)
+      if (timer !== undefined) clearTimeout(timer)
+      timers.set(
+        ticket,
+        setTimeout(() => {
+          timers.delete(ticket)
+          void loadGroup(key, "refresh", scope)
+        }, 150),
+      )
+    }
+    window.addEventListener("chat-session-list-updated", refreshActiveGroup)
+    return () => {
+      window.removeEventListener(
+        "chat-session-list-updated",
+        refreshActiveGroup,
+      )
+      for (const timer of timers.values()) clearTimeout(timer)
+    }
+  }, [loadGroup])
+
+  const refresh = useCallback(() => {
+    void loadVisibleGroups(viewRef.current, "refresh")
+    void refreshProjects().then(() =>
+      loadVisibleGroups(viewRef.current, "ensure"),
+    )
+  }, [loadVisibleGroups, refreshProjects])
+
+  const setArchived = useCallback(
+    (value: boolean) => {
+      const scope = value ? "archived" : "active"
+      viewRef.current = scope
+      setView(scope)
+      void loadVisibleGroups(scope, "ensure")
+    },
+    [loadVisibleGroups],
+  )
+
   const toggleProject = useCallback(
     (key: string) => {
-      const nextExpanded = collapsedRef.current[key] !== false
-      setCollapsed((previous) => ({ ...previous, [key]: !nextExpanded }))
-      if (nextExpanded) void loadGroup(key, false)
+      const expand = collapsedRef.current[key] !== false
+      setCollapsed(key, !expand)
+      if (expand) void loadGroup(key, "ensure")
     },
     [loadGroup, setCollapsed],
   )
 
+  const loadMore = useCallback(
+    (key: string) => {
+      void loadGroup(key, "more")
+    },
+    [loadGroup],
+  )
+
+  const retryGroup = useCallback(
+    (key: string) => {
+      void loadGroup(key, "refresh")
+    },
+    [loadGroup],
+  )
+
+  const removeSession = useCallback(
+    (scope: View, key: string, id: string) => {
+      setGroups(scope, (previous) => {
+        const group = previous[key]
+        if (!group || !group.items.some((item) => item.id === id))
+          return previous
+        return {
+          ...previous,
+          [key]: {
+            ...group,
+            items: group.items.filter((item) => item.id !== id),
+          },
+        }
+      })
+    },
+    [setGroups],
+  )
+
   const handleDeleteSession = useCallback(
     async (id: string) => {
+      setDeleteError(false)
       try {
-        setDeleteError(false)
         await deleteSession(id)
-        setGroups((previous) => {
-          const next: Record<string, SessionHistoryGroupState> = {}
-          for (const [key, group] of Object.entries(previous)) {
-            next[key] = {
-              ...group,
-              items: group.items.filter((session) => session.id !== id),
-            }
+        for (const scope of ["active", "archived"] as const) {
+          for (const [key, group] of Object.entries(viewsRef.current[scope])) {
+            if (!group.items.some((item) => item.id === id)) continue
+            removeSession(scope, key, id)
+            void loadGroup(key, "refresh", scope)
           }
-          return next
-        })
-        await refreshProjects()
-        if (id === activeSessionId) onDeletedActiveSession()
+        }
+        if (id === getChatState().activeSessionId) onDeletedActiveSession()
+        void refreshProjects(true)
       } catch (error) {
         console.error("Failed to delete session:", error)
         setDeleteError(true)
       }
     },
-    [activeSessionId, onDeletedActiveSession, refreshProjects, setGroups],
+    [loadGroup, onDeletedActiveSession, refreshProjects, removeSession],
   )
 
   const handleUpdateSession = useCallback(
-    async (
-      id: string,
-      update: {
-        title?: string
-        pinned?: boolean
-        archived?: boolean
-        project_id?: string | null
-      },
-    ) => {
-      const previousGroups = groupsRef.current
-      let previousProjectID: string | undefined
-      for (const group of Object.values(previousGroups)) {
-        const item = group.items.find((session) => session.id === id)
-        if (item) {
-          previousProjectID = item.project_id
-          break
-        }
-      }
-      if (update.title !== undefined && id === getChatState().activeSessionId) {
-        updateChatStore({ activeSessionTitle: update.title })
-      }
+    async (id: string, update: Parameters<typeof updateSessionMetadata>[1]) => {
+      const scope = viewRef.current
+      const current = Object.values(viewsRef.current[scope])
+        .flatMap((group) => group.items)
+        .find((item) => item.id === id)
+      const oldKey = groupKey(current?.project_id)
       try {
         await updateSessionMetadata(id, update)
-        if (
-          update.project_id !== undefined &&
-          id === getChatState().activeSessionId
-        ) {
+        if (id === getChatState().activeSessionId) {
           updateChatStore({
-            activeProjectId: update.project_id || undefined,
+            ...(update.title !== undefined
+              ? { activeSessionTitle: update.title }
+              : {}),
+            ...(update.project_id !== undefined
+              ? { activeProjectId: update.project_id || undefined }
+              : {}),
           })
         }
-        await refreshProjects()
-        const affected = new Set<string>([UNCATEGORIZED_KEY])
-        affected.add(groupKey(previousProjectID))
-        affected.add(groupKey(update.project_id))
-        if (update.project_id) {
-          setCollapsed((previous) => ({
-            ...previous,
-            [update.project_id as string]: false,
-          }))
+        if (update.title !== undefined && current) {
+          const title = update.title
+          setGroups(scope, (previous) => {
+            const group = previous[oldKey]
+            if (!group) return previous
+            return {
+              ...previous,
+              [oldKey]: {
+                ...group,
+                items: group.items.map((item) =>
+                  item.id === id ? { ...item, title } : item,
+                ),
+              },
+            }
+          })
+          if (requests.current.has(`${scope}:${oldKey}`))
+            void loadGroup(oldKey, "refresh", scope)
+          return
         }
-        await Promise.all([...affected].map((key) => loadGroup(key, true)))
-        if (update.title !== undefined) await refresh()
+        const nextKey =
+          update.project_id === undefined ? oldKey : groupKey(update.project_id)
+        const nextScope =
+          update.archived === undefined
+            ? scope
+            : update.archived
+              ? "archived"
+              : "active"
+        if (nextKey !== oldKey || nextScope !== scope) {
+          removeSession(scope, oldKey, id)
+          if (update.project_id) setCollapsed(update.project_id, false)
+          if (
+            nextScope === viewRef.current ||
+            viewsRef.current[nextScope][nextKey]
+          ) {
+            void loadGroup(nextKey, "refresh", nextScope)
+          }
+          void refreshProjects(true)
+        }
+        void loadGroup(oldKey, "refresh", scope)
       } catch (error) {
         console.error("Failed to update session:", error)
         toast.error(t("chat.sessionUpdateFailed"))
-        await refresh()
       }
     },
-    [loadGroup, refresh, refreshProjects, setCollapsed, t],
+    [loadGroup, refreshProjects, removeSession, setCollapsed, setGroups, t],
   )
 
   const createChatProject = useCallback(
     async (name: string, instructions: string) => {
       const project = await createProject({ name, instructions })
       setProjectsValue(sortProjects([...projectsRef.current, project]))
-      setCollapsed((previous) => ({ ...previous, [project.id]: false }))
-      await loadGroup(project.id, true)
+      setCollapsed(project.id, false)
+      void loadGroup(project.id, "ensure")
       return project
     },
     [loadGroup, setCollapsed, setProjectsValue],
@@ -392,68 +516,39 @@ export function useSessionHistory({
       setProjectsValue(projectsRef.current.filter((item) => item.id !== id))
       if (getChatState().activeProjectId === id)
         updateChatStore({ activeProjectId: undefined })
-      setGroups((previous) => {
-        const next = { ...previous }
-        delete next[id]
-        next[UNCATEGORIZED_KEY] = emptyGroup(UNCATEGORIZED_KEY)
-        return next
-      })
-      await Promise.all([loadGroup(UNCATEGORIZED_KEY, true), refreshProjects()])
+      for (const scope of ["active", "archived"] as const) {
+        const ticket = `${scope}:${id}`
+        requests.current.get(ticket)?.abort()
+        requests.current.delete(ticket)
+        setGroups(scope, (previous) => {
+          const next = { ...previous }
+          delete next[id]
+          return next
+        })
+        if (
+          scope === viewRef.current ||
+          viewsRef.current[scope][UNCATEGORIZED_KEY]
+        ) {
+          void loadGroup(UNCATEGORIZED_KEY, "refresh", scope)
+        }
+      }
+      void refreshProjects(true)
     },
     [loadGroup, refreshProjects, setGroups, setProjectsValue],
   )
 
-  useEffect(() => {
-    groupsRef.current = groups
-  }, [groups])
-
-  useEffect(() => {
-    projectsRef.current = projects
-  }, [projects])
-
-  useEffect(() => {
-    void refresh()
-    // Refresh is intentionally tied to archive mode and active project only.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [archived, activeProjectId])
-
-  useEffect(() => {
-    if (!activeProjectId) return
-    setCollapsed((previous) =>
-      previous[activeProjectId] === false
-        ? previous
-        : { ...previous, [activeProjectId]: false },
-    )
-    const group = groupsRef.current[activeProjectId]
-    if (!group?.hasLoaded) void loadGroup(activeProjectId, false)
-  }, [activeProjectId, loadGroup, setCollapsed])
-
-  const isLoading = useMemo(() => {
-    if (projectsLoading) return true
-    const keys = new Set(visibleGroupKeys())
-    return [...keys].some((key) => groups[key]?.isLoading)
-  }, [groups, projectsLoading, visibleGroupKeys])
-
-  const loadError = useMemo(() => {
-    if (projectsError) return true
-    const keys = new Set(visibleGroupKeys())
-    return [...keys].some((key) => groups[key]?.loadError)
-  }, [groups, projectsError, visibleGroupKeys])
-
   return {
     projects,
-    groups,
+    groups: views[view],
     collapsed,
     projectsLoading,
     projectsError,
-    isLoading,
-    loadError,
-    loadErrorMessage: t("chat.historyLoadFailed"),
     deleteError,
-    archived,
+    archived: view === "archived",
     setArchived,
-    loadSessions: refresh,
-    loadGroup,
+    refresh,
+    loadMore,
+    retryGroup,
     toggleProject,
     handleDeleteSession,
     handleUpdateSession,

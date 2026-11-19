@@ -5,6 +5,7 @@ import {
   IconDotsVertical,
   IconFolder,
   IconFolderPlus,
+  IconLoader2,
   IconMessageCircle,
   IconPencil,
   IconPin,
@@ -14,7 +15,17 @@ import {
   IconTrash,
 } from "@tabler/icons-react"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useAtomValue } from "jotai"
+import { selectAtom } from "jotai/utils"
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { useTranslation } from "react-i18next"
 
 import type { ChatProject } from "@/api/projects"
@@ -55,9 +66,18 @@ import {
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useIsHistorySheet } from "@/hooks/use-mobile"
-import type { SessionHistoryGroupState } from "@/hooks/use-session-history"
+import {
+  type SessionHistoryGroupState,
+  useSessionHistory,
+} from "@/hooks/use-session-history"
+import { chatAtom } from "@/store/chat"
 
 const UNCATEGORIZED_KEY = "none"
+const TREE_ROW_HEIGHT = 40
+const pendingSessionIdAtom = selectAtom(
+  chatAtom,
+  (state) => state.pendingSessionId,
+)
 
 type HistoryItem = SessionSummary | SessionSearchResult
 
@@ -70,7 +90,13 @@ type HistoryRow =
       groupKey: string
       collapsed: boolean
     }
-  | { kind: "session"; key: string; session: SessionSummary; groupKey: string }
+  | {
+      kind: "session"
+      key: string
+      session: SessionSummary
+      groupKey: string
+      groupIndex: number
+    }
   | {
       kind: "group-status"
       key: string
@@ -81,37 +107,10 @@ type HistoryRow =
 interface SessionHistoryMenuProps {
   collapsed: boolean
   open: boolean
-  onRefresh: () => void
-  projects: ChatProject[]
-  groups: Record<string, SessionHistoryGroupState>
-  collapsedProjects: Record<string, boolean>
   activeSessionId: string
-  activeProjectId?: string
-  projectsLoading: boolean
-  projectsError: boolean
-  deleteError: boolean
-  archived: boolean
-  onArchivedChange: (archived: boolean) => void
   onOpenChange: (open: boolean) => void
   onSwitchSession: (sessionId: string, title: string) => void
-  onDeleteSession: (sessionId: string) => void
-  onUpdateSession: (
-    sessionId: string,
-    update: {
-      title?: string
-      pinned?: boolean
-      archived?: boolean
-      project_id?: string | null
-    },
-  ) => Promise<void>
-  onToggleProject: (groupKey: string) => void
-  onLoadGroup: (groupKey: string) => void
-  onCreateProject: (name: string, instructions: string) => Promise<ChatProject>
-  onUpdateProject: (
-    id: string,
-    input: { name: string; instructions: string },
-  ) => Promise<ChatProject>
-  onDeleteProject: (id: string) => Promise<void>
+  onDeletedActiveSession: () => void
   onNewChatInProject: (projectId: string) => void
 }
 
@@ -155,70 +154,62 @@ function groupRows(
       })
       continue
     }
-    if (group.loadError) {
-      rows.push({
-        kind: "group-status",
-        key: `status:${folder.key}:error`,
-        groupKey: folder.key,
-        status: "error",
-      })
-      continue
-    }
-    if (group.items.length === 0) {
-      rows.push({
-        kind: "group-status",
-        key: `status:${folder.key}:empty`,
-        groupKey: folder.key,
-        status: "empty",
-      })
-      continue
-    }
-    for (const session of group.items) {
+    for (const [groupIndex, session] of group.items.entries()) {
       rows.push({
         kind: "session",
         key: `session:${session.id}`,
         session,
         groupKey: folder.key,
+        groupIndex,
       })
     }
-    if (group.isLoading) {
+    if (group.loadError || group.isLoading || group.items.length === 0) {
+      const status = group.loadError
+        ? "error"
+        : group.isLoading
+          ? "loading"
+          : "empty"
       rows.push({
         kind: "group-status",
-        key: `status:${folder.key}:loading`,
+        key: `status:${folder.key}`,
         groupKey: folder.key,
-        status: "loading",
+        status,
       })
     }
   }
   return rows
 }
 
-export function SessionHistoryMenu({
+export const SessionHistoryMenu = memo(function SessionHistoryMenu({
   collapsed,
   open,
-  onRefresh,
-  projects,
-  groups,
-  collapsedProjects,
   activeSessionId,
-  activeProjectId,
-  projectsLoading,
-  projectsError,
-  deleteError,
-  archived,
-  onArchivedChange,
   onOpenChange,
   onSwitchSession,
-  onDeleteSession,
-  onUpdateSession,
-  onToggleProject,
-  onLoadGroup,
-  onCreateProject,
-  onUpdateProject,
-  onDeleteProject,
+  onDeletedActiveSession,
   onNewChatInProject,
 }: SessionHistoryMenuProps) {
   const { t } = useTranslation()
+  const pendingSessionId = useAtomValue(pendingSessionIdAtom)
+  const {
+    projects,
+    groups,
+    collapsed: collapsedProjects,
+    projectsLoading,
+    projectsError,
+    deleteError,
+    archived,
+    setArchived: onArchivedChange,
+    refresh: onRefresh,
+    loadMore,
+    retryGroup,
+    toggleProject: onToggleProject,
+    handleDeleteSession: onDeleteSession,
+    handleUpdateSession: onUpdateSession,
+    createChatProject: onCreateProject,
+    updateChatProject: onUpdateProject,
+    deleteChatProject: onDeleteProject,
+  } = useSessionHistory({ onDeletedActiveSession })
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null)
   const [renameTarget, setRenameTarget] = useState<SessionSummary | null>(null)
   const [renameValue, setRenameValue] = useState("")
@@ -234,8 +225,13 @@ export function SessionHistoryMenu({
   const [isSearching, setIsSearching] = useState(false)
   const [searchError, setSearchError] = useState(false)
   const isHistorySheet = useIsHistorySheet()
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null)
   const visible = isHistorySheet ? open : !collapsed
+  const treePositions = useRef<
+    Record<string, { offset: number; key?: string; inset: number }>
+  >({})
+  const searchPosition = useRef({ query: "", offset: 0 })
+  const treeView = archived ? "archived" : "active"
   const normalizedQuery = query.trim()
   const rows = useMemo(
     () =>
@@ -285,27 +281,40 @@ export function SessionHistoryMenu({
     }
   }, [archived, normalizedQuery])
 
-  const virtualizer = useVirtualizer({
-    count: normalizedQuery ? searchResults.length : rows.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => (normalizedQuery ? 64 : 40),
-    getItemKey: (index) =>
+  const getItemKey = useCallback(
+    (index: number) =>
       normalizedQuery
         ? `search:${searchResults[index]?.id ?? index}`
         : (rows[index]?.key ?? index),
+    [normalizedQuery, rows, searchResults],
+  )
+  const virtualizer = useVirtualizer({
+    count: itemCount,
+    getScrollElement: () => scrollElement,
+    estimateSize: () => (normalizedQuery ? 64 : TREE_ROW_HEIGHT),
+    getItemKey,
     overscan: 6,
-    enabled: visible,
+    enabled: visible || (isHistorySheet && scrollElement !== null),
   })
   const virtualRows = virtualizer.getVirtualItems()
 
-  useEffect(() => {
-    if (!visible) return
-    const frame = window.requestAnimationFrame(() => {
-      virtualizer.measure()
-      virtualizer.scrollToOffset(0)
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [visible, virtualizer])
+  useLayoutEffect(() => {
+    const element = scrollElement
+    if (!visible || !element) return
+    const position = treePositions.current[treeView]
+    const anchorIndex = position?.key
+      ? rows.findIndex((row) => row.key === position.key)
+      : -1
+    const searchKey = `${treeView}:${normalizedQuery}`
+    const offset = normalizedQuery
+      ? searchPosition.current.query === searchKey
+        ? searchPosition.current.offset
+        : 0
+      : position && anchorIndex >= 0
+        ? anchorIndex * TREE_ROW_HEIGHT + position.inset
+        : (position?.offset ?? 0)
+    if (Math.abs(element.scrollTop - offset) > 1) element.scrollTop = offset
+  }, [normalizedQuery, rows, scrollElement, treeView, visible])
 
   useEffect(() => {
     if (!visible || normalizedQuery) return
@@ -315,39 +324,11 @@ export function SessionHistoryMenu({
       if (row?.kind !== "session") continue
       const group = groups[row.groupKey]
       if (!group?.hasMore || group.isLoading || group.loadError) continue
-      const sessionIndex = group.items.findIndex(
-        (item) => item.id === row.session.id,
-      )
-      if (sessionIndex >= group.items.length - 4) {
+      if (row.groupIndex >= group.items.length - 4)
         groupsToLoad.add(row.groupKey)
-      }
     }
-    for (const key of groupsToLoad) onLoadGroup(key)
-  }, [groups, normalizedQuery, onLoadGroup, rows, virtualRows, visible])
-
-  useEffect(() => {
-    if (!visible || normalizedQuery) return
-    const index = rows.findIndex(
-      (row) => row.kind === "session" && row.session.id === activeSessionId,
-    )
-    if (index >= 0) virtualizer.scrollToIndex(index, { align: "auto" })
-    // Only reposition when the active conversation or tree shape changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    activeProjectId,
-    activeSessionId,
-    normalizedQuery,
-    projects.length,
-    rows.length,
-    visible,
-  ])
-
-  useEffect(() => {
-    if (normalizedQuery || archived) {
-      virtualizer.scrollToOffset(0)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [normalizedQuery, archived])
+    for (const key of groupsToLoad) loadMore(key)
+  }, [groups, loadMore, normalizedQuery, rows, virtualRows, visible])
 
   const openRename = (session: SessionSummary) => {
     setRenameTarget(session)
@@ -427,9 +408,25 @@ export function SessionHistoryMenu({
         />
       </label>
       <nav
-        ref={scrollRef}
+        ref={setScrollElement}
+        onScroll={(event) => {
+          if (!visible) return
+          const offset = event.currentTarget.scrollTop
+          if (normalizedQuery) {
+            searchPosition.current = {
+              query: `${treeView}:${normalizedQuery}`,
+              offset,
+            }
+            return
+          }
+          treePositions.current[treeView] = {
+            offset,
+            key: rows[Math.floor(offset / TREE_ROW_HEIGHT)]?.key,
+            inset: offset % TREE_ROW_HEIGHT,
+          }
+        }}
         aria-label={t("chat.history")}
-        className="min-h-0 flex-1 overflow-y-auto"
+        className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
       >
         {deleteError && (
           <p role="alert" className="text-destructive p-2 text-sm">
@@ -488,10 +485,13 @@ export function SessionHistoryMenu({
                 >
                   <button
                     type="button"
+                    aria-busy={pendingSessionId === session.id || undefined}
+                    aria-current={
+                      activeSessionId === session.id ? "page" : undefined
+                    }
                     className="focus-visible:ring-ring flex min-h-16 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left focus-visible:ring-2 focus-visible:outline-none"
                     onClick={() => {
                       onSwitchSession(session.id, session.title)
-                      setQuery("")
                       onOpenChange(false)
                     }}
                   >
@@ -518,7 +518,7 @@ export function SessionHistoryMenu({
               top: 0,
               left: 0,
               width: "100%",
-              height: 40,
+              height: TREE_ROW_HEIGHT,
               transform: `translateY(${virtualRow.start}px)`,
             }
             if (row.kind === "project-header") {
@@ -604,7 +604,7 @@ export function SessionHistoryMenu({
                         variant="ghost"
                         size="sm"
                         className="h-7 px-2 text-xs"
-                        onClick={() => onLoadGroup(row.groupKey)}
+                        onClick={() => retryGroup(row.groupKey)}
                       >
                         {t("chat.historyRetry")}
                       </Button>
@@ -615,6 +615,7 @@ export function SessionHistoryMenu({
             }
 
             const session = row.session
+            const isOpening = pendingSessionId === session.id
             return (
               <div
                 key={row.key}
@@ -623,6 +624,7 @@ export function SessionHistoryMenu({
               >
                 <button
                   type="button"
+                  aria-busy={isOpening || undefined}
                   aria-current={
                     session.id === activeSessionId ? "page" : undefined
                   }
@@ -632,7 +634,9 @@ export function SessionHistoryMenu({
                     onOpenChange(false)
                   }}
                 >
-                  {session.pinned ? (
+                  {isOpening ? (
+                    <IconLoader2 className="text-muted-foreground size-3.5 shrink-0 animate-spin motion-reduce:animate-none" />
+                  ) : session.pinned ? (
                     <IconPin className="text-accent size-3.5 shrink-0" />
                   ) : (
                     <IconMessageCircle className="text-muted-foreground size-4 shrink-0" />
@@ -875,4 +879,4 @@ export function SessionHistoryMenu({
       </Dialog>
     </>
   )
-}
+})

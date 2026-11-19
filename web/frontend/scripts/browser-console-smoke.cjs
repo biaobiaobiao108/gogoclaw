@@ -54,6 +54,8 @@ async function main() {
       approvalResponse: null,
       gatewayStatus: "running",
       gatewayStarts: 0,
+      sessionFixture: false,
+      historyRequests: [],
     }
     const testNavigations = new Set()
     const navigate = async (url, options) => {
@@ -304,10 +306,51 @@ async function main() {
         body = usageResponse()
       } else if (path === "/api/sessions") {
         body = { items: [], has_more: false }
+        if (api.sessionFixture) {
+          const params = new URL(route.request().url()).searchParams
+          const projectID = params.get("project_id")
+          const offset = Number(params.get("cursor") || 0)
+          const limit = Number(params.get("limit"))
+          api.historyRequests.push(projectID)
+          if (!params.has("archived")) {
+            const items =
+              projectID === "none" ? historyItems : [projectHistoryItem]
+            const end = offset + limit
+            body = {
+              items: items.slice(offset, end),
+              has_more: end < items.length,
+              next_cursor: end < items.length ? String(end) : undefined,
+            }
+          }
+        }
       } else if (path === "/api/projects") {
-        body = []
+        if (api.sessionFixture) {
+          api.historyRequests.push("projects")
+          body = [{ id: "project-a", name: "项目 A", instructions: "" }]
+        } else {
+          body = []
+        }
+      } else if (path === "/api/sessions/search" && api.sessionFixture) {
+        body = [projectHistoryItem]
       } else if (path.startsWith("/api/sessions/")) {
         body = { messages: [], has_more: false }
+        const id = path.split("/").at(-1)
+        const session = [projectHistoryItem, ...historyItems].find(
+          (item) => item.id === id,
+        )
+        if (api.sessionFixture && session) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, id === "history-29" ? 650 : 140),
+          )
+          body = {
+            title: session.title,
+            project_id: session.project_id,
+            messages: [
+              { role: "assistant", content: `回复 ${id}`, timestamp: 1 },
+            ],
+            has_more: false,
+          }
+        }
       } else {
         status = 501
         body = { error: `missing browser mock: ${method} ${path}` }
@@ -552,13 +595,151 @@ async function main() {
     await navigate(`${base}/chat`)
     await page.locator("main").getByRole("link", { name: /日志/ }).waitFor()
 
+    api.gatewayStatus = "stopped"
+    api.sessionFixture = true
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await navigate(`${base}/chat`)
+    await checkSessionSwitching(page, api)
+
     if (errors.length) throw new Error(`Browser errors: ${errors.join(", ")}`)
     console.log(
-      `${browserName} console smoke passed: upload, approval, config, channel, skills, sessions, logs, focus, axe, text scaling and mobile reflow`,
+      `${browserName} console smoke passed: upload, approval, config, channel, skills, session switching, logs, focus, axe, text scaling and mobile reflow`,
     )
   } finally {
     await browser.close()
   }
+}
+
+const historyItems = Array.from({ length: 60 }, (_, index) => ({
+  id: `history-${index}`,
+  title: `历史会话 ${index}`,
+  preview: "",
+  message_count: 1,
+  updated: "2025-01-01T00:00:00Z",
+}))
+const projectHistoryItem = {
+  ...historyItems[0],
+  id: "project-chat",
+  title: "项目内会话",
+  project_id: "project-a",
+}
+
+async function checkSessionSwitching(page, api) {
+  const history = page
+    .locator("main")
+    .getByRole("navigation", { name: "历史记录" })
+  const row = (index) =>
+    history.getByRole("button", { name: `历史会话 ${index}`, exact: true })
+  await row(0).click()
+  await page.getByText("回复 history-0", { exact: true }).waitFor()
+  await history.evaluate((element) => {
+    element.scrollTop = 850
+  })
+  await row(28).waitFor()
+  await page.waitForFunction(
+    () =>
+      document.querySelector('main nav[aria-label="历史记录"]').scrollTop >=
+      800,
+  )
+  const offset = await history.evaluate((element) => element.scrollTop)
+  const node = await row(27).elementHandle()
+  const requests = api.historyRequests.length
+  await row(29).click()
+  await row(29).and(history.locator('[aria-busy="true"]')).waitFor()
+  if (!(await page.getByText("回复 history-0", { exact: true }).isVisible()))
+    throw new Error("Pending navigation replaced the current conversation")
+  await row(28).click()
+  await page.getByText("回复 history-28", { exact: true }).waitFor()
+  await row(28).and(history.locator('[aria-current="page"]')).waitFor()
+  await page.waitForTimeout(700)
+  if (api.historyRequests.length !== requests)
+    throw new Error(
+      "Selecting a session requested the projects or session list",
+    )
+  if (!(await node.evaluate((element) => element.isConnected)))
+    throw new Error("Session switch remounted an unrelated history row")
+  if (
+    Math.abs(
+      (await history.evaluate((element) => element.scrollTop)) - offset,
+    ) > 1
+  )
+    throw new Error("Session switch moved the history viewport")
+  if (!(await page.getByText("回复 history-28", { exact: true }).isVisible()))
+    throw new Error("A superseded request replaced the selected session")
+
+  const search = page.locator("main").getByPlaceholder("搜索全部对话")
+  await search.fill("项目内会话")
+  await history.getByRole("button", { name: /项目内会话/ }).click()
+  await page.getByText("回复 project-chat", { exact: true }).waitFor()
+  await search.fill("")
+  await page.waitForFunction(
+    () =>
+      document.querySelector('main nav[aria-label="历史记录"]').scrollTop >=
+      800,
+  )
+  if (api.historyRequests.slice(requests).join(",") !== "project-a")
+    throw new Error(
+      "Opening an unloaded project did not fetch only that project",
+    )
+
+  await page.getByRole("button", { name: "显示归档对话" }).click()
+  await history.getByText("暂无对话历史").first().waitFor()
+  const archivedRequests = api.historyRequests.length
+  await page.getByRole("button", { name: "显示当前对话" }).click()
+  await row(28).waitFor()
+  if (api.historyRequests.length !== archivedRequests)
+    throw new Error("Returning from archive requested an already loaded group")
+  if (
+    Math.abs(
+      (await history.evaluate((element) => element.scrollTop)) - offset,
+    ) > 1
+  )
+    throw new Error("Returning from archive lost the active history viewport")
+
+  if (process.env.GOGOCLAW_HISTORY_SCREENSHOT)
+    await page.screenshot({ path: process.env.GOGOCLAW_HISTORY_SCREENSHOT })
+  await page.setViewportSize({ width: 390, height: 844 })
+  const openHistory = page
+    .locator("main")
+    .getByRole("button", { name: "历史记录", exact: true })
+  const mobileHistory = page.getByRole("dialog", { name: "历史记录" })
+  const mobileList = mobileHistory.getByRole("navigation", { name: "历史记录" })
+  await openHistory.click()
+  const mobileRow = mobileList.getByRole("button", {
+    name: "历史会话 28",
+    exact: true,
+  })
+  await mobileRow.waitFor()
+  const mobileOffset = await mobileList.evaluate((element) => element.scrollTop)
+  if (Math.abs(mobileOffset - offset) > 1)
+    throw new Error(
+      `Opening the mobile history moved from ${offset} to ${mobileOffset}`,
+    )
+  // Click the visible row directly so Playwright cannot scroll it into view.
+  await mobileHistory.evaluate(async (element) => {
+    await Promise.all(
+      element.getAnimations().map((animation) => animation.finished),
+    )
+  })
+  const bounds = await mobileRow.boundingBox()
+  if (!bounds) throw new Error("The mobile history row was hidden")
+  await page.mouse.click(
+    bounds.x + bounds.width / 2,
+    bounds.y + bounds.height / 2,
+  )
+  await mobileHistory.waitFor({ state: "hidden" })
+  await page.getByText("回复 history-28", { exact: true }).waitFor()
+  await openHistory.click()
+  await mobileRow.and(mobileList.locator('[aria-current="page"]')).waitFor()
+  const reopenedOffset = await mobileList.evaluate(
+    (element) => element.scrollTop,
+  )
+  if (Math.abs(reopenedOffset - mobileOffset) > 1)
+    throw new Error(
+      `Reopening the mobile history moved from ${mobileOffset} to ${reopenedOffset}`,
+    )
+  if (api.historyRequests.length !== archivedRequests)
+    throw new Error("Mobile session selection refetched the history list")
 }
 
 async function scan(page, label, enabled) {

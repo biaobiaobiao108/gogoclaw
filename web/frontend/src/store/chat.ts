@@ -188,6 +188,7 @@ export interface ChatStoreState {
   pendingApproval?: ChatApproval
   interrupted?: boolean
   activeSessionId: string
+  pendingSessionId?: string
   activeSessionTitle?: string
   activeProjectId?: string
   hasHydratedActiveSession: boolean

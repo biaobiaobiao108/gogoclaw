@@ -30,6 +30,7 @@ import i18n from "@/i18n"
 import {
   type ChatAttachment,
   type ChatFeedbackValue,
+  type ChatStoreState,
   getChatState,
   updateChatStore,
 } from "@/store/chat"
@@ -46,6 +47,7 @@ let unsubscribeGateway: (() => void) | null = null
 let hydratePromise: Promise<void> | null = null
 let turnStatusTimer: number | null = null
 let sessionSelectionGeneration = 0
+let sessionSelectionRequest: AbortController | undefined
 let historyGeneration = 0
 let historyRefreshGeneration = 0
 let pendingStatusWatchUntil = 0
@@ -76,9 +78,9 @@ function needsActiveSessionHydration(): boolean {
   )
 }
 
-function setActiveSessionId(sessionId: string, title?: string) {
+function setActiveSession(sessionId: string, patch: Partial<ChatStoreState>) {
   activeSessionIdRef = sessionId
-  updateChatStore({ activeSessionId: sessionId, activeSessionTitle: title })
+  updateChatStore({ ...patch, activeSessionId: sessionId })
 }
 
 function clearBranchSwitchTimer() {
@@ -278,7 +280,16 @@ export async function connectChat() {
             pendingOptimisticActions.delete(requestId)
           },
           onTurnSettled: (completion) => {
-            if (wasActive) pendingStatusWatchUntil = 0
+            const loaded = previousState.historyTurn
+            const completionChanged =
+              completion &&
+              (loaded?.turnId !== completion.turnId ||
+                loaded.status !== completion.status)
+            const settledWork =
+              wasActive ||
+              hadPendingOptimisticAction ||
+              (Date.now() < pendingStatusWatchUntil && completionChanged)
+            if (settledWork) pendingStatusWatchUntil = 0
             pendingOptimisticActions.clear()
             let historyChanged = false
             if (
@@ -289,16 +300,15 @@ export async function connectChat() {
               checkedInitialCompletion = true
               // The current turn can finish after the initial HTTP history
               // response but before the new socket sees any live frames.
-              const loaded = previousState.historyTurn
-              historyChanged =
-                loaded?.turnId !== completion.turnId ||
-                loaded.status !== completion.status
+              historyChanged = Boolean(completionChanged)
             }
-            if (wasActive || hadPendingOptimisticAction || historyChanged)
+            if (settledWork || historyChanged)
               void refreshActiveSessionHistory(
                 sessionId,
                 hadPendingOptimisticAction,
               )
+            if (settledWork)
+              window.dispatchEvent(new Event("chat-session-list-updated"))
           },
         })
         if (deliveryId && socket.readyState === WebSocket.OPEN) {
@@ -949,23 +959,30 @@ export function respondToApproval({
 }
 
 export async function switchChatSession(sessionId: string, title?: string) {
+  if (getChatState().pendingSessionId === sessionId) return
+  sessionSelectionRequest?.abort()
+  sessionSelectionRequest = undefined
   const selection = ++sessionSelectionGeneration
   if (sessionId === activeSessionIdRef) {
-    updateChatStore({ isHistoryLoading: false })
+    if (getChatState().pendingSessionId)
+      updateChatStore({ pendingSessionId: undefined })
     return
   }
 
+  const request = new AbortController()
+  sessionSelectionRequest = request
   try {
-    updateChatStore({ isHistoryLoading: true })
-    const history = await loadSessionHistory(sessionId)
+    updateChatStore({ pendingSessionId: sessionId })
+    const history = await loadSessionHistory(sessionId, request.signal)
 
     if (selection !== sessionSelectionGeneration) return
 
     historyGeneration += 1
     disconnectChatInternal({ clearDesiredConnection: false })
-    setActiveSessionId(sessionId, title || history.title)
-    updateChatStore({
+    setActiveSession(sessionId, {
+      activeSessionTitle: history.title || title,
       messages: history.messages,
+      pendingSessionId: undefined,
       ...historyMetadataPatch(history),
       isTyping: false,
       hasHydratedActiveSession: true,
@@ -984,19 +1001,24 @@ export async function switchChatSession(sessionId: string, title?: string) {
     }
   } catch (error) {
     if (selection !== sessionSelectionGeneration) return
-    updateChatStore({ isHistoryLoading: false })
+    updateChatStore({ pendingSessionId: undefined })
     console.error("Failed to load session history:", error)
     toast.error(i18n.t("chat.historyOpenFailed"))
+  } finally {
+    if (sessionSelectionRequest === request) sessionSelectionRequest = undefined
   }
 }
 
 export async function newChatSession(projectId?: string) {
+  sessionSelectionRequest?.abort()
+  sessionSelectionRequest = undefined
   sessionSelectionGeneration += 1
   historyGeneration += 1
   disconnectChatInternal({ clearDesiredConnection: false })
-  setActiveSessionId(generateSessionId())
-  updateChatStore({
+  setActiveSession(generateSessionId(), {
+    activeSessionTitle: undefined,
     messages: [],
+    pendingSessionId: undefined,
     isTyping: false,
     hasHydratedActiveSession: true,
     isHistoryLoading: false,
@@ -1067,6 +1089,12 @@ export function initializeChatStore() {
 }
 
 export function teardownChatStore() {
+  if (sessionSelectionRequest) {
+    sessionSelectionGeneration++
+    sessionSelectionRequest.abort()
+    sessionSelectionRequest = undefined
+    updateChatStore({ pendingSessionId: undefined })
+  }
   unsubscribeGateway?.()
   unsubscribeGateway = null
   initialized = false
