@@ -166,6 +166,9 @@ func validateAppliedSkillBody(body, targetSkillName string, allowExtraFrontmatte
 	if strings.TrimSpace(fields["description"]) == "" {
 		return fmt.Errorf("skill frontmatter description is required")
 	}
+	if len(fields["description"]) > skills.MaxDescriptionLength {
+		return fmt.Errorf("skill description exceeds %d bytes", skills.MaxDescriptionLength)
+	}
 	return nil
 }
 

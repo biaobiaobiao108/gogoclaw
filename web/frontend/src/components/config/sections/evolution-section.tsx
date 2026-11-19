@@ -13,6 +13,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 
 import { ConfigSectionCard, type UpdateCoreField } from "./config-section-card"
+import { EvolutionReviewDialog } from "./evolution-review-dialog"
 
 interface EvolutionSectionProps {
   form: CoreConfigForm
@@ -156,6 +157,9 @@ export function EvolutionSection({
           />
         </Field>
       )}
+      <Field label={t("pages.config.evolution_workflow")} layout="setting-row">
+        <EvolutionReviewDialog />
+      </Field>
     </ConfigSectionCard>
   )
 }

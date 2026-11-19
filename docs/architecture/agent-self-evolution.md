@@ -1,47 +1,35 @@
 # Agent Self-Evolution
 
-Agent self-evolution lets GoGoClaw learn from completed turns and turn repeated successful behavior into skill improvements. The runtime is controlled by the top-level `evolution` config block.
-
-## Flow
-
-The hot path runs at the end of an agent turn. When `evolution.enabled` is true, it records a learning record with the turn summary, success state, used skills, tool executions, and session/workspace metadata. Heartbeat turns are skipped.
-
-The cold path groups related task records, checks the configured success threshold, and prepares skill drafts for patterns that have enough evidence. Drafts can target new skills or append/replace/merge existing workspace skills.
-
-The apply path validates generated `SKILL.md` content before writing. Invalid drafts are rejected before a skill directory or file is created.
-
-## Safety Considerations
-
-Evolution creates a persistent feedback loop: user input can become a task record, task records can be clustered into an LLM-generated draft, and an accepted draft can become `SKILL.md` content that is loaded into future agent prompts. Treat generated skill content as prompt-sensitive material, especially in `apply` mode.
-
-The current local scanner is a narrow guardrail, not a complete safety boundary. It rejects structurally invalid drafts and a small set of obvious secret-like substrings, but it does not reliably detect prompt injection, unsafe instructions, or every form of sensitive data. Use `observe` or `draft` when human review is required before skill changes reach disk.
-
-In `apply` mode, accepted drafts can update workspace skills automatically. Existing skills are backed up before replacement, but recovery is manual: an operator must restore the desired backup if an applied skill should be rolled back.
+GoGoClaw can turn recurring task evidence into workspace skill drafts. Self-evolution is disabled by default and is configured under `evolution`.
 
 ## Modes
 
-| Mode | Behavior |
-|------|----------|
-| `observe` | Record learning data only. No cold-path draft generation runs automatically. |
-| `draft` | Record learning data and generate candidate skill drafts when the cold path runs. |
-| `apply` | Generate drafts and allow accepted drafts to update workspace skills. |
+| Mode | Behavior | Use case |
+| --- | --- | --- |
+| `observe` | Records turn outcomes and skill usage. | Collect examples before spending model calls on drafts. |
+| `draft` | Records evidence, clusters tasks, and prepares candidates for review. | Evaluate proposed changes while keeping the live skills stable. |
+| `apply` | Generates the same candidates and enables publication after explicit approval in the console. | Publish a reviewed improvement to the active workspace. |
 
-When `evolution.enabled` is false, `mode` is treated as disabled at runtime.
+## Learning and drafting
 
-## Cold Path Trigger
+The background recorder saves a short goal and output excerpt, the turn status, used skills, and tool names and outcomes. Heartbeat turns are ignored. Drafting evaluates eligible records in batches. A finished turn supplies an execution status. A separate model decision determines whether it achieved the goal. Decision results are cached, a failed judge request leaves the result unknown, and failed turns can count against a cluster even when they produced no final text.
 
-`cold_path_trigger` only matters in `draft` and `apply` modes.
+Related cases have to meet the configured evidence count and success threshold. New failures update the success rate of matching patterns. Changes to the evidence block publication of older candidates. Once a pattern meets the threshold, a valid new revision supersedes the earlier candidate and retains its history.
 
-| Trigger | Behavior |
-|---------|----------|
-| `after_turn` | Run the cold path after eligible turns. |
-| `scheduled` | Run the cold path at configured `cold_path_times`. |
-| `manual` | Do not run automatically. There is no user-facing Web/API/CLI trigger yet; code can still invoke `Runtime.RunColdPathOnce`. |
+`after_turn` schedules drafting after a turn, `scheduled` uses the configured local `HH:MM` times, and `manual` waits for a user request. In Draft or Apply mode, open **Settings → Evolution → Evolution drafts** and select **Generate drafts** to run it on demand.
 
-`cold_path_times` uses `HH:MM` strings and is ignored unless the trigger is `scheduled`.
+## Review and recovery
 
-## State
+The console shows evidence, the rendered `SKILL.md` diff, and any name collision with a global or built-in skill. Generated instructions become part of the agent's future context after publication, so review them before approving the draft. The local scan checks document structure and familiar secret patterns.
 
-By default, evolution state is stored under the workspace. `state_dir` can redirect that state to another directory. The state includes learning records, clustered pattern records, drafts, and skill profiles.
+Apply mode requires explicit approval for each draft. Approval binds the reviewed content to the target version, and the file is checked again before replacement. If the target has changed, refresh the preview to review against the updated skill. In Draft and Apply modes, candidates can be rejected.
 
-For user-facing configuration fields, see the [Configuration Guide](../guides/configuration.md#agent-self-evolution).
+Publication keeps a backup of the previous file. **Roll back version** restores that file, or removes the file created by the selected publication. Rollback checks for later changes and remains available when evolution is disabled. For versions published before this workflow, restore the legacy backup manually. Idle generated skills can be listed as archive suggestions. Evolution leaves those skills on disk until you take action.
+
+## Storage and upgrades
+
+Records, patterns, drafts, and profiles are stored in the workspace's `sessions/sessions.db`. At first use, GoGoClaw imports legacy JSONL records, draft JSON, and profile JSON from the configured evolution directory in a single transaction. The originals stay in place, and existing SQLite entries take precedence.
+
+`state_dir` locates the legacy input and the `backups` directory. It defaults to `<workspace>/state/evolution`. Include the database and the backup directory in workspace backups if you want to retain rollback support.
+
+See the [Configuration Guide](../guides/configuration.md#agent-self-evolution) for the available fields.

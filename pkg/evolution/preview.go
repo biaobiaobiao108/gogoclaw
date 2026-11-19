@@ -2,7 +2,6 @@ package evolution
 
 import (
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -32,7 +31,10 @@ func BuildDraftPreview(workspace string, draft SkillDraft) (DraftPreview, error)
 }
 
 func loadCurrentSkillBody(workspace, skillName string) (string, bool, error) {
-	skillPath := filepath.Join(workspace, "skills", skillName, "SKILL.md")
+	skillPath, err := skillDocumentPath(workspace, skillName)
+	if err != nil {
+		return "", false, err
+	}
 	data, err := os.ReadFile(skillPath)
 	if os.IsNotExist(err) {
 		return "", false, nil

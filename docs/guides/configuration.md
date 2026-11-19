@@ -71,7 +71,7 @@ GoGoClaw stores data in your configured workspace (default: `~/.gogoclaw/workspa
 
 ### Agent Self-Evolution
 
-The `evolution` block controls GoGoClaw's self-evolution runtime. When enabled, the agent records completed turns as learning records. In higher modes it can group repeated successful patterns, generate skill drafts, and optionally apply accepted drafts into workspace skills.
+The `evolution` block controls how GoGoClaw records turn outcomes and proposes improvements to workspace skills.
 
 ```json
 {
@@ -89,15 +89,15 @@ The `evolution` block controls GoGoClaw's self-evolution runtime. When enabled, 
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `enabled` | `false` | Enables learning-record capture for completed agent turns. Heartbeat turns are ignored. |
-| `mode` | `observe` | `observe` records data only. `draft` can generate candidate skill drafts. `apply` can apply accepted drafts to workspace skills. |
-| `state_dir` | `""` | Optional directory for evolution state. Leave empty to use the default under the workspace. |
-| `min_task_count` | `2` | Minimum related task records required before a pattern is eligible for draft generation. |
+| `enabled` | `false` | Records turn outcomes. Heartbeat turns are ignored. |
+| `mode` | `observe` | `observe` records evidence. `draft` generates candidates. `apply` also allows publishing explicitly approved candidates. |
+| `state_dir` | `""` | Directory for skill backups and legacy import. Defaults to `<workspace>/state/evolution`. Current learning state is stored in `sessions/sessions.db`. |
+| `min_task_count` | `2` | Minimum successful related tasks required for a new pattern. |
 | `min_success_ratio` | `0.7` | Minimum success ratio for a task cluster. Use a value greater than `0` and up to `1`. |
-| `cold_path_trigger` | `after_turn` | Runs draft generation `after_turn`, on a `scheduled` cadence, or disables automatic cold-path runs when set to `manual`. There is no user-facing manual trigger yet. Applies only in `draft` and `apply` modes. |
+| `cold_path_trigger` | `after_turn` | Choose automatic runs after turns, a schedule, or manual runs from the console. Applies in `draft` and `apply`. |
 | `cold_path_times` | `[]` | Scheduled run times used when `cold_path_trigger` is `scheduled`, written as `HH:MM` strings. |
 
-Use `observe` first if you want to inspect learning records without generating skill changes. Use `draft` when you want GoGoClaw to prepare reviewable improvements. Use `apply` only when you are comfortable letting accepted drafts update workspace skills.
+Start with `observe` to collect examples. Use `draft` to evaluate proposed changes, then switch to `apply` when you are ready to publish a reviewed candidate. Open **Settings → Evolution → Evolution drafts** to run drafting, review changes, or roll back a publication. See [Agent Self-Evolution](../architecture/agent-self-evolution.md).
 
 ### Request Context Policy
 

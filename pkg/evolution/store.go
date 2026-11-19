@@ -137,6 +137,70 @@ func (s *Store) LoadTaskRecords() ([]LearningRecord, error) {
 	return mergeLearningRecordsByID(nil, records), nil
 }
 
+func (s *Store) loadPendingTasks(ctx context.Context, limit int) ([]LearningRecord, error) {
+	db, err := memory.NewSQLiteStore(filepath.Join(s.paths.Workspace, "sessions"))
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	payloads, err := db.ListPendingEvolutionTasks(ctx, s.stateKey(s.paths.TaskRecords), s.paths.Workspace, limit)
+	if err != nil {
+		return nil, err
+	}
+	return decodeLearningRecords(payloads)
+}
+
+func (s *Store) loadTaskEvidence(ctx context.Context, ids []string) ([]LearningRecord, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	data, err := json.Marshal(ids)
+	if err != nil {
+		return nil, err
+	}
+	db, err := memory.NewSQLiteStore(filepath.Join(s.paths.Workspace, "sessions"))
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	payloads, err := db.ListEvolutionTasksByIDs(ctx, s.stateKey(s.paths.TaskRecords), s.paths.Workspace, data)
+	if err != nil {
+		return nil, err
+	}
+	return decodeLearningRecords(payloads)
+}
+
+func (s *Store) SaveTaskDecisions(records []LearningRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	type decision struct {
+		ID           string `json:"id"`
+		Workspace    string `json:"workspace"`
+		ConsideredAt any    `json:"considered_at"`
+		JudgedBy     string `json:"judged_by"`
+		Success      *bool  `json:"success"`
+	}
+	updates := make([]decision, 0, len(records))
+	for _, record := range records {
+		updates = append(updates, decision{
+			record.ID, record.WorkspaceID, record.ConsideredAt, record.JudgedBy, record.JudgedSuccess,
+		})
+	}
+	data, err := json.Marshal(updates)
+	if err != nil {
+		return err
+	}
+	unlock := lockStoreFile(s.paths.TaskRecords)
+	defer unlock()
+	db, err := memory.NewSQLiteStore(filepath.Join(s.paths.Workspace, "sessions"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.UpdateEvolutionDecisions(s.stateKey(s.paths.TaskRecords), data)
+}
+
 func (s *Store) LoadPatternRecords() ([]LearningRecord, error) {
 	records, err := s.loadRecordsFromPath(s.paths.PatternRecords)
 	if err != nil {
@@ -155,6 +219,10 @@ func (s *Store) loadRecordsFromPath(path string) ([]LearningRecord, error) {
 	if err != nil {
 		return nil, err
 	}
+	return decodeLearningRecords(payloads)
+}
+
+func decodeLearningRecords(payloads [][]byte) ([]LearningRecord, error) {
 	records := make([]LearningRecord, 0, len(payloads))
 	for _, payload := range payloads {
 		var record LearningRecord
@@ -189,39 +257,20 @@ func (s *Store) MarkTaskRecordsClustered(ids []string) error {
 	unlock := lockStoreFile(s.paths.TaskRecords)
 	defer unlock()
 
-	current, err := s.loadRecordsFromPath(s.paths.TaskRecords)
+	keys := make([]string, 0, len(target))
+	for id := range target {
+		keys = append(keys, id)
+	}
+	data, err := json.Marshal(keys)
 	if err != nil {
 		return err
 	}
-	records := mergeLearningRecordsByID(nil, current)
-
-	hasTargetRecordInWorkspace := make(map[string]bool, len(target))
-	if strings.TrimSpace(s.paths.Workspace) != "" {
-		for _, record := range records {
-			if _, ok := target[record.ID]; !ok {
-				continue
-			}
-			if record.WorkspaceID == s.paths.Workspace {
-				hasTargetRecordInWorkspace[record.ID] = true
-			}
-		}
+	db, err := memory.NewSQLiteStore(filepath.Join(s.paths.Workspace, "sessions"))
+	if err != nil {
+		return err
 	}
-
-	changed := false
-	for i := range records {
-		if _, ok := target[records[i].ID]; !ok {
-			continue
-		}
-		if hasTargetRecordInWorkspace[records[i].ID] && records[i].WorkspaceID != s.paths.Workspace {
-			continue
-		}
-		records[i].Status = RecordStatus("clustered")
-		changed = true
-	}
-	if !changed {
-		return nil
-	}
-	return s.saveRecordsLocked(s.paths.TaskRecords, records)
+	defer db.Close()
+	return db.MarkEvolutionTasksClustered(s.stateKey(s.paths.TaskRecords), s.paths.Workspace, data)
 }
 
 func (s *Store) SavePatternRecords(records []LearningRecord) error {

@@ -19,38 +19,30 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/skills"
 )
 
-var ErrApplyDraftFailed = errors.New("apply draft failed")
-
 type RuntimeOptions struct {
 	Config              config.EvolutionConfig
 	Now                 func() time.Time
 	Store               *Store
-	Organizer           *Organizer
 	PatternClusterer    PatternClusterer
 	SuccessJudge        SuccessJudge
 	SkillsRecaller      *SkillsRecaller
 	DraftGenerator      DraftGenerator
 	GeneratorFactory    func(workspace string) DraftGenerator
 	SuccessJudgeFactory func(workspace string) SuccessJudge
-	Applier             *Applier
-	ApplierFactory      func(workspace string) *Applier
 }
 
 type Runtime struct {
 	cfg                 config.EvolutionConfig
 	mu                  sync.Mutex
 	now                 func() time.Time
-	writer              *CaseWriter
+	imported            sync.Map
 	store               *Store
-	organizer           *Organizer
 	patternClusterer    PatternClusterer
 	successJudge        SuccessJudge
 	skillsRecaller      *SkillsRecaller
 	draftGenerator      DraftGenerator
 	generatorFactory    func(workspace string) DraftGenerator
 	successJudgeFactory func(workspace string) SuccessJudge
-	applier             *Applier
-	applierFactory      func(workspace string) *Applier
 }
 
 type TurnCaseInput struct {
@@ -76,15 +68,6 @@ func NewRuntime(opts RuntimeOptions) (*Runtime, error) {
 		now = time.Now
 	}
 
-	organizer := opts.Organizer
-	if organizer == nil {
-		organizer = NewOrganizer(OrganizerOptions{
-			MinCaseCount:   opts.Config.EffectiveMinTaskCount(),
-			MinSuccessRate: opts.Config.EffectiveMinSuccessRatio(),
-			Now:            now,
-		})
-	}
-
 	patternClusterer := opts.PatternClusterer
 	if patternClusterer == nil {
 		patternClusterer = NewHeuristicPatternClusterer(opts.Config.EffectiveMinTaskCount(), now)
@@ -94,15 +77,12 @@ func NewRuntime(opts RuntimeOptions) (*Runtime, error) {
 		cfg:                 opts.Config,
 		now:                 now,
 		store:               opts.Store,
-		organizer:           organizer,
 		patternClusterer:    patternClusterer,
 		successJudge:        opts.SuccessJudge,
 		skillsRecaller:      opts.SkillsRecaller,
 		draftGenerator:      opts.DraftGenerator,
 		generatorFactory:    opts.GeneratorFactory,
 		successJudgeFactory: opts.SuccessJudgeFactory,
-		applier:             opts.Applier,
-		applierFactory:      opts.ApplierFactory,
 	}, nil
 }
 
@@ -126,19 +106,16 @@ func (rt *Runtime) FinalizeTurn(ctx context.Context, input TurnCaseInput) error 
 		FinalOutput:    summarizeText(input.FinalContent, 1200),
 		Status:         RecordStatus("new"),
 		Success:        &success,
+		TurnStatus:     input.Status,
+		ToolExecutions: learningToolOutcomes(input.ToolExecutions),
 		UsedSkillNames: append([]string(nil), usedSkillNames...),
 	}
 
-	paths := NewPaths(input.Workspace, rt.cfg.StateDir)
-
-	rt.mu.Lock()
-	if rt.writer == nil || rt.writer.paths.RootDir != paths.RootDir {
-		rt.writer = NewCaseWriter(paths)
+	store := rt.storeForWorkspace(input.Workspace)
+	if err := rt.importWorkspace(store); err != nil {
+		return err
 	}
-	writer := rt.writer
-	rt.mu.Unlock()
-
-	if err := writer.AppendCase(ctx, record); err != nil {
+	if err := store.AppendTaskRecord(ctx, record); err != nil {
 		return err
 	}
 
@@ -259,8 +236,18 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 		"run_id":    runID,
 	})
 
+	unlock, err := rt.lockWorkspace(workspace)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	store := rt.storeForWorkspace(workspace)
-	taskRecords, err := store.LoadTaskRecords()
+	if err := rt.importWorkspace(store); err != nil {
+		return err
+	}
+	evidenceLimit := max(maxColdPathEvidence, rt.cfg.EffectiveMinTaskCount())
+	taskRecords, err := store.loadPendingTasks(ctx, evidenceLimit)
 	if err != nil {
 		return err
 	}
@@ -291,6 +278,9 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 			evidenceRecordsForOrganizer,
 			recordsForOrganizer,
 		)
+		if err := store.SaveTaskDecisions(evidenceRecordsForOrganizer); err != nil {
+			return err
+		}
 		admittedCount = countTaskLearningRecords(recordsForOrganizer)
 		logger.DebugCF("evolution", "Admitted task records for cold path", map[string]any{
 			"workspace":       workspace,
@@ -301,7 +291,9 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 		})
 		var rules []LearningRecord
 		var clusteredTaskIDs []string
-		if clusterer, ok := rt.patternClusterer.(evidencePatternClusterer); ok {
+		if len(evidenceRecordsForOrganizer) == 0 || (len(patternRecords) == 0 && admittedCount < rt.cfg.EffectiveMinTaskCount()) {
+			// Keep gathering evidence until there are enough successful samples.
+		} else if clusterer, ok := rt.patternClusterer.(evidencePatternClusterer); ok {
 			rules, clusteredTaskIDs, err = clusterer.BuildPatternsWithEvidence(
 				ctx,
 				workspace,
@@ -310,7 +302,7 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 				patternRecords,
 				rt.cfg.EffectiveMinSuccessRatio(),
 			)
-		} else {
+		} else if admittedCount > 0 {
 			rules, clusteredTaskIDs, err = rt.patternClusterer.BuildPatterns(
 				ctx,
 				workspace,
@@ -319,6 +311,9 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 			)
 		}
 		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		newRuleCount = countNewPatterns(patternRecords, rules, workspace)
@@ -350,13 +345,11 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 			"workspace": workspace,
 			"run_id":    runID,
 		})
-		return rt.runLifecycleMaintenance(workspace, store, runID)
+		return nil
 	}
 
 	recaller := rt.skillsRecallerForWorkspace(workspace)
-	applier := rt.applierForWorkspace(workspace)
 	readyRules := filterReadyRules(patternRecords, workspace)
-	readyRules = enrichReadyRulesForDrafts(readyRules, taskRecords)
 	if len(readyRules) == 0 {
 		logger.DebugCF("evolution", "Finished cold path run without ready patterns", map[string]any{
 			"workspace":      workspace,
@@ -365,105 +358,34 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 			"admitted_tasks": admittedCount,
 			"run_id":         runID,
 		})
-		return rt.runLifecycleMaintenance(workspace, store, runID)
+		return nil
 	}
 
 	existingDrafts, err := store.LoadDrafts()
 	if err != nil {
 		return err
 	}
-	readyRuleByID := make(map[string]LearningRecord, len(readyRules))
-	for _, rule := range readyRules {
-		readyRuleByID[rule.ID] = rule
-	}
-	appliedExistingDrafts := 0
-	changedExistingDrafts := false
-	for _, draft := range existingDrafts {
-		if draft.WorkspaceID != workspace || draft.Status != DraftStatusCandidate {
-			continue
-		}
-		rule, ok := readyRuleByID[draft.SourceRecordID]
-		if !ok {
-			logger.DebugCF(
-				"evolution",
-				"Skipped existing candidate draft because its source pattern is not ready",
-				map[string]any{
-					"workspace":        workspace,
-					"draft_id":         draft.ID,
-					"source_record_id": draft.SourceRecordID,
-					"run_id":           runID,
-				},
-			)
-			continue
-		}
-		matches, recallErr := recaller.RecallSimilarSkills(rule)
-		if recallErr != nil {
-			return recallErr
-		}
-		draft.MatchedSkillRefs = collectSkillRefs(matches)
-		var normalizationNotes []string
-		evidence := draftEvidenceForRule(rule, taskRecords)
-		draft, normalizationNotes = rt.normalizeDraftForWorkspace(workspace, rule, matches, evidence, draft)
-		review := ReviewDraft(draft)
-		draft.Status = review.Status
-		draft.ReviewNotes = appendUniqueStrings(draft.ReviewNotes, append(review.ReviewNotes, normalizationNotes...)...)
-		draft.ScanFindings = appendUniqueStrings(draft.ScanFindings, review.Findings...)
-		changedExistingDrafts = true
-		if draft.Status != DraftStatusCandidate || mode != "apply" || applier == nil {
-			if saveErr := store.SaveDrafts([]SkillDraft{draft}); saveErr != nil {
-				return saveErr
-			}
-			continue
-		}
-		updatedDraft, applyErr := rt.applyCandidateDraft(ctx, workspace, store, applier, draft, runID)
-		if applyErr != nil {
-			return applyErr
-		}
-		if updatedDraft.Status == DraftStatusAccepted {
-			appliedExistingDrafts++
-			changedExistingDrafts = true
-		}
-	}
-	if changedExistingDrafts {
-		existingDrafts, err = store.LoadDrafts()
-		if err != nil {
-			return err
-		}
-	}
-	existingBySource := existingDraftSourceSet(existingDrafts, workspace)
-	logger.DebugCF("evolution", "Selected ready patterns for drafting", map[string]any{
-		"workspace":            workspace,
-		"ready_patterns":       len(readyRules),
-		"existing_draft_count": len(existingBySource),
-		"applied_existing":     appliedExistingDrafts,
-		"ready_pattern_ids":    joinRecordIDs(readyRules),
-		"ready_patterns_info":  summarizePatternRecords(readyRules),
-		"run_id":               runID,
-	})
-
 	processedRules := 0
+	const maxDraftsPerRun = 8
 	for _, rule := range readyRules {
+		if processedRules == maxDraftsPerRun {
+			break
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 
-		if _, exists := existingBySource[rule.ID]; exists {
-			logger.DebugCF(
-				"evolution",
-				"Skipped pattern because a non-quarantined draft already exists",
-				map[string]any{
-					"workspace":    workspace,
-					"pattern_id":   rule.ID,
-					"pattern_info": summarizePatternRecord(rule),
-					"run_id":       runID,
-				},
-			)
+		version := evidenceVersion(rule)
+		if hasDraftForEvidence(existingDrafts, workspace, rule.ID, version, rule.UpdatedAt) {
 			continue
 		}
-
-		evidence := draftEvidenceForRule(rule, taskRecords)
+		evidenceTasks, err := store.loadTaskEvidence(ctx, recentEvidenceIDs(patternEvidenceIDs(rule)))
+		if err != nil {
+			return err
+		}
+		evidence := draftEvidenceForRule(rule, evidenceTasks)
 		rule = enrichRuleWithDraftEvidence(rule, evidence)
 		matches, err := recaller.RecallSimilarSkills(rule)
 		if err != nil {
@@ -481,40 +403,39 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 		if err != nil {
 			return err
 		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 
+		draft.ID = "draft-" + rule.ID + "-" + version[:12]
+		draft.EvidenceVersion = version
+		draft.EvidenceIDs = append([]string(nil), recentEvidenceIDs(patternEvidenceIDs(rule))...)
 		draft = rt.finalizeDraft(workspace, rule, matches, evidence, draft)
-		draftSaved := false
-		logger.DebugCF("evolution", "Finalized skill draft", map[string]any{
-			"workspace":    workspace,
-			"pattern_id":   rule.ID,
-			"draft_id":     draft.ID,
-			"target_skill": draft.TargetSkillName,
-			"change_kind":  string(draft.ChangeKind),
-			"status":       string(draft.Status),
-			"run_id":       runID,
-		})
-		if mode == "apply" && applier != nil && draft.Status == DraftStatusCandidate {
-			var err error
-			draft, err = rt.applyCandidateDraft(ctx, workspace, store, applier, draft, runID)
-			if err != nil {
-				return err
+		if draft.Status == DraftStatusCandidate {
+			current, exists, loadErr := loadCurrentSkillBody(workspace, draft.TargetSkillName)
+			if loadErr == nil {
+				_, loadErr = checkedRenderedDraft(draft, current, exists)
 			}
-			draftSaved = true
-		}
-
-		if !draftSaved {
-			if err := store.SaveDrafts([]SkillDraft{draft}); err != nil {
-				return err
+			if loadErr != nil {
+				draft.Status = DraftStatusQuarantined
+				draft.ScanFindings = append(draft.ScanFindings, loadErr.Error())
+			} else {
+				draft.BaseVersion = skillVersion(current, exists)
 			}
 		}
-		logger.DebugCF("evolution", "Saved skill draft", map[string]any{
-			"workspace":    workspace,
-			"draft_id":     draft.ID,
-			"target_skill": draft.TargetSkillName,
-			"status":       string(draft.Status),
-			"run_id":       runID,
-		})
-		existingBySource[rule.ID] = struct{}{}
+		changes := []SkillDraft{draft}
+		if draft.Status == DraftStatusCandidate {
+			for _, previous := range existingDrafts {
+				if previous.WorkspaceID == workspace && previous.SourceRecordID == rule.ID &&
+					previous.Status == DraftStatusCandidate && previous.PublishedVersion == "" && previous.ID != draft.ID {
+					previous.Status = DraftStatusSuperseded
+					changes = append(changes, previous)
+				}
+			}
+		}
+		if err := store.SaveDrafts(changes); err != nil {
+			return err
+		}
 		processedRules++
 	}
 
@@ -525,54 +446,85 @@ func (rt *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error 
 		"new_patterns":       newRuleCount,
 		"run_id":             runID,
 	})
-	return rt.runLifecycleMaintenance(workspace, store, runID)
+	return nil
 }
+
+const maxColdPathEvidence = 48
 
 func (rt *Runtime) recordsForColdPathInputs(
 	ctx context.Context,
 	workspace string,
 	records []LearningRecord,
 ) ([]LearningRecord, []LearningRecord, error) {
-	admitted := make([]LearningRecord, 0, len(records))
-	evidence := make([]LearningRecord, 0, len(records))
-	judge := rt.successJudgeForWorkspace(workspace)
-
+	var candidates []LearningRecord
 	for _, record := range records {
-		if !isTaskRecordKind(record.Kind) || record.WorkspaceID != workspace {
-			continue
+		if record.WorkspaceID == workspace && coldPathEvidenceRejectReason(record) == "" {
+			candidates = append(candidates, record)
 		}
-		if reason := coldPathEvidenceRejectReason(record); reason != "" {
-			logger.DebugCF("evolution", "Rejected task record for cold path", map[string]any{
-				"workspace": workspace,
-				"record_id": record.ID,
-				"reason":    reason,
-			})
-			continue
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		a, b := candidates[i], candidates[j]
+		if (a.ConsideredAt == nil) != (b.ConsideredAt == nil) {
+			return a.ConsideredAt == nil
 		}
-
-		evidenceRecord := record
+		if a.ConsideredAt != nil && !a.ConsideredAt.Equal(*b.ConsideredAt) {
+			return a.ConsideredAt.Before(*b.ConsideredAt)
+		}
+		return a.CreatedAt.Before(b.CreatedAt)
+	})
+	admitted := make([]LearningRecord, 0, len(candidates))
+	evidence := make([]LearningRecord, 0, len(candidates))
+	judge := rt.successJudgeForWorkspace(workspace)
+	judgeKey := ""
+	if keyed, ok := judge.(interface{ cacheKey() string }); ok {
+		judgeKey = keyed.cacheKey()
+	}
+	now := rt.now().UTC()
+	judgeUnavailable := false
+	for _, record := range candidates {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+		record.ConsideredAt = &now
+		if record.TurnStatus != "" {
+			completed := record.TurnStatus == "completed"
+			record.Success = &completed
+		}
 		if record.Success != nil && *record.Success && judge != nil {
-			decision, err := judge.JudgeTaskRecord(ctx, record)
-			if err != nil {
-				return nil, nil, err
-			}
-			judgedSuccess := decision.Success
-			evidenceRecord.Success = &judgedSuccess
-			if !decision.Success {
-				logger.DebugCF("evolution", "Rejected task record by success judge", map[string]any{
-					"workspace": workspace,
-					"record_id": record.ID,
-					"reason":    strings.TrimSpace(decision.Reason),
-				})
+			switch {
+			case judgeKey != "" && record.JudgedBy == judgeKey && record.JudgedSuccess != nil:
+				record.Success = record.JudgedSuccess
+			case judgeUnavailable:
+				record.Success = nil
+			default:
+				decision, err := judge.JudgeTaskRecord(ctx, record)
+				if err != nil {
+					return nil, nil, err
+				}
+				if decision.Deferred {
+					judgeUnavailable = true
+					record.Success = nil
+				} else {
+					record.Success = &decision.Success
+					record.JudgedSuccess = record.Success
+					record.JudgedBy = judgeKey
+				}
 			}
 		}
-		evidence = append(evidence, evidenceRecord)
-		if evidenceRecord.Success == nil || !*evidenceRecord.Success {
-			continue
+		evidence = append(evidence, record)
+		if record.Success != nil && *record.Success {
+			admitted = append(admitted, record)
 		}
-		admitted = append(admitted, evidenceRecord)
 	}
 	return admitted, evidence, nil
+}
+
+func learningToolOutcomes(executions []ToolExecutionRecord) []ToolExecutionRecord {
+	var outcomes []ToolExecutionRecord
+	for _, execution := range executions[:min(len(executions), 16)] {
+		outcomes = append(outcomes, ToolExecutionRecord{Name: execution.Name, Success: execution.Success})
+	}
+	return outcomes
 }
 
 func (rt *Runtime) filterRecordsByMinSuccessRatio(
@@ -676,8 +628,8 @@ func coldPathEvidenceRejectReason(record LearningRecord) string {
 	if strings.TrimSpace(record.Summary) == "" {
 		return "missing summary"
 	}
-	if strings.TrimSpace(record.FinalOutput) == "" {
-		return "missing final output"
+	if *record.Success && strings.TrimSpace(record.FinalOutput) == "" && len(record.ToolExecutions) == 0 {
+		return "missing completion evidence"
 	}
 	return ""
 }
@@ -722,15 +674,6 @@ func (rt *Runtime) successJudgeForWorkspace(workspace string) SuccessJudge {
 		return rt.successJudge
 	}
 	return &HeuristicSuccessJudge{}
-}
-
-func (rt *Runtime) applierForWorkspace(workspace string) *Applier {
-	if rt.applierFactory != nil {
-		if applier := rt.applierFactory(workspace); applier != nil {
-			return applier
-		}
-	}
-	return rt.applier
 }
 
 func (rt *Runtime) finalizeDraft(
@@ -1124,37 +1067,6 @@ func countTaskLearningRecords(records []LearningRecord) int {
 	return count
 }
 
-func (rt *Runtime) runLifecycleMaintenance(workspace string, store *Store, runID string) error {
-	if rt == nil || store == nil || workspace == "" {
-		return nil
-	}
-
-	paths := NewPaths(workspace, rt.cfg.StateDir)
-	logger.DebugCF("evolution", "Started lifecycle maintenance", map[string]any{
-		"workspace": workspace,
-		"run_id":    runID,
-	})
-
-	summary, err := RunLifecycleOnce(store, paths, workspace, rt.now())
-	if err != nil {
-		logger.WarnCF("evolution", "Lifecycle maintenance failed", map[string]any{
-			"workspace": workspace,
-			"run_id":    runID,
-			"error":     err.Error(),
-		})
-		return err
-	}
-
-	logger.DebugCF("evolution", "Finished lifecycle maintenance", map[string]any{
-		"workspace":             workspace,
-		"run_id":                runID,
-		"evaluated_profiles":    summary.EvaluatedProfiles,
-		"transitioned_profiles": summary.TransitionedProfiles,
-		"deleted_skills":        summary.DeletedSkills,
-	})
-	return nil
-}
-
 func joinRecordIDs(records []LearningRecord) string {
 	if len(records) == 0 {
 		return ""
@@ -1197,16 +1109,9 @@ func summarizePatternRecord(record LearningRecord) string {
 	return fmt.Sprintf("%s[%s]", label, path)
 }
 
-func enrichReadyRulesForDrafts(rules, taskRecords []LearningRecord) []LearningRecord {
-	if len(rules) == 0 || len(taskRecords) == 0 {
-		return rules
-	}
-	out := make([]LearningRecord, 0, len(rules))
-	for _, rule := range rules {
-		evidence := draftEvidenceForRule(rule, taskRecords)
-		out = append(out, enrichRuleWithDraftEvidence(rule, evidence))
-	}
-	return out
+func recentEvidenceIDs(ids []string) []string {
+	const maxEvidenceSamples = 12
+	return ids[max(0, len(ids)-maxEvidenceSamples):]
 }
 
 func draftEvidenceForRule(rule LearningRecord, taskRecords []LearningRecord) DraftEvidence {
@@ -1324,140 +1229,6 @@ func filterReadyRules(records []LearningRecord, workspace string) []LearningReco
 	return out
 }
 
-func existingDraftSourceSet(drafts []SkillDraft, workspace string) map[string]struct{} {
-	out := make(map[string]struct{}, len(drafts))
-	for _, draft := range drafts {
-		if draft.WorkspaceID != workspace || draft.SourceRecordID == "" {
-			continue
-		}
-		if draft.Status == DraftStatusQuarantined {
-			continue
-		}
-		out[draft.SourceRecordID] = struct{}{}
-	}
-	return out
-}
-
-func (rt *Runtime) saveAppliedProfile(store *Store, workspace string, draft SkillDraft) error {
-	now := rt.now()
-
-	return SaveAppliedProfile(store, workspace, draft, now)
-}
-
-func (rt *Runtime) applyCandidateDraft(
-	ctx context.Context,
-	workspace string,
-	store *Store,
-	applier *Applier,
-	draft SkillDraft,
-	runID string,
-) (SkillDraft, error) {
-	logger.InfoCF("evolution", "Applying skill draft", map[string]any{
-		"workspace":    workspace,
-		"draft_id":     draft.ID,
-		"target_skill": draft.TargetSkillName,
-		"change_kind":  string(draft.ChangeKind),
-		"run_id":       runID,
-	})
-	rollbackApply, err := applier.applyDraftWithRollback(ctx, workspace, draft)
-	if err != nil {
-		logger.WarnCF("evolution", "Skill draft apply failed", map[string]any{
-			"workspace":    workspace,
-			"draft_id":     draft.ID,
-			"target_skill": draft.TargetSkillName,
-			"error":        err.Error(),
-			"run_id":       runID,
-		})
-		draft.Status = DraftStatusQuarantined
-		draft.ScanFindings = appendUniqueStrings(draft.ScanFindings, fmt.Sprintf("apply failed: %v", err))
-		if auditErr := rt.recordRollbackAudit(store, draft, err); auditErr != nil {
-			draft.ScanFindings = appendUniqueStrings(
-				draft.ScanFindings,
-				fmt.Sprintf("rollback audit failed: %v", auditErr),
-			)
-			if saveErr := store.SaveDrafts([]SkillDraft{draft}); saveErr != nil {
-				return draft, errorsJoin(fmt.Errorf("%w: %v", ErrApplyDraftFailed, err), auditErr, saveErr)
-			}
-			return draft, errorsJoin(fmt.Errorf("%w: %v", ErrApplyDraftFailed, err), auditErr)
-		}
-		if saveErr := store.SaveDrafts([]SkillDraft{draft}); saveErr != nil {
-			return draft, errorsJoin(fmt.Errorf("%w: %v", ErrApplyDraftFailed, err), saveErr)
-		}
-		return draft, fmt.Errorf("%w: %v", ErrApplyDraftFailed, err)
-	}
-
-	draft.Status = DraftStatusAccepted
-	if saveErr := store.SaveDrafts([]SkillDraft{draft}); saveErr != nil {
-		logger.WarnCF("evolution", "Skill draft save failed after apply", map[string]any{
-			"workspace":    workspace,
-			"draft_id":     draft.ID,
-			"target_skill": draft.TargetSkillName,
-			"error":        saveErr.Error(),
-			"run_id":       runID,
-		})
-		if rollbackErr := rollbackApply(); rollbackErr != nil {
-			return draft, errorsJoin(fmt.Errorf("%w: %v", ErrApplyDraftFailed, saveErr), rollbackErr)
-		}
-		return draft, fmt.Errorf("%w: %v", ErrApplyDraftFailed, saveErr)
-	}
-
-	if err := rt.saveAppliedProfile(store, workspace, draft); err != nil {
-		logger.WarnCF("evolution", "Skill profile save failed after apply", map[string]any{
-			"workspace":    workspace,
-			"draft_id":     draft.ID,
-			"target_skill": draft.TargetSkillName,
-			"error":        err.Error(),
-			"run_id":       runID,
-		})
-		draft.Status = DraftStatusQuarantined
-		draft.ScanFindings = appendUniqueStrings(draft.ScanFindings, fmt.Sprintf("profile save failed: %v", err))
-		if rollbackErr := rollbackApply(); rollbackErr != nil {
-			draft.ScanFindings = appendUniqueStrings(
-				draft.ScanFindings,
-				fmt.Sprintf("apply rollback failed: %v", rollbackErr),
-			)
-			if saveErr := store.SaveDrafts([]SkillDraft{draft}); saveErr != nil {
-				return draft, errorsJoin(fmt.Errorf("%w: %v", ErrApplyDraftFailed, err), rollbackErr, saveErr)
-			}
-			return draft, errorsJoin(fmt.Errorf("%w: %v", ErrApplyDraftFailed, err), rollbackErr)
-		}
-		if saveErr := store.SaveDrafts([]SkillDraft{draft}); saveErr != nil {
-			return draft, errorsJoin(fmt.Errorf("%w: %v", ErrApplyDraftFailed, err), saveErr)
-		}
-		return draft, fmt.Errorf("%w: %v", ErrApplyDraftFailed, err)
-	}
-	logger.InfoCF("evolution", "Applied skill draft successfully", map[string]any{
-		"workspace":    workspace,
-		"draft_id":     draft.ID,
-		"target_skill": draft.TargetSkillName,
-		"run_id":       runID,
-	})
-	return draft, nil
-}
-
-func (rt *Runtime) recordRollbackAudit(store *Store, draft SkillDraft, applyErr error) error {
-	now := rt.now()
-	return store.UpdateProfile(
-		draft.WorkspaceID,
-		draft.TargetSkillName,
-		func(profile *SkillProfile, exists bool) error {
-			if !exists {
-				return nil
-			}
-			profile.VersionHistory = append(profile.VersionHistory, SkillVersionEntry{
-				Version:        profile.CurrentVersion,
-				Action:         "rollback",
-				Timestamp:      now,
-				DraftID:        draft.ID,
-				Summary:        fmt.Sprintf("Rolled back failed draft apply: %s", draft.HumanSummary),
-				Rollback:       true,
-				RollbackReason: applyErr.Error(),
-			})
-			return nil
-		},
-	)
-}
-
 func profileOrigin(origin string) string {
 	if origin == "manual" {
 		return origin
@@ -1567,13 +1338,10 @@ func (rt *Runtime) touchSkillProfile(store *Store, input TurnCaseInput, skillNam
 }
 
 func nextRetentionScore(current float64, success bool) float64 {
-	increment := 0.05
+	increment := -0.1
 	if success {
 		increment = 0.1
 	}
 	current += increment
-	if current > 1 {
-		return 1
-	}
-	return current
+	return min(1, max(0, current))
 }

@@ -308,7 +308,7 @@ func TestDefaultConfig_EvolutionDefaults(t *testing.T) {
 	assert.Equal(t, 2, cfg.Evolution.EffectiveMinTaskCount())
 	assert.Equal(t, 0.7, cfg.Evolution.EffectiveMinSuccessRatio())
 	assert.False(t, cfg.Evolution.RunsColdPathAutomatically())
-	assert.False(t, cfg.Evolution.AutoAppliesDrafts())
+	assert.False(t, cfg.Evolution.AllowsDraftPublication())
 }
 
 func TestEvolutionConfig_EffectiveMode(t *testing.T) {
@@ -391,10 +391,10 @@ func TestEvolutionConfig_EffectiveMode(t *testing.T) {
 
 func TestEvolutionConfig_ModeSemantics(t *testing.T) {
 	tests := []struct {
-		name          string
-		cfg           EvolutionConfig
-		wantRunsCold  bool
-		wantAutoApply bool
+		name            string
+		cfg             EvolutionConfig
+		wantRunsCold    bool
+		wantPublication bool
 	}{
 		{
 			name: "disabled does not run cold path",
@@ -402,8 +402,8 @@ func TestEvolutionConfig_ModeSemantics(t *testing.T) {
 				Enabled: false,
 				Mode:    "apply",
 			},
-			wantRunsCold:  false,
-			wantAutoApply: false,
+			wantRunsCold:    false,
+			wantPublication: false,
 		},
 		{
 			name: "observe only records hot path",
@@ -411,8 +411,8 @@ func TestEvolutionConfig_ModeSemantics(t *testing.T) {
 				Enabled: true,
 				Mode:    "observe",
 			},
-			wantRunsCold:  false,
-			wantAutoApply: false,
+			wantRunsCold:    false,
+			wantPublication: false,
 		},
 		{
 			name: "draft runs cold path without applying",
@@ -420,8 +420,8 @@ func TestEvolutionConfig_ModeSemantics(t *testing.T) {
 				Enabled: true,
 				Mode:    "draft",
 			},
-			wantRunsCold:  true,
-			wantAutoApply: false,
+			wantRunsCold:    true,
+			wantPublication: false,
 		},
 		{
 			name: "draft scheduled runs cold path without after turn",
@@ -431,8 +431,8 @@ func TestEvolutionConfig_ModeSemantics(t *testing.T) {
 				ColdPathTrigger: "scheduled",
 				ColdPathTimes:   []string{"03:00"},
 			},
-			wantRunsCold:  true,
-			wantAutoApply: false,
+			wantRunsCold:    true,
+			wantPublication: false,
 		},
 		{
 			name: "apply runs cold path and auto applies",
@@ -440,15 +440,15 @@ func TestEvolutionConfig_ModeSemantics(t *testing.T) {
 				Enabled: true,
 				Mode:    "apply",
 			},
-			wantRunsCold:  true,
-			wantAutoApply: true,
+			wantRunsCold:    true,
+			wantPublication: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.wantRunsCold, tt.cfg.RunsColdPathAutomatically())
-			assert.Equal(t, tt.wantAutoApply, tt.cfg.AutoAppliesDrafts())
+			assert.Equal(t, tt.wantPublication, tt.cfg.AllowsDraftPublication())
 		})
 	}
 }
@@ -534,7 +534,7 @@ func TestLoadConfig_EvolutionEnabledWithoutModeUsesObserveSemantics(t *testing.T
 	assert.Equal(t, "", cfg.Evolution.Mode)
 	assert.Equal(t, "observe", cfg.Evolution.EffectiveMode())
 	assert.False(t, cfg.Evolution.RunsColdPathAutomatically())
-	assert.False(t, cfg.Evolution.AutoAppliesDrafts())
+	assert.False(t, cfg.Evolution.AllowsDraftPublication())
 }
 
 func TestLoadConfig_EvolutionExplicitApplyModeAutoApplies(t *testing.T) {
@@ -560,7 +560,7 @@ func TestLoadConfig_EvolutionExplicitApplyModeAutoApplies(t *testing.T) {
 	assert.Equal(t, "apply", cfg.Evolution.Mode)
 	assert.Equal(t, "apply", cfg.Evolution.EffectiveMode())
 	assert.True(t, cfg.Evolution.RunsColdPathAutomatically())
-	assert.True(t, cfg.Evolution.AutoAppliesDrafts())
+	assert.True(t, cfg.Evolution.AllowsDraftPublication())
 }
 
 func TestSaveConfig_DisabledEvolutionOmitsApplyMode(t *testing.T) {
@@ -604,7 +604,7 @@ func TestSaveConfig_DisabledEvolutionOmitsApplyMode(t *testing.T) {
 	}
 	assert.True(t, loaded.Evolution.Enabled)
 	assert.Equal(t, "observe", loaded.Evolution.EffectiveMode())
-	assert.False(t, loaded.Evolution.AutoAppliesDrafts())
+	assert.False(t, loaded.Evolution.AllowsDraftPublication())
 }
 
 func TestLoadConfig_MCPMaxInlineTextChars(t *testing.T) {

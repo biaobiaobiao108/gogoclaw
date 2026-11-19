@@ -2,8 +2,6 @@ package evolution_test
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +12,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/evolution"
 )
 
-func TestRuntime_RunColdPathOnce_ApplyModeWritesSkillAndProfile(t *testing.T) {
+func TestRuntime_PublishesNewSkillAndProfileAfterReview(t *testing.T) {
 	root := t.TempDir()
 	store := evolution.NewStore(evolution.NewPaths(root, ""))
 
@@ -35,9 +33,6 @@ func TestRuntime_RunColdPathOnce_ApplyModeWritesSkillAndProfile(t *testing.T) {
 		Config: config.EvolutionConfig{Enabled: true, Mode: "apply"},
 		Now:    func() time.Time { return time.Unix(1700001000, 0).UTC() },
 		Store:  store,
-		Applier: evolution.NewApplier(evolution.NewPaths(root, ""), func() time.Time {
-			return time.Unix(1700001000, 0).UTC()
-		}),
 		DraftGenerator: stubDraftGenerator{
 			draft: evolution.SkillDraft{
 				ID:              "draft-1",
@@ -55,7 +50,6 @@ func TestRuntime_RunColdPathOnce_ApplyModeWritesSkillAndProfile(t *testing.T) {
 				BodyOrPatch:        "---\nname: weather\ndescription: weather helper\n---\n# Weather\n## Start Here\nUse native-name query first.\n",
 			},
 		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -65,6 +59,7 @@ func TestRuntime_RunColdPathOnce_ApplyModeWritesSkillAndProfile(t *testing.T) {
 	if runErr := rt.RunColdPathOnce(context.Background(), root); runErr != nil {
 		t.Fatalf("RunColdPathOnce: %v", runErr)
 	}
+	publishCandidate(t, rt, root)
 
 	skillPath := filepath.Join(root, "skills", "weather", "SKILL.md")
 	if _, statErr := os.Stat(skillPath); statErr != nil {
@@ -128,9 +123,6 @@ func TestRuntime_RunColdPathOnce_DraftModeKeepsCandidateDraft(t *testing.T) {
 		Config: config.EvolutionConfig{Enabled: true, Mode: "draft"},
 		Now:    func() time.Time { return time.Unix(1700001000, 0).UTC() },
 		Store:  store,
-		Applier: evolution.NewApplier(evolution.NewPaths(root, ""), func() time.Time {
-			return time.Unix(1700001000, 0).UTC()
-		}),
 		DraftGenerator: stubDraftGenerator{
 			draft: evolution.SkillDraft{
 				ID:              "draft-1",
@@ -143,7 +135,6 @@ func TestRuntime_RunColdPathOnce_DraftModeKeepsCandidateDraft(t *testing.T) {
 				BodyOrPatch:     "---\nname: weather\ndescription: weather helper\n---\n# Weather\n## Start Here\nUse native-name query first.\n",
 			},
 		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -216,6 +207,7 @@ func TestRuntime_RunColdPathOnce_DraftModeRefreshesExistingCandidateWithEvidence
 		Summary:       "调用三一定理计算100",
 		Status:        evolution.RecordStatus("ready"),
 		TaskRecordIDs: []string{"task-1"},
+		UpdatedAt:     func() *time.Time { value := time.Unix(1700000002, 0).UTC(); return &value }(),
 	}}); err != nil {
 		t.Fatalf("SavePatternRecords: %v", err)
 	}
@@ -252,10 +244,10 @@ func TestRuntime_RunColdPathOnce_DraftModeRefreshesExistingCandidateWithEvidence
 	if err != nil {
 		t.Fatalf("LoadDrafts: %v", err)
 	}
-	if len(drafts) != 1 {
-		t.Fatalf("len(drafts) = %d, want 1", len(drafts))
+	if len(drafts) != 2 || drafts[0].Status != evolution.DraftStatusSuperseded {
+		t.Fatalf("len(drafts) = %d, want one superseded and one candidate", len(drafts))
 	}
-	if drafts[0].Status != evolution.DraftStatusCandidate {
+	if drafts[1].Status != evolution.DraftStatusCandidate {
 		t.Fatalf("draft status = %q, want candidate", drafts[0].Status)
 	}
 	for _, want := range []string{
@@ -265,13 +257,13 @@ func TestRuntime_RunColdPathOnce_DraftModeRefreshesExistingCandidateWithEvidence
 		"100 + 31 = 131",
 		"task-1",
 	} {
-		if !strings.Contains(drafts[0].BodyOrPatch, want) && drafts[0].TargetSkillName != want {
-			t.Fatalf("refreshed draft missing %q:\nname=%s\n%s", want, drafts[0].TargetSkillName, drafts[0].BodyOrPatch)
+		if !strings.Contains(drafts[1].BodyOrPatch, want) && drafts[1].TargetSkillName != want {
+			t.Fatalf("refreshed draft missing %q:\nname=%s\n%s", want, drafts[1].TargetSkillName, drafts[1].BodyOrPatch)
 		}
 	}
 }
 
-func TestRuntime_RunColdPathOnce_ApplyModeAppliesExistingCandidateDraft(t *testing.T) {
+func TestRuntime_PublishesExistingCandidateAfterReview(t *testing.T) {
 	root := t.TempDir()
 	store := evolution.NewStore(evolution.NewPaths(root, ""))
 
@@ -307,9 +299,6 @@ func TestRuntime_RunColdPathOnce_ApplyModeAppliesExistingCandidateDraft(t *testi
 		Config: config.EvolutionConfig{Enabled: true, Mode: "apply"},
 		Now:    func() time.Time { return time.Unix(1700001000, 0).UTC() },
 		Store:  store,
-		Applier: evolution.NewApplier(evolution.NewPaths(root, ""), func() time.Time {
-			return time.Unix(1700001000, 0).UTC()
-		}),
 		DraftGenerator: stubDraftGenerator{
 			draft: evolution.SkillDraft{
 				ID:              "draft-unused",
@@ -322,7 +311,6 @@ func TestRuntime_RunColdPathOnce_ApplyModeAppliesExistingCandidateDraft(t *testi
 				BodyOrPatch:     "---\nname: unused-weather\ndescription: unused\n---\n# Unused\n",
 			},
 		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -332,6 +320,7 @@ func TestRuntime_RunColdPathOnce_ApplyModeAppliesExistingCandidateDraft(t *testi
 	if runErr := rt.RunColdPathOnce(context.Background(), root); runErr != nil {
 		t.Fatalf("RunColdPathOnce: %v", runErr)
 	}
+	publishCandidate(t, rt, root)
 
 	if _, statErr := os.Stat(filepath.Join(root, "skills", "weather", "SKILL.md")); statErr != nil {
 		t.Fatalf("expected existing candidate to be applied: %v", statErr)
@@ -359,7 +348,7 @@ func TestRuntime_RunColdPathOnce_ApplyModeAppliesExistingCandidateDraft(t *testi
 	}
 }
 
-func TestRuntime_RunColdPathOnce_ApplyModeSkipsOrphanCandidateDraft(t *testing.T) {
+func TestRuntime_OrphanCandidateDoesNotBlockReadyDraft(t *testing.T) {
 	root := t.TempDir()
 	store := evolution.NewStore(evolution.NewPaths(root, ""))
 
@@ -395,9 +384,6 @@ func TestRuntime_RunColdPathOnce_ApplyModeSkipsOrphanCandidateDraft(t *testing.T
 		Config: config.EvolutionConfig{Enabled: true, Mode: "apply"},
 		Now:    func() time.Time { return time.Unix(1700001000, 0).UTC() },
 		Store:  store,
-		Applier: evolution.NewApplier(evolution.NewPaths(root, ""), func() time.Time {
-			return time.Unix(1700001000, 0).UTC()
-		}),
 		DraftGenerator: stubDraftGenerator{
 			draft: evolution.SkillDraft{
 				ID:              "draft-valid",
@@ -410,7 +396,6 @@ func TestRuntime_RunColdPathOnce_ApplyModeSkipsOrphanCandidateDraft(t *testing.T
 				BodyOrPatch:     "---\nname: valid-weather\ndescription: valid weather helper\n---\n# Valid Weather\n",
 			},
 		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -420,6 +405,7 @@ func TestRuntime_RunColdPathOnce_ApplyModeSkipsOrphanCandidateDraft(t *testing.T
 	if runErr := rt.RunColdPathOnce(context.Background(), root); runErr != nil {
 		t.Fatalf("RunColdPathOnce: %v", runErr)
 	}
+	publishCandidate(t, rt, root)
 
 	if _, statErr := os.Stat(filepath.Join(root, "skills", "orphan-weather", "SKILL.md")); !os.IsNotExist(statErr) {
 		t.Fatalf("orphan candidate draft should not be applied, got err=%v", statErr)
@@ -437,102 +423,6 @@ func TestRuntime_RunColdPathOnce_ApplyModeSkipsOrphanCandidateDraft(t *testing.T
 	}
 	if statusByID["draft-orphan"] != evolution.DraftStatusCandidate {
 		t.Fatalf("orphan draft status = %q, want candidate", statusByID["draft-orphan"])
-	}
-}
-
-func TestRuntime_RunColdPathOnce_ApplyModeNormalizesExistingCombinedCandidateDraft(t *testing.T) {
-	root := t.TempDir()
-	store := evolution.NewStore(evolution.NewPaths(root, ""))
-	writeSkillForCombinedShortcutTest(t, root, "three-one-theorem", "Add 31 to the input before continuing.")
-	writeSkillForCombinedShortcutTest(t, root, "four-two-theorem", "Add 42 to the intermediate result.")
-	writeSkillForCombinedShortcutTest(t, root, "five-three-theorem", "Subtract 53 to produce the final result.")
-
-	rule := evolution.LearningRecord{
-		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
-		WorkspaceID: root,
-		CreatedAt:   time.Unix(1700000000, 0).UTC(),
-		Summary:     "calculate 100",
-		Status:      evolution.RecordStatus("ready"),
-		EventCount:  4,
-		SuccessRate: 1,
-		WinningPath: []string{"three-one-theorem", "four-two-theorem", "five-three-theorem"},
-	}
-	if err := store.AppendLearningRecords([]evolution.LearningRecord{rule}); err != nil {
-		t.Fatalf("AppendLearningRecords: %v", err)
-	}
-	if err := store.SaveDrafts([]evolution.SkillDraft{
-		{
-			ID:              "draft-1",
-			WorkspaceID:     root,
-			SourceRecordID:  "rule-1",
-			TargetSkillName: "five-three-theorem",
-			DraftType:       evolution.DraftTypeShortcut,
-			ChangeKind:      evolution.ChangeKindAppend,
-			HumanSummary:    "messy generated combined skill",
-			BodyOrPatch: strings.Join([]string{
-				"Prefer the full theorem chain directly.",
-				"",
-				"## Component Skill Breakdown",
-				"messy raw component dump should be removed before apply.",
-				"",
-				"## Learned Shortcut",
-				"Net effect: input + 20.",
-			}, "\n"),
-			Status: evolution.DraftStatusCandidate,
-		},
-	}); err != nil {
-		t.Fatalf("SaveDrafts: %v", err)
-	}
-
-	rt, err := evolution.NewRuntime(evolution.RuntimeOptions{
-		Config: config.EvolutionConfig{Enabled: true, Mode: "apply"},
-		Now:    func() time.Time { return time.Unix(1700001000, 0).UTC() },
-		Store:  store,
-		Applier: evolution.NewApplier(
-			evolution.NewPaths(root, ""),
-			func() time.Time { return time.Unix(1700001000, 0).UTC() },
-		),
-		DraftGenerator: stubDraftGenerator{},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
-		SkillsRecaller: evolution.NewSkillsRecaller(root),
-	})
-	if err != nil {
-		t.Fatalf("NewRuntime: %v", err)
-	}
-
-	if runErr := rt.RunColdPathOnce(context.Background(), root); runErr != nil {
-		t.Fatalf("RunColdPathOnce: %v", runErr)
-	}
-
-	data, err := os.ReadFile(filepath.Join(root, "skills", "calculate-100-via-theorems", "SKILL.md"))
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	content := string(data)
-	if !strings.Contains(content, "## Procedure Details") || !strings.Contains(content, "## Procedure") {
-		t.Fatalf("expected clean combined skill sections:\n%s", content)
-	}
-	if strings.Contains(content, "Learned") || strings.Contains(content, "Source Evidence") {
-		t.Fatalf("deployed skill should not expose learning traces:\n%s", content)
-	}
-	if strings.Contains(content, "messy raw component dump") ||
-		strings.Contains(content, "## Component Skill Breakdown") {
-		t.Fatalf("expected old verbose draft content to be cleaned:\n%s", content)
-	}
-
-	drafts, err := store.LoadDrafts()
-	if err != nil {
-		t.Fatalf("LoadDrafts: %v", err)
-	}
-	if len(drafts) != 1 {
-		t.Fatalf("len(drafts) = %d, want 1", len(drafts))
-	}
-	if drafts[0].Status != evolution.DraftStatusAccepted {
-		t.Fatalf("draft status = %q, want %q", drafts[0].Status, evolution.DraftStatusAccepted)
-	}
-	if drafts[0].TargetSkillName != "calculate-100-via-theorems" {
-		t.Fatalf("TargetSkillName = %q, want calculate-100-via-theorems", drafts[0].TargetSkillName)
 	}
 }
 
@@ -562,9 +452,6 @@ func TestRuntime_RunColdPathOnce_ApplyModeRetargetsStableMultiSkillPathIntoCombi
 		Config: config.EvolutionConfig{Enabled: true, Mode: "apply"},
 		Now:    func() time.Time { return time.Unix(1700001000, 0).UTC() },
 		Store:  store,
-		Applier: evolution.NewApplier(evolution.NewPaths(root, ""), func() time.Time {
-			return time.Unix(1700001000, 0).UTC()
-		}),
 		DraftGenerator: stubDraftGenerator{
 			draft: evolution.SkillDraft{
 				ID:              "draft-1",
@@ -585,7 +472,6 @@ func TestRuntime_RunColdPathOnce_ApplyModeRetargetsStableMultiSkillPathIntoCombi
 				}, "\n"),
 			},
 		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -595,6 +481,7 @@ func TestRuntime_RunColdPathOnce_ApplyModeRetargetsStableMultiSkillPathIntoCombi
 	if runErr := rt.RunColdPathOnce(context.Background(), root); runErr != nil {
 		t.Fatalf("RunColdPathOnce: %v", runErr)
 	}
+	publishCandidate(t, rt, root)
 
 	skillPath := filepath.Join(root, "skills", "calculate-100-via-theorems", "SKILL.md")
 	data, err := os.ReadFile(skillPath)
@@ -690,10 +577,6 @@ func TestRuntime_RunColdPathOnce_CombinedShortcutKeepsReadableLongGuidance(t *te
 		Config: config.EvolutionConfig{Enabled: true, Mode: "apply"},
 		Now:    func() time.Time { return time.Unix(1700001000, 0).UTC() },
 		Store:  store,
-		Applier: evolution.NewApplier(
-			evolution.NewPaths(root, ""),
-			func() time.Time { return time.Unix(1700001000, 0).UTC() },
-		),
 		DraftGenerator: stubDraftGenerator{draft: evolution.SkillDraft{
 			ID:              "draft-1",
 			WorkspaceID:     root,
@@ -708,7 +591,6 @@ func TestRuntime_RunColdPathOnce_CombinedShortcutKeepsReadableLongGuidance(t *te
 				"Finish with a short arithmetic explanation.",
 			}, " "),
 		}},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 	})
 	if err != nil {
@@ -718,6 +600,7 @@ func TestRuntime_RunColdPathOnce_CombinedShortcutKeepsReadableLongGuidance(t *te
 	if runErr := rt.RunColdPathOnce(context.Background(), root); runErr != nil {
 		t.Fatalf("RunColdPathOnce: %v", runErr)
 	}
+	publishCandidate(t, rt, root)
 
 	data, err := os.ReadFile(filepath.Join(root, "skills", "calculate-with-theorem-chain-via-theorems", "SKILL.md"))
 	if err != nil {
@@ -753,424 +636,28 @@ func writeSkillForCombinedShortcutTest(t *testing.T, root, name, body string) {
 	}
 }
 
-func TestRuntime_RunColdPathOnce_ApplyFailureQuarantinesDraftAndWritesRollbackAudit(t *testing.T) {
-	root := t.TempDir()
-	store := evolution.NewStore(evolution.NewPaths(root, ""))
-
-	profile := evolution.SkillProfile{
-		SkillName:      "weather",
-		WorkspaceID:    root,
-		CurrentVersion: "v1",
-		Status:         evolution.SkillStatusActive,
-		Origin:         "evolved",
-		HumanSummary:   "weather helper",
-		LastUsedAt:     time.Unix(1700000000, 0).UTC(),
-		RetentionScore: 1,
-		VersionHistory: []evolution.SkillVersionEntry{
-			{
-				Version:   "v1",
-				Action:    "create",
-				Timestamp: time.Unix(1700000000, 0).UTC(),
-				DraftID:   "draft-old",
-				Summary:   "initial",
-			},
-		},
-	}
-	if err := store.SaveProfile(profile); err != nil {
-		t.Fatalf("SaveProfile: %v", err)
-	}
-
-	rule := evolution.LearningRecord{
-		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
-		WorkspaceID: root,
-		CreatedAt:   time.Unix(1700000000, 0).UTC(),
-		Summary:     "weather native-name path",
-		Status:      evolution.RecordStatus("ready"),
-		EventCount:  4,
-	}
-	if err := store.AppendLearningRecords([]evolution.LearningRecord{rule}); err != nil {
-		t.Fatalf("AppendLearningRecords: %v", err)
-	}
-
-	skillDir := filepath.Join(root, "skills", "weather")
-	if err := os.MkdirAll(skillDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	skillPath := filepath.Join(skillDir, "SKILL.md")
-	original := "---\nname: weather\ndescription: valid\n---\n# Weather\nold body\n"
-	if err := os.WriteFile(skillPath, []byte(original), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	rt, err := evolution.NewRuntime(evolution.RuntimeOptions{
-		Config: config.EvolutionConfig{Enabled: true, Mode: "apply"},
-		Now:    func() time.Time { return time.Unix(1700001000, 0).UTC() },
-		Store:  store,
-		Applier: evolution.NewApplier(evolution.NewPaths(root, ""), func() time.Time {
-			return time.Unix(1700001000, 0).UTC()
-		}),
-		DraftGenerator: stubDraftGenerator{
-			draft: evolution.SkillDraft{
-				ID:              "draft-rollback",
-				WorkspaceID:     root,
-				SourceRecordID:  "rule-1",
-				TargetSkillName: "weather",
-				DraftType:       evolution.DraftTypeShortcut,
-				ChangeKind:      evolution.ChangeKindReplace,
-				HumanSummary:    "broken weather helper",
-				BodyOrPatch:     "invalid-frontmatter",
-			},
-		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
-		SkillsRecaller: evolution.NewSkillsRecaller(root),
-	})
-	if err != nil {
-		t.Fatalf("NewRuntime: %v", err)
-	}
-
-	err = rt.RunColdPathOnce(context.Background(), root)
-	if err == nil {
-		t.Fatal("expected RunColdPathOnce to fail")
-	}
-	if !errors.Is(err, evolution.ErrApplyDraftFailed) {
-		t.Fatalf("error = %v, want ErrApplyDraftFailed", err)
-	}
-
-	drafts, err := store.LoadDrafts()
-	if err != nil {
-		t.Fatalf("LoadDrafts: %v", err)
-	}
-	if len(drafts) != 1 {
-		t.Fatalf("len(drafts) = %d, want 1", len(drafts))
-	}
-	if drafts[0].Status != evolution.DraftStatusQuarantined {
-		t.Fatalf("draft status = %q, want %q", drafts[0].Status, evolution.DraftStatusQuarantined)
-	}
-	if len(drafts[0].ScanFindings) == 0 {
-		t.Fatal("expected apply error in ScanFindings")
-	}
-
-	loadedProfile, err := store.LoadProfile("weather")
-	if err != nil {
-		t.Fatalf("LoadProfile: %v", err)
-	}
-	if len(loadedProfile.VersionHistory) != 2 {
-		t.Fatalf("len(VersionHistory) = %d, want 2", len(loadedProfile.VersionHistory))
-	}
-	last := loadedProfile.VersionHistory[len(loadedProfile.VersionHistory)-1]
-	if !last.Rollback {
-		t.Fatal("expected rollback audit entry")
-	}
-	if last.DraftID != "draft-rollback" {
-		t.Fatalf("DraftID = %q, want draft-rollback", last.DraftID)
-	}
-
-	got, err := os.ReadFile(skillPath)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(got) != original {
-		t.Fatalf("skill content changed after runtime rollback:\n%s", string(got))
-	}
-}
-
-func TestRuntime_RunColdPathOnce_FirstApplyFailureDoesNotCreateGhostProfile(t *testing.T) {
-	root := t.TempDir()
-	store := evolution.NewStore(evolution.NewPaths(root, ""))
-
-	rule := evolution.LearningRecord{
-		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
-		WorkspaceID: root,
-		CreatedAt:   time.Unix(1700000000, 0).UTC(),
-		Summary:     "weather native-name path",
-		Status:      evolution.RecordStatus("ready"),
-		EventCount:  4,
-	}
-	if err := store.AppendLearningRecords([]evolution.LearningRecord{rule}); err != nil {
-		t.Fatalf("AppendLearningRecords: %v", err)
-	}
-
-	rt, err := evolution.NewRuntime(evolution.RuntimeOptions{
-		Config: config.EvolutionConfig{Enabled: true, Mode: "apply"},
-		Now:    func() time.Time { return time.Unix(1700001000, 0).UTC() },
-		Store:  store,
-		Applier: evolution.NewApplier(evolution.NewPaths(root, ""), func() time.Time {
-			return time.Unix(1700001000, 0).UTC()
-		}),
-		DraftGenerator: stubDraftGenerator{
-			draft: evolution.SkillDraft{
-				ID:              "draft-ghost-profile",
-				WorkspaceID:     root,
-				SourceRecordID:  "rule-1",
-				TargetSkillName: "weather",
-				DraftType:       evolution.DraftTypeShortcut,
-				ChangeKind:      evolution.ChangeKindCreate,
-				HumanSummary:    "broken weather helper",
-				BodyOrPatch:     "invalid-frontmatter",
-			},
-		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
-		SkillsRecaller: evolution.NewSkillsRecaller(root),
-	})
-	if err != nil {
-		t.Fatalf("NewRuntime: %v", err)
-	}
-
-	err = rt.RunColdPathOnce(context.Background(), root)
-	if err == nil {
-		t.Fatal("expected RunColdPathOnce to fail")
-	}
-	if !errors.Is(err, evolution.ErrApplyDraftFailed) {
-		t.Fatalf("error = %v, want ErrApplyDraftFailed", err)
-	}
-
-	if _, loadErr := store.LoadProfile("weather"); !os.IsNotExist(loadErr) {
-		t.Fatalf("expected no profile after first apply failure, got err=%v", loadErr)
-	}
-}
-
-func TestRuntime_RunColdPathOnce_DraftSaveFailureRollsBackAppliedSkill(t *testing.T) {
-	root := t.TempDir()
-	paths := evolution.NewPaths(root, "")
-	store := evolution.NewStore(paths)
-
-	rule := evolution.LearningRecord{
-		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
-		WorkspaceID: root,
-		CreatedAt:   time.Unix(1700000000, 0).UTC(),
-		Summary:     "weather native-name path",
-		Status:      evolution.RecordStatus("ready"),
-		EventCount:  4,
-	}
-	if err := store.AppendLearningRecords([]evolution.LearningRecord{rule}); err != nil {
-		t.Fatalf("AppendLearningRecords: %v", err)
-	}
-
-	db, err := sql.Open("sqlite", filepath.Join(root, "sessions", "sessions.db"))
+func publishCandidate(t *testing.T, runtime *evolution.Runtime, workspace string) {
+	t.Helper()
+	drafts, err := runtime.Drafts(workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	if _, err := db.Exec(`
-		CREATE TRIGGER fail_draft_save
-		BEFORE INSERT ON app_state
-		WHEN NEW.namespace = 'evolution' AND NEW.state_key = 'skill-drafts.json'
-		BEGIN
-			SELECT RAISE(ABORT, 'draft save failure');
-		END`); err != nil {
-		t.Fatal(err)
+	for _, draft := range drafts {
+		review, err := runtime.ReviewDraft(workspace, draft.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if review.ReviewToken == "" {
+			continue
+		}
+		path := filepath.Join(workspace, "skills", draft.TargetSkillName, "SKILL.md")
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("cold path changed live skill before approval: %v", err)
+		}
+		if err := runtime.ActOnDraft(context.Background(), workspace, draft.ID, "publish", review.ReviewToken); err != nil {
+			t.Fatal(err)
+		}
+		return
 	}
-
-	rt, err := evolution.NewRuntime(evolution.RuntimeOptions{
-		Config: config.EvolutionConfig{Enabled: true, Mode: "apply"},
-		Now:    func() time.Time { return time.Unix(1700001000, 0).UTC() },
-		Store:  store,
-		Applier: evolution.NewApplier(paths, func() time.Time {
-			return time.Unix(1700001000, 0).UTC()
-		}),
-		DraftGenerator: stubDraftGenerator{
-			draft: evolution.SkillDraft{
-				ID:              "draft-save-fail",
-				WorkspaceID:     root,
-				SourceRecordID:  "rule-1",
-				TargetSkillName: "weather",
-				DraftType:       evolution.DraftTypeShortcut,
-				ChangeKind:      evolution.ChangeKindCreate,
-				HumanSummary:    "weather helper",
-				BodyOrPatch:     "---\nname: weather\ndescription: weather helper\n---\n# Weather\n## Start Here\nUse native-name query first.\n",
-			},
-		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
-		SkillsRecaller: evolution.NewSkillsRecaller(root),
-	})
-	if err != nil {
-		t.Fatalf("NewRuntime: %v", err)
-	}
-
-	err = rt.RunColdPathOnce(context.Background(), root)
-	if err == nil {
-		t.Fatal("expected RunColdPathOnce to fail")
-	}
-	if !errors.Is(err, evolution.ErrApplyDraftFailed) {
-		t.Fatalf("error = %v, want ErrApplyDraftFailed", err)
-	}
-
-	skillPath := filepath.Join(root, "skills", "weather", "SKILL.md")
-	if _, statErr := os.Stat(skillPath); !os.IsNotExist(statErr) {
-		t.Fatalf("expected applied skill to be rolled back, got err=%v", statErr)
-	}
-	if _, loadErr := store.LoadProfile("weather"); !os.IsNotExist(loadErr) {
-		t.Fatalf("expected no profile after draft save failure, got err=%v", loadErr)
-	}
-}
-
-func TestRuntime_RunColdPathOnce_AutoRunsLifecycleMaintenance(t *testing.T) {
-	root := t.TempDir()
-	paths := evolution.NewPaths(root, "")
-	store := evolution.NewStore(paths)
-	now := time.Unix(1700001000, 0).UTC()
-
-	if err := store.SaveProfile(evolution.SkillProfile{
-		SkillName:      "stale-active-skill",
-		WorkspaceID:    root,
-		Status:         evolution.SkillStatusActive,
-		Origin:         "evolved",
-		HumanSummary:   "stale active skill",
-		LastUsedAt:     now.Add(-91 * 24 * time.Hour),
-		RetentionScore: 0.1,
-	}); err != nil {
-		t.Fatalf("SaveProfile(active): %v", err)
-	}
-
-	skillDir := filepath.Join(root, "skills", "stale-archived-skill")
-	if err := os.MkdirAll(skillDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	skillPath := filepath.Join(skillDir, "SKILL.md")
-	if err := os.WriteFile(
-		skillPath,
-		[]byte("---\nname: stale-archived-skill\ndescription: stale\n---\n# Stale Archived Skill\n"),
-		0o644,
-	); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	if err := store.SaveProfile(evolution.SkillProfile{
-		SkillName:      "stale-archived-skill",
-		WorkspaceID:    root,
-		Status:         evolution.SkillStatusArchived,
-		Origin:         "evolved",
-		HumanSummary:   "stale archived skill",
-		LastUsedAt:     now.Add(-366 * 24 * time.Hour),
-		RetentionScore: 0.05,
-	}); err != nil {
-		t.Fatalf("SaveProfile(archived): %v", err)
-	}
-
-	rt, err := evolution.NewRuntime(evolution.RuntimeOptions{
-		Config: config.EvolutionConfig{Enabled: true, Mode: "apply"},
-		Now:    func() time.Time { return now },
-		Store:  store,
-		Applier: evolution.NewApplier(paths, func() time.Time {
-			return now
-		}),
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
-		SkillsRecaller: evolution.NewSkillsRecaller(root),
-	})
-	if err != nil {
-		t.Fatalf("NewRuntime: %v", err)
-	}
-
-	if runErr := rt.RunColdPathOnce(context.Background(), root); runErr != nil {
-		t.Fatalf("RunColdPathOnce: %v", runErr)
-	}
-
-	activeProfile, err := store.LoadProfile("stale-active-skill")
-	if err != nil {
-		t.Fatalf("LoadProfile(active): %v", err)
-	}
-	if activeProfile.Status != evolution.SkillStatusCold {
-		t.Fatalf("active profile Status = %q, want %q", activeProfile.Status, evolution.SkillStatusCold)
-	}
-	if len(activeProfile.VersionHistory) != 1 || activeProfile.VersionHistory[0].Action != "lifecycle:cold" {
-		t.Fatalf("active profile VersionHistory = %+v, want lifecycle:cold entry", activeProfile.VersionHistory)
-	}
-
-	archivedProfile, err := store.LoadProfile("stale-archived-skill")
-	if err != nil {
-		t.Fatalf("LoadProfile(archived): %v", err)
-	}
-	if archivedProfile.Status != evolution.SkillStatusDeleted {
-		t.Fatalf("archived profile Status = %q, want %q", archivedProfile.Status, evolution.SkillStatusDeleted)
-	}
-	if len(archivedProfile.VersionHistory) != 1 || archivedProfile.VersionHistory[0].Action != "lifecycle:deleted" {
-		t.Fatalf("archived profile VersionHistory = %+v, want lifecycle:deleted entry", archivedProfile.VersionHistory)
-	}
-
-	if _, statErr := os.Stat(skillPath); !os.IsNotExist(statErr) {
-		t.Fatalf("expected lifecycle delete to remove skill file, stat err = %v", statErr)
-	}
-}
-
-func TestRuntime_RunColdPathOnce_ProfileSaveFailureRollsBackSkillAndQuarantinesDraft(t *testing.T) {
-	root := t.TempDir()
-	paths := evolution.NewPaths(root, "")
-	store := evolution.NewStore(paths)
-
-	rule := evolution.LearningRecord{
-		ID:          "rule-1",
-		Kind:        evolution.RecordKindRule,
-		WorkspaceID: root,
-		CreatedAt:   time.Unix(1700000000, 0).UTC(),
-		Summary:     "weather native-name path",
-		Status:      evolution.RecordStatus("ready"),
-		EventCount:  4,
-	}
-	if err := store.AppendLearningRecords([]evolution.LearningRecord{rule}); err != nil {
-		t.Fatalf("AppendLearningRecords: %v", err)
-	}
-
-	db, err := sql.Open("sqlite", filepath.Join(root, "sessions", "sessions.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if _, err := db.Exec(`CREATE TRIGGER fail_profile BEFORE INSERT ON app_state WHEN NEW.namespace = 'evolution' AND NEW.state_key LIKE 'profiles/%' BEGIN SELECT RAISE(ABORT, 'profile failure'); END`); err != nil {
-		t.Fatal(err)
-	}
-
-	rt, err := evolution.NewRuntime(evolution.RuntimeOptions{
-		Config: config.EvolutionConfig{Enabled: true, Mode: "apply"},
-		Now:    func() time.Time { return time.Unix(1700001000, 0).UTC() },
-		Store:  store,
-		Applier: evolution.NewApplier(paths, func() time.Time {
-			return time.Unix(1700001000, 0).UTC()
-		}),
-		DraftGenerator: stubDraftGenerator{
-			draft: evolution.SkillDraft{
-				ID:              "draft-profile-fail",
-				WorkspaceID:     root,
-				SourceRecordID:  "rule-1",
-				TargetSkillName: "weather",
-				DraftType:       evolution.DraftTypeShortcut,
-				ChangeKind:      evolution.ChangeKindCreate,
-				HumanSummary:    "weather helper",
-				BodyOrPatch:     "---\nname: weather\ndescription: weather helper\n---\n# Weather\n## Start Here\nUse native-name query first.\n",
-			},
-		},
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
-		SkillsRecaller: evolution.NewSkillsRecaller(root),
-	})
-	if err != nil {
-		t.Fatalf("NewRuntime: %v", err)
-	}
-
-	err = rt.RunColdPathOnce(context.Background(), root)
-	if err == nil {
-		t.Fatal("expected RunColdPathOnce to fail")
-	}
-	if !errors.Is(err, evolution.ErrApplyDraftFailed) {
-		t.Fatalf("error = %v, want ErrApplyDraftFailed", err)
-	}
-
-	skillPath := filepath.Join(root, "skills", "weather", "SKILL.md")
-	if _, statErr := os.Stat(skillPath); !os.IsNotExist(statErr) {
-		t.Fatalf("expected rolled back skill file, got err=%v", statErr)
-	}
-
-	drafts, err := store.LoadDrafts()
-	if err != nil {
-		t.Fatalf("LoadDrafts: %v", err)
-	}
-	if len(drafts) != 1 {
-		t.Fatalf("len(drafts) = %d, want 1", len(drafts))
-	}
-	if drafts[0].Status != evolution.DraftStatusQuarantined {
-		t.Fatalf("draft status = %q, want %q", drafts[0].Status, evolution.DraftStatusQuarantined)
-	}
-	if len(drafts[0].ScanFindings) == 0 {
-		t.Fatal("expected scan findings for profile save failure")
-	}
+	t.Fatalf("no publishable candidate in %v", drafts)
 }

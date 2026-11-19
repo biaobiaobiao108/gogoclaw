@@ -171,7 +171,7 @@ func (c EvolutionConfig) EffectiveColdPathTimes() []string {
 	return out
 }
 
-func (c EvolutionConfig) AutoAppliesDrafts() bool {
+func (c EvolutionConfig) AllowsDraftPublication() bool {
 	return c.EffectiveMode() == "apply"
 }
 

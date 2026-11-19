@@ -227,7 +227,6 @@ func TestRuntime_RunColdPathOnce_AdmitsOnlyRecordsApprovedBySuccessJudge(t *test
 		Config:         config.EvolutionConfig{Enabled: true, Mode: "draft", MinTaskCount: 1},
 		Store:          store,
 		SuccessJudge:   judge,
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 1, MinSuccessRate: 1}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 		DraftGenerator: stubDraftGenerator{
 			draft: evolution.SkillDraft{
@@ -313,7 +312,6 @@ func TestRuntime_RunColdPathOnce_RejectsClusterBelowMinSuccessRatio(t *testing.T
 			WorkspaceID:    root,
 			CreatedAt:      time.Unix(1700000100, 0).UTC(),
 			Summary:        "weather lookup 200",
-			FinalOutput:    "failed",
 			Status:         evolution.RecordStatus("new"),
 			Success:        &failed,
 			UsedSkillNames: []string{"weather"},
@@ -324,7 +322,6 @@ func TestRuntime_RunColdPathOnce_RejectsClusterBelowMinSuccessRatio(t *testing.T
 			WorkspaceID:    root,
 			CreatedAt:      time.Unix(1700000000, 0).UTC(),
 			Summary:        "weather lookup 300",
-			FinalOutput:    "failed",
 			Status:         evolution.RecordStatus("new"),
 			Success:        &failed,
 			UsedSkillNames: []string{"weather"},
@@ -672,7 +669,6 @@ func TestRuntime_RunColdPathOnce_AdmitsSingleSkillTaskButWaitsForMinTaskCount(t 
 		Config:         config.EvolutionConfig{Enabled: true, Mode: "draft"},
 		Store:          store,
 		SuccessJudge:   judge,
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 1, MinSuccessRate: 1}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 		DraftGenerator: stubDraftGenerator{
 			draft: evolution.SkillDraft{
@@ -746,7 +742,6 @@ func TestRuntime_RunColdPathOnce_RejectsTaskWhenSuccessJudgeRejects(t *testing.T
 		Config:         config.EvolutionConfig{Enabled: true, Mode: "draft"},
 		Store:          store,
 		SuccessJudge:   judge,
-		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 1, MinSuccessRate: 1}),
 		SkillsRecaller: evolution.NewSkillsRecaller(root),
 		DraftGenerator: stubDraftGenerator{
 			draft: evolution.SkillDraft{
@@ -1254,8 +1249,8 @@ func TestRuntime_RunColdPathOnce_RegeneratesAfterQuarantinedDraft(t *testing.T) 
 	if len(drafts) != 2 {
 		t.Fatalf("len(drafts) = %d, want 2", len(drafts))
 	}
-	if drafts[1].ID != "draft-new" {
-		t.Fatalf("drafts[1].ID = %q, want draft-new", drafts[1].ID)
+	if drafts[1].ID == "draft-old" || drafts[1].EvidenceVersion == "" {
+		t.Fatalf("drafts[1].ID = %q, want a new evidence version", drafts[1].ID)
 	}
 }
 

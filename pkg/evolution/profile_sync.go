@@ -5,38 +5,42 @@ import (
 	"time"
 )
 
-func SaveAppliedProfile(store *Store, workspace string, draft SkillDraft, now time.Time) error {
-	return store.UpdateProfile(workspace, draft.TargetSkillName, func(profile *SkillProfile, exists bool) error {
-		if !exists {
-			*profile = SkillProfile{
-				SkillName:   draft.TargetSkillName,
-				WorkspaceID: workspace,
-				Origin:      "evolved",
-			}
+func applyDraftProfile(workspace string, draft SkillDraft, now time.Time, profile *SkillProfile, exists bool) {
+	if !exists {
+		origin := "evolved"
+		if draft.BaseVersion != "" && draft.BaseVersion != missingSkillVersion {
+			origin = "manual"
 		}
+		*profile = SkillProfile{
+			SkillName:   draft.TargetSkillName,
+			WorkspaceID: workspace,
+			Origin:      origin,
+		}
+	}
 
-		profile.SkillName = draft.TargetSkillName
-		profile.WorkspaceID = workspace
-		profile.CurrentVersion = draft.ID
-		profile.Status = SkillStatusActive
-		profile.Origin = profileOrigin(profile.Origin)
-		profile.HumanSummary = draft.HumanSummary
-		profile.ChangeReason = draft.HumanSummary
-		profile.IntendedUseCases = append([]string(nil), draft.IntendedUseCases...)
-		profile.PreferredEntryPath = append([]string(nil), draft.PreferredEntryPath...)
-		profile.AvoidPatterns = append([]string(nil), draft.AvoidPatterns...)
-		profile.LastUsedAt = now
-		if profile.RetentionScore <= 0 {
-			profile.RetentionScore = 1
-		}
-		profile.VersionHistory = append(profile.VersionHistory, SkillVersionEntry{
-			Version:   draft.ID,
-			Action:    string(draft.ChangeKind),
-			Timestamp: now,
-			DraftID:   draft.ID,
-			Summary:   draft.HumanSummary,
-		})
-		return nil
+	if profile.CurrentVersion == draft.ID {
+		return
+	}
+	profile.SkillName = draft.TargetSkillName
+	profile.WorkspaceID = workspace
+	profile.CurrentVersion = draft.ID
+	profile.Status = SkillStatusActive
+	profile.Origin = profileOrigin(profile.Origin)
+	profile.HumanSummary = draft.HumanSummary
+	profile.ChangeReason = draft.HumanSummary
+	profile.IntendedUseCases = append([]string(nil), draft.IntendedUseCases...)
+	profile.PreferredEntryPath = append([]string(nil), draft.PreferredEntryPath...)
+	profile.AvoidPatterns = append([]string(nil), draft.AvoidPatterns...)
+	profile.LastUsedAt = now
+	if !exists {
+		profile.RetentionScore = 0.5
+	}
+	profile.VersionHistory = append(profile.VersionHistory, SkillVersionEntry{
+		Version:   draft.ID,
+		Action:    string(draft.ChangeKind),
+		Timestamp: now,
+		DraftID:   draft.ID,
+		Summary:   draft.HumanSummary,
 	})
 }
 

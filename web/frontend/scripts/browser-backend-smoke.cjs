@@ -860,9 +860,10 @@ async function main() {
       height: 844,
     })
     await checkLocalChat(page, base, model)
+    await checkEvolutionWorkflow(page, base)
     if (errors.length) throw new Error(`Browser errors: ${errors.join(", ")}`)
     console.log(
-      "Real-backend browser smoke passed: setup, login, model persistence, approval settings, gateway readiness, chat reload and log privacy",
+      "Real-backend browser smoke passed: setup, login, model persistence, approval settings, gateway readiness, chat reload, log privacy and evolution",
     )
   } finally {
     if (model && page) {
@@ -879,6 +880,88 @@ async function main() {
     }
     await fs.rm(home, { recursive: true, force: true })
   }
+}
+
+async function checkEvolutionWorkflow(page, base) {
+  const workspace = await page.evaluate(async () => {
+    const config = await (await fetch("/api/config")).json()
+    return config.agents.defaults.workspace
+  })
+  const legacyDir = path.join(workspace, "state", "evolution")
+  const skill = "fixture-evolution-workflow"
+  const skillPath = path.join(workspace, "skills", skill, "SKILL.md")
+  await fs.mkdir(legacyDir, { recursive: true })
+  await fs.writeFile(
+    path.join(legacyDir, "pattern-records.jsonl"),
+    JSON.stringify({
+      id: "fixture-pattern",
+      workspace_id: workspace,
+      kind: "pattern",
+      label: skill,
+      summary: "Fixture evolution workflow",
+      status: "ready",
+      created_at: new Date().toISOString(),
+    }) + "\n",
+  )
+  const response = await page.request.patch(`${base}/api/config`, {
+    data: {
+      evolution: { enabled: true, mode: "apply", cold_path_trigger: "manual" },
+    },
+  })
+  if (!response.ok()) throw new Error(await response.text())
+  const restart = await page.request.post(`${base}/api/gateway/restart`)
+  if (!restart.ok()) throw new Error(await restart.text())
+  const deadline = Date.now() + 15000
+  for (;;) {
+    const status = await page.request.get(`${base}/api/evolution`)
+    if (status.ok() && (await status.json()).mode === "apply") break
+    if (Date.now() > deadline)
+      throw new Error(
+        "Gateway did not activate the evolution configuration: " +
+          (await status.text()),
+      )
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  await page.goto(`${base}/config`)
+  await page.getByRole("button", { name: /Evolution drafts|演化草稿/ }).click()
+  const dialog = page.getByRole("dialog")
+  await dialog.getByRole("button", { name: /Generate drafts|运行草拟/ }).click()
+  await dialog.getByRole("button", { name: new RegExp(skill) }).click()
+  await dialog
+    .getByRole("button", { name: /Approve and publish|批准并发布/ })
+    .waitFor()
+  if (
+    await fs.stat(skillPath).then(
+      () => true,
+      () => false,
+    )
+  )
+    throw new Error("An unapproved candidate changed the live skill")
+  await dialog
+    .getByRole("button", { name: /Approve and publish|批准并发布/ })
+    .click()
+  await dialog
+    .getByRole("button", { name: /Roll back version|回滚版本/ })
+    .waitFor()
+  if (!(await fs.readFile(skillPath, "utf8")).includes(`name: ${skill}`))
+    throw new Error("Approved draft did not publish the workspace skill")
+  await dialog
+    .getByRole("button", { name: /Roll back version|回滚版本/ })
+    .click()
+  await dialog
+    .getByRole("button", { name: /Confirm rollback|确认回滚/ })
+    .click()
+  await dialog.getByText(/Rolled back|已回滚/, { exact: true }).waitFor()
+  if (
+    await fs.stat(skillPath).then(
+      () => true,
+      () => false,
+    )
+  )
+    throw new Error("Rollback did not remove the newly created skill")
+  console.log(
+    "Verified manual drafting from legacy state, approval, and rollback",
+  )
 }
 
 main().catch((error) => {

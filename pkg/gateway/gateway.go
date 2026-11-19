@@ -498,6 +498,7 @@ func setupAndStartServices(
 
 	runningServices.authToken = authToken
 	runningServices.HealthServer = health.NewServer(listenResult.ProbeHost, cfg.Gateway.Port, authToken)
+	runningServices.HealthServer.SetEvolutionHandler(evolutionHandler(agentLoop))
 
 	var listenAddr string
 	if len(listenResult.Listeners) > 0 {

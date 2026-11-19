@@ -115,6 +115,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Skills and tools support/actions
 	h.registerSkillRoutes(mux)
+	mux.HandleFunc("/api/evolution", h.handleEvolution)
 	h.registerToolRoutes(mux)
 
 	// Launcher service parameters (port/public)

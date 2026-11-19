@@ -16,6 +16,7 @@ import (
 )
 
 type evolutionBridge struct {
+	workspace      string
 	cfg            config.EvolutionConfig
 	registry       *AgentRegistry
 	runtime        *evolution.Runtime
@@ -57,10 +58,7 @@ func newEvolutionBridge(
 			return evolution.NewDraftGeneratorForWorkspace(workspace, provider, modelID)
 		},
 		SuccessJudgeFactory: func(workspace string) evolution.SuccessJudge {
-			return evolution.NewLLMTaskSuccessJudge(provider, modelID, &evolution.HeuristicSuccessJudge{})
-		},
-		ApplierFactory: func(workspace string) *evolution.Applier {
-			return evolution.NewApplier(evolution.NewPaths(workspace, cfg.Evolution.StateDir), nil)
+			return evolution.NewLLMTaskSuccessJudge(provider, modelID)
 		},
 	})
 	if err != nil {
@@ -69,13 +67,14 @@ func newEvolutionBridge(
 	bgCtx, cancel := context.WithCancel(context.Background())
 
 	bridge := &evolutionBridge{
-		cfg:      cfg.Evolution,
-		registry: registry,
-		runtime:  runtime,
-		bgCtx:    bgCtx,
-		cancel:   cancel,
+		workspace: cfg.WorkspacePath(),
+		cfg:       cfg.Evolution,
+		registry:  registry,
+		runtime:   runtime,
+		bgCtx:     bgCtx,
+		cancel:    cancel,
 	}
-	if cfg.Evolution.RunsColdPathAutomatically() {
+	if cfg.Evolution.ColdPathTriggerMode() != "" {
 		bridge.coldPathRunner = evolution.NewColdPathRunnerWithErrorHandler(runtime, func(err error) {
 			logger.WarnCF("agent", "Cold path run failed", map[string]any{
 				"error": err.Error(),
@@ -83,7 +82,7 @@ func newEvolutionBridge(
 		})
 	}
 	if cfg.Evolution.RunsColdPathScheduled() {
-		bridge.startScheduledColdPath(cfg.Agents.Defaults.Workspace, cfg.Evolution.EffectiveColdPathTimes())
+		bridge.startScheduledColdPath(bridge.workspace, cfg.Evolution.EffectiveColdPathTimes())
 		bridge.rememberScheduledColdPathWorkspaces(registryWorkspaces(registry))
 	}
 
@@ -182,7 +181,7 @@ func (b *evolutionBridge) handleRuntimeTurnEnd(evt runtimeevents.Event) bool {
 }
 
 func (b *evolutionBridge) handleTurnEndAsync(meta EventMeta, payload TurnEndPayload) bool {
-	if b == nil || b.runtime == nil {
+	if b == nil || b.runtime == nil || !b.cfg.Enabled {
 		return false
 	}
 

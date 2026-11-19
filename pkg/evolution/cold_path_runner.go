@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 )
 
 type coldPathRuntime interface {
@@ -47,8 +48,30 @@ func NewColdPathRunnerWithErrorHandler(runtime coldPathRuntime, onError func(err
 }
 
 type workspaceRunState struct {
-	running bool
-	pending bool
+	running   bool
+	pending   bool
+	lastRun   time.Time
+	lastError string
+}
+
+type ColdPathStatus struct {
+	Running   bool       `json:"running"`
+	LastRun   *time.Time `json:"last_run,omitempty"`
+	LastError string     `json:"last_error,omitempty"`
+}
+
+func (r *ColdPathRunner) Status(workspace string) ColdPathStatus {
+	if r == nil {
+		return ColdPathStatus{}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state := r.running[workspace]
+	status := ColdPathStatus{Running: state.running, LastError: state.lastError}
+	if !state.lastRun.IsZero() {
+		status.LastRun = &state.lastRun
+	}
+	return status
 }
 
 func (r *ColdPathRunner) Trigger(workspace string) bool {
@@ -68,7 +91,8 @@ func (r *ColdPathRunner) Trigger(workspace string) bool {
 		r.mu.Unlock()
 		return true
 	}
-	r.running[workspace] = workspaceRunState{running: true}
+	state.running = true
+	r.running[workspace] = state
 	r.wg.Add(1)
 	r.mu.Unlock()
 
@@ -82,7 +106,8 @@ func (r *ColdPathRunner) Trigger(workspace string) bool {
 
 func (r *ColdPathRunner) runWorkspace(workspace string) {
 	for {
-		if err := r.runtime.RunColdPathOnce(r.ctx, workspace); err != nil && !errors.Is(err, context.Canceled) {
+		err := r.runtime.RunColdPathOnce(r.ctx, workspace)
+		if err != nil && !errors.Is(err, context.Canceled) {
 			r.onError(err)
 		}
 
@@ -93,13 +118,19 @@ func (r *ColdPathRunner) runWorkspace(workspace string) {
 			r.mu.Unlock()
 			return
 		}
+		state.lastRun = time.Now()
+		state.lastError = ""
+		if err != nil {
+			state.lastError = err.Error()
+		}
 		if state.pending {
 			state.pending = false
 			r.running[workspace] = state
 			r.mu.Unlock()
 			continue
 		}
-		delete(r.running, workspace)
+		state.running = false
+		r.running[workspace] = state
 		r.mu.Unlock()
 		return
 	}

@@ -55,7 +55,13 @@ var atomicWriteMu sync.Mutex
 //
 //	// Public readable file
 //	err := utils.WriteFileAtomic("public.txt", data, 0o644)
-func WriteFileAtomic(path string, data []byte, perm os.FileMode) (err error) {
+func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
+	return WriteFileAtomicChecked(path, data, perm, nil)
+}
+
+// WriteFileAtomicChecked rechecks an expected file state while holding the same
+// lock used by other atomic writers, immediately before replacing the file.
+func WriteFileAtomicChecked(path string, data []byte, perm os.FileMode, check func() error) (err error) {
 	atomicWriteMu.Lock()
 	defer atomicWriteMu.Unlock()
 
@@ -70,6 +76,11 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) (err error) {
 	}()
 
 	dir := filepath.Dir(path)
+	if check != nil {
+		if err := check(); err != nil {
+			return err
+		}
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
@@ -117,6 +128,11 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) (err error) {
 	// Atomic rename: temp file becomes the target
 	// On POSIX: rename() is atomic
 	// On Windows: Rename() is atomic for files
+	if check != nil {
+		if err := check(); err != nil {
+			return err
+		}
+	}
 	if err := replaceFile(tmpPath, path); err != nil {
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
@@ -131,6 +147,23 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) (err error) {
 	// Success: skip cleanup (file was renamed, no temp to remove)
 	cleanup = false
 	return nil
+}
+
+// RemoveFileChecked checks the file state under the atomic writer lock.
+func RemoveFileChecked(path string, check func() error) (err error) {
+	lock, err := AcquireFileLock(atomicLockPath(path))
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if unlockErr := lock.Unlock(); err == nil {
+			err = unlockErr
+		}
+	}()
+	if err := check(); err != nil {
+		return err
+	}
+	return os.Remove(path)
 }
 
 func atomicLockPath(path string) string {

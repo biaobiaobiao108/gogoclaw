@@ -78,7 +78,15 @@ func TestEvolutionBridge_ObserveWritesCaseRecord(t *testing.T) {
 		t.Fatalf("status = %v, want %q", got, "new")
 	}
 
-	for _, field := range []string{"tool_kinds", "tool_executions", "initial_skill_names", "active_skill_names", "attempt_trail", "source"} {
+	outcomes, _ := record["tool_executions"].([]any)
+	if len(outcomes) != 1 {
+		t.Fatalf("tool outcomes = %v, want one recorded execution", outcomes)
+	}
+	result, _ := outcomes[0].(map[string]any)
+	if len(result) != 2 || result["name"] != "echo_text" || result["success"] != true {
+		t.Fatalf("tool outcomes should only contain name and success, got %v", result)
+	}
+	for _, field := range []string{"tool_kinds", "initial_skill_names", "active_skill_names", "attempt_trail", "source"} {
 		if _, exists := record[field]; exists {
 			t.Fatalf("%s should not be persisted in slim task record: %#v", field, record[field])
 		}
@@ -722,7 +730,7 @@ func TestEvolutionBridge_DraftModeKeepsCandidateDraft(t *testing.T) {
 	assertProfileNotExists(t, tmpDir, "weather")
 }
 
-func TestEvolutionBridge_ApplyModeAutomaticallyRunsColdPathAndAppliesMergeDraft(t *testing.T) {
+func TestEvolutionBridge_ApplyModeWaitsForApprovalBeforeMergingDraft(t *testing.T) {
 	tmpDir := t.TempDir()
 	seedReadyRule(t, tmpDir)
 
@@ -756,8 +764,18 @@ func TestEvolutionBridge_ApplyModeAutomaticallyRunsColdPathAndAppliesMergeDraft(
 
 	waitForEvolutionRecord(t, filepath.Join(tmpDir, "state", "evolution", "task-records.jsonl"))
 	drafts := waitForDrafts(t, filepath.Join(tmpDir, "state", "evolution", "skill-drafts.json"), 1)
-	if drafts[0].Status != evolution.DraftStatusAccepted {
-		t.Fatalf("draft status = %q, want %q", drafts[0].Status, evolution.DraftStatusAccepted)
+	if drafts[0].Status != evolution.DraftStatusCandidate {
+		t.Fatalf("draft status = %q, want candidate", drafts[0].Status)
+	}
+	if body := waitForSkillBody(t, skillPath); body != original {
+		t.Fatal("gateway published a draft without approval")
+	}
+	review, err := al.ReviewEvolutionDraft(drafts[0].ID)
+	if err != nil || review.ReviewToken == "" {
+		t.Fatalf("review: %+v, %v", review, err)
+	}
+	if err := al.ActOnEvolutionDraft(context.Background(), drafts[0].ID, "publish", review.ReviewToken); err != nil {
+		t.Fatal(err)
 	}
 
 	merged := waitForSkillBody(t, skillPath)

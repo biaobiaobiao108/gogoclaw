@@ -69,7 +69,7 @@ GoGoClaw 将数据存储在您配置的工作区中（默认：`~/.gogoclaw/work
 
 ### Agent 自进化
 
-`evolution` 配置块控制 GoGoClaw 的自进化运行时。启用后，Agent 会把已完成的回合记录为学习记录。在更高模式下，它可以聚类重复出现的成功模式、生成技能草稿，并可选择把已接受的草稿应用到工作区技能中。
+`evolution` 配置块控制 GoGoClaw 如何记录回合结果、生成工作区技能改进建议。
 
 ```json
 {
@@ -87,15 +87,15 @@ GoGoClaw 将数据存储在您配置的工作区中（默认：`~/.gogoclaw/work
 
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
-| `enabled` | `false` | 启用已完成 Agent 回合的学习记录采集。Heartbeat 回合会被忽略。 |
-| `mode` | `observe` | `observe` 只记录数据；`draft` 可生成候选技能草稿；`apply` 可将已接受草稿应用到工作区技能。 |
-| `state_dir` | `""` | 自进化状态的可选目录。留空时使用工作区下的默认位置。 |
-| `min_task_count` | `2` | 一个模式具备生成草稿资格前所需的最小相关任务记录数。 |
+| `enabled` | `false` | 记录回合结果。Heartbeat 回合会被忽略。 |
+| `mode` | `observe` | `observe` 收集证据，`draft` 生成候选草稿，`apply` 额外允许发布经明确批准的候选。 |
+| `state_dir` | `""` | 用于技能备份和旧版数据导入，默认是 `<workspace>/state/evolution`。当前学习状态存入 `sessions/sessions.db`。 |
+| `min_task_count` | `2` | 形成新模式所需的最少成功相关任务数。 |
 | `min_success_ratio` | `0.7` | 任务聚类所需的最小成功率，取值需大于 `0`，且不超过 `1`。 |
-| `cold_path_trigger` | `after_turn` | 草稿生成可在 `after_turn` 后运行、按 `scheduled` 定时运行；设置为 `manual` 时会关闭自动冷路径运行。目前还没有用户可用的手动触发入口。仅在 `draft` 和 `apply` 模式下生效。 |
+| `cold_path_trigger` | `after_turn` | 可选择每轮结束后运行、定时运行或在控制台手动运行。在 `draft` 和 `apply` 模式下生效。 |
 | `cold_path_times` | `[]` | 当 `cold_path_trigger` 为 `scheduled` 时使用的运行时间，格式为 `HH:MM` 字符串。 |
 
-如果你只想先检查学习记录，建议从 `observe` 开始。需要生成可审查改进时使用 `draft`。只有在你接受让已通过的草稿更新工作区技能时，才使用 `apply`。
+建议先用 `observe` 积累案例，再用 `draft` 评估改进建议。准备发布审阅过的草稿时切换到 `apply`。在 **设置 → 自进化 → 演化草稿** 中可以运行草拟、核对修改或回滚发布。详见 [Agent 自进化](../architecture/agent-self-evolution.zh.md)。
 
 ### 请求上下文策略
 

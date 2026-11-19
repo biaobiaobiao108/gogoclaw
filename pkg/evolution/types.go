@@ -39,6 +39,9 @@ const (
 	DraftStatusCandidate   DraftStatus = "candidate"
 	DraftStatusQuarantined DraftStatus = "quarantined"
 	DraftStatusAccepted    DraftStatus = "accepted"
+	DraftStatusRejected    DraftStatus = "rejected"
+	DraftStatusSuperseded  DraftStatus = "superseded"
+	DraftStatusRolledBack  DraftStatus = "rolled_back"
 )
 
 type SkillStatus string
@@ -83,6 +86,10 @@ type LearningRecord struct {
 	Source               map[string]any        `json:"source,omitempty"`
 	Status               RecordStatus          `json:"status"`
 	Success              *bool                 `json:"success,omitempty"`
+	TurnStatus           string                `json:"turn_status,omitempty"`
+	JudgedSuccess        *bool                 `json:"judged_success,omitempty"`
+	JudgedBy             string                `json:"judged_by,omitempty"`
+	ConsideredAt         *time.Time            `json:"considered_at,omitempty"`
 	ToolKinds            []string              `json:"tool_kinds,omitempty"`
 	ToolExecutions       []ToolExecutionRecord `json:"tool_executions,omitempty"`
 	InitialSkillNames    []string              `json:"initial_skill_names,omitempty"`
@@ -94,6 +101,7 @@ type LearningRecord struct {
 	Signals              []string              `json:"signals,omitempty"`
 	SourceRecordIDs      []string              `json:"source_record_ids,omitempty"`
 	TaskRecordIDs        []string              `json:"task_record_ids,omitempty"`
+	EvidenceRecordIDs    []string              `json:"evidence_record_ids,omitempty"`
 	Label                string                `json:"label,omitempty"`
 	ClusterReason        string                `json:"cluster_reason,omitempty"`
 	EventCount           int                   `json:"event_count,omitempty"`
@@ -123,6 +131,11 @@ type SkillDraft struct {
 	Status             DraftStatus `json:"status"`
 	ReviewNotes        []string    `json:"review_notes,omitempty"`
 	ScanFindings       []string    `json:"scan_findings,omitempty"`
+	EvidenceVersion    string      `json:"evidence_version,omitempty"`
+	EvidenceIDs        []string    `json:"evidence_ids,omitempty"`
+	BaseVersion        string      `json:"base_version,omitempty"`
+	PublishedVersion   string      `json:"published_version,omitempty"`
+	BackupPath         string      `json:"backup_path,omitempty"`
 }
 
 type SkillVersionEntry struct {

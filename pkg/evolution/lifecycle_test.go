@@ -53,38 +53,6 @@ func TestStore_SaveAndLoadProfile(t *testing.T) {
 	}
 }
 
-func TestNextLifecycleState_ActiveToCold(t *testing.T) {
-	now := time.Now().UTC()
-	profile := evolution.SkillProfile{
-		SkillName:      "release-flow",
-		Status:         evolution.SkillStatusActive,
-		Origin:         "evolved",
-		LastUsedAt:     now.AddDate(0, -6, 0),
-		RetentionScore: 0.1,
-	}
-
-	got := evolution.NextLifecycleState(profile, now)
-	if got != evolution.SkillStatusCold {
-		t.Fatalf("NextLifecycleState = %q, want %q", got, evolution.SkillStatusCold)
-	}
-}
-
-func TestNextLifecycleState_ManualSkillStaysActive(t *testing.T) {
-	now := time.Now().UTC()
-	profile := evolution.SkillProfile{
-		SkillName:      "manual-weather",
-		Status:         evolution.SkillStatusActive,
-		Origin:         "manual",
-		LastUsedAt:     now.AddDate(-1, 0, 0),
-		RetentionScore: 0,
-	}
-
-	got := evolution.NextLifecycleState(profile, now)
-	if got != evolution.SkillStatusActive {
-		t.Fatalf("NextLifecycleState = %q, want %q", got, evolution.SkillStatusActive)
-	}
-}
-
 func TestStore_SaveProfileRejectsInvalidSkillName(t *testing.T) {
 	store := evolution.NewStore(evolution.NewPaths(t.TempDir(), ""))
 

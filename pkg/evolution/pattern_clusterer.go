@@ -100,6 +100,35 @@ func (c *HeuristicPatternClusterer) BuildPatterns(
 	return patterns, clusteredIDs, nil
 }
 
+func (c *HeuristicPatternClusterer) BuildPatternsWithEvidence(
+	_ context.Context, workspace string, successful, evidence, existing []LearningRecord, ratio float64,
+) ([]LearningRecord, []string, error) {
+	groups := make(map[string][]LearningRecord)
+	var keys []string
+	for _, task := range evidence {
+		key := heuristicClusterKey(task)
+		if task.WorkspaceID != workspace || key == "" {
+			continue
+		}
+		if len(groups[key]) == 0 {
+			keys = append(keys, key)
+		}
+		groups[key] = append(groups[key], task)
+	}
+	sort.Strings(keys)
+	var clusters []llmCluster
+	for _, key := range keys {
+		group := groups[key]
+		label := heuristicClusterLabelForGroup(key, group)
+		clusters = append(clusters, llmCluster{
+			Label: label, Summary: heuristicClusterSummary(label, group),
+			TaskRecordIDs: collectRecordIDs(group), Reason: "heuristic cluster by normalized task summary",
+		})
+	}
+	patterns, ids := buildPatternsWithEvidence(workspace, clusters, successful, evidence, existing, ratio, c.minCaseCount, c.now())
+	return patterns, ids, nil
+}
+
 type LLMPatternClusterer struct {
 	provider providers.LLMProvider
 	model    string
@@ -310,6 +339,9 @@ func buildFallbackPatternsWithEvidence(
 	if fallback == nil {
 		fallback = NewHeuristicPatternClusterer(0, nil)
 	}
+	if clusterer, ok := fallback.(evidencePatternClusterer); ok {
+		return clusterer.BuildPatternsWithEvidence(ctx, workspace, successfulTasks, evidenceTasks, existing, minSuccessRatio)
+	}
 	patterns, _, err := fallback.BuildPatterns(ctx, workspace, successfulTasks, existing)
 	if err != nil || len(patterns) == 0 {
 		return patterns, nil, err
@@ -393,8 +425,9 @@ func buildFallbackPatternsWithEvidence(
 			}
 		}
 
+		ids := updatePatternEvidence(&pattern, clusterEvidence)
 		filteredPatterns = append(filteredPatterns, pattern)
-		clusteredIDs = append(clusteredIDs, collectRecordIDs(clusterEvidence)...)
+		clusteredIDs = append(clusteredIDs, ids...)
 	}
 	return filteredPatterns, appendUniqueStrings(nil, clusteredIDs...), nil
 }
@@ -465,6 +498,13 @@ func (c *LLMPatternClusterer) validateAndBuildPatternsWithEvidence(
 	existing []LearningRecord,
 	minSuccessRatio float64,
 ) ([]LearningRecord, []string) {
+	return buildPatternsWithEvidence(workspace, clusters, successfulTasks, evidenceTasks, existing, minSuccessRatio, c.minCount, c.now())
+}
+
+func buildPatternsWithEvidence(
+	workspace string, clusters []llmCluster, successfulTasks, evidenceTasks, existing []LearningRecord,
+	minSuccessRatio float64, minCount int, now time.Time,
+) ([]LearningRecord, []string) {
 	evidenceByID := make(map[string]LearningRecord, len(evidenceTasks))
 	for _, task := range evidenceTasks {
 		evidenceByID[task.ID] = task
@@ -503,17 +543,12 @@ func (c *LLMPatternClusterer) validateAndBuildPatternsWithEvidence(
 			}
 			assigned[id] = struct{}{}
 		}
-		if len(clusterEvidence) == 0 || len(clusterSuccesses) == 0 {
+		existingPattern, hasExisting := existingByLabel[label]
+		if len(clusterEvidence) == 0 {
 			continue
 		}
-		if minSuccessRatio > 0 {
-			ratio := float64(len(clusterSuccesses)) / float64(len(clusterEvidence))
-			if ratio < minSuccessRatio {
-				continue
-			}
-		}
-		existingPattern, hasExisting := existingByLabel[label]
-		if !hasExisting && len(clusterSuccesses) < c.minCount {
+		if !hasExisting && (len(clusterSuccesses) < minCount ||
+			float64(len(clusterSuccesses))/float64(len(clusterEvidence)) < minSuccessRatio) {
 			continue
 		}
 		pattern := buildPatternFromCluster(
@@ -523,15 +558,45 @@ func (c *LLMPatternClusterer) validateAndBuildPatternsWithEvidence(
 			cluster.Reason,
 			clusterSuccesses,
 			existingPattern,
-			c.now(),
+			now,
 		)
+		known := updatePatternEvidence(&pattern, clusterEvidence)
+		if len(known) == 0 {
+			continue
+		}
+		if len(pattern.TaskRecordIDs) < minCount || pattern.SuccessRate < minSuccessRatio {
+			pattern.Status = "pending"
+		}
+		clusteredIDs = append(clusteredIDs, known...)
 		patterns = append(patterns, pattern)
-		clusteredIDs = append(clusteredIDs, collectRecordIDs(clusterEvidence)...)
 	}
-	if len(assigned) != len(evidenceByID) {
-		return nil, nil
+	for id := range evidenceByID {
+		if _, included := assigned[id]; included {
+			continue
+		}
+		// An omitted successful task can wait for the next batch. A
+		// missing failure or unknown result can inflate the success ratio.
+		if _, succeeded := successfulByID[id]; !succeeded {
+			return nil, nil
+		}
 	}
 	return patterns, clusteredIDs
+}
+
+func updatePatternEvidence(pattern *LearningRecord, evidence []LearningRecord) []string {
+	var known []string
+	for _, record := range evidence {
+		if record.Success != nil {
+			known = append(known, record.ID)
+		}
+	}
+	pattern.EvidenceRecordIDs = appendUniqueStrings(pattern.EvidenceRecordIDs, pattern.TaskRecordIDs...)
+	pattern.EvidenceRecordIDs = appendUniqueStrings(pattern.EvidenceRecordIDs, known...)
+	pattern.EventCount = len(pattern.EvidenceRecordIDs)
+	if pattern.EventCount > 0 {
+		pattern.SuccessRate = float64(len(pattern.TaskRecordIDs)) / float64(pattern.EventCount)
+	}
+	return known
 }
 
 func parseLLMClusterResponse(content string) (llmClusterResponse, bool) {
@@ -565,7 +630,11 @@ func buildPatternClusterPrompt(workspace string, tasks []LearningRecord, existin
 	}{
 		Instruction: "Group tasks that have the same reusable task meaning. Use existing pattern labels when they fit. Labels must be lowercase hyphenated and must not include concrete values.",
 	}
-	for _, pattern := range existing {
+	promptPatterns := append([]LearningRecord(nil), existing...)
+	sort.SliceStable(promptPatterns, func(i, j int) bool {
+		return promptPatterns[i].CreatedAt.After(promptPatterns[j].CreatedAt)
+	})
+	for _, pattern := range promptPatterns {
 		if pattern.WorkspaceID != workspace {
 			continue
 		}
@@ -576,6 +645,9 @@ func buildPatternClusterPrompt(workspace string, tasks []LearningRecord, existin
 			Label:   strings.TrimSpace(pattern.Label),
 			Summary: strings.TrimSpace(pattern.Summary),
 		})
+		if len(payload.ExistingPatterns) >= maxColdPathEvidence {
+			break
+		}
 	}
 	for _, task := range tasks {
 		payload.Tasks = append(payload.Tasks, taskPayload{

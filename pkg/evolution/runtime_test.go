@@ -172,7 +172,7 @@ func TestRuntime_FinalizeTurnWritesRecordWithOverride(t *testing.T) {
 	if len(first.UsedSkillNames) != 0 {
 		t.Fatalf("first UsedSkillNames = %v, want empty", first.UsedSkillNames)
 	}
-	if len(first.ToolKinds) != 0 || len(first.ToolExecutions) != 0 || first.Source != nil || first.AttemptTrail != nil {
+	if len(first.ToolKinds) != 0 || first.Source != nil || first.AttemptTrail != nil {
 		t.Fatalf("first record should be slimmed: %+v", first)
 	}
 	if first.TaskHash != "" || len(first.Signals) != 0 {
@@ -195,7 +195,7 @@ func TestRuntime_FinalizeTurnWritesRecordWithOverride(t *testing.T) {
 	if second.Success == nil || *second.Success {
 		t.Fatalf("second Success = %v, want false", second.Success)
 	}
-	if len(second.ToolExecutions) != 0 || second.Source != nil || second.AttemptTrail != nil {
+	if second.Source != nil || second.AttemptTrail != nil {
 		t.Fatalf("second record should be slimmed: %+v", second)
 	}
 	if second.TaskHash != "" || len(second.Signals) != 0 {

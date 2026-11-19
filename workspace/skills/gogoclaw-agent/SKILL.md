@@ -692,13 +692,9 @@ The `evolution` block controls self-evolution:
 - `cold_path_trigger`
 - `cold_path_times`
 
-Use `observe` first.
-Use `draft` when the team wants reviewable candidate skill changes.
-Use `apply` only when automatic workspace skill updates are acceptable.
+Use `observe` to collect evidence and `draft` to generate reviewable skill changes. In `apply` mode, a user can explicitly approve and publish a draft after inspecting its diff.
 
-Notes:
-
-- `cold_path_trigger: manual` has no general user-facing CLI/API trigger yet.
+Open **Settings → Evolution → Evolution drafts** to run drafting, review candidates, and roll back a published version. `cold_path_trigger: manual` waits for the console action.
 
 ## Debugging Workflow
 

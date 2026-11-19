@@ -14,13 +14,14 @@ import (
 )
 
 type Server struct {
-	server     *http.Server
-	mu         sync.RWMutex
-	ready      bool
-	checks     map[string]Check
-	startTime  time.Time
-	reloadFunc func() error
-	authToken  string // optional bearer token for protected endpoints
+	server           *http.Server
+	mu               sync.RWMutex
+	ready            bool
+	checks           map[string]Check
+	startTime        time.Time
+	reloadFunc       func() error
+	evolutionHandler http.HandlerFunc
+	authToken        string // optional bearer token for protected endpoints
 }
 
 type Check struct {
@@ -231,6 +232,21 @@ func (s *Server) RegisterOnMux(mux HandlerMux) {
 	mux.HandleFunc("/health", s.healthHandler)
 	mux.HandleFunc("/ready", s.readyHandler)
 	mux.HandleFunc("/reload", s.reloadHandler)
+	if s.evolutionHandler != nil {
+		mux.HandleFunc("/internal/evolution", func(w http.ResponseWriter, r *http.Request) {
+			given := extractBearerToken(r.Header.Get("Authorization"))
+			if s.authToken == "" || subtle.ConstantTimeCompare([]byte(given), []byte(s.authToken)) != 1 {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			s.evolutionHandler(w, r)
+		})
+	}
+}
+
+// SetEvolutionHandler configures the protected evolution endpoint before registration.
+func (s *Server) SetEvolutionHandler(handler http.HandlerFunc) {
+	s.evolutionHandler = handler
 }
 
 func statusString(ok bool) string {
