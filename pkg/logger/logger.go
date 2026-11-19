@@ -326,7 +326,7 @@ func logMessage(level LogLevel, component string, message string, fields map[str
 
 	appendFields(event, fields)
 
-	event.CallerSkipFrame(skip).Msg(redactText(message))
+	event.CallerSkipFrame(skip).Msg(RedactText(message))
 }
 
 func appendFields(event *zerolog.Event, fields map[string]any) {
@@ -338,9 +338,9 @@ func appendFields(event *zerolog.Event, fields map[string]any) {
 		// Type switch to avoid double JSON serialization of strings
 		switch val := v.(type) {
 		case error:
-			event.Str(k, redactText(val.Error()))
+			event.Str(k, RedactText(val.Error()))
 		case string:
-			event.Str(k, redactText(val))
+			event.Str(k, RedactText(val))
 		case int:
 			event.Int(k, val)
 		case int64:

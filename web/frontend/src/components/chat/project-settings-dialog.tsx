@@ -107,6 +107,36 @@ export function ProjectSettingsDialog({
   const [uploadError, setUploadError] = useState("")
   const [dragActive, setDragActive] = useState(false)
   const [maxFileSize, setMaxFileSize] = useState(20 * 1024 * 1024)
+  const projectID = project?.id
+  const shouldPollFiles =
+    retryingFiles.length === 0 &&
+    files.some(
+      (file) => file.status === "processing" || file.status === "reindexing",
+    )
+
+  useEffect(() => {
+    if (!open || !projectID || !shouldPollFiles) return
+    let cancelled = false
+    let inFlight = false
+    const timer = window.setInterval(async () => {
+      if (inFlight) return
+      inFlight = true
+      try {
+        const detail = await getProject(projectID)
+        if (!cancelled && currentProjectIdRef.current === projectID) {
+          setFiles(detail.files)
+        }
+      } catch {
+        // A Launcher restart can briefly interrupt polling.
+      } finally {
+        inFlight = false
+      }
+    }, 2500)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [open, projectID, shouldPollFiles])
 
   useEffect(() => {
     if (!open) {
@@ -266,7 +296,7 @@ export function ProjectSettingsDialog({
     setRetryingFiles((previous) => [...previous, file.id])
     setFiles((previous) =>
       previous.map((item) =>
-        item.id === file.id ? { ...item, status: "processing" } : item,
+        item.id === file.id ? { ...item, status: "reindexing" } : item,
       ),
     )
     try {
@@ -278,18 +308,10 @@ export function ProjectSettingsDialog({
     } catch (retryError) {
       if (currentProjectIdRef.current !== projectID) return
       setFiles((previous) =>
-        previous.map((item) =>
-          item.id === file.id
-            ? {
-                ...item,
-                status: "failed",
-                error:
-                  retryError instanceof Error
-                    ? retryError.message
-                    : String(retryError),
-              }
-            : item,
-        ),
+        previous.map((item) => (item.id === file.id ? file : item)),
+      )
+      setUploadError(
+        retryError instanceof Error ? retryError.message : String(retryError),
       )
     } finally {
       setRetryingFiles((previous) => previous.filter((id) => id !== file.id))
@@ -520,7 +542,8 @@ export function ProjectSettingsDialog({
                       >
                         {file.status === "ready" ? (
                           <IconCheck className="text-success size-4" />
-                        ) : file.status === "failed" ? (
+                        ) : file.status === "failed" ||
+                          file.status === "interrupted" ? (
                           <IconAlertTriangle className="text-destructive size-4" />
                         ) : (
                           <IconLoader2 className="text-muted-foreground size-4 animate-spin motion-reduce:animate-none" />
@@ -528,11 +551,9 @@ export function ProjectSettingsDialog({
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm">{file.filename}</p>
                           <p className="text-muted-foreground text-xs">
-                            {file.status === "ready"
-                              ? t("chat.projectFileReady")
-                              : file.status === "failed"
-                                ? file.error || t("chat.projectFileFailed")
-                                : t("chat.projectFileProcessing")}
+                            {file.status === "failed" && file.error
+                              ? file.error
+                              : t(`recovery.index.${file.status}`)}
                           </p>
                         </div>
                         {file.status === "ready" && (
@@ -553,7 +574,11 @@ export function ProjectSettingsDialog({
                           variant="ghost"
                           size="icon-sm"
                           aria-label={t("chat.retryProjectFile")}
-                          disabled={retryingFiles.includes(file.id)}
+                          disabled={
+                            retryingFiles.includes(file.id) ||
+                            file.status === "processing" ||
+                            file.status === "reindexing"
+                          }
                           onClick={() => void retryFile(file)}
                         >
                           <IconRefresh />

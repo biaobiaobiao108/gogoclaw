@@ -325,7 +325,7 @@ func TestParallelExecutionRejectsStatefulReadOnlyTools(t *testing.T) {
 		{ID: "search-1", Name: "tool_search", Arguments: map[string]any{"query": "calendar"}},
 		{ID: "search-2", Name: "tool_search", Arguments: map[string]any{"query": "notes"}},
 	}
-	if canExecuteInParallel(al, ts, calls) {
+	if canExecuteInParallel(al, al.cfg, ts, calls) {
 		t.Fatal("stateful read-only tools must execute sequentially")
 	}
 }
@@ -350,6 +350,9 @@ type mockReadOnlySleepTool struct {
 
 func (t *mockReadOnlySleepTool) Name() string        { return t.name }
 func (t *mockReadOnlySleepTool) Description() string { return "mock read-only tool" }
+func (t *mockReadOnlySleepTool) Policy() tools.ToolPolicy {
+	return tools.ReadPolicy()
+}
 func (t *mockReadOnlySleepTool) Parameters() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{"file": map[string]any{"type": "string"}}}
 }
@@ -361,6 +364,26 @@ func (t *mockReadOnlySleepTool) Execute(ctx context.Context, args map[string]any
 		return tools.ErrorResult(ctx.Err().Error())
 	}
 	return tools.SilentResult(fmt.Sprintf("content of %v", args["file"]))
+}
+
+func TestPublicExposureApprovalAlsoAppliesToParallelTools(t *testing.T) {
+	al, agent, cleanup := newTurnCoordTestLoop(t, &sequenceProvider{})
+	defer cleanup()
+	agent.Tools.Register(&mockReadOnlySleepTool{name: "custom_reader"})
+	ts := newTurnState(agent, makeTestProcessOpts("public-read-only"), turnEventScope{
+		turnID: "public-read-only", context: newTurnContext(nil, nil, nil),
+	})
+	calls := []providers.ToolCall{
+		{ID: "read-1", Name: "custom_reader", Arguments: map[string]any{"file": "notes"}},
+		{ID: "read-2", Name: "custom_reader", Arguments: map[string]any{"file": "calendar"}},
+	}
+	if !canExecuteInParallel(al, al.cfg, ts, calls) {
+		t.Fatal("trusted instance should allow parallel read-only tools")
+	}
+	al.publicExposure = true
+	if canExecuteInParallel(al, al.cfg, ts, calls) {
+		t.Fatal("public exposure approval must run before parallel execution")
+	}
 }
 
 func TestExecuteTools_ParallelReadOnly(t *testing.T) {

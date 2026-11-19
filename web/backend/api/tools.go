@@ -19,12 +19,14 @@ type toolCatalogEntry struct {
 }
 
 type toolSupportItem struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Category    string `json:"category"`
-	ConfigKey   string `json:"config_key"`
-	Status      string `json:"status"`
-	ReasonCode  string `json:"reason_code,omitempty"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	Category     string `json:"category"`
+	ConfigKey    string `json:"config_key"`
+	Status       string `json:"status"`
+	ReasonCode   string `json:"reason_code,omitempty"`
+	Access       string `json:"access,omitempty"`
+	AccessSource string `json:"access_source,omitempty"`
 }
 
 type toolSupportResponse struct {
@@ -195,9 +197,21 @@ func (h *Handler) handleListTools(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(toolSupportResponse{
-		Tools: buildToolSupport(cfg),
-	})
+	items := buildToolSupport(cfg)
+	exposure := EvaluatePublicExposure(cfg, h.publicExposureInput)
+	for i := range items {
+		item := &items[i]
+		if item.Status != "enabled" {
+			item.Access, item.AccessSource = "blocked", "availability"
+			continue
+		}
+		required, source, _ := picotools.StaticApprovalPolicy(cfg.Tools.Approval, exposure.Public, item.Name, nil)
+		item.Access, item.AccessSource = "allowed", source
+		if required {
+			item.Access = "approval"
+		}
+	}
+	json.NewEncoder(w).Encode(toolSupportResponse{Tools: items})
 }
 
 func (h *Handler) handleUpdateToolState(w http.ResponseWriter, r *http.Request) {

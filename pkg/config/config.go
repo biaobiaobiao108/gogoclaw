@@ -1,6 +1,9 @@
 package config
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,6 +56,18 @@ type Config struct {
 
 	// cache for sensitive values and compiled regex (computed once)
 	sensitiveCache *SensitiveDataCache
+	fileRevision   []byte
+}
+
+// FileRevisionProof lets Launcher compare the exact config files a Gateway
+// loaded without publishing their contents or an unkeyed credential digest.
+func (c *Config) FileRevisionProof(processToken string) string {
+	if c == nil || len(c.fileRevision) == 0 || processToken == "" {
+		return ""
+	}
+	mac := hmac.New(sha256.New, []byte(processToken))
+	_, _ = mac.Write(c.fileRevision)
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 type EvolutionConfig struct {
@@ -207,6 +222,15 @@ func (c *Config) FilterSensitiveData(content string) string {
 		return content
 	}
 	return c.SensitiveDataReplacer().Replace(content)
+}
+
+// RedactDiagnostic protects user-facing diagnostics even when model-facing
+// content filtering is disabled or the message is below its length cutoff.
+func (c *Config) RedactDiagnostic(content string) string {
+	if c != nil && content != "" {
+		content = c.SensitiveDataReplacer().Replace(content)
+	}
+	return logger.RedactText(content)
 }
 
 type HooksConfig struct {
@@ -1520,6 +1544,9 @@ func LoadConfig(path string) (*Config, error) {
 
 	cfg.Session.ApplyDmScope()
 	cfg.Session.DeriveDmScope()
+	publicDigest := sha256.Sum256(data)
+	secureDigest := sha256.Sum256(secureData)
+	cfg.fileRevision = append(publicDigest[:], secureDigest[:]...)
 	if needsMigrationSave {
 		if err := SaveConfig(path, cfg); err != nil {
 			return nil, fmt.Errorf("save migrated config: %w", err)

@@ -52,6 +52,21 @@ func TestChatProjectsAssignmentChunksAndSourceProvenance(t *testing.T) {
 	if err != nil || len(matches) != 1 || matches[0].Ordinal != 3 {
 		t.Fatalf("Chinese question matches = %#v, error = %v", matches, err)
 	}
+	if started, err := store.BeginChatProjectFileReindex(ctx, project.ID, file.ID); err != nil || !started {
+		t.Fatalf("begin reindex = %t, %v", started, err)
+	}
+	if started, err := store.BeginChatProjectFileReindex(ctx, project.ID, file.ID); err != nil || started {
+		t.Fatalf("concurrent reindex = %t, %v", started, err)
+	}
+	if err := store.InterruptChatProjectIndexes(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if recovered, err := store.GetChatProjectFile(ctx, project.ID, file.ID); err != nil || recovered.Status != "interrupted" || recovered.IndexedAt.IsZero() {
+		t.Fatalf("recovered file = %#v, %v", recovered, err)
+	}
+	if results, err := store.SearchChatProjectChunks(ctx, project.ID, "seabird", 20); err != nil || len(results) != 1 {
+		t.Fatalf("preserved index matches = %#v, %v", results, err)
+	}
 	if err := store.ReplaceChatProjectTurnSources(ctx, sessionID, "turn-one", []ChatProjectTurnSource{{
 		ProjectID: project.ID, FileID: file.ID, Filename: file.OriginalName, Locator: matches[0].Locator,
 		Snippet: "The launch codename is seabird.", Ordinal: 1,

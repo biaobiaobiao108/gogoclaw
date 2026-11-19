@@ -457,12 +457,24 @@ func (h *Handler) gatewayStatusData() map[string]any {
 	currentConfigSignature := computeConfigSignature(cfg)
 	gateway.mu.Lock()
 	bootConfigSignature := gateway.bootConfigSignature
+	pidData = gateway.pidData
 	gateway.mu.Unlock()
-	data["gateway_restart_required"] = gatewayRestartRequiredBySignature(
+	restartRequired := gatewayRestartRequiredBySignature(
 		bootConfigSignature,
 		currentConfigSignature,
 		gatewayStatus,
 	)
+	if gatewayStatus == "running" && pidData != nil && pidData.Token != "" {
+		if readiness, _, err := getGatewayHealthByURL(h.gatewayProbeURL(cfg, "/ready"), 800*time.Millisecond); err == nil {
+			switch gatewayConfigState(cfg, pidData.Token, readiness.Checks) {
+			case "applied":
+				restartRequired = readiness.Status != "ready"
+			case "pending":
+				restartRequired = true
+			}
+		}
+	}
+	data["gateway_restart_required"] = restartRequired
 
 	ready, reason, readyErr := h.gatewayStartReady()
 	if readyErr != nil {
@@ -481,18 +493,43 @@ func (h *Handler) gatewayStatusData() map[string]any {
 func (h *Handler) handleGatewayReadiness(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	cfg, err := config.LoadConfig(h.configPath)
-	if err == nil {
-		status, code, probeErr := getGatewayHealthByURL(h.gatewayProbeURL(cfg, "/ready"), 800*time.Millisecond)
-		if probeErr == nil && ((code == http.StatusOK && status.Status == "ready") ||
-			(code == http.StatusServiceUnavailable && status.Status == "not ready")) {
-			w.WriteHeader(code)
-			_ = json.NewEncoder(w).Encode(status)
-			return
-		}
+	cfg, _ := config.LoadConfig(h.configPath)
+	gateway.mu.Lock()
+	token := ""
+	if gateway.pidData != nil {
+		token = gateway.pidData.Token
+	}
+	gateway.mu.Unlock()
+	status, code, probeErr := getGatewayHealthByURL(h.gatewayProbeURL(cfg, "/ready"), 800*time.Millisecond)
+	if probeErr == nil && ((code == http.StatusOK && status.Status == "ready") ||
+		(code == http.StatusServiceUnavailable && status.Status == "not ready")) {
+		match := gatewayConfigState(cfg, token, status.Checks)
+		delete(status.Checks, "config_revision")
+		delete(status.Checks, "config_boot_settings")
+		w.WriteHeader(code)
+		_ = json.NewEncoder(w).Encode(struct {
+			*health.StatusResponse
+			ConfigState string `json:"config_state"`
+		}{status, match})
+		return
 	}
 	w.WriteHeader(http.StatusServiceUnavailable)
 	_ = json.NewEncoder(w).Encode(health.StatusResponse{Status: "unavailable"})
+}
+
+func gatewayConfigState(cfg *config.Config, token string, checks map[string]health.Check) string {
+	if bootSettings, ok := checks["config_boot_settings"]; ok && cfg != nil && cfg.Gateway.BootSettings() != bootSettings.Message {
+		return "pending"
+	}
+	desired := cfg.FileRevisionProof(token)
+	running := checks["config_revision"].Message
+	if desired == "" || running == "" {
+		return "unknown"
+	}
+	if desired != running {
+		return "pending"
+	}
+	return "applied"
 }
 
 // handleGatewayLogs returns buffered gateway logs, optionally incrementally.

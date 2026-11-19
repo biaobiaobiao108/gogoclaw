@@ -9,13 +9,16 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/instance"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
 
 type managedSessionID struct {
@@ -160,26 +163,38 @@ func (h *Handler) getManagedSession(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	turn := decodeTurnCheckpoint(meta.Turn)
+	var cfg *config.Config
+	if len(turn.Deliveries) > 0 {
+		cfg, _ = config.LoadConfig(h.configPath)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"messages": page.Messages, "next_cursor": page.NextCursor, "has_more": page.HasMore,
-		"deliveries": recentPlatformDeliveries(decodeTurnCheckpoint(meta.Turn)),
+		"deliveries": recentPlatformDeliveries(turn, cfg),
 	})
 }
 
 type managedDelivery struct {
-	ID        string    `json:"id"`
-	Channel   string    `json:"channel"`
-	Status    string    `json:"status"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID            string     `json:"id"`
+	MessageID     string     `json:"message_id,omitempty"`
+	Preview       string     `json:"preview,omitempty"`
+	Channel       string     `json:"channel"`
+	Status        string     `json:"status"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	NextAttemptAt *time.Time `json:"next_attempt_at,omitempty"`
 }
 
-func recentPlatformDeliveries(turn session.TurnCheckpoint) []managedDelivery {
+func recentPlatformDeliveries(turn session.TurnCheckpoint, cfg *config.Config) []managedDelivery {
 	deliveries := make([]managedDelivery, 0, 5)
 	for i := len(turn.Deliveries) - 1; i >= 0 && len(deliveries) < 5; i-- {
 		d := turn.Deliveries[i]
 		if d.PlatformTracked {
-			deliveries = append(deliveries, managedDelivery{d.ID, d.Channel, d.Status, d.UpdatedAt})
+			deliveries = append(deliveries, managedDelivery{
+				ID: d.ID, MessageID: d.MessageID, Channel: d.Channel, Status: d.Status,
+				UpdatedAt: d.UpdatedAt, NextAttemptAt: d.NextAttemptAt,
+				Preview: utils.Truncate(strings.Join(strings.Fields(cfg.RedactDiagnostic(d.Content)), " "), 120),
+			})
 		}
 	}
 	return deliveries

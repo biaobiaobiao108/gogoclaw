@@ -24,6 +24,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useTheme } from "@/hooks/use-theme"
+import { setFirstUse } from "@/lib/first-use"
 
 function LauncherSetupPage() {
   const { t, i18n } = useTranslation()
@@ -57,6 +58,7 @@ function LauncherSetupPage() {
     try {
       const result = await postLauncherDashboardSetup(password, confirm)
       if (result.ok) {
+        setFirstUse(true)
         globalThis.location.assign("/launcher-login")
         return
       }

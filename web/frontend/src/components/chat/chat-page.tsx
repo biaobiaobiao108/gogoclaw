@@ -1,4 +1,5 @@
 import { IconLayoutSidebar, IconPlus } from "@tabler/icons-react"
+import { Link } from "@tanstack/react-router"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useAtom } from "jotai"
 import {
@@ -14,12 +15,10 @@ import {
 import { useTranslation } from "react-i18next"
 
 import { deleteSessionAttachment } from "@/api/sessions"
-import { ApprovalPanel } from "@/components/chat/approval-panel"
 import { ChatComposer } from "@/components/chat/chat-composer"
 import {
-  ChatInterruptedNotice,
   ChatScrollToBottom,
-  ChatTaskPlan,
+  ChatTurnControls,
 } from "@/components/chat/chat-page-notices"
 import { ChatStreamRowContent } from "@/components/chat/chat-stream-row"
 import { getCachedUploadLimit } from "@/components/chat/chat-upload-limit"
@@ -52,6 +51,7 @@ import { useGateway } from "@/hooks/use-gateway"
 import { useIsHistorySheet } from "@/hooks/use-mobile"
 import { usePicoChat } from "@/hooks/use-pico-chat"
 import { useSessionHistory } from "@/hooks/use-session-history"
+import { isFirstUse, setFirstUse } from "@/lib/first-use"
 import { type ChatDraft, chatDraftsAtom, getChatState } from "@/store/chat"
 import type { ChatAttachment, ChatMessage } from "@/store/chat"
 
@@ -78,6 +78,7 @@ export function ChatPage() {
     recentActivities,
     recentPlan,
     turnHistory,
+    historyTurn,
     pendingApproval,
     interrupted,
     activeSessionId,
@@ -96,6 +97,24 @@ export function ChatPage() {
     loadOlderHistory,
     retryHistory,
   } = usePicoChat()
+  const [firstUse, setFirstUseVisible] = useState(isFirstUse)
+  const firstReplyReady =
+    firstUse &&
+    !activeTurn &&
+    !isTyping &&
+    !interrupted &&
+    historyTurn?.status === "completed" &&
+    messages.some(
+      (message) =>
+        message.role === "assistant" &&
+        message.turnId === (historyTurn.replyTurnId ?? historyTurn.turnId) &&
+        (!message.kind || message.kind === "normal") &&
+        Boolean(message.content.trim()),
+    )
+  const dismissFirstUse = () => {
+    setFirstUse(false)
+    setFirstUseVisible(false)
+  }
 
   const initialViewport = useMemo(
     () => getSessionViewport(activeSessionId),
@@ -863,6 +882,19 @@ export function ChatPage() {
           onNewChatInProject={handleNewChatInProject}
         />
         <div className="relative flex min-w-0 flex-1 flex-col">
+          {firstReplyReady && (
+            <div className="border-border flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 text-xs">
+              <span className="mr-auto">{t("firstUse.replyReady")}</span>
+              <Button asChild size="sm" variant="outline">
+                <Link to="/channels" onClick={dismissFirstUse}>
+                  {t("firstUse.connectChannel")}
+                </Link>
+              </Button>
+              <Button size="sm" variant="ghost" onClick={dismissFirstUse}>
+                {t("firstUse.done")}
+              </Button>
+            </div>
+          )}
           {modelsError && (
             <div
               role="alert"
@@ -986,24 +1018,18 @@ export function ChatPage() {
             onChange={handleImageSelection}
           />
 
-          {activeTurn?.plan && <ChatTaskPlan steps={activeTurn.plan} />}
-          {interrupted &&
-            !activeTurn &&
-            !isTyping &&
-            !pendingApproval &&
-            canInput && (
-              <ChatInterruptedNotice
-                onContinue={() =>
-                  sendMessage({ content: "", taskAction: "resume_answer" })
-                }
-              />
+          <ChatTurnControls
+            plan={activeTurn?.plan}
+            approval={pendingApproval}
+            interrupted={Boolean(
+              interrupted && !activeTurn && !isTyping && canInput,
             )}
-          {pendingApproval && (
-            <ApprovalPanel
-              approval={pendingApproval}
-              onRespond={respondToApproval}
-            />
-          )}
+            historyTurn={historyTurn}
+            onContinue={() =>
+              sendMessage({ content: "", taskAction: "resume_answer" })
+            }
+            onRespond={respondToApproval}
+          />
           <ChatComposer
             textareaRef={composerTextareaRef}
             input={input}

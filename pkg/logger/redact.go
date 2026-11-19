@@ -13,7 +13,8 @@ var (
 	providerSecret = regexp.MustCompile(`\b(?:sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b`)
 )
 
-func redactText(s string) string {
+// RedactText removes recognizable credential values from diagnostic text.
+func RedactText(s string) string {
 	s = maskSecrets(s)
 	s = bearerSecret.ReplaceAllString(s, `${1}[REDACTED]`)
 	s = namedSecret.ReplaceAllString(s, `${1}[REDACTED]`)
@@ -32,7 +33,7 @@ func secretField(key string) bool {
 func redactValue(value any) any {
 	switch v := value.(type) {
 	case string:
-		return redactText(v)
+		return RedactText(v)
 	case map[string]any:
 		for key, item := range v {
 			if secretField(key) {

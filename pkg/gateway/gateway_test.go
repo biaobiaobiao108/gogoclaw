@@ -479,7 +479,7 @@ func TestConfigWatcherKeepsLatestPendingVersion(t *testing.T) {
 	save(18792)
 	// Give the watcher a full poll interval and its write debounce.
 	time.Sleep(2600 * time.Millisecond)
-	if latest := (<-updates).Gateway.Port; latest != 18792 {
+	if latest := (<-updates).config.Gateway.Port; latest != 18792 {
 		t.Fatalf("queued configuration version = %d, want 18792", latest)
 	}
 }

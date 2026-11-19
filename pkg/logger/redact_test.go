@@ -10,7 +10,7 @@ func TestRedactLogTextAndNestedFields(t *testing.T) {
 	const apiKey = "sk-abcdefghijklmnopqrstuvwx"
 	const bearer = "very-secret-bearer-value"
 	input := "request failed Authorization: Bearer " + bearer + " api_key=" + apiKey + " status=401"
-	output := redactText(input)
+	output := RedactText(input)
 	if strings.Contains(output, apiKey) || strings.Contains(output, bearer) || !strings.Contains(output, "status=401") {
 		t.Fatalf("unexpected text redaction: %s", output)
 	}

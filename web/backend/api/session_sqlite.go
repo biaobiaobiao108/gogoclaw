@@ -27,7 +27,10 @@ func (h *Handler) InitializeSessionStore() error {
 	if err != nil {
 		return err
 	}
-	return store.Close()
+	defer store.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return store.InterruptChatProjectIndexes(ctx)
 }
 
 func (h *Handler) scanSQLiteSessionRefs(dir string) ([]picoJSONLSessionRef, error) {

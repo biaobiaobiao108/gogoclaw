@@ -228,22 +228,51 @@ export function ManagedTranscript({
                     </h3>
                     <ul className="mt-2 space-y-1">
                       {deliveries.map((delivery) => (
-                        <li
-                          key={delivery.id}
-                          className="flex flex-wrap items-center justify-between gap-x-3 text-sm"
-                        >
-                          <span>
-                            {delivery.channel} ·{" "}
-                            {t(
-                              `sessionManagement.deliveryStatus.${delivery.status}`,
-                            )}
-                          </span>
-                          <time
-                            className="text-muted-foreground text-xs"
-                            dateTime={delivery.updated_at}
-                          >
-                            {new Date(delivery.updated_at).toLocaleString()}
-                          </time>
+                        <li key={delivery.id} className="text-sm">
+                          <div className="flex flex-wrap items-center justify-between gap-x-3">
+                            <span>
+                              {delivery.channel} ·{" "}
+                              {t(
+                                `sessionManagement.deliveryStatus.${delivery.status}`,
+                              )}
+                            </span>
+                            <time
+                              className="text-muted-foreground text-xs"
+                              dateTime={delivery.updated_at}
+                            >
+                              {new Date(delivery.updated_at).toLocaleString()}
+                            </time>
+                          </div>
+                          {delivery.preview && (
+                            <p className="text-foreground text-xs break-words">
+                              {delivery.preview}
+                            </p>
+                          )}
+                          <p className="text-muted-foreground text-xs break-all">
+                            {delivery.message_id
+                              ? t("recovery.delivery.message", {
+                                  id: delivery.message_id,
+                                })
+                              : t("recovery.delivery.record", {
+                                  id: delivery.id,
+                                })}
+                          </p>
+                          <p className="text-muted-foreground text-xs">
+                            {delivery.status === "delivery_unknown" ||
+                            delivery.status === "dispatching" ||
+                            delivery.status === "streaming"
+                              ? t("recovery.delivery.check")
+                              : delivery.next_attempt_at
+                                ? t("recovery.delivery.next", {
+                                    time: new Date(
+                                      delivery.next_attempt_at,
+                                    ).toLocaleString(),
+                                  })
+                                : delivery.status === "dead_letter" ||
+                                    delivery.status === "failed"
+                                  ? t("recovery.delivery.exhausted")
+                                  : null}
+                          </p>
                         </li>
                       ))}
                     </ul>

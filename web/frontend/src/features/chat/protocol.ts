@@ -557,7 +557,7 @@ export function handlePicoMessage(
       const errorMessage =
         typeof payload.message === "string" ? payload.message : ""
 
-      console.error("Pico error:", payload)
+      console.error("Pico request failed")
       if (errorMessage) {
         toast.error(errorMessage)
       }

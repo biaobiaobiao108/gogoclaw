@@ -22,7 +22,8 @@ func TestHandleAddModel_PersistsAPIKey(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/models", bytes.NewBufferString(`{
 		"model_name":"new-model",
 		"model":"openai/gpt-4o-mini",
-		"api_key":"sk-new-model-key"
+		"api_key":"sk-new-model-key",
+		"set_as_default":true
 	}`))
 	req.Header.Set("Content-Type", "application/json")
 	mux.ServeHTTP(rec, req)
@@ -45,6 +46,9 @@ func TestHandleAddModel_PersistsAPIKey(t *testing.T) {
 	}
 	if added.APIKey() != "sk-new-model-key" {
 		t.Fatalf("api_key = %q, want %q", added.APIKey(), "sk-new-model-key")
+	}
+	if got := cfg.Agents.Defaults.GetModelName(); got != "new-model" {
+		t.Fatalf("default model = %q, want new-model", got)
 	}
 }
 

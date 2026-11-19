@@ -217,6 +217,10 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	// server ready so GET /ready reports "ready". The health endpoints are
 	// mounted on the shared gateway mux, so Health.Server.Start() (which would
 	// otherwise set this) is never called — we flip the flag explicitly here.
+	runningServices.recordConfigRevision(cfg)
+	runningServices.HealthServer.RegisterCheck("config_boot_settings", func() (bool, string) {
+		return true, cfg.Gateway.BootSettings()
+	})
 	runningServices.HealthServer.SetReady(true)
 	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayReady, startedAt, nil)
 	closeListeners = false
@@ -258,7 +262,7 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 		}
 	}()
 
-	var configReloadChan <-chan *config.Config
+	var configReloadChan <-chan watchedConfig
 	stopWatch := func() {}
 	if cfg.Gateway.HotReload {
 		configReloadChan, stopWatch = setupConfigWatcherPolling(configPath, debug)
@@ -287,12 +291,17 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 				return fmt.Errorf("agent loop stopped unexpectedly: %w", agentRunErr)
 			}
 			return fmt.Errorf("agent loop stopped unexpectedly")
-		case newCfg := <-configReloadChan:
+		case update := <-configReloadChan:
 			if !runningServices.reloading.CompareAndSwap(false, true) {
 				logger.Warn("Config reload skipped: another reload is in progress")
 				continue
 			}
-			err := executeReload(ctx, agentLoop, newCfg, &provider, runningServices, msgBus, allowEmptyStartup, debug)
+			if update.failure != "" {
+				setFailedReloadCheck(runningServices.HealthServer, update.failure)
+				runningServices.reloading.Store(false)
+				continue
+			}
+			err := executeReload(ctx, agentLoop, update.config, &provider, runningServices, msgBus, allowEmptyStartup, debug)
 			if err != nil {
 				logger.Errorf("Config reload failed: %v", err)
 			}
@@ -300,12 +309,14 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 			logger.Info("Manual reload triggered via /reload endpoint")
 			newCfg, err := config.LoadConfig(configPath)
 			if err != nil {
-				logger.Errorf("Error loading config for manual reload: %v", err)
+				logger.Errorf("Error loading config for manual reload: %s", config.DiagnosticSummary(err))
+				setFailedReloadCheck(runningServices.HealthServer, "configuration file")
 				runningServices.reloading.Store(false)
 				continue
 			}
 			if err = newCfg.ValidateModelList(); err != nil {
 				logger.Errorf("Config validation failed: %v", err)
+				setFailedReloadCheck(runningServices.HealthServer, "model configuration")
 				runningServices.reloading.Store(false)
 				continue
 			}
@@ -394,13 +405,18 @@ func executeReload(
 	defer runningServices.reloading.Store(false)
 	defer func() {
 		if err != nil {
-			if healthServer != nil {
-				healthServer.RegisterCheck("reload", func() (bool, string) { return false, "configuration reload failed; check gateway logs" })
+			component := "runtime services"
+			var failure *reloadFailure
+			if errors.As(err, &failure) {
+				component = failure.component
 			}
-			publishGatewayEvent(agentLoop, runtimeevents.KindGatewayReloadFailed, startedAt, err)
+			setFailedReloadCheck(healthServer, component)
+			publishGatewayEvent(agentLoop, runtimeevents.KindGatewayReloadFailed, startedAt,
+				errors.New("configuration reload failed: "+component))
 			return
 		}
 		if healthServer != nil {
+			runningServices.recordConfigRevision(newCfg)
 			healthServer.RegisterCheck("reload", func() (bool, string) { return true, "configuration applied" })
 			healthServer.SetReady(true)
 		}
@@ -409,6 +425,29 @@ func executeReload(
 
 	err = handleConfigReload(ctx, agentLoop, newCfg, provider, runningServices, msgBus, allowEmptyStartup, debug)
 	return err
+}
+
+type reloadFailure struct {
+	component string
+	err       error
+}
+
+func (s *services) recordConfigRevision(cfg *config.Config) {
+	s.HealthServer.RegisterCheck("config_revision", func() (bool, string) {
+		return true, cfg.FileRevisionProof(s.authToken)
+	})
+}
+
+func (e *reloadFailure) Error() string { return fmt.Sprintf("reload %s: %v", e.component, e.err) }
+func (e *reloadFailure) Unwrap() error { return e.err }
+
+func setFailedReloadCheck(server *health.Server, component string) {
+	if server != nil {
+		server.RegisterCheck("reload", func() (bool, string) {
+			return false, "configuration reload failed: " + component
+		})
+		server.SetReady(false)
+	}
 }
 
 func createStartupProvider(
@@ -735,19 +774,19 @@ func handleConfigReload(
 
 	newProvider, err := createStartupProvider(newCfg, allowEmptyStartup)
 	if err != nil {
-		logger.Errorf("  ⚠ Error creating new provider: %v", err)
+		logger.Errorf("  ⚠ Error creating new provider: %s", newCfg.RedactDiagnostic(err.Error()))
 		logger.Warn("  Attempting to restart services with old provider and config...")
 		if restartErr := restartServices(al, runningServices, msgBus); restartErr != nil {
 			logger.Errorf("  ⚠ Failed to restart services: %v", restartErr)
 		}
-		return fmt.Errorf("error creating new provider: %w", err)
+		return &reloadFailure{component: "model provider", err: err}
 	}
 
 	reloadCtx, reloadCancel := context.WithTimeout(context.Background(), providerReloadTimeout)
 	defer reloadCancel()
 
 	if err := al.ReloadProviderAndConfig(reloadCtx, newProvider, newCfg); err != nil {
-		logger.Errorf("  ⚠ Error reloading agent loop: %v", err)
+		logger.Errorf("  ⚠ Error reloading agent loop: %s", newCfg.RedactDiagnostic(err.Error()))
 		if cp, ok := newProvider.(providers.StatefulProvider); ok {
 			cp.Close()
 		}
@@ -755,7 +794,7 @@ func handleConfigReload(
 		if restartErr := restartServices(al, runningServices, msgBus); restartErr != nil {
 			logger.Errorf("  ⚠ Failed to restart services: %v", restartErr)
 		}
-		return fmt.Errorf("error reloading agent loop: %w", err)
+		return &reloadFailure{component: "agent runtime", err: err}
 	}
 
 	*providerRef = newProvider
@@ -797,7 +836,7 @@ func restartServices(
 		cfg,
 	)
 	if err != nil {
-		return fmt.Errorf("error restarting scheduled services: %w", err)
+		return &reloadFailure{component: "scheduled services", err: err}
 	}
 	runningServices.CronService = newCronService
 	runningServices.HeartbeatService = newHeartbeatService
@@ -865,17 +904,25 @@ func restartServices(
 	// Changing the gateway listen address requires a full restart.
 
 	if channelErr != nil {
-		return fmt.Errorf("reload channels: %w", channelErr)
+		return &reloadFailure{component: "channels", err: channelErr}
 	}
 	return nil
 }
 
-func setupConfigWatcherPolling(configPath string, debug bool) (chan *config.Config, func()) {
-	configChan := make(chan *config.Config, 1)
+type watchedConfig struct {
+	config  *config.Config
+	failure string
+}
+
+func setupConfigWatcherPolling(configPath string, debug bool) (chan watchedConfig, func()) {
+	configChan := make(chan watchedConfig, 1)
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
 	lastModTime := getFileModTime(configPath)
 	lastSize := getFileSize(configPath)
+	securityPath := filepath.Join(filepath.Dir(configPath), config.SecurityConfigFile)
+	lastSecurityModTime := getFileModTime(securityPath)
+	lastSecuritySize := getFileSize(securityPath)
 
 	wg.Add(1)
 	go func() {
@@ -889,8 +936,11 @@ func setupConfigWatcherPolling(configPath string, debug bool) (chan *config.Conf
 			case <-ticker.C:
 				currentModTime := getFileModTime(configPath)
 				currentSize := getFileSize(configPath)
+				securityModTime := getFileModTime(securityPath)
+				securitySize := getFileSize(securityPath)
 
-				if currentModTime.After(lastModTime) || currentSize != lastSize {
+				if !currentModTime.Equal(lastModTime) || currentSize != lastSize ||
+					!securityModTime.Equal(lastSecurityModTime) || securitySize != lastSecuritySize {
 					if debug {
 						logger.Debugf("🔍 Config file change detected")
 					}
@@ -899,28 +949,29 @@ func setupConfigWatcherPolling(configPath string, debug bool) (chan *config.Conf
 
 					lastModTime = currentModTime
 					lastSize = currentSize
+					lastSecurityModTime = securityModTime
+					lastSecuritySize = securitySize
 
 					newCfg, err := config.LoadConfig(configPath)
+					update := watchedConfig{config: newCfg}
 					if err != nil {
-						logger.Errorf("⚠ Error loading new config: %v", err)
+						logger.Errorf("⚠ Error loading new config: %s", config.DiagnosticSummary(err))
 						logger.Warn("  Using previous valid config")
-						continue
-					}
-
-					if err := newCfg.ValidateModelList(); err != nil {
+						update.failure = "configuration file"
+					} else if err := newCfg.ValidateModelList(); err != nil {
 						logger.Errorf("  ⚠ New config validation failed: %v", err)
 						logger.Warn("  Using previous valid config")
-						continue
+						update.failure = "model configuration"
+					} else {
+						logger.Info("✓ Config file validated and loaded")
 					}
-
-					logger.Info("✓ Config file validated and loaded")
 
 					// Replace any version the Gateway has not picked up yet.
 					select {
 					case <-configChan:
 					default:
 					}
-					configChan <- newCfg
+					configChan <- update
 				}
 			case <-stop:
 				return

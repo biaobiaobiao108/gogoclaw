@@ -1,11 +1,13 @@
 import { createRootRoute, Outlet, useRouterState } from "@tanstack/react-router"
-import { useEffect, useState } from "react"
+import { lazy, Suspense, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { getLauncherAuthStatus } from "@/api/launcher-auth"
-import { AppLayout } from "@/components/app-layout"
-import { initializeChatStore } from "@/features/chat/controller"
 import { isLauncherAuthPathname } from "@/lib/launcher-login-path"
+
+const AuthenticatedLayout = lazy(
+  () => import("@/components/authenticated-layout"),
+)
 
 const RootLayout = () => {
   const { t } = useTranslation()
@@ -32,19 +34,25 @@ const RootLayout = () => {
     )
 
   const [authError, setAuthError] = useState<string | null>(null)
+  const [authChecked, setAuthChecked] = useState(false)
 
   // Session guard: proactively check auth status on every page load.
   useEffect(() => {
     if (isAuthPage) return
+    let cancelled = false
     void getLauncherAuthStatus()
       .then((s) => {
+        if (cancelled) return
         if (!s.initialized) {
           globalThis.location.assign("/launcher-setup")
         } else if (!s.authenticated) {
           globalThis.location.assign("/launcher-login")
+        } else {
+          setAuthChecked(true)
         }
       })
       .catch((err: unknown) => {
+        if (cancelled) return
         // On 401/403, redirect to login — the session is invalid.
         // On 5xx (e.g. 503 when the auth store is unavailable) or network errors,
         // do NOT redirect: a subsequent successful login would loop straight back here.
@@ -53,15 +61,12 @@ const RootLayout = () => {
           globalThis.location.assign("/launcher-login")
         } else {
           setAuthError(err instanceof Error ? err.message : "")
+          setAuthChecked(true)
         }
       })
-  }, [isAuthPage])
-
-  useEffect(() => {
-    if (isAuthPage) {
-      return
+    return () => {
+      cancelled = true
     }
-    initializeChatStore()
   }, [isAuthPage])
 
   if (isAuthPage) {
@@ -85,9 +90,13 @@ const RootLayout = () => {
           </button>
         </div>
       )}
-      <AppLayout>
-        <Outlet />
-      </AppLayout>
+      {authChecked && (
+        <Suspense>
+          <AuthenticatedLayout>
+            <Outlet />
+          </AuthenticatedLayout>
+        </Suspense>
+      )}
     </>
   )
 }

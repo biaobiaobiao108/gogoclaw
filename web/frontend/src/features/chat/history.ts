@@ -8,6 +8,7 @@ import type {
   ChatActivity,
   ChatAttachment,
   ChatBranchGroup,
+  ChatHistoryTurn,
   ChatMessage,
   ChatPlanStep,
   ChatTurnHistory,
@@ -56,13 +57,27 @@ export async function loadSessionMessages(
   return (await loadSessionHistory(sessionId)).messages
 }
 
+export function historyMetadataPatch(
+  history: Awaited<ReturnType<typeof loadSessionHistory>>,
+) {
+  return {
+    ...(history.contextUsage ? { contextUsage: history.contextUsage } : {}),
+    recentActivities: history.activities,
+    recentPlan: history.plan,
+    turnHistory: history.turnHistory,
+    historyTurn: history.historyTurn,
+    branches: history.branches ?? [],
+    activeProjectId: history.projectId || undefined,
+  }
+}
+
 export async function loadSessionHistory(sessionId: string): Promise<{
   title?: string
   messages: ChatMessage[]
   activities: ChatActivity[]
   plan: ChatPlanStep[]
   turnHistory: ChatTurnHistory[]
-  historyTurn?: { turnId: string; status: string }
+  historyTurn?: ChatHistoryTurn
   contextUsage?: ContextUsage
   nextCursor?: string
   hasOlder: boolean
@@ -147,7 +162,26 @@ export async function loadSessionHistory(sessionId: string): Promise<{
     plan: turn?.plan ?? [],
     activities: toActivities(turn?.activities),
     historyTurn: turn?.turn_id
-      ? { turnId: turn.turn_id, status: turn.status }
+      ? {
+          turnId: turn.turn_id,
+          replyTurnId: turn.reply_turn_id,
+          status: turn.status,
+          recoveryTools: (turn.tool_items ?? []).flatMap<
+            NonNullable<ChatHistoryTurn["recoveryTools"]>[number]
+          >((item) => {
+            if (
+              item.status === "effects_unknown" ||
+              item.side_effect === "unknown" ||
+              item.status === "running"
+            ) {
+              return [{ name: item.tool, outcome: "unknown" as const }]
+            }
+            if (item.status === "completed") {
+              return [{ name: item.tool, outcome: "completed" as const }]
+            }
+            return []
+          }),
+        }
       : undefined,
     turnHistory: (detail.turn_history ?? [])
       .filter((item) => item.turn_id)

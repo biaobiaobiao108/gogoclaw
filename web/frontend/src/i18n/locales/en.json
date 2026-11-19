@@ -1,4 +1,73 @@
 {
+  "recovery": {
+    "config": {
+      "title": "Gateway configuration",
+      "applied": "Gateway has loaded the saved configuration.",
+      "pending": "Some saved settings have yet to take effect.",
+      "failed": "The last configuration attempt failed",
+      "applying": "Applying saved configuration…",
+      "unknown": "Unable to confirm which configuration Gateway has loaded.",
+      "running": "Checking Gateway configuration…",
+      "starting": "Gateway is starting…",
+      "restarting": "Gateway is restarting…",
+      "stopping": "Gateway is stopping…",
+      "stopped": "Gateway will load the saved configuration on startup.",
+      "error": "Gateway failed to start. Check the logs for details.",
+      "reapply": "Restart and apply",
+      "components": {
+        "model provider": "Model provider",
+        "agent runtime": "Agent runtime",
+        "scheduled services": "Scheduled services",
+        "channels": "Channel services",
+        "configuration file": "Configuration file",
+        "model configuration": "Model configuration",
+        "runtime services": "Runtime services"
+      }
+    },
+    "index": {
+      "processing": "Indexing",
+      "reindexing": "Reindexing",
+      "ready": "Indexed",
+      "failed": "Indexing failed",
+      "interrupted": "Indexing was interrupted. You can reindex this file."
+    },
+    "delivery": {
+      "message": "Message {{id}}",
+      "record": "Delivery {{id}}",
+      "check": "Check the original channel before resending. A resend may create a duplicate.",
+      "next": "Next automatic attempt at {{time}}",
+      "exhausted": "Automatic retry has stopped. Check the channel before deciding whether to resend."
+    },
+    "chat": {
+      "completed": "Completed tool operations: {{tools}}",
+      "unknown": "Tool operations with an unknown outcome: {{tools}}",
+      "continueHint": "Continue to finish the reply using the saved history. Tools will not run again."
+    },
+    "permissions": {
+      "scope": "Baseline access from the saved configuration. Session tool profiles, command rules, and hooks can further restrict execution.",
+      "access": {
+        "allowed": "Allowed by baseline",
+        "approval": "Approval required",
+        "blocked": "Unavailable"
+      },
+      "source": {
+        "availability": "Tool availability",
+        "approval": "Configured approval rule",
+        "public": "Public access protection",
+        "yolo": "All-channel YOLO",
+        "default": "Default rule"
+      }
+    }
+  },
+  "firstUse": {
+    "modelSetup": "Choose a model protocol, enter the model and credentials, and set it as the default.",
+    "modelReady": "The default model is saved. Open Chat to start Gateway and send your first message.",
+    "openChat": "Open Chat",
+    "firstReply": "Send your first message",
+    "replyReady": "Your first Web reply arrived.",
+    "connectChannel": "Connect an external channel",
+    "done": "Done"
+  },
   "sessionManagement": {
     "deliveries": "Recent deliveries",
     "deliveryStatus": {

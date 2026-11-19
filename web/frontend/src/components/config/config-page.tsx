@@ -36,6 +36,7 @@ import {
   parseIntField,
   type TurnProfileForm,
 } from "@/components/config/form-model"
+import { GatewayConfigStatus } from "@/components/config/gateway-config-status"
 import { PageHeader } from "@/components/page-header"
 import {
   AlertDialog,
@@ -401,6 +402,7 @@ export function ConfigPage() {
             </div>
           ) : (
             <div className="space-y-6">
+              <GatewayConfigStatus />
               <LauncherSection
                 launcherForm={launcherForm}
                 onFieldChange={updateLauncherField}

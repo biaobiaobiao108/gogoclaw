@@ -1,4 +1,73 @@
 {
+  "recovery": {
+    "config": {
+      "title": "Gateway 配置生效状态",
+      "applied": "Gateway 已加载当前保存的配置。",
+      "pending": "已保存的配置尚未全部生效。",
+      "failed": "最近一次配置应用失败",
+      "applying": "正在应用已保存的配置…",
+      "unknown": "暂时无法确认 Gateway 已加载的配置。",
+      "running": "正在读取 Gateway 配置状态…",
+      "starting": "Gateway 正在启动…",
+      "restarting": "Gateway 正在重启…",
+      "stopping": "Gateway 正在停止…",
+      "stopped": "Gateway 已停止，启动时将读取已保存的配置。",
+      "error": "Gateway 启动失败，可在日志中查看原因。",
+      "reapply": "重启并应用",
+      "components": {
+        "model provider": "模型提供方",
+        "agent runtime": "Agent 运行时",
+        "scheduled services": "定时任务服务",
+        "channels": "频道服务",
+        "configuration file": "配置文件",
+        "model configuration": "模型配置",
+        "runtime services": "运行服务"
+      }
+    },
+    "index": {
+      "processing": "正在索引",
+      "reindexing": "正在重新索引",
+      "ready": "索引完成",
+      "failed": "索引失败",
+      "interrupted": "索引已中断，可重新索引。"
+    },
+    "delivery": {
+      "message": "消息 {{id}}",
+      "record": "投递记录 {{id}}",
+      "check": "请先在原频道确认是否收到，重复投递可能产生两条消息。",
+      "next": "下一次自动处理时间 {{time}}",
+      "exhausted": "自动重试已停止，请检查频道后再决定是否重发。"
+    },
+    "chat": {
+      "completed": "已完成的工具操作：{{tools}}",
+      "unknown": "结果待确认的工具操作：{{tools}}",
+      "continueHint": "继续将根据已有记录补写回复，不会重新执行工具。"
+    },
+    "permissions": {
+      "scope": "以下为已保存配置的基础权限。实际执行还受会话工具配置、命令规则和钩子限制。",
+      "access": {
+        "allowed": "基础允许",
+        "approval": "需要审批",
+        "blocked": "不可用"
+      },
+      "source": {
+        "availability": "工具可用性",
+        "approval": "配置审批规则",
+        "public": "公开访问保护",
+        "yolo": "全频道 YOLO",
+        "default": "默认规则"
+      }
+    }
+  },
+  "firstUse": {
+    "modelSetup": "选择模型协议，填写模型与凭据，并设置为默认模型。",
+    "modelReady": "默认模型已保存。返回聊天即可启动 Gateway 并发送第一条消息。",
+    "openChat": "返回聊天",
+    "firstReply": "发送第一条消息",
+    "replyReady": "已收到第一条 Web 回复。",
+    "connectChannel": "连接外部频道",
+    "done": "完成"
+  },
   "sessionManagement": {
     "deliveries": "最近投递",
     "deliveryStatus": {

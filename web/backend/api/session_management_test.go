@@ -11,11 +11,31 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/instance"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/seahorse"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 )
+
+func TestManagedDeliveryDetailsKeepMessageAndRetryWithoutSecrets(t *testing.T) {
+	next := time.Now().UTC()
+	records := recentPlatformDeliveries(session.TurnCheckpoint{
+		Deliveries: []session.TurnDelivery{
+			{ID: "local", Content: "not a platform delivery"},
+			{ID: "outbound", MessageID: "reply-42", Channel: "telegram", PlatformTracked: true,
+				Status: "failed", NextAttemptAt: &next, Content: "Answer\napi_key=do-not-show"},
+		},
+	}, nil)
+	if len(records) != 1 {
+		t.Fatalf("delivery count = %d, want 1", len(records))
+	}
+	if item := records[0]; item.MessageID != "reply-42" || item.NextAttemptAt == nil ||
+		!item.NextAttemptAt.Equal(next) || item.Preview != "Answer api_key=[REDACTED]" {
+		t.Fatalf("managed delivery = %+v", item)
+	}
+}
 
 func TestManagedSessionsChannelHistoryAndDelete(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)

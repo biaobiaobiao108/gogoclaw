@@ -103,7 +103,7 @@ export async function getModels(): Promise<ModelsListResponse> {
 }
 
 export async function addModel(
-  model: Partial<ModelInfo>,
+  model: Partial<ModelInfo> & { set_as_default?: boolean },
 ): Promise<ModelActionResponse> {
   return request<ModelActionResponse>("/api/models", {
     method: "POST",

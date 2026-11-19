@@ -1,7 +1,9 @@
 import { IconArrowDown } from "@tabler/icons-react"
 import { useTranslation } from "react-i18next"
 
+import { ApprovalPanel } from "@/components/chat/approval-panel"
 import { Button } from "@/components/ui/button"
+import type { ChatApproval, ChatHistoryTurn, ChatPlanStep } from "@/store/chat"
 
 export function ChatTaskPlan({
   steps,
@@ -38,19 +40,74 @@ export function ChatTaskPlan({
 }
 
 export function ChatInterruptedNotice({
+  tools = [],
   onContinue,
 }: {
+  tools?: ChatHistoryTurn["recoveryTools"]
   onContinue: () => void
 }) {
   const { t } = useTranslation()
+  const completed = tools.filter((item) => item.outcome === "completed")
+  const unknown = tools.filter((item) => item.outcome === "unknown")
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 pb-2 text-xs">
-      <span className="text-muted-foreground">{t("chat.taskInterrupted")}</span>
+      <div className="text-muted-foreground min-w-0 space-y-1 break-words">
+        <p>{t("chat.taskInterrupted")}</p>
+        {completed.length > 0 && (
+          <p>
+            {t("recovery.chat.completed", {
+              tools: completed.map((item) => item.name).join(", "),
+            })}
+          </p>
+        )}
+        {unknown.length > 0 && (
+          <p>
+            {t("recovery.chat.unknown", {
+              tools: unknown.map((item) => item.name).join(", "),
+            })}
+          </p>
+        )}
+        <p>{t("recovery.chat.continueHint")}</p>
+      </div>
       <Button type="button" size="sm" variant="outline" onClick={onContinue}>
         {t("chat.continueTask")}
       </Button>
     </div>
+  )
+}
+
+export function ChatTurnControls({
+  plan,
+  approval,
+  interrupted,
+  historyTurn,
+  onContinue,
+  onRespond,
+}: {
+  plan?: ChatPlanStep[]
+  approval: ChatApproval | null | undefined
+  interrupted: boolean
+  historyTurn?: ChatHistoryTurn
+  onContinue: () => void
+  onRespond: React.ComponentProps<typeof ApprovalPanel>["onRespond"]
+}) {
+  const recoverableTurn =
+    historyTurn?.status === "running" || historyTurn?.status === "interrupted"
+  return (
+    <>
+      {plan && <ChatTaskPlan steps={plan} />}
+      {approval ? (
+        <ApprovalPanel approval={approval} onRespond={onRespond} />
+      ) : (
+        interrupted && (
+          <ChatInterruptedNotice
+            tools={recoverableTurn ? historyTurn?.recoveryTools : undefined}
+            onContinue={onContinue}
+          />
+        )
+      )}
+    </>
   )
 }
 

@@ -5,6 +5,7 @@ import { AppHeader } from "@/components/app-header"
 import { AppSidebar } from "@/components/app-sidebar"
 import { TourGuide } from "@/components/tour/tour-guide"
 import { SidebarProvider } from "@/components/ui/sidebar"
+import { hasFirstUseState } from "@/lib/first-use"
 
 export function AppLayout({ children }: { children: ReactNode }) {
   return (
@@ -23,7 +24,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         </div>
       </div>
       <Toaster position="bottom-center" />
-      <TourGuide />
+      {!hasFirstUseState() && <TourGuide />}
     </SidebarProvider>
   )
 }

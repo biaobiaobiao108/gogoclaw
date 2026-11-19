@@ -140,6 +140,13 @@ export interface ChatPlanStep {
   status: string
 }
 
+export interface ChatHistoryTurn {
+  turnId: string
+  replyTurnId?: string
+  status: string
+  recoveryTools?: { name: string; outcome: "completed" | "unknown" }[]
+}
+
 export interface ChatTurnHistory {
   turnId: string
   status: string
@@ -177,7 +184,7 @@ export interface ChatStoreState {
   recentActivities?: ChatActivity[]
   recentPlan?: ChatPlanStep[]
   turnHistory?: ChatTurnHistory[]
-  historyTurn?: { turnId: string; status: string }
+  historyTurn?: ChatHistoryTurn
   pendingApproval?: ChatApproval
   interrupted?: boolean
   activeSessionId: string

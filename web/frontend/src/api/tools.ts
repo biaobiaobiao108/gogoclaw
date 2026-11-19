@@ -7,6 +7,8 @@ export interface ToolSupportItem {
   config_key: string
   status: "enabled" | "disabled" | "blocked"
   reason_code?: string
+  access?: "allowed" | "approval" | "blocked"
+  access_source?: string
 }
 
 interface ToolsResponse {

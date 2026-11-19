@@ -10,7 +10,8 @@ export interface ChatProject {
   file_count?: number
 }
 
-export type ChatProjectFileStatus = "processing" | "ready" | "failed"
+export type ChatProjectFileStatus =
+  "processing" | "reindexing" | "ready" | "failed" | "interrupted"
 
 export interface ChatProjectFile {
   id: string

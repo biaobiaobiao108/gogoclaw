@@ -192,36 +192,43 @@ async function startModelFixture() {
 async function checkLocalChat(page, base, model) {
   const gatewayPort = await unusedPort()
   const modelBase = `http://127.0.0.1:${model.address().port}/v1`
-  const prepare = await page.evaluate(
-    async ({ gatewayPort, modelBase }) => {
-      async function write(path, method, body) {
-        const response = await fetch(path, {
-          method,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        })
-        return response.ok ? null : `${path}: ${await response.text()}`
-      }
-      return (
-        (await write("/api/config", "PATCH", {
-          gateway: { host: "127.0.0.1", port: gatewayPort, log_level: "debug" },
-        })) ??
-        (await write("/api/models", "POST", {
-          model_name: "browser-loopback-model",
-          provider: "openai",
-          model: "fixture-chat",
-          api_base: modelBase,
-          api_key: "fixture-key",
-          streaming: { enabled: true },
-        })) ??
-        (await write("/api/models/default", "POST", {
-          model_name: "browser-loopback-model",
-        }))
-      )
-    },
-    { gatewayPort, modelBase },
-  )
+  const prepare = await page.evaluate(async (port) => {
+    const response = await fetch("/api/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        gateway: { host: "127.0.0.1", port, log_level: "debug" },
+      }),
+    })
+    return response.ok ? null : await response.text()
+  }, gatewayPort)
   if (prepare) throw new Error(prepare)
+  await page.goto(`${base}/models?setup=true`)
+  const setup = page
+    .getByText(/Choose a model protocol|选择模型协议/)
+    .locator("..")
+  await setup.getByRole("button", { name: /Add Model|添加模型/i }).click()
+  const modelForm = page.getByRole("dialog")
+  await modelForm.getByPlaceholder(/my-gpt4/).fill("browser-loopback-model")
+  await modelForm.getByRole("combobox").first().click()
+  await modelForm
+    .getByRole("option", { name: /OpenAI/ })
+    .first()
+    .click()
+  await modelForm
+    .getByRole("textbox", { name: /Model Identifier|模型标识符/i })
+    .fill("fixture-chat")
+  await modelForm
+    .getByPlaceholder(/Enter your API key|请输入 API Key/)
+    .fill("fixture-key")
+  await modelForm
+    .getByRole("textbox", { name: /API Base|基础地址/i })
+    .fill(modelBase)
+  await modelForm
+    .getByRole("button", { name: /Add Model|添加模型/i, exact: true })
+    .click()
+  const openChat = page.getByRole("link", { name: /Open Chat|返回聊天/ })
+  await openChat.waitFor()
   await page.addInitScript(() => {
     const NativeWebSocket = window.WebSocket
     window.WebSocket = class extends NativeWebSocket {
@@ -248,7 +255,9 @@ async function checkLocalChat(page, base, model) {
     })
   })
 
-  await page.goto(`${base}/chat`)
+  await openChat.click()
+  await page.waitForURL(`${base}/chat`)
+  await page.reload()
   await page
     .locator("main")
     .getByRole("button", { name: /Start Gateway|启动服务/ })
@@ -256,7 +265,13 @@ async function checkLocalChat(page, base, model) {
   await page.waitForFunction(
     async () => {
       const response = await fetch("/api/gateway/readiness")
-      return response.ok && (await response.json()).status === "ready"
+      const readiness = await response.json()
+      return (
+        response.ok &&
+        readiness.status === "ready" &&
+        readiness.config_state === "applied" &&
+        !readiness.checks?.config_revision
+      )
     },
     null,
     { timeout: 15000, polling: 500 },
@@ -285,6 +300,12 @@ async function checkLocalChat(page, base, model) {
   await page
     .getByText(replySentinel, { exact: true })
     .waitFor({ timeout: 15000 })
+  await page
+    .getByText(/Your first Web reply arrived|已收到第一条 Web 回复/)
+    .waitFor()
+  await page
+    .getByRole("link", { name: /Connect an external channel|连接外部频道/ })
+    .waitFor()
 
   const interim = page.getByText(interimSentinel, { exact: true })
   if ((await interim.count()) !== 1)
@@ -550,21 +571,47 @@ async function checkLocalChat(page, base, model) {
       throw new Error(
         "Failed to set fixture approval policy: " + (await r.text()),
       )
-    const restart = await fetch("/api/gateway/restart", { method: "POST" })
-    if (!restart.ok)
-      throw new Error(
-        "Failed to restart the fixture gateway: " + (await restart.text()),
-      )
   })
+  await page.goto(`${base}/config`)
+  const configuration = page.getByRole("region", {
+    name: /Gateway configuration|Gateway 配置生效状态/,
+  })
+  await configuration
+    .getByText(
+      /Some saved settings have yet to take effect|已保存的配置尚未全部生效/,
+    )
+    .waitFor()
+  await configuration
+    .getByRole("button", { name: /Restart and apply|重启并应用/ })
+    .click()
   await page.waitForFunction(
     async () => {
       const response = await fetch("/api/gateway/readiness")
-      return response.ok && (await response.json()).status === "ready"
+      const readiness = await response.json()
+      return (
+        response.ok &&
+        readiness.status === "ready" &&
+        readiness.config_state === "applied"
+      )
     },
     null,
     { timeout: 15000, polling: 500 },
   )
-  await page.reload()
+  await configuration
+    .getByText(
+      /Gateway has loaded the saved configuration|Gateway 已加载当前保存的配置/,
+    )
+    .waitFor()
+  const access = await page.evaluate(async () => {
+    const response = await fetch("/api/tools")
+    const { tools } = await response.json()
+    return tools?.find((tool) => tool.name === "list_dir")
+  })
+  if (access?.access !== "approval" || access.access_source !== "approval")
+    throw new Error(
+      "The saved tool policy did not show the configured approval",
+    )
+  await page.goto(`${base}/chat`)
   await send(approvalPrompt)
   const approve = page.getByRole("button", {
     name: /^(Approve once|批准一次)$/i,
@@ -691,9 +738,6 @@ async function main() {
     await page.locator("#launcher-password").fill("browser-test-password")
     await page.locator('button[type="submit"]').click()
     await page.waitForURL(`${base}/chat`)
-    const skip = page.getByRole("button", { name: /跳过引导|Skip/i })
-    await skip.waitFor()
-    await skip.click()
     const modelSetup = page.getByRole("link", {
       name: /Go to Models|去模型页配置/i,
     })

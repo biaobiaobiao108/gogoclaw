@@ -104,6 +104,7 @@ export interface SessionDetail {
 export interface SessionTurn {
   usage?: ContextUsage
   turn_id: string
+  reply_turn_id?: string
   status: string
   iteration: number
   plan?: { text: string; status: string }[]
@@ -124,6 +125,12 @@ export interface SessionTurn {
     completed_at?: string
   }[]
   delivery?: { status?: string }
+  tool_items?: {
+    call_id: string
+    tool: string
+    status: string
+    side_effect?: string
+  }[]
 }
 
 export async function getSessions(

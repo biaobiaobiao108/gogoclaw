@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/constants"
 	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
@@ -27,14 +28,13 @@ func toolCallFingerprint(name string, args map[string]any) string {
 	return strings.ToLower(strings.TrimSpace(name)) + "\x00" + string(argsJSON)
 }
 
-func canExecuteInParallel(al *AgentLoop, ts *turnState, toolCalls []providers.ToolCall) bool {
-	if al == nil || ts == nil {
+func canExecuteInParallel(al *AgentLoop, cfg *config.Config, ts *turnState, toolCalls []providers.ToolCall) bool {
+	if al == nil || cfg == nil || ts == nil {
 		return false
 	}
 	if al.hooks != nil && al.hooks.HasActiveHooks() {
 		return false
 	}
-	runtime := al.runtimeSnapshot()
 	seenFingerprints := make(map[string]struct{}, len(toolCalls))
 	for _, tc := range toolCalls {
 		policy := ts.toolPolicy(tc.Name)
@@ -46,7 +46,7 @@ func canExecuteInParallel(al *AgentLoop, ts *turnState, toolCalls []providers.To
 			return false
 		}
 		seenFingerprints[fingerprint] = struct{}{}
-		if runtime.cfg != nil && runtime.cfg.Tools.Approval.Requires(tc.Name) {
+		if required, _, _ := tools.StaticApprovalPolicy(cfg.Tools.Approval, al.publicExposure, tc.Name, tc.Arguments); required {
 			return false
 		}
 		if !turnProfileToolAllowed(ts.profile, tc.Name) {
@@ -79,7 +79,7 @@ func toolResultHasUsableContent(result *tools.ToolResult) bool {
 	return true
 }
 
-func toolErrorSummary(result *tools.ToolResult) string {
+func toolErrorSummary(cfg *config.Config, result *tools.ToolResult) string {
 	if result == nil || !result.IsError {
 		return ""
 	}
@@ -87,7 +87,7 @@ func toolErrorSummary(result *tools.ToolResult) string {
 	if content == "" && result.Err != nil {
 		content = strings.TrimSpace(result.Err.Error())
 	}
-	return utils.Truncate(content, 200)
+	return utils.Truncate(cfg.RedactDiagnostic(content), 200)
 }
 
 func toolItemResultFields(
@@ -114,12 +114,9 @@ func toolItemResultFields(
 		}
 	}
 	if result != nil {
-		content := runtime.cfg.FilterSensitiveData(result.ContentForLLM())
+		content := runtime.cfg.RedactDiagnostic(result.ContentForLLM())
 		summary = utils.Truncate(content, 300)
-		errorSummary = utils.Truncate(toolErrorSummary(result), 200)
-		if errorSummary != "" {
-			errorSummary = runtime.cfg.FilterSensitiveData(errorSummary)
-		}
+		errorSummary = toolErrorSummary(runtime.cfg, result)
 	}
 	return status, sideEffect, summary, errorSummary
 }
@@ -233,13 +230,13 @@ func (p *Pipeline) ExecuteTools(
 	var preExecutedResults []*tools.ToolResult
 	var parallelActivities []string
 	var parallelDurations []time.Duration
-	if len(normalizedToolCalls) > 1 && canExecuteInParallel(al, ts, normalizedToolCalls) {
+	if len(normalizedToolCalls) > 1 && canExecuteInParallel(al, cfg, ts, normalizedToolCalls) {
 		preExecutedResults = make([]*tools.ToolResult, len(normalizedToolCalls))
 		parallelActivities = make([]string, len(normalizedToolCalls))
 		parallelDurations = make([]time.Duration, len(normalizedToolCalls))
 		for i, call := range normalizedToolCalls {
 			args, _ := json.Marshal(call.Arguments)
-			parallelActivities[i] = ts.startTurnActivity("tool", call.Name, call.ID, call.Name, cfg.FilterSensitiveData(utils.Truncate(string(args), 200)))
+			parallelActivities[i] = ts.startTurnActivity("tool", call.Name, call.ID, call.Name, utils.Truncate(cfg.RedactDiagnostic(string(args)), 200))
 			ts.markToolItemRunning(toolBatchID, i, call.Name, call.Arguments)
 		}
 		if !ts.opts.NoHistory {
@@ -277,13 +274,13 @@ func (p *Pipeline) ExecuteTools(
 					ts.finishToolItemFromResult(al, toolBatchID, i, ts.toolPolicy(call.Name), result, false)
 					preExecutedResults[i] = result
 					parallelDurations[i] = time.Since(start)
-					al.emitEvent(runtimeevents.KindAgentToolExecEnd, ts.eventMeta("runTurn", "turn.tool.end"), ToolExecEndPayload{CallID: callID, Tool: call.Name, Duration: parallelDurations[i], ForLLMLen: len(result.ContentForLLM()), ForUserLen: len(result.ForUser), IsError: result.IsError, Async: result.Async, Error: toolErrorSummary(result)})
+					al.emitEvent(runtimeevents.KindAgentToolExecEnd, ts.eventMeta("runTurn", "turn.tool.end"), ToolExecEndPayload{CallID: callID, Tool: call.Name, Duration: parallelDurations[i], ForLLMLen: len(result.ContentForLLM()), ForUserLen: len(result.ForUser), IsError: result.IsError, Async: result.Async, Error: toolErrorSummary(cfg, result)})
 					ts.finishTurnActivity(parallelActivities[i], func(a *session.TurnActivity) {
 						a.Status = "completed"
 						if result.IsError {
 							a.Status = "failed"
 						}
-						a.Output = boundedActivityOutput(cfg.FilterSensitiveData(result.ContentForLLM()), cfg.FilterSensitiveData(result.ForUser))
+						a.Output = boundedActivityOutput(cfg.RedactDiagnostic(result.ContentForLLM()), cfg.RedactDiagnostic(result.ForUser))
 					})
 				}
 			}()
@@ -411,7 +408,7 @@ toolLoop:
 									"is_tool_call": "true",
 								},
 							},
-							Content: hookResult.ForUser,
+							Content: cfg.RedactDiagnostic(hookResult.ForUser),
 						})
 					}
 
@@ -498,13 +495,13 @@ toolLoop:
 							ForUserLen: len(hookResult.ForUser),
 							IsError:    hookResult.IsError,
 							Async:      hookResult.Async,
-							Error:      toolErrorSummary(hookResult),
+							Error:      toolErrorSummary(cfg, hookResult),
 						},
 					)
 					ts.recordToolExecution(
 						toolName,
 						!hookResult.IsError,
-						toolErrorSummary(hookResult),
+						toolErrorSummary(cfg, hookResult),
 						inferSkillNamesFromToolCall(ts, toolName, toolArgs),
 					)
 					ts.finishToolItemFromResult(al, toolBatchID, i, toolPolicy, hookResult, false)
@@ -627,12 +624,9 @@ toolLoop:
 			}
 		}
 
-		humanApprovalRequired := cfg.Tools.Approval.RequiresHuman(toolName)
-		humanApprovalReason := ""
-		if !humanApprovalRequired && al.publicExposure {
-			humanApprovalReason = tools.PublicExposureApprovalReason(toolName, toolArgs)
-			humanApprovalRequired = humanApprovalReason != ""
-		}
+		humanApprovalRequired, _, humanApprovalReason := tools.StaticApprovalPolicy(
+			cfg.Tools.Approval, al.publicExposure, toolName, toolArgs,
+		)
 		if al.hooks != nil {
 			approval := al.hooks.ApproveTool(turnCtx, &ToolApprovalRequest{
 				Meta:       ts.eventMeta("runTurn", "turn.tool.approve"),
@@ -720,7 +714,7 @@ toolLoop:
 		}
 
 		argsJSON, _ := json.Marshal(toolArgs)
-		argsPreview := utils.Truncate(string(argsJSON), 200)
+		argsPreview := utils.Truncate(cfg.RedactDiagnostic(string(argsJSON)), 200)
 		executedToolName := toolName
 		toolPolicy := ts.toolPolicy(executedToolName)
 		ts.markToolItemRunning(toolBatchID, i, toolName, toolArgs)
@@ -753,7 +747,7 @@ toolLoop:
 		if preExecutedResults != nil {
 			activityID = parallelActivities[i]
 		} else {
-			activityID = ts.startTurnActivity("tool", toolName, toolCallIDFromCall(tc), toolName, cfg.FilterSensitiveData(argsPreview))
+			activityID = ts.startTurnActivity("tool", toolName, toolCallIDFromCall(tc), toolName, argsPreview)
 		}
 
 		if !duplicateReadOnly && shouldPublishToolFeedback(cfg, ts) && ts.channel != "pico" {
@@ -767,7 +761,7 @@ toolLoop:
 			fbCtx, fbCancel := context.WithTimeout(turnCtx, 3*time.Second)
 			_ = al.bus.PublishOutbound(fbCtx, outboundMessageForTurnWithOptions(
 				ts,
-				feedbackMsg,
+				cfg.RedactDiagnostic(feedbackMsg),
 				outboundTurnMessageOptions{kind: messageKindToolFeedback},
 			))
 			fbCancel()
@@ -839,8 +833,8 @@ toolLoop:
 				activity.Status = "effects_unknown"
 				if toolResult != nil {
 					activity.Output = boundedActivityOutput(
-						cfg.FilterSensitiveData(toolResult.ContentForLLM()),
-						cfg.FilterSensitiveData(toolResult.ForUser),
+						cfg.RedactDiagnostic(toolResult.ContentForLLM()),
+						cfg.RedactDiagnostic(toolResult.ForUser),
 					)
 				}
 				activity.Detail = strings.TrimSpace(activity.Detail +
@@ -978,7 +972,7 @@ toolLoop:
 			toolResult.ForUser != "" &&
 			(ts.opts.SendResponse || toolResult.ResponseHandled)
 		if shouldSendForUser {
-			al.bus.PublishOutbound(ctx, outboundMessageForTurn(ts, toolResult.ForUser))
+			al.bus.PublishOutbound(ctx, outboundMessageForTurn(ts, cfg.RedactDiagnostic(toolResult.ForUser)))
 			logger.DebugCF("agent", "Sent tool result to user",
 				map[string]any{
 					"tool":        toolName,
@@ -1016,7 +1010,7 @@ toolLoop:
 					ForUserLen: len(toolResult.ForUser),
 					IsError:    toolResult.IsError,
 					Async:      toolResult.Async,
-					Error:      toolErrorSummary(toolResult),
+					Error:      toolErrorSummary(cfg, toolResult),
 				},
 			)
 		}
@@ -1026,7 +1020,7 @@ toolLoop:
 			ts.recordToolExecution(
 				toolName,
 				!toolResult.IsError,
-				toolErrorSummary(toolResult),
+				toolErrorSummary(cfg, toolResult),
 				inferSkillNamesFromToolCall(ts, toolName, toolArgs),
 			)
 		}
@@ -1037,8 +1031,8 @@ toolLoop:
 			} else if toolResult.IsError {
 				activity.Status = "failed"
 			}
-			filteredForLLM := cfg.FilterSensitiveData(toolResult.ForLLM)
-			filteredForUser := cfg.FilterSensitiveData(toolResult.ForUser)
+			filteredForLLM := cfg.RedactDiagnostic(toolResult.ForLLM)
+			filteredForUser := cfg.RedactDiagnostic(toolResult.ForUser)
 			activity.Output = boundedActivityOutput(filteredForLLM, filteredForUser)
 			activity.Diff = activityDiffPreview(filteredForUser)
 			activity.ExitCode = activityExitCode(toolResult.ForLLM)

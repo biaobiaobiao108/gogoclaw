@@ -42,6 +42,9 @@ type ManagedTranscriptPage = {
     channel: string
     status: string
     updated_at: string
+    message_id?: string
+    preview?: string
+    next_attempt_at?: string
   }[]
   messages: ManagedMessage[] | null
   next_cursor: number

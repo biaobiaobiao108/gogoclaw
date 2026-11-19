@@ -13,6 +13,7 @@ import {
 } from "@/features/chat/chat-connection"
 import { groupChatMessages } from "@/features/chat/group-messages"
 import {
+  historyMetadataPatch,
   loadOlderSessionHistory,
   loadSessionHistory,
   mergeHistoryMessages,
@@ -227,15 +228,7 @@ export async function connectChat() {
             }
             updateChatStore((prev) => ({
               messages: mergeHistoryMessages(history.messages, prev.messages),
-              ...(history.contextUsage
-                ? { contextUsage: history.contextUsage }
-                : {}),
-              recentActivities: history.activities,
-              recentPlan: history.plan,
-              turnHistory: history.turnHistory,
-              historyTurn: history.historyTurn,
-              branches: history.branches ?? [],
-              activeProjectId: history.projectId || undefined,
+              ...historyMetadataPatch(history),
               historyCursor: prev.hasLoadedOlderHistory
                 ? prev.historyCursor
                 : history.nextCursor,
@@ -317,7 +310,7 @@ export async function connectChat() {
           )
         }
       } catch {
-        console.warn("Non-JSON message from pico:", event.data)
+        console.warn("Invalid message from pico")
       }
     }
 
@@ -426,15 +419,7 @@ export async function hydrateActiveSession({
             history.messages,
             currentState.messages,
           ),
-          ...(history.contextUsage
-            ? { contextUsage: history.contextUsage }
-            : {}),
-          recentActivities: history.activities,
-          recentPlan: history.plan,
-          turnHistory: history.turnHistory,
-          historyTurn: history.historyTurn,
-          branches: history.branches ?? [],
-          activeProjectId: history.projectId || undefined,
+          ...historyMetadataPatch(history),
           hasHydratedActiveSession: true,
           isHistoryLoading: false,
           historyError: false,
@@ -447,13 +432,7 @@ export async function hydrateActiveSession({
       updateChatStore({
         activeSessionTitle,
         messages: history.messages,
-        ...(history.contextUsage ? { contextUsage: history.contextUsage } : {}),
-        recentActivities: history.activities,
-        recentPlan: history.plan,
-        turnHistory: history.turnHistory,
-        historyTurn: history.historyTurn,
-        branches: history.branches ?? [],
-        activeProjectId: history.projectId || undefined,
+        ...historyMetadataPatch(history),
         isTyping: false,
         hasHydratedActiveSession: true,
         isHistoryLoading: false,
@@ -773,13 +752,7 @@ export async function refreshActiveSessionHistory(
       messages: preservePagination
         ? refreshPaginatedMessages(history.messages, current.messages)
         : history.messages,
-      ...(history.contextUsage ? { contextUsage: history.contextUsage } : {}),
-      recentActivities: history.activities,
-      recentPlan: history.plan,
-      turnHistory: history.turnHistory,
-      historyTurn: history.historyTurn,
-      branches: history.branches ?? [],
-      activeProjectId: history.projectId || undefined,
+      ...historyMetadataPatch(history),
       historyCursor: preservePagination
         ? current.historyCursor
         : history.nextCursor,
@@ -993,13 +966,7 @@ export async function switchChatSession(sessionId: string, title?: string) {
     setActiveSessionId(sessionId, title || history.title)
     updateChatStore({
       messages: history.messages,
-      ...(history.contextUsage ? { contextUsage: history.contextUsage } : {}),
-      recentActivities: history.activities,
-      recentPlan: history.plan,
-      turnHistory: history.turnHistory,
-      historyTurn: history.historyTurn,
-      branches: history.branches ?? [],
-      activeProjectId: history.projectId || undefined,
+      ...historyMetadataPatch(history),
       isTyping: false,
       hasHydratedActiveSession: true,
       isHistoryLoading: false,

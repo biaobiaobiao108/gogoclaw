@@ -6,12 +6,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import {
-  addModel,
-  getCatalogs,
-  type ModelProviderOption,
-  setDefaultModel,
-} from "@/api/models"
+import { addModel, getCatalogs, type ModelProviderOption } from "@/api/models"
 import { ConfigChangeNotice } from "@/components/config-change-notice"
 import { maskedSecretPlaceholder } from "@/components/secret-placeholder"
 import { Field, KeyInput, SwitchCardField } from "@/components/shared-form"
@@ -396,6 +391,7 @@ export function AddModelSheet({
       const modelId = form.model.trim()
       await addModel({
         model_name: modelName,
+        set_as_default: setAsDefault,
         provider: provider || undefined,
         model: modelId,
         api_base: submittedApiBase,
@@ -423,9 +419,6 @@ export function AddModelSheet({
         extra_body: extraBody,
         custom_headers: customHeaders,
       })
-      if (setAsDefault) {
-        await setDefaultModel(modelName)
-      }
       const gateway = await refreshGatewayState({ force: true })
       showSaveSuccessOrRestartToast(
         t,

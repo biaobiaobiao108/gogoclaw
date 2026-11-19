@@ -55,6 +55,25 @@ export async function getGatewayStatus(): Promise<GatewayStatusResponse> {
   return request<GatewayStatusResponse>("/api/gateway/status")
 }
 
+interface GatewayReadiness {
+  status: string
+  config_state?: "applied" | "pending" | "unknown"
+  checks?: Record<
+    string,
+    { status: string; message?: string; timestamp: string }
+  >
+}
+
+export async function getGatewayReadiness(
+  signal?: AbortSignal,
+): Promise<GatewayReadiness> {
+  const response = await launcherFetch("/api/gateway/readiness", { signal })
+  if (!response.ok && response.status !== 503) {
+    throw new Error(`API error: ${response.status}`)
+  }
+  return response.json() as Promise<GatewayReadiness>
+}
+
 export async function getGatewayLogs(options?: {
   log_offset?: number
   log_run_id?: number

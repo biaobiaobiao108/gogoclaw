@@ -334,6 +334,23 @@ func (s *SQLiteStore) UpdateChatProjectFileStatus(ctx context.Context, id, statu
 	return nil
 }
 
+// InterruptChatProjectIndexes runs before Launcher accepts uploads.
+func (s *SQLiteStore) InterruptChatProjectIndexes(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE chat_project_files SET status = 'interrupted', error = '' WHERE status IN ('processing', 'reindexing')")
+	return err
+}
+
+func (s *SQLiteStore) BeginChatProjectFileReindex(ctx context.Context, projectID, fileID string) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE chat_project_files SET status = 'reindexing', error = ''
+		WHERE project_id = ? AND id = ? AND status NOT IN ('processing', 'reindexing')`, projectID, fileID)
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	return count == 1, err
+}
+
 func (s *SQLiteStore) ListChatProjectFiles(ctx context.Context, projectID string) ([]ChatProjectFile, error) {
 	rows, err := s.db.QueryContext(sqliteContext(ctx), `
 		SELECT id, project_id, original_name, stored_name, content_type, size_bytes, status, error, created_at, indexed_at
@@ -457,7 +474,7 @@ func (s *SQLiteStore) SearchChatProjectChunks(ctx context.Context, projectID, qu
 			FROM chat_project_file_chunks_fts
 			JOIN chat_project_file_chunks c ON c.id = chat_project_file_chunks_fts.chunk_id
 			JOIN chat_project_files f ON f.id = c.file_id
-			WHERE chat_project_file_chunks_fts MATCH ? AND c.project_id = ? AND f.status = 'ready'
+			WHERE chat_project_file_chunks_fts MATCH ? AND c.project_id = ? AND (f.status = 'ready' OR f.indexed_at > 0)
 			ORDER BY rank, c.id LIMIT ?`, ftsQuery, projectID, limit)
 		if err == nil {
 			for rows.Next() {
@@ -480,7 +497,7 @@ func (s *SQLiteStore) SearchChatProjectChunks(ctx context.Context, projectID, qu
 	rows, err := s.db.QueryContext(sqliteContext(ctx), `
 		SELECT c.id, c.file_id, c.project_id, f.original_name, c.ordinal, c.locator, c.content, c.token_count, 0
 		FROM chat_project_file_chunks c JOIN chat_project_files f ON f.id = c.file_id
-		WHERE c.project_id = ? AND f.status = 'ready' AND instr(lower(c.content), lower(?)) > 0
+		WHERE c.project_id = ? AND (f.status = 'ready' OR f.indexed_at > 0) AND instr(lower(c.content), lower(?)) > 0
 		ORDER BY c.file_id, c.ordinal LIMIT ?`, projectID, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("memory: fallback project chunk search: %w", err)

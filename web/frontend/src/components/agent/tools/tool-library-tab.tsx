@@ -52,6 +52,9 @@ export function ToolLibraryTab({
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 space-y-6 duration-500">
+      <p className="text-muted-foreground text-xs">
+        {t("recovery.permissions.scope")}
+      </p>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
           <div className="group relative min-w-0 flex-1 sm:max-w-80">
@@ -218,6 +221,12 @@ function ToolCard({
         <p className="text-muted-foreground/80 flex-1 text-[14px] leading-relaxed">
           {description}
         </p>
+        {tool.access && tool.access_source && (
+          <p className="text-muted-foreground mt-2 text-xs">
+            {t(`recovery.permissions.access.${tool.access}`)} ·{" "}
+            {t(`recovery.permissions.source.${tool.access_source}`)}
+          </p>
+        )}
 
         {reasonText && (
           <div className="border-border/40 mt-4 border-t pt-4">

@@ -5,6 +5,7 @@ import {
   IconPlus,
   IconStar,
 } from "@tabler/icons-react"
+import { Link, useSearch } from "@tanstack/react-router"
 import {
   type MouseEvent,
   useCallback,
@@ -54,6 +55,7 @@ import { ProviderSection } from "./provider-section"
 
 export function ModelsPage() {
   const { t } = useTranslation()
+  const { setup } = useSearch({ from: "/models" })
   const [models, setModels] = useState<ModelInfo[]>([])
   const [providerOptions, setProviderOptions] = useState<ModelProviderOption[]>(
     [],
@@ -510,6 +512,32 @@ export function ModelsPage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6">
         <div className="pt-2">
+          {setup && !loading && (
+            <div className="border-border mb-4 flex flex-wrap items-center justify-between gap-3 border-b pb-4">
+              <p className="text-sm">
+                {t(
+                  defaultModelBaseline
+                    ? "firstUse.modelReady"
+                    : "firstUse.modelSetup",
+                )}
+              </p>
+              {defaultModelBaseline ? (
+                <Button asChild size="sm">
+                  <Link to="/chat">{t("firstUse.openChat")}</Link>
+                </Button>
+              ) : (
+                providerOptions.length > 0 && (
+                  <Button
+                    size="sm"
+                    onClick={openAddSheet}
+                    disabled={modelUpdatePending || savingChain}
+                  >
+                    {t("models.add.button")}
+                  </Button>
+                )
+              )}
+            </div>
+          )}
           {!defaultModelDraft && (
             <div className="text-muted-foreground flex items-center gap-1.5 text-sm">
               <span>{t("models.noDefaultHintPrefix")}</span>

@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 
@@ -16,6 +17,11 @@ type GatewayConfig struct {
 	Port      int    `json:"port"                env:"GOGOCLAW_GATEWAY_PORT"`
 	HotReload bool   `json:"hot_reload"          env:"GOGOCLAW_GATEWAY_HOT_RELOAD"`
 	LogLevel  string `json:"log_level,omitempty" env:"GOGOCLAW_LOG_LEVEL"`
+}
+
+// BootSettings identifies the listener and watcher settings fixed at startup.
+func (c GatewayConfig) BootSettings() string {
+	return fmt.Sprintf("%q %d %t", c.Host, c.Port, c.HotReload)
 }
 
 func canonicalGatewayLogLevel(level logger.LogLevel) string {

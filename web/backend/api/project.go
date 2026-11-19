@@ -370,6 +370,15 @@ func (h *Handler) handleReindexChatProjectFile(w http.ResponseWriter, r *http.Re
 		http.Error(w, "failed to read project file", http.StatusInternalServerError)
 		return
 	}
+	started, err := store.BeginChatProjectFileReindex(r.Context(), project.ID, file.ID)
+	if err != nil {
+		http.Error(w, "failed to start project file indexing", http.StatusInternalServerError)
+		return
+	}
+	if !started {
+		http.Error(w, "project file is already indexing or was removed", http.StatusConflict)
+		return
+	}
 	file, err = indexChatProjectFile(r.Context(), dir, store, file)
 	if err != nil {
 		http.Error(w, "failed to reindex project file", http.StatusInternalServerError)
@@ -393,7 +402,7 @@ func (h *Handler) handleChatProjectFileContent(w http.ResponseWriter, r *http.Re
 		http.Error(w, "failed to read project file", http.StatusInternalServerError)
 		return
 	}
-	if file.Status != "ready" {
+	if file.Status != "ready" && file.IndexedAt.IsZero() {
 		http.Error(w, "project file has no extracted text", http.StatusConflict)
 		return
 	}

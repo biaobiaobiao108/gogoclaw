@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import type { ChatInputDisabledReason } from "@/components/chat/chat-composer"
 import { Button } from "@/components/ui/button"
 import { useGateway } from "@/hooks/use-gateway"
+import { isFirstUse, setFirstUse } from "@/lib/first-use"
 
 interface ChatEmptyStateProps {
   hasAvailableModels: boolean
@@ -36,7 +37,13 @@ export function ChatEmptyState({
           size="sm"
           className="mt-4 h-8 px-3 text-xs"
         >
-          <Link to="/models">{t("chat.empty.goToModels")}</Link>
+          <Link
+            to="/models"
+            search={{ setup: true }}
+            onClick={() => setFirstUse(true)}
+          >
+            {t("chat.empty.goToModels")}
+          </Link>
         </Button>
       </div>
     )
@@ -57,7 +64,13 @@ export function ChatEmptyState({
           size="sm"
           className="mt-4 h-8 px-3 text-xs"
         >
-          <Link to="/models">{t("chat.empty.selectModel")}</Link>
+          <Link
+            to="/models"
+            search={{ setup: true }}
+            onClick={() => setFirstUse(true)}
+          >
+            {t("chat.empty.selectModel")}
+          </Link>
         </Button>
       </div>
     )
@@ -116,7 +129,7 @@ export function ChatEmptyState({
     <div className="flex flex-col items-center py-12 md:py-20">
       <div className="w-full max-w-2xl">
         <h2 className="text-foreground text-2xl font-semibold tracking-tight md:text-3xl">
-          {t("chat.welcome")}
+          {t(isFirstUse() ? "firstUse.firstReply" : "chat.welcome")}
         </h2>
 
         {Array.isArray(promptExamples) &&

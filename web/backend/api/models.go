@@ -181,7 +181,8 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 
 	type custom struct {
 		config.ModelConfig
-		APIKey string `json:"api_key"`
+		APIKey       string `json:"api_key"`
+		SetAsDefault bool   `json:"set_as_default"`
 	}
 
 	var mc custom
@@ -223,6 +224,15 @@ func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
 
 	cfg.ModelList = append(cfg.ModelList, &mc.ModelConfig)
 	normalizeStoredModelProviders(cfg)
+	if mc.SetAsDefault {
+		name := mc.ModelConfig.ModelName
+		if err := validateDefaultChainModelSet(name, modelConfigsByName(cfg)[name], true, defaultChainProvider(cfg)); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		cfg.Agents.Defaults.ModelName = name
+		cfg.Agents.Defaults.ModelFallbacks = removeModelName(cfg.Agents.Defaults.ModelFallbacks, name)
+	}
 	normalizeDefaultChainReferences(cfg)
 
 	if err := config.SaveConfig(h.configPath, cfg); err != nil {
@@ -709,7 +719,11 @@ func (h *Handler) handleFetchModels(w http.ResponseWriter, r *http.Request) {
 
 	models, err := fetchUpstreamModels(ctx, req.Provider, apiBase, apiKey)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to fetch models: %v", err), http.StatusBadGateway)
+		detail := err.Error()
+		if apiKey != "" {
+			detail = strings.ReplaceAll(detail, apiKey, "[REDACTED]")
+		}
+		http.Error(w, "Failed to fetch models: "+logger.RedactText(detail), http.StatusBadGateway)
 		return
 	}
 
