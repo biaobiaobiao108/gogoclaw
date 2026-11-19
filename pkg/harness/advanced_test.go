@@ -175,6 +175,7 @@ func TestAsyncQueueOverflowFallsBackToFollowUps(t *testing.T) {
 			complete(tools.SilentResult("burst result"))
 		})},
 		AsyncSettle:   100 * time.Millisecond,
+		Timeout:       30 * time.Second, // 20 inline calls can exceed the 10s default under -race.
 		ContextWindow: 1_000_000,
 	})
 	if err != nil {
