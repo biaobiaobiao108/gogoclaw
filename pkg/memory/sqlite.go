@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS session_meta (
 	turn_history_json BLOB NOT NULL DEFAULT '[]'
 );
 
+CREATE INDEX IF NOT EXISTS session_meta_updated_key
+	ON session_meta(updated_at DESC, session_key DESC);
+
 CREATE TABLE IF NOT EXISTS pico_inbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     channel TEXT NOT NULL,
@@ -189,7 +192,41 @@ func openSQLiteStore(path string) (*SQLiteStore, error) {
 	if strings.Contains(path, "?") {
 		separator = "&"
 	}
-	db, err := sql.Open("sqlite", path+separator+params.Encode())
+	store, err := connectSQLiteStore(path, path+separator+params.Encode())
+	if err != nil {
+		return nil, err
+	}
+	if err := store.initialize(); err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	return store, nil
+}
+
+// OpenSQLiteStoreReadOnly reads an existing store without running startup checks
+// or taking a write lock to initialize the schema on each page request.
+func OpenSQLiteStoreReadOnly(dir string) (*SQLiteStore, error) {
+	path := filepath.Join(dir, sqliteSessionFilename)
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	uriPath := filepath.ToSlash(absolute)
+	if !strings.HasPrefix(uriPath, "/") {
+		uriPath = "/" + uriPath
+	}
+	uri := url.URL{Scheme: "file", Path: uriPath, RawQuery: url.Values{
+		"mode":    {"ro"},
+		"_pragma": {"busy_timeout(5000)"},
+	}.Encode()}
+	return connectSQLiteStore(path, uri.String())
+}
+
+func connectSQLiteStore(path, dsn string) (*SQLiteStore, error) {
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("memory: open sessions database: %w", err)
 	}
@@ -199,12 +236,7 @@ func openSQLiteStore(path string) (*SQLiteStore, error) {
 	// WAL handles between turns.
 	db.SetMaxIdleConns(0)
 
-	store := &SQLiteStore{db: db, path: path}
-	if err := store.initialize(); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return store, nil
+	return &SQLiteStore{db: db, path: path}, nil
 }
 
 var sqliteInitMu sync.Mutex

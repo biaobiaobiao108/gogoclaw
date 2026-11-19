@@ -1,13 +1,13 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"time"
 
@@ -26,6 +26,16 @@ type managedSession struct {
 	Scope   session.SessionScope `json:"scope"`
 	Count   int                  `json:"count"`
 	Updated string               `json:"updated"`
+}
+
+type managedSessionCursor struct {
+	Updated int64  `json:"u"`
+	Key     string `json:"k"`
+}
+
+type managedSessionPage struct {
+	Items      []managedSession `json:"items"`
+	NextCursor string           `json:"next_cursor,omitempty"`
 }
 
 func managedID(dir, key string) string {
@@ -58,34 +68,54 @@ func (h *Handler) registerManagedSessionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/session-management/{id}", h.deleteManagedSession)
 }
 func (h *Handler) listManagedSessions(w http.ResponseWriter, r *http.Request) {
-	dirs, err := h.sessionDirs()
+	dir, err := h.sessionsDir()
 	if err != nil {
 		http.Error(w, "failed to resolve workspaces", 500)
 		return
 	}
-	result := []managedSession{}
-	for _, dir := range dirs {
-		store, err := memory.OpenSQLiteStore(dir)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			http.Error(w, "failed to open session store", 500)
-			return
-		}
-		metas, err := store.ListSessionMeta(r.Context())
-		closeErr := store.Close()
-		if err != nil || closeErr != nil {
-			http.Error(w, "failed to read sessions", 500)
-			return
-		}
-		for _, meta := range metas {
-			var scope session.SessionScope
-			_ = json.Unmarshal(meta.Scope, &scope)
-			result = append(result, managedSession{managedID(dir, meta.Key), meta.Key, scope, meta.Count, meta.UpdatedAt.Format("2006-01-02T15:04:05Z07:00")})
-		}
+	query := r.URL.Query()
+	limit := 30
+	if value, err := strconv.Atoi(query.Get("limit")); err == nil && value > 0 {
+		limit = min(value, 100)
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].Updated > result[j].Updated })
+	var after *memory.SessionMeta
+	if encoded := query.Get("cursor"); encoded != "" {
+		raw, err := base64.RawURLEncoding.DecodeString(encoded)
+		var cursor managedSessionCursor
+		if err != nil || json.Unmarshal(raw, &cursor) != nil || cursor.Key == "" {
+			http.Error(w, "invalid session cursor", http.StatusBadRequest)
+			return
+		}
+		after = &memory.SessionMeta{Key: cursor.Key, UpdatedAt: time.Unix(0, cursor.Updated)}
+	}
+	result := managedSessionPage{Items: []managedSession{}}
+	store, err := memory.OpenSQLiteStoreReadOnly(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to open session store", 500)
+		return
+	}
+	defer store.Close()
+	metas, err := store.ListManagedSessionPage(r.Context(), query.Get("q"), after, limit+1)
+	if err != nil {
+		http.Error(w, "failed to read sessions", 500)
+		return
+	}
+	if len(metas) > limit {
+		metas = metas[:limit]
+		last := metas[len(metas)-1]
+		raw, _ := json.Marshal(managedSessionCursor{last.UpdatedAt.UnixNano(), last.Key})
+		result.NextCursor = base64.RawURLEncoding.EncodeToString(raw)
+	}
+	for _, meta := range metas {
+		var scope session.SessionScope
+		_ = json.Unmarshal(meta.Scope, &scope)
+		result.Items = append(result.Items, managedSession{managedID(dir, meta.Key), meta.Key, scope, meta.Count, meta.UpdatedAt.Format(time.RFC3339)})
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(result)
 }
@@ -95,15 +125,19 @@ func (h *Handler) getManagedSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid session", 400)
 		return
 	}
-	store, err := memory.OpenSQLiteStore(ref.Dir)
+	store, err := memory.OpenSQLiteStoreReadOnly(ref.Dir)
 	if err != nil {
 		http.Error(w, "session store unavailable", 404)
 		return
 	}
 	defer store.Close()
-	meta, err := store.GetSessionMeta(r.Context(), ref.Key)
-	if err != nil || meta.CreatedAt.IsZero() {
+	meta, err := store.ManagedSessionDetailMeta(r.Context(), ref.Key)
+	if errors.Is(err, sql.ErrNoRows) {
 		http.Error(w, "session not found", 404)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to read session", 500)
 		return
 	}
 	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)

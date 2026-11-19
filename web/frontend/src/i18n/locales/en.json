@@ -24,6 +24,8 @@
     "select": "Select a session to view its history",
     "delete": "Delete",
     "older": "Load earlier messages",
+    "more": "Load more sessions",
+    "retry": "Retry",
     "deleteTitle": "Delete session?",
     "deleteDescription": "This deletes the session history and search index. Stop the gateway first. This cannot be undone.",
     "cancel": "Cancel"

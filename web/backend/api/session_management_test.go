@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -44,11 +45,11 @@ func TestManagedSessionsChannelHistoryAndDelete(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
 	}
-	var items []managedSession
-	if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil || len(items) != 1 || items[0].Scope.Channel != "telegram" {
-		t.Fatalf("list: %+v %v", items, err)
+	var page managedSessionPage
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil || len(page.Items) != 1 || page.Items[0].Scope.Channel != "telegram" {
+		t.Fatalf("list: %+v %v", page, err)
 	}
-	path := "/api/session-management/" + items[0].ID
+	path := "/api/session-management/" + page.Items[0].ID
 	rec = call("GET", path)
 	if rec.Code != 200 || !containsManaged(rec.Body.String(), "hello telegram") {
 		t.Fatalf("detail: %d %s", rec.Code, rec.Body.String())
@@ -63,6 +64,83 @@ func TestManagedSessionsChannelHistoryAndDelete(t *testing.T) {
 	}
 }
 func containsManaged(s, sub string) bool { return strings.Contains(s, sub) }
+
+func TestManagedSessionsCursorAndSearch(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range []struct {
+		key, user string
+	}{
+		{"z", "other"},
+		{"y", "É用户_100%"},
+		{"x", "é用户_100%"},
+		{"w", "é用户X100Y"},
+	} {
+		scope, err := json.Marshal(map[string]any{"values": map[string]string{"user": entry.user}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpsertSessionMeta(nil, entry.key, scope, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.AddMessage(nil, entry.key, "user", "hello"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Make the cursor cross sessions whose timestamps are identical.
+	db, err := sql.Open("sqlite", filepath.Join(dir, "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("UPDATE session_meta SET updated_at = 1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	NewHandler(configPath).registerManagedSessionRoutes(mux)
+	read := func(query url.Values) managedSessionPage {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/session-management?"+query.Encode(), nil))
+		var page managedSessionPage
+		if err := json.Unmarshal(rec.Body.Bytes(), &page); rec.Code != 200 || err != nil {
+			t.Fatalf("list: %d %s (%v)", rec.Code, rec.Body.String(), err)
+		}
+		return page
+	}
+	query := url.Values{"limit": {"1"}}
+	for i, key := range []string{"z", "y", "x", "w"} {
+		page := read(query)
+		if len(page.Items) != 1 || page.Items[0].Key != key || page.Items[0].Count != 1 || (page.NextCursor != "") != (i < 3) {
+			t.Fatalf("unexpected page for %q: %+v", key, page)
+		}
+		query.Set("cursor", page.NextCursor)
+	}
+	query.Set("q", "É用户_100%")
+	for i, key := range []string{"y", "x"} {
+		page := read(query)
+		if len(page.Items) != 1 || page.Items[0].Key != key || (page.NextCursor != "") != (i == 0) {
+			t.Fatalf("unexpected search page for %q: %+v", key, page)
+		}
+		query.Set("cursor", page.NextCursor)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/session-management?cursor=invalid", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid cursor: %d %s", rec.Code, rec.Body.String())
+	}
+}
 
 func TestManagedDeleteFailurePreservesIndex(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)

@@ -221,19 +221,23 @@ async function main() {
           content: "# Skill detail",
         }
       } else if (path === "/api/session-management") {
-        body = [
-          {
-            id: "session-1",
-            key: "agent:main:telegram:user-1",
-            count: 2,
-            updated: "2026-11-17T05:00:00Z",
-            scope: {
-              channel: "telegram",
-              agent_id: "main",
-              values: { sender: "user-1" },
-            },
-          },
-        ]
+        body = {
+          items: api.deletes
+            ? []
+            : [
+                {
+                  id: "session-1",
+                  key: "agent:main:telegram:user-1",
+                  count: 2,
+                  updated: "2026-11-17T05:00:00Z",
+                  scope: {
+                    channel: "telegram",
+                    agent_id: "main",
+                    values: { sender: "user-1" },
+                  },
+                },
+              ],
+        }
       } else if (
         path === "/api/session-management/session-1" &&
         method === "GET"

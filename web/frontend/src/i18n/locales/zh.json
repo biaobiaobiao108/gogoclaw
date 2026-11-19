@@ -24,6 +24,8 @@
     "select": "选择一个会话查看历史",
     "delete": "删除",
     "older": "加载更早的消息",
+    "more": "加载更多会话",
+    "retry": "重试",
     "deleteTitle": "删除会话？",
     "deleteDescription": "会删除此会话的历史和检索索引。请先停止 Gateway；此操作无法撤销。",
     "cancel": "取消"

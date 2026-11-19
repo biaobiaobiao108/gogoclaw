@@ -2,11 +2,80 @@ package memory
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
+	"strings"
 	"time"
+
+	"modernc.org/sqlite"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
+
+func init() {
+	// SQLite's built-in lower() only folds ASCII, while session identifiers may
+	// contain names supplied by messaging channels.
+	sqlite.MustRegisterDeterministicScalarFunction("gogoclaw_lower", 1,
+		func(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
+			value, _ := args[0].(string)
+			return strings.ToLower(value), nil
+		},
+	)
+}
+
+// ListManagedSessionPage reads only the metadata needed for the console list.
+// The last row of the previous page is the exclusive (updated_at, key) bound.
+func (s *SQLiteStore) ListManagedSessionPage(ctx context.Context, search string, after *SessionMeta, limit int) ([]SessionMeta, error) {
+	query := `WITH page AS MATERIALIZED (
+		SELECT session_key, updated_at, scope_json FROM session_meta WHERE 1 = 1`
+	var args []any
+	if after != nil {
+		query += ` AND (updated_at, session_key) < (?, ?)`
+		args = append(args, after.UpdatedAt.UnixNano(), after.Key)
+	}
+	if search = strings.ToLower(strings.TrimSpace(search)); search != "" {
+		query += ` AND (instr(gogoclaw_lower(session_key), ?) > 0 OR instr(gogoclaw_lower(CAST(scope_json AS TEXT)), ?) > 0)`
+		args = append(args, search, search)
+	}
+	query += ` ORDER BY updated_at DESC, session_key DESC LIMIT ?)
+		SELECT session_key, updated_at, scope_json,
+			(SELECT count(*) FROM session_messages WHERE session_key = page.session_key)
+		FROM page ORDER BY updated_at DESC, session_key DESC`
+	rows, err := s.db.QueryContext(sqliteContext(ctx), query, append(args, limit)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []SessionMeta
+	for rows.Next() {
+		var entry SessionMeta
+		var updated int64
+		var scope []byte
+		if err := rows.Scan(&entry.Key, &updated, &scope, &entry.Count); err != nil {
+			return nil, err
+		}
+		entry.UpdatedAt = time.Unix(0, updated)
+		entry.Scope = scope
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
+}
+
+// ManagedSessionDetailMeta supplies attachment scope and delivery state without
+// counting the entire transcript on every detail page.
+func (s *SQLiteStore) ManagedSessionDetailMeta(ctx context.Context, key string) (SessionMeta, error) {
+	ctx = sqliteContext(ctx)
+	var scope, turn []byte
+	err := s.db.QueryRowContext(ctx, `
+		SELECT scope_json, turn_json FROM session_meta WHERE session_key = ?`, key,
+	).Scan(&scope, &turn)
+	if err != nil {
+		return SessionMeta{}, err
+	}
+	aliases, err := sqliteAliases(ctx, s.db, key)
+	return SessionMeta{Key: key, Scope: scope, Turn: turn, Aliases: aliases}, err
+}
 
 type PicoSessionListEntry struct {
 	Key        string

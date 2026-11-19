@@ -1,7 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import {
+  type InfiniteData,
+  useInfiniteQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { useVirtualizer } from "@tanstack/react-virtual"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import { launcherFetch } from "@/api/http"
+import {
+  deleteManagedSession,
+  getManagedSessions,
+  type ManagedSession,
+  type ManagedSessionPage,
+} from "@/api/session-management"
 import { PageHeader } from "@/components/page-header"
 import {
   AlertDialog,
@@ -16,157 +27,88 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
-type Item = {
-  id: string
-  key: string
-  count: number
-  updated: string
-  scope: {
-    channel?: string
-    agent_id?: string
-    account?: string
-    values?: Record<string, string>
-  }
-}
-type Message = {
-  role: string
-  content: string
-  created_at?: string
-  reasoning_content?: string
-  media?: string[]
-  attachments?: {
-    type?: string
-    url?: string
-    ref?: string
-    filename?: string
-  }[]
-  tool_calls?: {
-    id?: string
-    function?: { name?: string; arguments?: string }
-  }[]
-}
-type Delivery = {
-  id: string
-  channel: string
-  status: string
-  updated_at: string
-}
+import { ManagedTranscript } from "./managed-transcript"
 
-type Page = {
-  deliveries?: Delivery[]
-  messages: Message[] | null
-  next_cursor: number
-  has_more: boolean
-}
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await launcherFetch(url, init)
-  if (!response.ok) throw new Error((await response.text()).trim())
-  if (response.status === 204) return undefined as T
-  return response.json() as Promise<T>
-}
 export function SessionsPage() {
   const { t } = useTranslation()
-  const [items, setItems] = useState<Item[]>([])
-  const [selected, setSelected] = useState<Item | null>(null)
-  const [messages, setMessages] = useState<Message[]>([])
-  const [deliveries, setDeliveries] = useState<Delivery[]>([])
+  const queryClient = useQueryClient()
+  const [selected, setSelected] = useState<ManagedSession | null>(null)
   const [detailRefresh, setDetailRefresh] = useState(0)
-  const [cursor, setCursor] = useState(0)
-  const [more, setMore] = useState(false)
   const [query, setQuery] = useState("")
+  const [search, setSearch] = useState("")
   const [error, setError] = useState("")
-  const [loading, setLoading] = useState(true)
   const [pending, setPending] = useState(false)
   const [confirm, setConfirm] = useState(false)
-  const selectionVersion = useRef(0)
-  const select = (item: Item | null) => {
-    selectionVersion.current++
-    setPending(false)
-    setSelected(item)
-  }
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError("")
-    try {
-      setItems(await request<Item[]>("/api/session-management"))
-    } catch (e) {
-      setError(String(e))
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const listRef = useRef<HTMLDivElement>(null)
+  const waitingForSearch = query.trim() !== search
+
   useEffect(() => {
-    void load()
-  }, [load])
-  useEffect(() => {
-    if (!selected) return
-    let cancelled = false
-    setMessages([])
-    setDeliveries([])
-    setMore(false)
-    setError("")
-    void request<Page>(`/api/session-management/${selected.id}`)
-      .then((page) => {
-        if (!cancelled) {
-          setMessages(page.messages ?? [])
-          setDeliveries(page.deliveries ?? [])
-          setCursor(page.next_cursor)
-          setMore(page.has_more)
-        }
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setError(String(e))
-      })
-    return () => {
-      cancelled = true
+    const timer = setTimeout(() => setSearch(query.trim()), 250)
+    return () => clearTimeout(timer)
+  }, [query])
+
+  const list = useInfiniteQuery({
+    queryKey: ["managed-sessions", search],
+    queryFn: ({ pageParam, signal }) =>
+      getManagedSessions(search, pageParam, signal),
+    initialPageParam: "",
+    getNextPageParam: (page) => page.next_cursor,
+    staleTime: Infinity,
+    gcTime: 0,
+    retry: false,
+  })
+  const pages = list.data?.pages
+  const items = useMemo(() => {
+    const unique = new Map<string, ManagedSession>()
+    for (const page of pages ?? []) {
+      for (const item of page.items) unique.set(item.id, item)
     }
-  }, [detailRefresh, selected])
-  const older = async () => {
-    if (!selected) return
-    const version = selectionVersion.current
-    setPending(true)
-    try {
-      const page = await request<Page>(
-        `/api/session-management/${selected.id}?before=${cursor}`,
-      )
-      if (version !== selectionVersion.current) return
-      setMessages((current) => [...(page.messages ?? []), ...current])
-      setCursor(page.next_cursor)
-      setMore(page.has_more)
-    } catch (e) {
-      if (version === selectionVersion.current) setError(String(e))
-    } finally {
-      if (version === selectionVersion.current) setPending(false)
-    }
-  }
+    return [...unique.values()]
+  }, [pages])
+  const getItemKey = useCallback((index: number) => items[index].id, [items])
+  const virtualizer = useVirtualizer({
+    count: waitingForSearch ? 0 : items.length,
+    getScrollElement: () => listRef.current,
+    getItemKey,
+    estimateSize: () => 80,
+    overscan: 6,
+  })
+
   const remove = async () => {
     if (!selected) return
-    const version = selectionVersion.current
     setPending(true)
     setError("")
     try {
-      await request(`/api/session-management/${selected.id}`, {
-        method: "DELETE",
+      await deleteManagedSession(selected.id)
+      setSelected((current) => (current?.id === selected.id ? null : current))
+      const lists = { queryKey: ["managed-sessions"] }
+      await queryClient.cancelQueries(lists)
+      queryClient.setQueriesData<InfiniteData<ManagedSessionPage>>(
+        lists,
+        (data) =>
+          data && {
+            ...data,
+            pages: data.pages.map((page) => ({
+              ...page,
+              items: page.items.filter((item) => item.id !== selected.id),
+            })),
+          },
+      )
+      void queryClient.resetQueries({
+        ...lists,
+        predicate: (query) => query.state.data === undefined,
       })
-      setItems((current) => current.filter((item) => item.id !== selected.id))
-      if (version === selectionVersion.current) select(null)
     } catch (e) {
-      if (version !== selectionVersion.current) return
       setError(
         String(e).includes("stop gateway before deleting sessions")
           ? t("sessionManagement.stopGateway")
           : String(e),
       )
     } finally {
-      if (version === selectionVersion.current) setPending(false)
+      setPending(false)
       setConfirm(false)
     }
   }
-  const filtered = items.filter((item) =>
-    JSON.stringify([item.scope, item.key])
-      .toLowerCase()
-      .includes(query.toLowerCase()),
-  )
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader title={t("sessionManagement.title")}>
@@ -174,8 +116,14 @@ export function SessionsPage() {
           variant="ghost"
           size="sm"
           onClick={() => {
-            void load()
-            setDetailRefresh((current) => current + 1)
+            setError("")
+            void queryClient.resetQueries({ queryKey: ["managed-sessions"] })
+            if (selected) {
+              void queryClient.resetQueries({
+                queryKey: ["managed-transcript", selected.id],
+              })
+              setDetailRefresh((current) => current + 1)
+            }
           }}
         >
           {t("sessionManagement.refresh")}
@@ -191,36 +139,90 @@ export function SessionsPage() {
               aria-label={t("sessionManagement.search")}
             />
           </div>
-          <div className="max-h-64 overflow-auto px-4 pb-4 md:max-h-none md:flex-1">
-            {loading ? (
-              <p className="text-muted-foreground text-sm">
+          <div
+            ref={listRef}
+            className="max-h-64 overflow-auto px-4 pb-4 md:max-h-none md:flex-1"
+            aria-busy={waitingForSearch || list.isFetching}
+          >
+            {waitingForSearch || list.isPending ? (
+              <p role="status" className="text-muted-foreground text-sm">
                 {t("sessionManagement.loading")}
               </p>
-            ) : filtered.length === 0 ? (
-              <p className="text-muted-foreground text-sm">
-                {t("sessionManagement.empty")}
-              </p>
             ) : (
-              filtered.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => select(item)}
-                  className={`hover:bg-muted w-full rounded-md p-3 text-left text-sm ${selected?.id === item.id ? "bg-muted" : ""}`}
+              <>
+                {items.length === 0 && !list.hasNextPage && !list.error && (
+                  <p className="text-muted-foreground text-sm">
+                    {t("sessionManagement.empty")}
+                  </p>
+                )}
+                <div
+                  className="relative"
+                  style={{ height: virtualizer.getTotalSize() }}
                 >
-                  <div className="truncate font-medium">
-                    {item.scope.channel || t("sessionManagement.unknown")} ·{" "}
-                    {item.scope.agent_id || "—"}
-                  </div>
-                  <div className="text-muted-foreground truncate text-xs">
-                    {Object.values(item.scope.values ?? {}).join(" · ") ||
-                      item.key}
-                  </div>
-                  <div className="text-muted-foreground mt-1 text-xs">
-                    {new Date(item.updated).toLocaleString()} ·{" "}
-                    {t("sessionManagement.messages", { count: item.count })}
-                  </div>
-                </button>
-              ))
+                  {virtualizer.getVirtualItems().map((row) => {
+                    const item = items[row.index]
+                    return (
+                      <div
+                        key={row.key}
+                        ref={virtualizer.measureElement}
+                        data-index={row.index}
+                        className="absolute top-0 w-full"
+                        style={{ transform: `translateY(${row.start}px)` }}
+                      >
+                        <button
+                          onClick={() => {
+                            setError("")
+                            setSelected(item)
+                          }}
+                          aria-pressed={selected?.id === item.id}
+                          className={`hover:bg-muted w-full rounded-md p-3 text-left text-sm ${selected?.id === item.id ? "bg-muted" : ""}`}
+                        >
+                          <div className="truncate font-medium">
+                            {item.scope.channel ||
+                              t("sessionManagement.unknown")}{" "}
+                            · {item.scope.agent_id || "—"}
+                          </div>
+                          <div className="text-muted-foreground truncate text-xs">
+                            {Object.values(item.scope.values ?? {}).join(
+                              " · ",
+                            ) || item.key}
+                          </div>
+                          <div className="text-muted-foreground mt-1 text-xs">
+                            {new Date(item.updated).toLocaleString()} ·{" "}
+                            {t("sessionManagement.messages", {
+                              count: item.count,
+                            })}
+                          </div>
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+                {list.error && (
+                  <p role="alert" className="text-destructive text-sm">
+                    {list.error.message}
+                  </p>
+                )}
+                {(list.hasNextPage || list.error) && (
+                  <Button
+                    className="mt-2"
+                    variant="outline"
+                    size="sm"
+                    disabled={list.isFetching}
+                    onClick={() =>
+                      void (list.hasNextPage
+                        ? list.fetchNextPage()
+                        : list.refetch())
+                    }
+                  >
+                    {t(
+                      list.error
+                        ? "sessionManagement.retry"
+                        : "sessionManagement.more",
+                    )}
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </section>
@@ -235,140 +237,12 @@ export function SessionsPage() {
               {t("sessionManagement.select")}
             </p>
           ) : (
-            <>
-              <div className="flex items-center justify-between gap-4 border-b p-4">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">
-                    {selected.scope.channel || t("sessionManagement.unknown")} ·{" "}
-                    {selected.scope.agent_id || "—"}
-                  </div>
-                  <div className="text-muted-foreground truncate font-mono text-xs">
-                    {selected.key}
-                  </div>
-                </div>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => setConfirm(true)}
-                  disabled={pending}
-                >
-                  {t("sessionManagement.delete")}
-                </Button>
-              </div>
-              <div className="flex-1 overflow-auto p-4">
-                <div className="mx-auto max-w-4xl space-y-4">
-                  {deliveries.length > 0 && (
-                    <section className="border-b pb-4">
-                      <h3 className="text-sm font-medium">
-                        {t("sessionManagement.deliveries")}
-                      </h3>
-                      <ul className="mt-2 space-y-1">
-                        {deliveries.map((delivery) => (
-                          <li
-                            key={delivery.id}
-                            className="flex flex-wrap items-center justify-between gap-x-3 text-sm"
-                          >
-                            <span>
-                              {delivery.channel} ·{" "}
-                              {t(
-                                `sessionManagement.deliveryStatus.${delivery.status}`,
-                              )}
-                            </span>
-                            <time
-                              className="text-muted-foreground text-xs"
-                              dateTime={delivery.updated_at}
-                            >
-                              {new Date(delivery.updated_at).toLocaleString()}
-                            </time>
-                          </li>
-                        ))}
-                      </ul>
-                    </section>
-                  )}
-                  {more && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void older()}
-                      disabled={pending}
-                    >
-                      {t("sessionManagement.older")}
-                    </Button>
-                  )}
-                  {messages.map((message, index) => (
-                    <article key={index} className="border-b pb-4">
-                      <div className="text-muted-foreground mb-2 text-xs">
-                        {message.role}
-                        {message.created_at
-                          ? ` · ${new Date(message.created_at).toLocaleString()}`
-                          : ""}
-                      </div>
-                      {message.content && (
-                        <div className="text-sm break-words whitespace-pre-wrap">
-                          {message.content}
-                        </div>
-                      )}
-                      {message.reasoning_content && (
-                        <details className="mt-2 text-sm">
-                          <summary>{t("sessionManagement.reasoning")}</summary>
-                          <div className="break-words whitespace-pre-wrap">
-                            {message.reasoning_content}
-                          </div>
-                        </details>
-                      )}
-                      {message.tool_calls?.map((call, i) => (
-                        <div key={call.id || i} className="mt-2 text-sm">
-                          <div className="font-mono">
-                            {call.function?.name ||
-                              t("sessionManagement.toolCall")}
-                          </div>
-                          {call.function?.arguments && (
-                            <pre className="overflow-auto break-words whitespace-pre-wrap">
-                              {call.function.arguments}
-                            </pre>
-                          )}
-                        </div>
-                      ))}
-                      {message.attachments?.map((attachment, i) => (
-                        <div key={i} className="mt-2 text-sm break-all">
-                          {attachment.url &&
-                          /^(https?:\/\/|\/(?!\/)|data:image\/)/i.test(
-                            attachment.url,
-                          ) ? (
-                            <a
-                              className="underline"
-                              href={attachment.url}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              {attachment.filename ||
-                                attachment.type ||
-                                t("sessionManagement.attachment")}
-                            </a>
-                          ) : (
-                            attachment.filename ||
-                            attachment.ref ||
-                            attachment.type ||
-                            t("sessionManagement.attachment")
-                          )}
-                        </div>
-                      ))}
-                      {message.media?.map((ref, i) => (
-                        <div key={i} className="mt-2 text-sm break-all">
-                          {t("sessionManagement.media")}: {ref}
-                        </div>
-                      ))}
-                      {!message.content &&
-                        !message.reasoning_content &&
-                        !message.tool_calls?.length &&
-                        !message.attachments?.length &&
-                        !message.media?.length &&
-                        "—"}
-                    </article>
-                  ))}
-                </div>
-              </div>
-            </>
+            <ManagedTranscript
+              key={selected.id + ":" + detailRefresh}
+              selected={selected}
+              onDelete={() => setConfirm(true)}
+              pending={pending}
+            />
           )}
         </section>
       </div>
