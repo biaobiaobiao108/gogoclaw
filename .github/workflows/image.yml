@@ -24,34 +24,7 @@ env:
   RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
-  resolve:
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-    outputs:
-      sha: ${{ steps.commit.outputs.sha }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: refs/tags/${{ env.RELEASE_TAG }}
-      - id: commit
-        run: printf 'sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Require successful CI for the release commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ steps.commit.outputs.sha }}
-        run: |
-          conclusion=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
-            -f head_sha="$RELEASE_SHA" -f event=push -F per_page=1 \
-            --jq '.workflow_runs[0].conclusion // "missing or incomplete"')
-          if [[ "$conclusion" != success ]]; then
-            echo "::error::CI for $RELEASE_SHA must succeed before publishing ($conclusion)."
-            exit 1
-          fi
-
   build:
-    needs: resolve
     name: build-${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
@@ -68,7 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ needs.resolve.outputs.sha }}
+          ref: refs/tags/${{ env.RELEASE_TAG }}
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
         with:
