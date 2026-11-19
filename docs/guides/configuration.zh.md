@@ -558,7 +558,6 @@ Agent 读取 HEARTBEAT.md
 | **Vivgrid**             | `vivgrid`         | `https://api.vivgrid.com/v1`                        | OpenAI    | [获取](https://vivgrid.com)                                      |
 | **LongCat**             | `longcat`         | `https://api.longcat.chat/openai`                   | OpenAI    | [获取](https://longcat.chat/platform)                            |
 | **ModelScope (魔搭)**   | `modelscope`      | `https://api-inference.modelscope.cn/v1`            | OpenAI    | [获取](https://modelscope.cn/my/tokens)                          |
-| **Antigravity**         | `antigravity`     | Google Cloud                                        | Custom    | 仅 OAuth                                                         |
 
 #### 基础配置
 
@@ -724,8 +723,6 @@ Telegram 旧环境变量仍兼容：`GOGOCLAW_CHANNELS_TELEGRAM_STREAMING_ENABLE
 }
 ```
 
-> 运行 `gogoclaw auth login --provider anthropic` 粘贴 API Token。
-
 如需直连 Anthropic 原生接口（不兼容 OpenAI 格式的端点）：
 
 ```json
@@ -824,7 +821,6 @@ GoGoClaw 按协议族路由提供商：
 - **OpenAI 兼容**：OpenRouter、Groq、智谱、vLLM 风格端点及大多数其他提供商。
 - **Gemini 原生**：Google Gemini 通过原生 `models/*:generateContent` 和 `models/*:streamGenerateContent` 端点接入。
 - **Anthropic**：Claude 原生 API 行为。
-- **Codex/OAuth**：OpenAI OAuth/Token 认证路由。
 
 这使运行时保持轻量，同时让接入新的 OpenAI 兼容后端基本只需配置 `api_base` + `api_keys`。
 

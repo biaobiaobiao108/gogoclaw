@@ -70,7 +70,6 @@
 | **LongCat**         | `longcat`         | `https://api.longcat.chat/openai`                   | OpenAI    | [获取密钥](https://longcat.chat/platform)                         |
 | **ModelScope (魔搭)**| `modelscope`     | `https://api-inference.modelscope.cn/v1`            | OpenAI    | [获取 Token](https://modelscope.cn/my/tokens)                     |
 | **小米 MiMo**       | `mimo`            | `https://api.xiaomimimo.com/v1`                     | OpenAI    | [获取密钥](https://platform.xiaomimimo.com)                       |
-| **Antigravity**     | `antigravity`     | Google Cloud                                        | 自定义    | 仅 OAuth                                                          |
 
 #### 基础配置示例
 
@@ -222,19 +221,6 @@ GoGoClaw 按下面的规则解析 `provider` 和最终发给上游的模型 ID�
   "api_keys": ["sk-..."]
 }
 ```
-
-**Anthropic (使用 OAuth)**
-
-```json
-{
-  "model_name": "claude-sonnet-4.6",
-  "provider": "anthropic",
-  "model": "claude-sonnet-4.6",
-  "auth_method": "oauth"
-}
-```
-
-> 运行 `gogoclaw auth login --provider anthropic` 来设置 OAuth 凭证。
 
 **Anthropic Messages API（原生格式）**
 
@@ -426,7 +412,6 @@ GoGoClaw 按协议族路由 Provider：
 - OpenAI 兼容协议：OpenRouter、OpenAI 兼容网关、Groq、智谱、vLLM 风格端点。
 - Gemini 原生协议：Google Gemini 通过原生 `models/*:generateContent` 和 `models/*:streamGenerateContent` 端点接入。
 - Anthropic 协议：Claude 原生 API 行为。
-- Codex/OAuth 路径：OpenAI OAuth/Token 认证路由。
 
 这使得运行时保持轻量，同时让新的 OpenAI 兼容后端基本只需配置操作（`api_base` + `api_keys`）。
 

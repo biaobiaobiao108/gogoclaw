@@ -140,14 +140,6 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
     [defaultSelectableModels],
   )
 
-  const oauthModels = useMemo(
-    () =>
-      defaultSelectableModels.filter(
-        (m) => m.available && m.auth_method === "oauth",
-      ),
-    [defaultSelectableModels],
-  )
-
   const localModels = useMemo(
     () => defaultSelectableModels.filter((m) => m.available && isLocalModel(m)),
     [defaultSelectableModels],
@@ -155,9 +147,7 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
 
   const apiKeyModels = useMemo(
     () =>
-      defaultSelectableModels.filter(
-        (m) => m.available && m.auth_method !== "oauth" && !isLocalModel(m),
-      ),
+      defaultSelectableModels.filter((m) => m.available && !isLocalModel(m)),
     [defaultSelectableModels],
   )
 
@@ -165,7 +155,6 @@ export function useChatModels({ isConnected }: UseChatModelsOptions) {
     defaultModelName: chatModels.defaultModelName,
     hasAvailableModels,
     apiKeyModels,
-    oauthModels,
     localModels,
     settingDefault,
     handleSetDefault,

@@ -163,7 +163,7 @@ environment:
   GOGOCLAW_LAUNCHER_TRUSTED_PROXY_CIDRS: "192.168.31.228/32"
 ```
 
-Trusted proxy requests use `public_url` for origin checks, WebSocket/SSE URLs, secure cookies, OAuth callbacks, and HSTS. Direct LAN/local requests keep their own origin. Use commas to separate multiple trusted proxy CIDRs. Restart the container after changing environment variables.
+Trusted proxy requests use `public_url` for origin checks, WebSocket/SSE URLs, secure cookies, and HSTS. Direct LAN/local requests keep their own origin. Use commas to separate multiple trusted proxy CIDRs. Restart the container after changing environment variables.
 
 ### Password Page Appears Although You Never Set One
 

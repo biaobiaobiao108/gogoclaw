@@ -46,8 +46,6 @@ export interface ModelProviderOption {
   create_allowed: boolean
   default_model_allowed: boolean
   supports_fetch?: boolean
-  default_auth_method?: string
-  auth_method_locked?: boolean
   local?: boolean
   priority?: number
   common_models?: string[]
@@ -174,7 +172,6 @@ export interface TestModelInlineRequest {
   model: string
   api_base?: string
   api_key?: string
-  auth_method?: string
   model_index?: number
 }
 

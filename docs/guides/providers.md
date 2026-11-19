@@ -75,7 +75,6 @@ This design also enables **multi-agent support** with flexible provider selectio
 | **ModelScope (魔搭)**| `modelscope`     | `https://api-inference.modelscope.cn/v1`            | OpenAI    | [Get Token](https://modelscope.cn/my/tokens)                     |
 | **Xiaomi MiMo**     | `mimo`            | `https://api.xiaomimimo.com/v1`                     | OpenAI    | [Get Key](https://platform.xiaomimimo.com)                       |
 | **Azure OpenAI**    | `azure`           | `https://{resource}.openai.azure.com`               | Azure     | [Get Key](https://portal.azure.com)                              |
-| **Antigravity**     | `antigravity`     | Google Cloud                                        | Custom    | OAuth only                                                       |
 
 #### Basic Configuration
 
@@ -324,8 +323,6 @@ Notes that matter:
 }
 ```
 
-> Run `gogoclaw auth login --provider anthropic` to paste your API token.
-
 **Anthropic Messages API (native format)**
 
 For direct Anthropic API access or custom endpoints that only support Anthropic's native message format:
@@ -532,7 +529,6 @@ GoGoClaw routes providers by protocol family:
 - OpenAI-compatible protocol: OpenRouter, OpenAI-compatible gateways, Groq, Zhipu, and vLLM-style endpoints.
 - Gemini native protocol: Google Gemini via the native `models/*:generateContent` and `models/*:streamGenerateContent` endpoints.
 - Anthropic protocol: Claude-native API behavior.
-- Codex/OAuth path: OpenAI OAuth/token authentication route.
 
 This keeps the runtime lightweight while making new OpenAI-compatible backends mostly a config operation (`api_base` + `api_keys`).
 

@@ -383,15 +383,6 @@ export GOGOCLAW_TOOLS_WEB_BAIDU_API_KEY="baidu-key-from-env"
 
 模式为：`GOGOCLAW_<SECTION>_<KEY>_<FIELD>`，用下划线分隔各路径段并转换为大写。
 
-## OAuth Token 存储
-
-`sessions/sessions.db` 中的 OAuth token 与配置密钥遵循相同的 `enc://` 加密策略：
-
-- 设置 `GOGOCLAW_KEY_PASSPHRASE` 后，access token 与 refresh token 会以 AES-256-GCM 加密后落盘。密钥由 passphrase 与 SSH key（`GOGOCLAW_SSH_KEY_PATH`，默认 `~/.ssh/gogoclaw_ed25519.key`）派生。
-- 未设置 passphrase 时，token 以旧版明文格式保存并记录警告日志；OAuth 登录不受影响。
-- 数据库内的明文 token 在配置 passphrase 后会于下次保存时加密。旧 JSON 文件不会自动导入。
-- 打开 `sessions.db` 时会将其权限设为 `0600`。
-
 ## 公开暴露模式
 
 以下部署会被 GoGoClaw 视为公开暴露：

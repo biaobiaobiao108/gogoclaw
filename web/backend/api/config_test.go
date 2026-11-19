@@ -14,7 +14,7 @@ import (
 )
 
 func TestHandlePatchConfig_PersistsApprovalWithoutLosingPolicy(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
@@ -49,7 +49,7 @@ func TestHandlePatchConfig_PersistsApprovalWithoutLosingPolicy(t *testing.T) {
 }
 
 func TestHandlePatchConfig_PreservesTurnProfile(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -100,7 +100,7 @@ func TestHandlePatchConfig_PreservesTurnProfile(t *testing.T) {
 }
 
 func TestHandlePatchConfig_RejectsInvalidTurnProfile(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -140,7 +140,7 @@ func TestHandlePatchConfig_RejectsInvalidTurnProfile(t *testing.T) {
 func assertGatewayLogLevelApplied(t *testing.T, method, body string, want logger.LogLevel) {
 	t.Helper()
 
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	initialLevel := logger.GetLevel()
@@ -173,7 +173,7 @@ func assertGatewayLogLevelApplied(t *testing.T, method, body string, want logger
 }
 
 func TestHandleUpdateConfig_PreservesExecAllowRemoteDefaultWhenOmitted(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -213,7 +213,7 @@ func TestHandleUpdateConfig_PreservesExecAllowRemoteDefaultWhenOmitted(t *testin
 }
 
 func TestHandleUpdateConfig_DoesNotInheritDefaultModelFields(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -252,7 +252,7 @@ func TestHandleUpdateConfig_DoesNotInheritDefaultModelFields(t *testing.T) {
 }
 
 func TestHandlePatchConfig_RejectsInvalidExecRegexPatterns(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -287,7 +287,7 @@ func TestHandlePatchConfig_RejectsInvalidExecRegexPatterns(t *testing.T) {
 }
 
 func TestHandlePatchConfig_AllowsInvalidExecRegexPatternsWhenExecDisabled(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -313,7 +313,7 @@ func TestHandlePatchConfig_AllowsInvalidExecRegexPatternsWhenExecDisabled(t *tes
 }
 
 func TestHandlePatchConfig_SavesChannelListSettingsPatch(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -374,7 +374,7 @@ func TestHandlePatchConfig_SavesChannelListSettingsPatch(t *testing.T) {
 }
 
 func TestHandlePatchConfig_NormalizesStringChannelArrayFields(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -450,7 +450,7 @@ func TestHandlePatchConfig_NormalizesStringChannelArrayFields(t *testing.T) {
 }
 
 func TestHandlePatchConfig_NormalizesSingleNumericAllowFrom(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -489,7 +489,7 @@ func TestHandlePatchConfig_NormalizesSingleNumericAllowFrom(t *testing.T) {
 }
 
 func TestHandlePatchConfig_RejectsInvalidChannelArrayFields(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -582,7 +582,7 @@ func TestHandlePatchConfig_RejectsInvalidChannelArrayFields(t *testing.T) {
 }
 
 func TestHandlePatchConfig_RejectsNegativeStreamingDeliveryValues(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -622,7 +622,7 @@ func TestHandlePatchConfig_RejectsNegativeStreamingDeliveryValues(t *testing.T) 
 }
 
 func TestHandlePatchConfig_ClearingAllowFromDoesNotLeaveEmptyStringItem(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -693,7 +693,7 @@ func TestHandlePatchConfig_ClearingAllowFromDoesNotLeaveEmptyStringItem(t *testi
 }
 
 func TestHandlePatchConfig_CreatesMissingChannelWithTypeAndSecret(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -916,7 +916,7 @@ func TestHandlePatchConfig_AppliesGatewayLogLevel(t *testing.T) {
 }
 
 func TestHandlePatchConfig_PreservesDebugFlagOverride(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	initialLevel := logger.GetLevel()
@@ -953,7 +953,7 @@ func TestHandlePatchConfig_PreservesDebugFlagOverride(t *testing.T) {
 }
 
 func TestHandlePatchConfig_SavesDiscordTokenFromPayload(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -1002,7 +1002,7 @@ func TestHandlePatchConfig_SavesDiscordTokenFromPayload(t *testing.T) {
 }
 
 func TestHandlePatchConfig_DoesNotPersistShadowRegistryAuthTokenField(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -1061,7 +1061,7 @@ func TestHandlePatchConfig_DoesNotPersistShadowRegistryAuthTokenField(t *testing
 }
 
 func TestHandlePatchConfig_AllowsInvalidDenyRegexPatternsWhenDenyPatternsDisabled(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -1104,7 +1104,7 @@ func testCommandPatterns(t *testing.T, configPath string, body string) *httptest
 }
 
 func TestHandleTestCommandPatterns_MatchesWhitelist(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	rec := testCommandPatterns(t, configPath, `{
@@ -1124,7 +1124,7 @@ func TestHandleTestCommandPatterns_MatchesWhitelist(t *testing.T) {
 }
 
 func TestHandleTestCommandPatterns_MatchesBlacklistNotWhitelist(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	rec := testCommandPatterns(t, configPath, `{
@@ -1147,7 +1147,7 @@ func TestHandleTestCommandPatterns_MatchesBlacklistNotWhitelist(t *testing.T) {
 }
 
 func TestHandleTestCommandPatterns_BlacklistOverridesWhitelist(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	rec := testCommandPatterns(t, configPath, `{
@@ -1167,7 +1167,7 @@ func TestHandleTestCommandPatterns_BlacklistOverridesWhitelist(t *testing.T) {
 }
 
 func TestHandleTestCommandPatterns_MatchesNeither(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	rec := testCommandPatterns(t, configPath, `{
@@ -1187,7 +1187,7 @@ func TestHandleTestCommandPatterns_MatchesNeither(t *testing.T) {
 }
 
 func TestHandleTestCommandPatterns_CaseInsensitiveWithGoFlag(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	rec := testCommandPatterns(t, configPath, `{
@@ -1204,7 +1204,7 @@ func TestHandleTestCommandPatterns_CaseInsensitiveWithGoFlag(t *testing.T) {
 }
 
 func TestHandleTestCommandPatterns_EmptyPatterns(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	rec := testCommandPatterns(t, configPath, `{
@@ -1224,7 +1224,7 @@ func TestHandleTestCommandPatterns_EmptyPatterns(t *testing.T) {
 }
 
 func TestHandleTestCommandPatterns_InvalidRegexSkipped(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	rec := testCommandPatterns(t, configPath, `{
@@ -1244,7 +1244,7 @@ func TestHandleTestCommandPatterns_InvalidRegexSkipped(t *testing.T) {
 }
 
 func TestHandleTestCommandPatterns_ReturnsMatchedPattern(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	rec := testCommandPatterns(t, configPath, `{
@@ -1264,7 +1264,7 @@ func TestHandleTestCommandPatterns_ReturnsMatchedPattern(t *testing.T) {
 }
 
 func TestHandleTestCommandPatterns_InvalidJSON(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)

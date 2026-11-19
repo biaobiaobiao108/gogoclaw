@@ -335,6 +335,9 @@ func (h *Handler) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	if _, ok := rawFields["output_cost_per_million_usd"]; !ok {
 		mc.OutputCostPerMillionUSD = cfg.ModelList[idx].OutputCostPerMillionUSD
 	}
+	if _, ok := rawFields["auth_method"]; !ok {
+		mc.AuthMethod = cfg.ModelList[idx].AuthMethod
+	}
 	if _, ok := rawFields["enabled"]; !ok {
 		mc.ModelConfig.SetEnabled(cfg.ModelList[idx].IsEnabled())
 	} else {

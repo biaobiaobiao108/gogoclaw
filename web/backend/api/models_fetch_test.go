@@ -257,7 +257,7 @@ func TestFetchOpenAICompatibleModels_NoAuthHeaderWhenKeyEmpty(t *testing.T) {
 }
 
 func TestHandleFetchModels_SiliconFlowUsesOpenAICompatibleEndpoint(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	var gotPath string
@@ -310,7 +310,7 @@ func TestHandleFetchModels_SiliconFlowUsesOpenAICompatibleEndpoint(t *testing.T)
 }
 
 func TestHandleFetchModels_NearAIUsesPublicModelListEndpoint(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	var gotPath string

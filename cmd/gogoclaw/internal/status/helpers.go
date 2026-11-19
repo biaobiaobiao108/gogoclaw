@@ -6,7 +6,6 @@ import (
 
 	"github.com/biaobiaobiao108/gogoclaw/cmd/gogoclaw/internal"
 	"github.com/biaobiaobiao108/gogoclaw/cmd/gogoclaw/internal/cliui"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/auth"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
@@ -126,19 +125,6 @@ func statusCmd() {
 			{Name: "Ollama", Val: val(hasOllama, ollamaBase)},
 		}
 
-		store, _ := auth.LoadStore()
-		if store != nil && len(store.Credentials) > 0 {
-			for provider, cred := range store.Credentials {
-				st := "authenticated"
-				if cred.IsExpired() {
-					st = "expired"
-				} else if cred.NeedsRefresh() {
-					st = "needs refresh"
-				}
-				report.OAuthLines = append(report.OAuthLines,
-					fmt.Sprintf("%s (%s): %s", provider, cred.AuthMethod, st))
-			}
-		}
 	}
 
 	cliui.PrintStatus(report)

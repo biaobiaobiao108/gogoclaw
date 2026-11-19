@@ -84,20 +84,10 @@ func (s *modelProbeCacheState) resetForTest() {
 
 func hasModelConfiguration(m *config.ModelConfig) bool {
 	protocol := modelProtocol(m)
-	authMethod := strings.ToLower(strings.TrimSpace(m.AuthMethod))
 	apiKey := strings.TrimSpace(m.APIKey())
 
-	usesStoredAuth := authMethod == "oauth" || authMethod == "token"
-	if usesStoredAuth {
-		if configured, checked := hasStoredOAuthCredential(m); checked {
-			return configured
-		}
-	}
-
-	if authMethod == "" && providerUsesImplicitOAuth(protocol) {
-		if configured, checked := hasStoredOAuthCredential(m); checked {
-			return configured
-		}
+	if m.UsesRemovedLogin() {
+		return false
 	}
 
 	if providerUsesAmbientCredentials(protocol) {
@@ -111,9 +101,6 @@ func hasModelConfiguration(m *config.ModelConfig) bool {
 	if apiKey != "" {
 		return true
 	}
-	if usesStoredAuth {
-		return false
-	}
 	apiBase := strings.TrimSpace(m.APIBase)
 	if apiBase == "" {
 		return false
@@ -125,27 +112,6 @@ func hasModelConfiguration(m *config.ModelConfig) bool {
 	defaultBase := providers.DefaultAPIBaseForProtocol(protocol)
 	return defaultBase == "" ||
 		normalizeAPIBaseForCompare(apiBase) != normalizeAPIBaseForCompare(defaultBase)
-}
-
-func hasStoredOAuthCredential(m *config.ModelConfig) (bool, bool) {
-	provider, ok := oauthProviderForModel(m)
-	if !ok {
-		return false, false
-	}
-	cred, err := oauthGetCredential(provider)
-	if err != nil || cred == nil {
-		return false, true
-	}
-	return strings.TrimSpace(cred.AccessToken) != "" || strings.TrimSpace(cred.RefreshToken) != "", true
-}
-
-func providerUsesImplicitOAuth(protocol string) bool {
-	switch protocol {
-	case "antigravity":
-		return true
-	default:
-		return false
-	}
 }
 
 func providerUsesAmbientCredentials(protocol string) bool {
@@ -466,19 +432,6 @@ func normalizeModelProbeAPIBase(raw string) string {
 	}
 
 	return u.String()
-}
-
-func oauthProviderForModel(m *config.ModelConfig) (string, bool) {
-	switch modelProtocol(m) {
-	case "openai":
-		return oauthProviderOpenAI, true
-	case "anthropic":
-		return oauthProviderAnthropic, true
-	case "antigravity":
-		return oauthProviderGoogleAntigravity, true
-	default:
-		return "", false
-	}
 }
 
 func modelProtocol(m *config.ModelConfig) string {

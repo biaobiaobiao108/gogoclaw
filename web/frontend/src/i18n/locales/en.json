@@ -103,7 +103,6 @@
     "chat": "Chat",
     "model_group": "Models",
     "models": "Models",
-    "credentials": "Credentials",
     "agent_group": "Agent",
     "hub": "Hub",
     "skills": "Skills",
@@ -355,7 +354,6 @@
     },
     "modelGroup": {
       "apikey": "API Key",
-      "oauth": "OAuth",
       "local": "Local"
     },
     "modelsLoadFailed": "Could not load models. Please retry.",
@@ -492,71 +490,6 @@
     "build": "Build",
     "version_unknown": "Unknown"
   },
-  "credentials": {
-    "description": "Manage OAuth and token-based credentials for supported providers.",
-    "loading": "Loading credentials...",
-    "providers": {
-      "openai": {
-        "description": "Supports browser OAuth, device code, and token login."
-      },
-      "anthropic": {
-        "description": "Uses token login for Claude access."
-      },
-      "antigravity": {
-        "description": "Uses browser OAuth for Google Cloud Code Assist."
-      }
-    },
-    "status": {
-      "connected": "Connected",
-      "needsRefresh": "Needs refresh",
-      "expired": "Expired",
-      "notLoggedIn": "Not logged in"
-    },
-    "actions": {
-      "browser": "Browser OAuth",
-      "deviceCode": "Device Code",
-      "stopLoading": "Stop Loading",
-      "saveToken": "Save",
-      "logout": "Logout"
-    },
-    "logoutDialog": {
-      "title": "Logout provider?",
-      "description": "This will remove your saved credential for {{provider}}."
-    },
-    "fields": {
-      "openaiToken": "OpenAI token",
-      "anthropicToken": "Anthropic token"
-    },
-    "labels": {
-      "account": "Account",
-      "email": "Email",
-      "project": "Project"
-    },
-    "errors": {
-      "loadFailed": "Failed to load credentials",
-      "flowFailed": "Failed to check authentication flow",
-      "loginFailed": "Login failed",
-      "logoutFailed": "Logout failed",
-      "invalidBrowserResponse": "Invalid browser login response",
-      "invalidDeviceResponse": "Invalid device code response",
-      "popupBlocked": "Unable to open a new tab. Please allow popups and try again."
-    },
-    "flow": {
-      "current": "Current authentication status",
-      "pending": "Waiting for authorization...",
-      "success": "Authentication successful",
-      "error": "Authentication failed",
-      "expired": "Authentication session expired"
-    },
-    "device": {
-      "title": "OpenAI Device Login",
-      "description": "Open the verification page and enter the code below. This page will refresh automatically.",
-      "code": "User Code",
-      "url": "Verification URL",
-      "polling": "Polling login status...",
-      "open": "Open Verification Page"
-    }
-  },
   "models": {
     "description": "Configure API keys for AI providers. Only configured models are available for chat.",
     "defaultChangeSuccess": "Default model updated.",
@@ -657,9 +590,6 @@
       "apiKeyPlaceholderSet": "Leave blank to keep existing key",
       "proxy": "HTTP Proxy",
       "proxyHint": "Optional. e.g. http://127.0.0.1:7890",
-      "authMethod": "Auth Method",
-      "authMethodHint": "Authentication method: oauth, token. Leave blank for API key auth.",
-      "authMethodManagedHint": "This provider's auth method is managed by the system.",
       "requestTimeout": "Request Timeout (s)",
       "requestTimeoutHint": "Maximum seconds to wait for a response. 0 = use default.",
       "inputCost": "Input Price (USD / million tokens)",
@@ -686,7 +616,6 @@
     "edit": {
       "title": "Configure {{name}}",
       "apiKeyHint": "A key is already set. Leave blank to keep it unchanged.",
-      "oauthNote": "This provider uses OAuth — no API key required.",
       "saveError": "Failed to save",
       "saveSuccess": "Model configuration saved."
     },

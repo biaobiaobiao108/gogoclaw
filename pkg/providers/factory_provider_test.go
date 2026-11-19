@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/biaobiaobiao108/gogoclaw/pkg/auth"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 )
 
@@ -604,24 +603,6 @@ func TestCreateProviderFromConfig_Anthropic(t *testing.T) {
 	}
 }
 
-func TestCreateProviderFromConfig_Antigravity(t *testing.T) {
-	cfg := &config.ModelConfig{
-		ModelName: "test-antigravity",
-		Model:     "antigravity/gemini-2.0-flash",
-	}
-
-	provider, modelID, err := CreateProviderFromConfig(cfg)
-	if err != nil {
-		t.Fatalf("CreateProviderFromConfig() error = %v", err)
-	}
-	if provider == nil {
-		t.Fatal("CreateProviderFromConfig() returned nil provider")
-	}
-	if modelID != "gemini-2.0-flash" {
-		t.Errorf("modelID = %q, want %q", modelID, "gemini-2.0-flash")
-	}
-}
-
 func TestCreateProviderFromConfig_Gemini(t *testing.T) {
 	cfg := &config.ModelConfig{
 		ModelName: "test-gemini",
@@ -675,41 +656,6 @@ func TestCreateProviderFromConfig_GeminiCustomAPIBaseWithoutKey(t *testing.T) {
 	}
 	if _, ok := provider.(*GeminiProvider); !ok {
 		t.Fatalf("expected *GeminiProvider, got %T", provider)
-	}
-}
-
-func TestCreateProviderFromConfig_OpenAIMixedCaseAuthMethodUsesOAuthBranch(t *testing.T) {
-	origGetCredential := getCredential
-	getCredential = func(provider string) (*auth.AuthCredential, error) {
-		if provider != "openai" {
-			t.Fatalf("provider = %q, want %q", provider, "openai")
-		}
-		return &auth.AuthCredential{
-			AccessToken: "test-token",
-			AccountID:   "acct-test",
-			Provider:    "openai",
-			AuthMethod:  "oauth",
-		}, nil
-	}
-	t.Cleanup(func() {
-		getCredential = origGetCredential
-	})
-
-	cfg := &config.ModelConfig{
-		ModelName:  "test-openai-oauth",
-		Model:      "openai/gpt-5.4",
-		AuthMethod: "OAuth",
-	}
-
-	provider, modelID, err := CreateProviderFromConfig(cfg)
-	if err != nil {
-		t.Fatalf("CreateProviderFromConfig() error = %v", err)
-	}
-	if provider == nil {
-		t.Fatal("CreateProviderFromConfig() returned nil provider")
-	}
-	if modelID != "gpt-5.4" {
-		t.Errorf("modelID = %q, want %q", modelID, "gpt-5.4")
 	}
 }
 

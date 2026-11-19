@@ -92,8 +92,8 @@ type ProvidersConfig struct {
     },
     {
       "model_name": "gemini-3-flash",
-      "model": "antigravity/gemini-3-flash",
-      "auth_method": "oauth"
+      "model": "gemini/gemini-2.5-flash",
+      "api_keys": ["your-gemini-api-key"]
     },
     {
       "model_name": "my-company-llm",
@@ -136,7 +136,6 @@ type ModelConfig struct {
     Proxy     string `json:"proxy,omitempty"`
 
     // Special provider config
-    AuthMethod  string `json:"auth_method,omitempty"`   // oauth, token
     ConnectMode string `json:"connect_mode,omitempty"`  // stdio, grpc
 
     // Optional optimizations
@@ -153,7 +152,6 @@ type ModelConfig struct {
 |--------|----------|-------------|
 | `openai/` | 兼容 OpenAI | 最常见，包括 DeepSeek、Qwen、Groq 等 |
 | `anthropic/` | Anthropic | Claude 系列专用 |
-| `antigravity/` | Antigravity | Google Cloud Code Assist |
 | `gemini/` | Gemini | Google Gemini 原生 API |
 
 ---

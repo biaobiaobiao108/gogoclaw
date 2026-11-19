@@ -10,6 +10,5 @@ Task-oriented guides for setup, configuration, and common GoGoClaw workflows.
 - [Providers & Model Configuration](providers.md): `model_list`, providers, and model routing.
 - [Spawn & Async Tasks](spawn-tasks.md): background work, long-running tasks, and sub-agent orchestration.
 - [GoGoClaw Container Host Compatibility](hardware-compatibility.md): supported image platforms and host requirements.
-- [Using Antigravity Provider in GoGoClaw](ANTIGRAVITY_USAGE.md): Google Cloud Code Assist setup and usage.
 
 Chinese translations live beside the English source as `.zh.md`; no other locales are maintained.

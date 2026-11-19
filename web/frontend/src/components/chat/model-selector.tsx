@@ -15,7 +15,6 @@ import {
 interface ModelSelectorProps {
   defaultModelName: string
   apiKeyModels: ModelInfo[]
-  oauthModels: ModelInfo[]
   localModels: ModelInfo[]
   disabled?: boolean
   onValueChange: (modelName: string) => void
@@ -24,7 +23,6 @@ interface ModelSelectorProps {
 export function ModelSelector({
   defaultModelName,
   apiKeyModels,
-  oauthModels,
   localModels,
   disabled = false,
   onValueChange,
@@ -32,7 +30,7 @@ export function ModelSelector({
   const { t } = useTranslation()
   const rawDefaultModel =
     defaultModelName &&
-    ![...apiKeyModels, ...oauthModels, ...localModels].some(
+    ![...apiKeyModels, ...localModels].some(
       (model) => model.model_name === defaultModelName,
     )
       ? defaultModelName
@@ -56,9 +54,9 @@ export function ModelSelector({
           <SelectItem value={rawDefaultModel}>{rawDefaultModel}</SelectItem>
         )}
         {rawDefaultModel &&
-          (apiKeyModels.length > 0 ||
-            oauthModels.length > 0 ||
-            localModels.length > 0) && <SelectSeparator />}
+          (apiKeyModels.length > 0 || localModels.length > 0) && (
+            <SelectSeparator />
+          )}
         {apiKeyModels.length > 0 && (
           <SelectGroup>
             <SelectLabel>{t("chat.modelGroup.apikey")}</SelectLabel>
@@ -69,26 +67,9 @@ export function ModelSelector({
             ))}
           </SelectGroup>
         )}
-        {apiKeyModels.length > 0 &&
-          (oauthModels.length > 0 || localModels.length > 0) && (
-            <SelectSeparator />
-          )}
-
-        {oauthModels.length > 0 && (
-          <SelectGroup>
-            <SelectLabel>{t("chat.modelGroup.oauth")}</SelectLabel>
-            {oauthModels.map((model) => (
-              <SelectItem key={model.index} value={model.model_name}>
-                {model.model_name}
-              </SelectItem>
-            ))}
-          </SelectGroup>
+        {apiKeyModels.length > 0 && localModels.length > 0 && (
+          <SelectSeparator />
         )}
-        {oauthModels.length > 0 &&
-          (localModels.length > 0 || apiKeyModels.length > 0) && (
-            <SelectSeparator />
-          )}
-
         {localModels.length > 0 && (
           <SelectGroup>
             <SelectLabel>{t("chat.modelGroup.local")}</SelectLabel>

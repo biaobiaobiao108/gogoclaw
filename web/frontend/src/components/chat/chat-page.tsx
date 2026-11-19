@@ -228,7 +228,6 @@ export function ChatPage() {
     defaultModelName,
     hasAvailableModels,
     apiKeyModels,
-    oauthModels,
     localModels,
     settingDefault,
     handleSetDefault,
@@ -807,7 +806,6 @@ export function ChatPage() {
             <ModelSelector
               defaultModelName={defaultModelName}
               apiKeyModels={apiKeyModels}
-              oauthModels={oauthModels}
               localModels={localModels}
               disabled={settingDefault}
               onValueChange={handleSetDefault}

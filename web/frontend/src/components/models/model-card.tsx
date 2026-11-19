@@ -38,7 +38,6 @@ export function ModelCard({
   deleteDisabled,
 }: ModelCardProps) {
   const { t } = useTranslation()
-  const isOAuth = model.auth_method === "oauth"
   const status = model.status
   const statusLabel = modelStatusLabel(status, t)
   const canSetDefault = model.available && !isDefault && defaultChainAllowed
@@ -205,11 +204,7 @@ export function ModelCard({
           {model.model}
         </p>
         <div className="flex shrink-0 items-center gap-1.5">
-          {isOAuth ? (
-            <span className="text-muted-foreground bg-muted rounded px-1.5 py-0.5 font-mono text-[11px] font-medium">
-              OAUTH
-            </span>
-          ) : status === "available" && model.api_key ? (
+          {status === "available" && model.api_key ? (
             <span className="text-muted-foreground/70 flex items-center gap-1 font-mono text-[11px]">
               <IconKey className="size-3" />
               {model.api_key}

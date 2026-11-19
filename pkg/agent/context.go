@@ -800,7 +800,7 @@ func (cb *ContextBuilder) LoadBootstrapFiles() string {
 // This changes every request (time, session) so it is NOT part of the cached prompt.
 // LLM-side KV cache reuse is achieved by each provider adapter's native mechanism:
 //   - Anthropic: per-block cache_control (ephemeral) on the static SystemParts block
-//   - OpenAI / Codex: prompt_cache_key for prefix-based caching
+//   - OpenAI: prompt_cache_key for prefix-based caching
 //
 // See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
 // See: https://platform.openai.com/docs/guides/prompt-caching
@@ -872,14 +872,12 @@ func (cb *ContextBuilder) BuildMessagesFromPrompt(req PromptBuildRequest) []prov
 	// - Anthropic adapter extracts messages[0] (Role=="system") and maps its content
 	//   to the top-level "system" parameter in the Messages API request. A single
 	//   contiguous system block makes this extraction straightforward.
-	// - Codex maps only the first system message to its instructions field.
 	// - OpenAI-compat passes messages through as-is.
 	staticPrompt, contentBlocks := cb.buildSystemPromptForRequest(req)
 
 	// Compose a single system message: static (cached) + dynamic + optional summary.
 	// Keeping all system content in one message ensures every provider adapter can
-	// extract it correctly (Anthropic adapter -> top-level system param,
-	// Codex -> instructions field).
+	// extract it correctly, including Anthropic's top-level system parameter.
 	//
 	// SystemParts carries the same content as structured blocks so that
 	// cache-aware adapters (Anthropic) can set per-block cache_control.
@@ -1053,7 +1051,7 @@ func sanitizeHistoryForProvider(history []providers.Message) []providers.Message
 			// Drop privileged messages from history. BuildMessages always
 			// constructs its own single system message (static + dynamic +
 			// summary); extra system messages would break providers that
-			// only accept one (Anthropic, Codex). Tool output that fabricates a
+			// only accept one (such as Anthropic). Tool output that fabricates a
 			// developer role must not be promoted into an instruction message.
 			logger.DebugCF("agent", "Dropping privileged message from history", map[string]any{"role": msg.Role})
 			continue

@@ -24,8 +24,7 @@ When this skill is active, stay fully subordinate to GoGoClaw's real architectur
 # Initialize ~/.gogoclaw/config.json and ~/.gogoclaw/workspace
 gogoclaw onboard
 
-# Authenticate a provider
-gogoclaw auth login --provider openai
+# Configure a model and API key in ~/.gogoclaw/config.json
 
 # Inspect or switch the default model
 gogoclaw model
@@ -86,12 +85,6 @@ Notes:
 ### Authentication
 
 ```bash
-gogoclaw auth login --provider openai
-gogoclaw auth login --provider anthropic --setup-token
-gogoclaw auth login --provider antigravity --device-code
-gogoclaw auth models
-gogoclaw auth status
-gogoclaw auth logout --provider openai
 gogoclaw auth weixin
 gogoclaw auth wecom --timeout 10m
 ```
@@ -156,18 +149,15 @@ GoGoClaw supports 30+ LLM providers through `model_list`.
 Credential patterns in GoGoClaw are:
 
 - `model_list[].api_keys` for most hosted APIs
-- `gogoclaw auth login --provider ...` for the built-in auth helper flows (`openai`, `anthropic`, `antigravity`)
 - external platform credentials for providers like `bedrock` and `azure`
 - local or self-hosted endpoints for providers like `ollama`, `lmstudio`, `vllm`, and `litellm`
 
-`gogoclaw auth login` does **not** cover every provider. For most providers, the normal path is adding a `model_list` entry with `provider`, `model`, and `api_keys`.
 
 ### Common Provider Matrix
 
 | Provider | `provider` value | Auth path in GoGoClaw |
 | --- | --- | --- |
-| OpenAI | `openai` | OAuth helper via `gogoclaw auth login --provider openai`, or `model_list[].api_keys` |
-| Anthropic | `anthropic` | API key in `model_list[].api_keys`, or helper flow via `gogoclaw auth login --provider anthropic` |
+| OpenAI | `openai` | API key in `model_list[].api_keys` |
 | Anthropic Messages API | `anthropic-messages` | API key in `model_list[].api_keys` |
 | Google Gemini | `gemini` | API key in `model_list[].api_keys` |
 | OpenRouter | `openrouter` | API key in `model_list[].api_keys` |
@@ -183,7 +173,6 @@ Credential patterns in GoGoClaw are:
 | Cerebras | `cerebras` | API key in `model_list[].api_keys` |
 | Azure OpenAI | `azure` | `api_key` in `model_list`, or Microsoft Entra ID if built with `azidentity` support |
 | AWS Bedrock | `bedrock` | AWS credentials plus Bedrock-enabled build (`go build -tags bedrock`) |
-| Antigravity | `antigravity` | OAuth helper via `gogoclaw auth login --provider antigravity` |
 | Ollama | `ollama` | Local endpoint, no API key required |
 | LM Studio | `lmstudio` | Local endpoint, API key optional |
 | vLLM | `vllm` | Local OpenAI-compatible endpoint |
@@ -579,7 +568,6 @@ Telegram auto-registers supported top-level commands like `/start`, `/help`, `/s
 ```text
 ~/.gogoclaw/config.json          Main config
 ~/.gogoclaw/.security.yml       Sensitive values stored outside config.json
-~/.gogoclaw/auth.json           OAuth/token store
 ~/.gogoclaw/workspace/          Default workspace
 ~/.gogoclaw/workspace/skills/   Workspace skills
 ~/.gogoclaw/workspace/sessions/ Session history

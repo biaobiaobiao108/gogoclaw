@@ -172,7 +172,7 @@ marks the start of the active model context while the complete transcript stays
 available for the Web history, exports, branches, attachments, and search.
 
 The same database also stores chat UI metadata, answer branches, scheduler jobs,
-OAuth credentials, channel state, model catalogs, skill origins, and evolution
+channel state, model catalogs, skill origins, and evolution
 records. Configuration, skill files, attachments, backups, and logs remain files.
 Existing JSON state is not imported automatically.
 

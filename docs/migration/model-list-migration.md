@@ -126,7 +126,7 @@ Examples:
 | `api_keys` | No | API authentication keys (array; supports multiple keys for load balancing) |
 | `enabled` | No | Whether this model entry is active. Current configs default an omitted value to `true`; V1→V2 migration infers the legacy state from API keys and the `local-model` name. Set to `false` to disable. |
 | `proxy` | No | HTTP proxy URL |
-| `auth_method` | No | Authentication method: `oauth`, `token` |
+| `auth_method` | No | Set to `local` for an endpoint that needs no API key |
 | `connect_mode` | No | Connection mode for CLI providers: `stdio`, `grpc` |
 | `rpm` | No | Requests per minute limit |
 | `max_tokens_field` | No | Field name for max tokens |

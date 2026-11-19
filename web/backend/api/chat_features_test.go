@@ -28,7 +28,7 @@ import (
 
 func setupChatFeatureTest(t *testing.T) (*Handler, *http.ServeMux, string) {
 	t.Helper()
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	t.Cleanup(cleanup)
 	dir := sessionsTestDir(t, configPath)
 	h := NewHandler(configPath)
@@ -521,7 +521,7 @@ func TestChatMetadataConcurrentUpdates(t *testing.T) {
 }
 
 func TestSessionDirsUsesSharedWorkspace(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	testHome := filepath.Dir(configPath)
 	t.Setenv("USERPROFILE", testHome)
@@ -550,7 +550,7 @@ func TestSessionDirsUsesSharedWorkspace(t *testing.T) {
 }
 
 func TestDeleteUploadTouchesOnlySharedWorkspace(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {

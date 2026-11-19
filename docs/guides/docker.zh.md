@@ -167,7 +167,7 @@ environment:
   GOGOCLAW_LAUNCHER_TRUSTED_PROXY_CIDRS: "192.168.31.228/32"
 ```
 
-可信代理请求会把 `public_url` 用于同源校验、WebSocket/SSE 地址、登录 Cookie、OAuth 回调和 HSTS；直接通过局域网或本机访问时仍使用当前地址。多个可信代理 CIDR 使用英文逗号分隔。修改环境变量后重启容器。
+可信代理请求会把 `public_url` 用于同源校验、WebSocket/SSE 地址、登录 Cookie和 HSTS；直接通过局域网或本机访问时仍使用当前地址。多个可信代理 CIDR 使用英文逗号分隔。修改环境变量后重启容器。
 
 ### 页面要求密码但从未设置
 

@@ -131,8 +131,6 @@ async function main() {
 
       if (path === "/api/auth/status") {
         body = { initialized: true, authenticated: true }
-      } else if (path === "/api/oauth/providers") {
-        body = { providers: [] }
       } else if (path === "/api/gateway/status") {
         body = {
           gateway_status: api.gatewayStatus,

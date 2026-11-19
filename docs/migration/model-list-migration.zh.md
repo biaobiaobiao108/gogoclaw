@@ -126,7 +126,7 @@
 | `api_keys` | 否 | API 认证密钥（数组；支持多个密钥用于负载均衡） |
 | `enabled` | 否 | 此模型条目是否启用。当前配置中省略值默认为 `true`；V1→V2 迁移时会根据 API 密钥和 `local-model` 名称推断旧状态。设为 `false` 可禁用。 |
 | `proxy` | 否 | HTTP 代理 URL |
-| `auth_method` | 否 | 认证方式：`oauth`、`token` |
+| `auth_method` | 否 | 无需 API 密钥的端点可设为 `local` |
 | `connect_mode` | 否 | CLI Provider 的连接模式：`stdio`、`grpc` |
 | `rpm` | 否 | 每分钟请求数限制 |
 | `max_tokens_field` | 否 | max tokens 的字段名 |

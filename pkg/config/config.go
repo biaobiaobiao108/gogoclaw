@@ -703,7 +703,7 @@ func (c ModelStreamingConfig) IsZero() bool {
 // It allows adding new providers (especially OpenAI-compatible ones) via configuration only.
 // The Model field may be either a plain model identifier or a provider-prefixed
 // identifier such as "openai/gpt-5.4" or "nvidia/z-ai/glm-5.1".
-// Supported providers include openai, anthropic, antigravity,
+// Supported providers include openai, anthropic-messages, gemini,
 // and named OpenAI-compatible protocols such as
 // groq, deepseek, modelscope, and novita.
 type ModelConfig struct {
@@ -717,8 +717,8 @@ type ModelConfig struct {
 	Proxy     string   `json:"proxy,omitempty"`     // HTTP proxy URL
 	Fallbacks []string `json:"fallbacks,omitempty"` // Fallback model names for failover
 
-	// Special providers (CLI-based, OAuth, etc.)
-	AuthMethod  string `json:"auth_method,omitempty"`  // Authentication method: oauth, token
+	// Provider connection settings
+	AuthMethod  string `json:"auth_method,omitempty"`  // Connection hint (local forces a reachability probe)
 	ConnectMode string `json:"connect_mode,omitempty"` // Connection mode: stdio, grpc
 	Workspace   string `json:"workspace,omitempty"`    // Workspace path for CLI-based providers
 
@@ -781,6 +781,21 @@ func (c *ModelConfig) SetEnabled(enabled bool) {
 	c.enabledExplicit = true
 }
 
+// UsesRemovedLogin identifies models configured for the removed provider login paths.
+func (c *ModelConfig) UsesRemovedLogin() bool {
+	switch strings.ToLower(strings.TrimSpace(c.AuthMethod)) {
+	case "oauth", "token":
+		return true
+	}
+	provider := strings.TrimSpace(c.Provider)
+	if provider == "" {
+		if prefix, _, found := strings.Cut(strings.TrimSpace(c.Model), "/"); found {
+			provider = strings.TrimSpace(prefix)
+		}
+	}
+	return strings.EqualFold(provider, "antigravity") || strings.EqualFold(provider, "google-antigravity")
+}
+
 // Validate checks if the ModelConfig has all required fields.
 func (c *ModelConfig) Validate() error {
 	if c.ModelName == "" {
@@ -788,6 +803,9 @@ func (c *ModelConfig) Validate() error {
 	}
 	if c.Model == "" {
 		return fmt.Errorf("model is required")
+	}
+	if c.IsEnabled() && c.UsesRemovedLogin() {
+		return fmt.Errorf("saved model login is no longer supported; configure an API key")
 	}
 	if _, err := providercommon.NormalizeToolSchemaTransform(c.ToolSchemaTransform); err != nil {
 		return err

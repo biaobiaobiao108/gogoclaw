@@ -11,7 +11,7 @@ import (
 )
 
 func TestHandleUpdateModel_CustomHeadersPreserveAndClear(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -76,7 +76,7 @@ func TestHandleUpdateModel_CustomHeadersPreserveAndClear(t *testing.T) {
 }
 
 func TestHandleUpdateModel_TokenPricesPreserveWhenOmitted(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -121,7 +121,7 @@ func TestHandleUpdateModel_TokenPricesPreserveWhenOmitted(t *testing.T) {
 }
 
 func TestHandleUpdateModel_ToolSchemaTransformPreserveAndClear(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -184,7 +184,7 @@ func TestHandleUpdateModel_ToolSchemaTransformPreserveAndClear(t *testing.T) {
 }
 
 func TestHandleUpdateModel_StreamingPreserveAndChange(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -249,7 +249,7 @@ func TestHandleUpdateModel_StreamingPreserveAndChange(t *testing.T) {
 }
 
 func TestHandleUpdateModel_PersistsProvider(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -292,7 +292,7 @@ func TestHandleUpdateModel_PersistsProvider(t *testing.T) {
 }
 
 func TestHandleUpdateModel_PreservesExplicitProviderPrefixedModel(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -338,7 +338,7 @@ func TestHandleUpdateModel_PreservesExplicitProviderPrefixedModel(t *testing.T) 
 }
 
 func TestHandleUpdateModel_PreservesLegacyModelPrefixWhenProviderOmitted(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -408,7 +408,7 @@ func TestHandleUpdateModel_PreservesLegacyModelPrefixWhenProviderOmitted(t *test
 }
 
 func TestHandleUpdateModel_MigratesLegacyElevenLabsASRWhenProviderOmitted(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -481,7 +481,7 @@ func TestHandleUpdateModel_MigratesLegacyElevenLabsASRWhenProviderOmitted(t *tes
 }
 
 func TestHandleUpdateModel_RoundTripsExplicitLegacyElevenLabsModelID(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -556,7 +556,7 @@ func TestHandleUpdateModel_RoundTripsExplicitLegacyElevenLabsModelID(t *testing.
 }
 
 func TestHandleUpdateModel_ClearsDefaultWhenSavingASROnlyModel(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -602,7 +602,7 @@ func TestHandleUpdateModel_ClearsDefaultWhenSavingASROnlyModel(t *testing.T) {
 }
 
 func TestHandleUpdateModel_PreservesLegacyModelPrefixWhenProviderOmittedAndModelChanges(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -646,7 +646,7 @@ func TestHandleUpdateModel_PreservesLegacyModelPrefixWhenProviderOmittedAndModel
 }
 
 func TestHandleUpdateModel_AllowsExistingBedrockProvider(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -698,7 +698,7 @@ func TestHandleUpdateModel_AllowsExistingBedrockProvider(t *testing.T) {
 }
 
 func TestHandleUpdateModel_ReturnsReferenceRenameRoles(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
 		openAIModelConfig("old-name"),
@@ -741,7 +741,7 @@ func TestHandleUpdateModel_ReturnsReferenceRenameRoles(t *testing.T) {
 }
 
 func TestHandleUpdateModel_RenamesDefaultModelReference(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
@@ -760,7 +760,7 @@ func TestHandleUpdateModel_RenamesDefaultModelReference(t *testing.T) {
 }
 
 func TestHandleUpdateModel_RenamesFallbackModelReference(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
@@ -780,7 +780,7 @@ func TestHandleUpdateModel_RenamesFallbackModelReference(t *testing.T) {
 }
 
 func TestHandleUpdateModel_RemovesFallbackWhenRenamedToDefaultModel(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
@@ -799,7 +799,7 @@ func TestHandleUpdateModel_RemovesFallbackWhenRenamedToDefaultModel(t *testing.T
 }
 
 func TestHandleUpdateModel_RemovesFallbackWhenDefaultRenamedToFallbackModel(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
@@ -818,7 +818,7 @@ func TestHandleUpdateModel_RemovesFallbackWhenDefaultRenamedToFallbackModel(t *t
 }
 
 func TestHandleUpdateModel_DoesNotRenameDefaultChainReferenceWhenAliasStillExists(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
@@ -838,7 +838,7 @@ func TestHandleUpdateModel_DoesNotRenameDefaultChainReferenceWhenAliasStillExist
 }
 
 func TestHandleUpdateModel_ClearsDefaultWhenRenamedAliasGroupUnsupported(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
@@ -858,7 +858,7 @@ func TestHandleUpdateModel_ClearsDefaultWhenRenamedAliasGroupUnsupported(t *test
 }
 
 func TestHandleUpdateModel_RenamesDefaultChainReferenceWhenRemainingAliasUnsupported(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
@@ -878,7 +878,7 @@ func TestHandleUpdateModel_RenamesDefaultChainReferenceWhenRemainingAliasUnsuppo
 }
 
 func TestHandleUpdateModel_RemovesRenamedUnsupportedModelFromDefaultChain(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{

@@ -49,7 +49,7 @@ The same formats apply to both `api_key` (singular) and individual elements in t
 | Plaintext | `sk-abc123` | Used as-is |
 | File reference | `file://openai.key` | Content read from the same directory as the config file |
 | Encrypted | `enc://<base64>` | Decrypted at startup using `GOGOCLAW_KEY_PASSPHRASE` |
-| Empty | `""` | Passed through unchanged (used with `auth_method: oauth`) |
+| Empty | `""` | Passed through unchanged |
 
 ---
 

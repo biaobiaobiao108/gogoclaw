@@ -11,7 +11,7 @@ import (
 )
 
 func TestHandleGetChannelConfig_ReturnsSecretPresenceWithoutLeakingSecrets(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -84,7 +84,7 @@ func TestHandleGetChannelConfig_ReturnsSecretPresenceWithoutLeakingSecrets(t *te
 }
 
 func TestHandleGetChannelConfig_ReturnsNotFoundForUnknownChannel(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -101,7 +101,7 @@ func TestHandleGetChannelConfig_ReturnsNotFoundForUnknownChannel(t *testing.T) {
 }
 
 func TestHandleGetChannelConfig_ReturnsCommonFieldsWhenSettingsEmpty(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -148,7 +148,7 @@ func TestHandleGetChannelConfig_ReturnsCommonFieldsWhenSettingsEmpty(t *testing.
 }
 
 func TestHandleGetChannelConfig_OmitsUnconfiguredStreaming(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -180,7 +180,7 @@ func TestHandleGetChannelConfig_OmitsUnconfiguredStreaming(t *testing.T) {
 }
 
 func TestHandleGetChannelConfig_ReturnsConfiguredStreaming(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -238,7 +238,7 @@ func TestHandleGetChannelConfig_ReturnsConfiguredStreaming(t *testing.T) {
 }
 
 func TestHandleGetChannelConfig_ReturnsDefaultShapeForMissingChannel(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)

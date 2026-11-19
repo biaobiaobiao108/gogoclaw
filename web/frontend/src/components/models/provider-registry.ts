@@ -12,8 +12,6 @@ export interface ProviderCatalogEntry {
   createAllowed: boolean
   defaultModelAllowed: boolean
   supportsFetch: boolean
-  defaultAuthMethod?: string
-  authMethodLocked?: boolean
   emptyApiKeyAllowed?: boolean
   commonModels: string[]
   aliases: string[]
@@ -41,8 +39,6 @@ function toCatalogEntry(option: ModelProviderOption): ProviderCatalogEntry {
     createAllowed: option.create_allowed,
     defaultModelAllowed: option.default_model_allowed,
     supportsFetch: option.supports_fetch === true,
-    defaultAuthMethod: option.default_auth_method || undefined,
-    authMethodLocked: option.auth_method_locked,
     emptyApiKeyAllowed: option.empty_api_key_allowed,
     commonModels: option.common_models || [],
     aliases: option.aliases || [],
@@ -120,24 +116,6 @@ export function getProviderDefaultAPIBase(
   backendOptions?: ModelProviderOption[],
 ): string {
   return getProviderCatalogEntry(provider, backendOptions)?.defaultApiBase ?? ""
-}
-
-export function getProviderDefaultAuthMethod(
-  provider: string | undefined,
-  backendOptions?: ModelProviderOption[],
-): string {
-  return (
-    getProviderCatalogEntry(provider, backendOptions)?.defaultAuthMethod ?? ""
-  )
-}
-
-export function isProviderAuthMethodLocked(
-  provider: string | undefined,
-  backendOptions?: ModelProviderOption[],
-): boolean {
-  return (
-    getProviderCatalogEntry(provider, backendOptions)?.authMethodLocked === true
-  )
 }
 
 export function providerSupportsFetch(

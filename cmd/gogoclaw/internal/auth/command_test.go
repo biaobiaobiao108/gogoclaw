@@ -14,7 +14,7 @@ func TestNewAuthCommand(t *testing.T) {
 	require.NotNil(t, cmd)
 
 	assert.Equal(t, "auth", cmd.Use)
-	assert.Equal(t, "Manage authentication (login, logout, status)", cmd.Short)
+	assert.Equal(t, "Authenticate chat channels", cmd.Short)
 
 	assert.Len(t, cmd.Aliases, 0)
 
@@ -28,10 +28,6 @@ func TestNewAuthCommand(t *testing.T) {
 	assert.True(t, cmd.HasSubCommands())
 
 	allowedCommands := []string{
-		"login",
-		"logout",
-		"status",
-		"models",
 		"weixin",
 	}
 

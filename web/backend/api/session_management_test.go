@@ -38,7 +38,7 @@ func TestManagedDeliveryDetailsKeepMessageAndRetryWithoutSecrets(t *testing.T) {
 }
 
 func TestManagedSessionsChannelHistoryAndDelete(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	dir := sessionsTestDir(t, configPath)
 	store, err := memory.NewSQLiteStore(dir)
@@ -88,7 +88,7 @@ func TestManagedSessionsChannelHistoryAndDelete(t *testing.T) {
 func containsManaged(s, sub string) bool { return strings.Contains(s, sub) }
 
 func TestManagedSessionsCursorAndSearch(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	dir := sessionsTestDir(t, configPath)
 	store, err := memory.NewSQLiteStore(dir)
@@ -165,7 +165,7 @@ func TestManagedSessionsCursorAndSearch(t *testing.T) {
 }
 
 func TestManagedDeleteFailurePreservesIndex(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	dir := sessionsTestDir(t, configPath)
 	store, err := memory.NewSQLiteStore(dir)
@@ -212,7 +212,7 @@ func TestManagedDeleteFailurePreservesIndex(t *testing.T) {
 }
 
 func TestManagedDeleteWaitsForRuntimeLock(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	dir := sessionsTestDir(t, configPath)
 	store, err := memory.NewSQLiteStore(dir)
@@ -246,7 +246,7 @@ func TestManagedDeleteWaitsForRuntimeLock(t *testing.T) {
 }
 
 func TestManagedDeleteRetriesCleanup(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	dir := sessionsTestDir(t, configPath)
 	store, err := memory.NewSQLiteStore(dir)

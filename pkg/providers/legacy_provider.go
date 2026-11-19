@@ -129,13 +129,10 @@ func modelConfigTemplateScore(modelCfg *config.ModelConfig, defaultProvider stri
 		score += 32
 	}
 	if strings.TrimSpace(modelCfg.APIBase) != "" {
-		authMethod := strings.ToLower(strings.TrimSpace(modelCfg.AuthMethod))
-		if authMethod != "oauth" && authMethod != "token" {
-			provider, _ := modelConfigProviderAndID(modelCfg, defaultProvider)
-			defaultBase := strings.TrimRight(DefaultAPIBaseForProtocol(provider), "/")
-			if defaultBase == "" || strings.TrimRight(strings.TrimSpace(modelCfg.APIBase), "/") != defaultBase {
-				score += 16
-			}
+		provider, _ := modelConfigProviderAndID(modelCfg, defaultProvider)
+		defaultBase := strings.TrimRight(DefaultAPIBaseForProtocol(provider), "/")
+		if defaultBase == "" || strings.TrimRight(strings.TrimSpace(modelCfg.APIBase), "/") != defaultBase {
+			score += 16
 		}
 	}
 	if strings.TrimSpace(modelCfg.AuthMethod) != "" || strings.TrimSpace(modelCfg.ConnectMode) != "" {

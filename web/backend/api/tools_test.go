@@ -12,7 +12,7 @@ import (
 )
 
 func TestHandleListTools(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -143,7 +143,7 @@ func TestHandleListTools(t *testing.T) {
 }
 
 func TestHandleUpdateToolState(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -245,7 +245,7 @@ func TestHandleListTools_ReportsWebSearchEnabledWhenToolIsOn(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			configPath, cleanup := setupOAuthTestEnv(t)
+			configPath, cleanup := setupModelTestEnv(t)
 			defer cleanup()
 
 			cfg, err := config.LoadConfig(configPath)
@@ -295,7 +295,7 @@ func TestHandleListTools_ReportsWebSearchEnabledWhenToolIsOn(t *testing.T) {
 }
 
 func TestHandleGetWebSearchConfig(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -340,7 +340,7 @@ func TestHandleGetWebSearchConfig(t *testing.T) {
 }
 
 func TestHandleGetWebSearchConfig_DoesNotExposeNativeAsCurrentService(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -382,7 +382,7 @@ func TestHandleGetWebSearchConfig_DoesNotExposeNativeAsCurrentService(t *testing
 }
 
 func TestHandleUpdateWebSearchConfig(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -445,7 +445,7 @@ func TestHandleUpdateWebSearchConfig(t *testing.T) {
 }
 
 func TestHandleUpdateWebSearchConfig_PreservesAndReplacesMultiKeys(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)

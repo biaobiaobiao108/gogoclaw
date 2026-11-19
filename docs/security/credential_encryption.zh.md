@@ -48,7 +48,7 @@ enc://AAAA...base64...
 | 明文 | `sk-abc123` | 直接使用 |
 | 文件引用 | `file://openai.key` | 从配置文件所在目录读取内容 |
 | 加密 | `enc://<base64>` | 启动时使用 `GOGOCLAW_KEY_PASSPHRASE` 解密 |
-| 空值 | `""` | 原样传递（用于 `auth_method: oauth`） |
+| 空值 | `""` | 原样传递 |
 
 ---
 

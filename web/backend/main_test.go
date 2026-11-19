@@ -7,45 +7,16 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/biaobiaobiao108/gogoclaw/pkg/auth"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/netbind"
 	"github.com/biaobiaobiao108/gogoclaw/web/backend/launcherconfig"
 	"github.com/biaobiaobiao108/gogoclaw/web/backend/middleware"
 )
-
-func TestLauncherConfigPathSelectsOAuthWorkspace(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, "custom.json")
-	workspace := filepath.Join(dir, "workspace")
-	cfg := config.DefaultConfig()
-	cfg.Agents.Defaults.Workspace = workspace
-	if err := config.SaveConfig(configPath, cfg); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv(config.EnvConfig, filepath.Join(dir, "missing.json"))
-	if err := setLauncherConfigPath(configPath); err != nil {
-		t.Fatal(err)
-	}
-	if err := auth.SetCredential("openai", &auth.AuthCredential{AccessToken: "test"}); err != nil {
-		t.Fatal(err)
-	}
-	cred, err := auth.GetCredential("openai")
-	if err != nil || cred == nil || cred.AccessToken != "test" {
-		t.Fatalf("credential = %+v, error = %v", cred, err)
-	}
-	if _, err := os.Stat(filepath.Join(workspace, "sessions", "sessions.db")); err != nil {
-		t.Fatal(err)
-	}
-}
 
 func TestShouldEnableLocalAutoLogin(t *testing.T) {
 	tests := []struct {

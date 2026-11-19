@@ -383,15 +383,6 @@ Environment variables have the highest priority and will override both `config.j
 
 The pattern is: `GOGOCLAW_<SECTION>_<KEY>_<FIELD>` with underscores separating path segments and converted to uppercase.
 
-## OAuth Token Storage
-
-OAuth tokens in `sessions/sessions.db` follow the same `enc://` encryption policy as config secrets:
-
-- When `GOGOCLAW_KEY_PASSPHRASE` is set, access and refresh tokens are encrypted with AES-256-GCM before being written. The key is derived from the passphrase and the SSH key at `GOGOCLAW_SSH_KEY_PATH` (default `~/.ssh/gogoclaw_ed25519.key`).
-- Without a passphrase, tokens are stored in the legacy plaintext format and a warning is logged; OAuth login keeps working.
-- Plaintext tokens already in the database are encrypted on the next save once a passphrase is configured. Old JSON files are not imported automatically.
-- `sessions.db` is secured with `0600` permissions when opened.
-
 ## Public Exposure Mode
 
 GoGoClaw treats the following deployments as publicly exposed:

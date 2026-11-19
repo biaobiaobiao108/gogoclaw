@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/biaobiaobiao108/gogoclaw/pkg/auth"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	ppid "github.com/biaobiaobiao108/gogoclaw/pkg/pid"
 	"github.com/biaobiaobiao108/gogoclaw/web/backend/utils"
@@ -386,7 +385,7 @@ func TestGatewayStartReady_NoDefaultModel(t *testing.T) {
 }
 
 func TestGatewayStartReady_RejectsASROnlyDefaultModel(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -659,7 +658,7 @@ func TestGatewayCommandArgsIncludesDebugFlagWhenEnabled(t *testing.T) {
 }
 
 func TestGatewayStartReady_LocalModelWithoutAPIKey(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	resetModelProbeHooks(t)
 
@@ -696,7 +695,7 @@ func TestGatewayStartReady_LocalModelWithoutAPIKey(t *testing.T) {
 }
 
 func TestGatewayStartReady_LocalModelWithRunningService(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	resetModelProbeHooks(t)
 
@@ -730,7 +729,7 @@ func TestGatewayStartReady_LocalModelWithRunningService(t *testing.T) {
 }
 
 func TestGatewayStartReady_RemoteVLLMWithAPIKeyDoesNotProbe(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	resetModelProbeHooks(t)
 
@@ -766,7 +765,7 @@ func TestGatewayStartReady_RemoteVLLMWithAPIKeyDoesNotProbe(t *testing.T) {
 }
 
 func TestGatewayStartReady_LocalOllamaUsesDefaultProbeBase(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	resetModelProbeHooks(t)
 
@@ -795,55 +794,6 @@ func TestGatewayStartReady_LocalOllamaUsesDefaultProbeBase(t *testing.T) {
 	}
 	if !ready {
 		t.Fatalf("gatewayStartReady() ready = false, want true with default Ollama probe base (reason=%q)", reason)
-	}
-}
-
-func TestGatewayStartReady_OAuthModelRequiresStoredCredential(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
-	defer cleanup()
-
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
-	cfg.ModelList = []*config.ModelConfig{{
-		ModelName:  "openai-oauth",
-		Model:      "openai/gpt-5.4",
-		AuthMethod: "oauth",
-	}}
-	cfg.Agents.Defaults.ModelName = "openai-oauth"
-	err = config.SaveConfig(configPath, cfg)
-	if err != nil {
-		t.Fatalf("SaveConfig() error = %v", err)
-	}
-
-	h := NewHandler(configPath)
-	ready, reason, err := h.gatewayStartReady()
-	if err != nil {
-		t.Fatalf("gatewayStartReady() error = %v", err)
-	}
-	if ready {
-		t.Fatalf("gatewayStartReady() ready = true, want false without stored credential")
-	}
-	if !strings.Contains(reason, "no credentials configured") {
-		t.Fatalf("gatewayStartReady() reason = %q, want contains %q", reason, "no credentials configured")
-	}
-
-	err = auth.SetCredential(oauthProviderOpenAI, &auth.AuthCredential{
-		AccessToken: "openai-token",
-		Provider:    oauthProviderOpenAI,
-		AuthMethod:  "oauth",
-	})
-	if err != nil {
-		t.Fatalf("SetCredential() error = %v", err)
-	}
-
-	ready, reason, err = h.gatewayStartReady()
-	if err != nil {
-		t.Fatalf("gatewayStartReady() error = %v", err)
-	}
-	if !ready {
-		t.Fatalf("gatewayStartReady() ready = false, want true with stored credential (reason=%q)", reason)
 	}
 }
 

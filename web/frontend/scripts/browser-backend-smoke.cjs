@@ -760,6 +760,18 @@ async function main() {
     )
     if (!status.initialized || !status.authenticated)
       throw new Error("Real backend did not authenticate the browser")
+    const removedCredentialAPI = await page.request.get(
+      `${base}/api/oauth/providers`,
+    )
+    if (removedCredentialAPI.status() !== 404)
+      throw new Error("Removed provider credential API should return 404")
+    await page.setViewportSize({ width: 1280, height: 844 })
+    if (await page.locator('a[href="/credentials"]').count())
+      throw new Error("Removed credentials page is still in the navigation")
+    await page.setViewportSize({
+      width: Number(process.env.GOGOCLAW_QA_WIDTH || 390),
+      height: 844,
+    })
     const create = await page.evaluate(async () => {
       const response = await fetch("/api/models", {
         method: "POST",

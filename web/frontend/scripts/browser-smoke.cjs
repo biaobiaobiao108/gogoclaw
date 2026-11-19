@@ -13,7 +13,6 @@ async function main() {
       viewport: { width: 1280, height: 800 },
     })
     const errors = []
-    const flows = []
     let authenticated = false
     let authServiceFailure = false
     let usageFailuresRemaining = 0
@@ -67,17 +66,6 @@ async function main() {
         authenticated = JSON.parse(request.postData()).password === "correct"
         status = authenticated ? 200 : 401
         body = authenticated ? { ok: true } : { error: "invalid password" }
-      } else if (path === "/api/oauth/providers") {
-        body = { providers: [] }
-      } else if (path.startsWith("/api/oauth/flows/")) {
-        const flowID = path.split("/").pop()
-        flows.push(flowID)
-        body = {
-          flow_id: flowID,
-          provider: "openai",
-          method: "browser",
-          status: "success",
-        }
       } else if (path === "/api/gateway/status") {
         body = { gateway_status: "running" }
       } else if (path === "/api/models") {
@@ -258,32 +246,6 @@ async function main() {
     await page.getByRole("menuitem", { name: "English" }).click()
     await page.waitForFunction(() => document.documentElement.lang === "en")
 
-    await page.goto(`${base}/credentials`)
-    await page.getByText("OpenAI", { exact: true }).first().waitFor()
-    const validFlow = page.waitForResponse((response) =>
-      response.url().endsWith("/api/oauth/flows/valid"),
-    )
-    await page.evaluate(() =>
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          origin: "https://other.example",
-          data: { type: "gogoclaw-oauth-result", flowId: "foreign" },
-        }),
-      ),
-    )
-    await page.waitForTimeout(200)
-    if (flows.includes("foreign"))
-      throw new Error("Cross-origin OAuth message was accepted")
-    await page.evaluate(() =>
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          origin: window.location.origin,
-          data: { type: "gogoclaw-oauth-result", flowId: "valid" },
-        }),
-      ),
-    )
-    await validFlow
-
     await page.keyboard.press("Escape")
     await page.getByRole("button", { name: /更多操作|More actions/i }).click()
     await page.getByRole("menuitem", { name: "简体中文" }).click()
@@ -297,7 +259,7 @@ async function main() {
 
     if (errors.length) throw new Error(`Browser errors: ${errors.join(", ")}`)
     console.log(
-      "Browser smoke passed: login, mobile chat, usage states, model form focus, language switching, auth error dismissal and OAuth message origin",
+      "Browser smoke passed: login, mobile chat, usage states, model form focus, language switching, and auth error dismissal",
     )
   } finally {
     await browser.close()

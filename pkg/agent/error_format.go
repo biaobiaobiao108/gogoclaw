@@ -29,8 +29,8 @@ func authErrorFriendlyMessage(kind providers.AuthErrorKind) string {
 	case providers.AuthErrorMissingAPIKey:
 		return "Authentication failed: no API key is configured for this model or provider. Add an API key in the model settings or config."
 	case providers.AuthErrorExpiredToken:
-		return "Authentication failed: the saved login or token appears to be expired. Re-authenticate the provider."
+		return "Authentication failed: the provider token appears to be expired. Check the configured provider credentials."
 	default:
-		return "Authentication failed: check the API key, token, OAuth login, or provider permissions for this model."
+		return "Authentication failed: check the API key, token, or provider permissions for this model."
 	}
 }

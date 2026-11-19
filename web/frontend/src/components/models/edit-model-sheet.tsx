@@ -45,8 +45,6 @@ import {
   getProviderCatalogEntry,
   getProviderCatalogMap,
   getProviderDefaultAPIBase,
-  getProviderDefaultAuthMethod,
-  isProviderAuthMethodLocked,
   providerSupportsFetch,
 } from "./provider-registry"
 import { TestModelDialog } from "./test-model-dialog"
@@ -57,7 +55,7 @@ interface EditForm {
   apiKey: string
   apiBase: string
   proxy: string
-  authMethod: string
+
   connectMode: string
   workspace: string
   rpm: string
@@ -90,7 +88,7 @@ function buildInitialEditForm(model: ModelInfo): EditForm {
     apiKey: "",
     apiBase: model.api_base ?? "",
     proxy: model.proxy ?? "",
-    authMethod: model.auth_method ?? "",
+
     connectMode: model.connect_mode ?? "",
     workspace: model.workspace ?? "",
     rpm: model.rpm ? String(model.rpm) : "",
@@ -131,7 +129,7 @@ export function EditModelSheet({
     apiKey: "",
     apiBase: "",
     proxy: "",
-    authMethod: "",
+
     connectMode: "",
     workspace: "",
     rpm: "",
@@ -228,11 +226,6 @@ export function EditModelSheet({
   const handleProviderChange = (provider: string) => {
     if (error) setError("")
     setForm((f) => {
-      const previousOption = getProviderCatalogEntry(
-        f.provider,
-        providerOptions,
-      )
-      const nextOption = getProviderCatalogEntry(provider, providerOptions)
       const previousDefaultBase = normalizeApiBase(
         getProviderDefaultAPIBase(f.provider, providerOptions),
       )
@@ -240,16 +233,7 @@ export function EditModelSheet({
         getProviderDefaultAPIBase(provider, providerOptions),
       )
       const currentApiBase = normalizeApiBase(f.apiBase)
-      let authMethod = f.authMethod
       let apiBase = f.apiBase
-      if (nextOption?.authMethodLocked) {
-        authMethod = nextOption.defaultAuthMethod ?? ""
-      } else if (
-        previousOption?.authMethodLocked &&
-        f.authMethod === (previousOption.defaultAuthMethod ?? "")
-      ) {
-        authMethod = ""
-      }
       if (
         currentApiBase &&
         previousDefaultBase &&
@@ -262,7 +246,6 @@ export function EditModelSheet({
         ...f,
         provider: getCanonicalProviderKey(provider, providerOptions),
         apiBase,
-        authMethod,
       }
     })
     if (form.modelId) {
@@ -304,20 +287,6 @@ export function EditModelSheet({
     ? providerMap.get(canonicalProvider)
     : undefined
   const commonModels = providerDef?.commonModels || []
-  const authMethodLocked = isProviderAuthMethodLocked(
-    form.provider,
-    providerOptions,
-  )
-  const defaultAuthMethod = getProviderDefaultAuthMethod(
-    form.provider,
-    providerOptions,
-  )
-  const effectiveAuthMethod = (
-    authMethodLocked ? defaultAuthMethod : form.authMethod
-  )
-    .trim()
-    .toLowerCase()
-  const isOAuth = effectiveAuthMethod === "oauth"
   const defaultModelAllowed = providerDef?.defaultModelAllowed === true
   const apiBasePlaceholder =
     getProviderDefaultAPIBase(form.provider, providerOptions) ||
@@ -382,9 +351,7 @@ export function EditModelSheet({
         api_base: submittedApiBase,
         api_key: form.apiKey.trim() || undefined,
         proxy: form.proxy.trim() || undefined,
-        auth_method: authMethodLocked
-          ? defaultAuthMethod || undefined
-          : form.authMethod.trim() || undefined,
+
         connect_mode: form.connectMode.trim() || undefined,
         workspace: form.workspace.trim() || undefined,
         rpm: form.rpm ? Number(form.rpm) : undefined,
@@ -572,30 +539,22 @@ export function EditModelSheet({
                 </div>
               </Field>
 
-              {!isOAuth && (
-                <Field
-                  label={t("models.field.apiKey")}
-                  hint={
-                    hasSavedAPIKey ? t("models.edit.apiKeyHint") : undefined
-                  }
-                >
-                  <KeyInput
-                    value={form.apiKey}
-                    onChange={(v) => setForm((f) => ({ ...f, apiKey: v }))}
-                    placeholder={apiKeyPlaceholder}
-                  />
-                </Field>
-              )}
-
               <Field
-                label={t("models.field.apiBase")}
-                hint={isOAuth ? t("models.edit.oauthNote") : undefined}
+                label={t("models.field.apiKey")}
+                hint={hasSavedAPIKey ? t("models.edit.apiKeyHint") : undefined}
               >
+                <KeyInput
+                  value={form.apiKey}
+                  onChange={(v) => setForm((f) => ({ ...f, apiKey: v }))}
+                  placeholder={apiKeyPlaceholder}
+                />
+              </Field>
+
+              <Field label={t("models.field.apiBase")}>
                 <Input
                   value={form.apiBase}
                   onChange={setField("apiBase")}
                   placeholder={apiBasePlaceholder}
-                  disabled={isOAuth}
                 />
               </Field>
 
@@ -623,12 +582,7 @@ export function EditModelSheet({
                 disabled={!defaultModelAllowed}
               />
 
-              <ModelAdvancedFields
-                value={form}
-                onChange={setField}
-                authMethodLocked={authMethodLocked}
-                defaultAuthMethod={defaultAuthMethod}
-              />
+              <ModelAdvancedFields value={form} onChange={setField} />
 
               {error && (
                 <p className="text-destructive bg-destructive/10 rounded-md px-3 py-2 text-sm">
@@ -671,7 +625,7 @@ export function EditModelSheet({
           model: form.modelId,
           apiBase: effectiveApiBase,
           apiKey: form.apiKey,
-          authMethod: effectiveAuthMethod,
+
           modelIndex: model?.index,
         }}
       />

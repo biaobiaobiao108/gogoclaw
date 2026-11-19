@@ -763,7 +763,6 @@ For complete documentation, see [`../security/security_configuration.md`](../sec
 | **Vivgrid**             | `vivgrid`         | `https://api.vivgrid.com/v1`                        | OpenAI    | [Get Key](https://vivgrid.com)                                   |
 | **LongCat**             | `longcat`         | `https://api.longcat.chat/openai`                   | OpenAI    | [Get Key](https://longcat.chat/platform)                         |
 | **ModelScope (魔搭)**   | `modelscope`      | `https://api-inference.modelscope.cn/v1`            | OpenAI    | [Get Token](https://modelscope.cn/my/tokens)                     |
-| **Antigravity**         | `antigravity`     | Google Cloud                                        | Custom    | OAuth only                                                       |
 
 #### Basic Configuration
 
@@ -967,8 +966,6 @@ Pair this with:
 }
 ```
 
-> Run `gogoclaw auth login --provider anthropic` to paste your API token.
-
 For direct Anthropic API access or custom endpoints that only support Anthropic's native message format:
 
 ```json
@@ -1095,7 +1092,6 @@ GoGoClaw routes providers by protocol family:
 - **OpenAI-compatible**: OpenRouter, Groq, Zhipu, vLLM-style endpoints, and most others.
 - **Gemini native**: Google Gemini via the native `models/*:generateContent` and `models/*:streamGenerateContent` endpoints.
 - **Anthropic**: Claude-native API behavior.
-- **Codex/OAuth**: OpenAI OAuth/token authentication route.
 
 This keeps the runtime lightweight while making new OpenAI-compatible backends mostly a config operation (`api_base` + `api_keys`).
 

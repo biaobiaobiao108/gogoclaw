@@ -41,10 +41,7 @@ The current frontend exposes these major pages and flows:
   - Chat UI with session history, default model selection, and Pico channel messaging.
 - `/models`
   - Add, edit, delete, and set the default model.
-  - Supports API-key models, OAuth-backed models, and local/CLI-backed models.
-- `/credentials`
-  - Manage provider credentials.
-  - Current built-in flows: OpenAI, Anthropic, and Google Antigravity.
+  - Supports API-key models and local/CLI-backed models.
 - `/channels/*`
   - Configure supported channels from a shared catalog.
   - Current catalog: `weixin`, `telegram`, `discord`, `feishu`, `qq`, `pico`.
@@ -160,7 +157,7 @@ When public access is enabled:
 - optional `allowed_cidrs` can restrict which client IP ranges may connect
 - `allow_localhost_bypass` defaults to `true`; set it to `false` when same-host proxies or tunnels should not bypass `allowed_cidrs`
 - `GOGOCLAW_LAUNCHER_TRUSTED_PROXY_CIDRS` can trust specific reverse proxies to supply the original client IP and HTTP origin through `X-Forwarded-*` or RFC 7239 `Forwarded` headers
-- `GOGOCLAW_LAUNCHER_PUBLIC_URL` declares the browser-visible origin when a reverse proxy cannot preserve the external port or protocol. Trusted proxy requests use it for origin checks, WebSocket/SSE URLs, secure cookies, OAuth callbacks, and HSTS
+- `GOGOCLAW_LAUNCHER_PUBLIC_URL` declares the browser-visible origin when a reverse proxy cannot preserve the external port or protocol. Trusted proxy requests use it for origin checks, WebSocket/SSE URLs, secure cookies, and HSTS
 - direct requests keep their own origin, so local and LAN access remain usable; if the public URL variable is empty, trusted proxy headers determine the external origin
 - trusted proxy deployments should overwrite or sanitize forwarding headers such as `X-Forwarded-For` and `X-Real-IP` instead of passing through user-supplied values
 - the gateway host is overridden so remote clients can still use the launcher-managed proxy paths
@@ -349,7 +346,7 @@ The launcher only allows gateway startup when the configured default model is us
 Check these in the dashboard:
 
 - a default model is selected
-- the model has credentials or OAuth state
+- the model has an API key or uses a local endpoint
 - local models such as Ollama or vLLM are reachable
 
 ### The launcher cannot find `gogoclaw`

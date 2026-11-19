@@ -10,6 +10,5 @@
 - [Provider 与模型配置](providers.md)：`model_list`、Provider 和模型路由。
 - [生成与异步任务](spawn-tasks.md)：后台工作、长时间运行任务和子代理编排。
 - [GoGoClaw 容器主机兼容性](hardware-compatibility.md)：支持的镜像平台和主机要求。
-- [在 GoGoClaw 中使用 Antigravity Provider](ANTIGRAVITY_USAGE.md)：Google Cloud Code Assist 的配置与使用。
 
 中文翻译以 `.zh.md` 放在英文源文件旁边；不维护其他语言区域。

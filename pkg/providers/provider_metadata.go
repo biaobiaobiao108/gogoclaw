@@ -14,8 +14,6 @@ type ModelProviderOption struct {
 	CreateAllowed       bool     `json:"create_allowed"`
 	DefaultModelAllowed bool     `json:"default_model_allowed"`
 	SupportsFetch       bool     `json:"supports_fetch,omitempty"`
-	DefaultAuthMethod   string   `json:"default_auth_method,omitempty"`
-	AuthMethodLocked    bool     `json:"auth_method_locked,omitempty"`
 	Local               bool     `json:"local,omitempty"`
 	Priority            float64  `json:"priority,omitempty"`
 	CommonModels        []string `json:"common_models,omitempty"`
@@ -285,18 +283,6 @@ var modelProviderOptionsByName = map[string]ModelProviderOption{
 		CreateAllowed:       true,
 		DefaultModelAllowed: true,
 		Priority:            60,
-	},
-	"antigravity": {
-		ID:                  "antigravity",
-		DisplayName:         "Google Code Assist",
-		Domain:              "antigravity.google",
-		EmptyAPIKeyAllowed:  true,
-		CreateAllowed:       true,
-		DefaultModelAllowed: true,
-		DefaultAuthMethod:   "oauth",
-		AuthMethodLocked:    true,
-		Priority:            54,
-		Aliases:             []string{"google-antigravity"},
 	},
 	"ollama": {
 		ID:                  "ollama",

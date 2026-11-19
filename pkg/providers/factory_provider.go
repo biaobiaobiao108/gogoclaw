@@ -19,30 +19,6 @@ import (
 	openairesponses "github.com/biaobiaobiao108/gogoclaw/pkg/providers/openai_responses"
 )
 
-// createClaudeAuthProvider creates a Claude provider using OAuth credentials from auth store.
-func createClaudeAuthProvider() (LLMProvider, error) {
-	cred, err := getCredential("anthropic")
-	if err != nil {
-		return nil, fmt.Errorf("loading auth credentials: %w", err)
-	}
-	if cred == nil {
-		return nil, fmt.Errorf("no credentials for anthropic. Run: gogoclaw auth login --provider anthropic")
-	}
-	return NewClaudeProviderWithTokenSource(cred.AccessToken, createClaudeTokenSource()), nil
-}
-
-// createCodexAuthProvider creates a Codex provider using OAuth credentials from auth store.
-func createCodexAuthProvider() (LLMProvider, error) {
-	cred, err := getCredential("openai")
-	if err != nil {
-		return nil, fmt.Errorf("loading auth credentials: %w", err)
-	}
-	if cred == nil {
-		return nil, fmt.Errorf("no credentials for openai. Run: gogoclaw auth login --provider openai")
-	}
-	return NewCodexProviderWithTokenSource(cred.AccessToken, cred.AccountID, createCodexTokenSource()), nil
-}
-
 // ExtractProtocol extracts the effective protocol and model identifier from a
 // model configuration.
 //
@@ -99,7 +75,9 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 	}
 
 	protocol, modelID := ExtractProtocol(cfg)
-	authMethod := strings.ToLower(strings.TrimSpace(cfg.AuthMethod))
+	if cfg.UsesRemovedLogin() {
+		return nil, "", fmt.Errorf("saved model login is no longer supported; configure an API key")
+	}
 
 	userAgent := cfg.UserAgent
 	if userAgent == "" {
@@ -108,14 +86,6 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 
 	switch protocol {
 	case "openai":
-		// OpenAI with OAuth/token auth (Codex-style)
-		if authMethod == "oauth" || authMethod == "token" {
-			provider, err := createCodexAuthProvider()
-			if err != nil {
-				return nil, "", err
-			}
-			return finalizeProviderFromConfig(provider, modelID, cfg)
-		}
 		// OpenAI with API key
 		if cfg.APIKey() == "" && cfg.APIBase == "" {
 			return nil, "", fmt.Errorf("api_key or api_base is required for HTTP-based protocol %q", protocol)
@@ -292,14 +262,6 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 		return finalizeProviderFromConfig(provider, modelID, cfg)
 
 	case "anthropic":
-		if authMethod == "oauth" || authMethod == "token" {
-			// Use OAuth credentials from auth store
-			provider, err := createClaudeAuthProvider()
-			if err != nil {
-				return nil, "", err
-			}
-			return finalizeProviderFromConfig(provider, modelID, cfg)
-		}
 		// Use API key with HTTP API
 		apiBase := common.NormalizeBaseURL(cfg.APIBase, "https://api.anthropic.com/v1", true)
 		if cfg.APIKey() == "" {
@@ -350,9 +312,6 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.RequestTimeout,
 		), modelID, cfg)
 
-	case "antigravity":
-		return finalizeProviderFromConfig(NewAntigravityProvider(), modelID, cfg)
-
 	default:
 		return nil, "", fmt.Errorf("unknown protocol %q in model %q", protocol, cfg.Model)
 	}
@@ -384,7 +343,7 @@ func IsEmptyAPIKeyAllowedForProtocol(protocol string) bool {
 
 // IsHTTPAPIProtocol reports whether a provider uses an HTTP API base in the
 // model configuration path. This excludes providers such as Bedrock, CLI
-// bridges, and OAuth-only managed providers even if they do not require an
+// bridges even if they do not require an
 // explicit api_key field.
 func IsHTTPAPIProtocol(protocol string) bool {
 	protocol = NormalizeProvider(protocol)

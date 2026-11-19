@@ -36,7 +36,7 @@ bash ./scripts/run-integration-tests.sh
 The runner auto-discovers every suite under `integration/suites/`, so adding a suite does not require editing workflow files.
 
 The separate CI browser job runs `web/frontend/scripts/browser-smoke.cjs` in Chromium.
-It exercises login, chat and OAuth message origin handling with deterministic HTTP
+It exercises login, chat, usage, and model forms with deterministic HTTP
 and WebSocket fixtures; it does not verify a real gateway, model, or channel. To
 run it locally, start `bun run dev --host 127.0.0.1` in `web/frontend`, then set
 `PLAYWRIGHT_MODULE` to the globally installed Playwright module path and run

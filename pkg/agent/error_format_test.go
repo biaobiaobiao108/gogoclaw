@@ -34,7 +34,7 @@ func TestFormatProcessingError_GenericAuthHTTPError(t *testing.T) {
 	}
 
 	got := formatProcessingError(err)
-	if !strings.Contains(got, "check the API key, token, OAuth login, or provider permissions") {
+	if !strings.Contains(got, "check the API key, token, or provider permissions") {
 		t.Fatalf("formatted error missing generic auth hint: %q", got)
 	}
 	if !strings.Contains(got, "Original error:") {

@@ -9,7 +9,7 @@
 //   - Plaintext:   "sk-abc123"          → returned as-is
 //   - File ref:    "file://filename.key" → content read from configDir/filename.key
 //   - Encrypted:   "enc://<base64>"     → AES-256-GCM decrypt via GOGOCLAW_KEY_PASSPHRASE
-//   - Empty:       ""                   → returned as-is (auth_method=oauth etc.)
+//   - Empty:       ""                   → returned as-is
 //
 // Encryption uses AES-256-GCM with HKDF-SHA256 key derivation (< 1ms, safe for embedded Linux).
 // An SSH private key is required for both encryption and decryption.
@@ -105,7 +105,7 @@ func NewResolver(configDir string) *Resolver {
 
 // Resolve returns the actual credential value for raw:
 //
-//   - ""                → "" (no error; auth_method=oauth needs no key)
+//   - ""                → "" (no error)
 //   - "file://name.key" → trimmed content of configDir/name.key
 //   - anything else     → raw unchanged (plaintext credential)
 func (r *Resolver) Resolve(raw string) (string, error) {

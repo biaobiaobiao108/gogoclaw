@@ -58,7 +58,7 @@ func assertVisibleToolCallMessage(
 }
 
 func TestHandleListSessions_SQLiteStorage(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -129,7 +129,7 @@ func TestHandleListSessions_SQLiteStorage(t *testing.T) {
 }
 
 func TestHandleSessions_SQLiteStorageListDetailAndDelete(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -194,7 +194,7 @@ func TestHandleSessions_SQLiteStorageListDetailAndDelete(t *testing.T) {
 }
 
 func TestHandleListSessions_SQLiteSurvivesNewHandler(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -240,7 +240,7 @@ func TestHandleListSessions_SQLiteSurvivesNewHandler(t *testing.T) {
 }
 
 func TestHandleListSessions_TransientThoughtDoesNotInflateMessageCount(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -298,7 +298,7 @@ func TestHandleListSessions_TransientThoughtDoesNotInflateMessageCount(t *testin
 }
 
 func TestHandleListSessions_TitleUsesFirstUserMessage(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -367,7 +367,7 @@ func TestBuildSessionListItemUsesCompactFallbackTitle(t *testing.T) {
 }
 
 func TestHandleListSessions_SQLiteCacheRefreshesTitle(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -426,7 +426,7 @@ func TestHandleListSessions_SQLiteCacheRefreshesTitle(t *testing.T) {
 }
 
 func TestEnsureSessionTitlePersistsWithoutOverwritingManualTitle(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -467,7 +467,7 @@ func TestEnsureSessionTitlePersistsWithoutOverwritingManualTitle(t *testing.T) {
 }
 
 func TestSessionMetadataPreservesGeneratedTitleVersion(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -520,7 +520,7 @@ func TestApplySessionMetaKeepsDerivedTitleWhenStoredTitleIsAutomatic(t *testing.
 }
 
 func TestHandleGetSession_SQLiteStorage(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -584,7 +584,7 @@ func TestHandleGetSession_SQLiteStorage(t *testing.T) {
 }
 
 func TestHandleGetSession_HidesHandledToolAttachmentsBackedByMediaRefs(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -640,7 +640,7 @@ func TestHandleGetSession_HidesHandledToolAttachmentsBackedByMediaRefs(t *testin
 }
 
 func TestHandleGetSession_ExposesHandledToolAttachmentsWithDurableURL(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -714,7 +714,7 @@ func TestHandleGetSession_ExposesHandledToolAttachmentsWithDurableURL(t *testing
 }
 
 func TestHandleSessions_SQLiteScopeDiscovery(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -789,7 +789,7 @@ func TestHandleSessions_SQLiteScopeDiscovery(t *testing.T) {
 }
 
 func TestHandleGetSession_SkipsTransientThoughtMessages(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -839,7 +839,7 @@ func TestHandleGetSession_SkipsTransientThoughtMessages(t *testing.T) {
 }
 
 func TestHandleGetSession_ReconstructsThoughtFromAssistantReasoningContent(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -896,7 +896,7 @@ func TestHandleGetSession_ReconstructsThoughtFromAssistantReasoningContent(t *te
 }
 
 func TestHandleGetSession_ReconstructsRefreshMatrixForThoughtAndToolSummary(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -1005,7 +1005,7 @@ func TestHandleGetSession_ReconstructsRefreshMatrixForThoughtAndToolSummary(t *t
 }
 
 func TestHandleGetSession_ReconstructsVisibleMessageToolOutputWithoutDuplicateSummary(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -1077,7 +1077,7 @@ func TestHandleGetSession_ReconstructsVisibleMessageToolOutputWithoutDuplicateSu
 }
 
 func TestHandleGetSession_PreservesFinalAssistantReplyAfterMessageToolOutput(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -1144,7 +1144,7 @@ func TestHandleGetSession_PreservesFinalAssistantReplyAfterMessageToolOutput(t *
 }
 
 func TestHandleListSessions_MessageCountUsesVisibleTranscript(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -1202,7 +1202,7 @@ func TestHandleListSessions_MessageCountUsesVisibleTranscript(t *testing.T) {
 }
 
 func TestHandleListSessions_CountsInterimAssistantContentInVisibleTranscript(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -1263,7 +1263,7 @@ func TestHandleListSessions_CountsInterimAssistantContentInVisibleTranscript(t *
 }
 
 func TestHandleGetSession_DoesNotDuplicateAssistantToolCallContent(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -1333,7 +1333,7 @@ func TestHandleGetSession_DoesNotDuplicateAssistantToolCallContent(t *testing.T)
 }
 
 func TestHandleGetSession_PreservesDistinctAssistantToolCallContent(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -1397,7 +1397,7 @@ func TestHandleGetSession_PreservesDistinctAssistantToolCallContent(t *testing.T
 }
 
 func TestHandleGetSession_PreservesMediaWhenAssistantToolCallContentDuplicatesSummary(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -1467,7 +1467,7 @@ func TestHandleGetSession_PreservesMediaWhenAssistantToolCallContentDuplicatesSu
 }
 
 func TestHandleGetSession_PreservesAttachmentsWhenAssistantToolCallContentDuplicatesSummary(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -1549,7 +1549,7 @@ func TestHandleGetSession_PreservesAttachmentsWhenAssistantToolCallContentDuplic
 }
 
 func TestHandleGetSession_UsesConfiguredToolFeedbackMaxArgsLength(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -1629,7 +1629,7 @@ func TestHandleGetSession_UsesConfiguredToolFeedbackMaxArgsLength(t *testing.T) 
 }
 
 func TestHandleGetSession_FallsBackToLegacyToolArgumentsWhenExplanationMissing(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -1703,7 +1703,7 @@ func TestHandleGetSession_FallsBackToLegacyToolArgumentsWhenExplanationMissing(t
 }
 
 func TestHandleGetSession_IncludesMediaOnlyMessages(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -1751,7 +1751,7 @@ func TestHandleGetSession_IncludesMediaOnlyMessages(t *testing.T) {
 }
 
 func TestHandleSessions_SupportsLargeMessages(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -1823,7 +1823,7 @@ func TestHandleSessions_SupportsLargeMessages(t *testing.T) {
 }
 
 func TestHandleListSessions_UsesImagePreviewForMediaOnlyMessage(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -1868,7 +1868,7 @@ func TestHandleListSessions_UsesImagePreviewForMediaOnlyMessage(t *testing.T) {
 }
 
 func TestHandleDeleteSession_SQLiteStorage(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -1920,7 +1920,7 @@ func TestHandleDeleteSession_SQLiteStorage(t *testing.T) {
 }
 
 func TestDeleteSessionReportsStoreFailure(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	dir := sessionsTestDir(t, configPath)
 	if err := os.WriteFile(filepath.Join(dir, "sessions.db"), []byte("invalid sqlite"), 0o600); err != nil {
@@ -1936,7 +1936,7 @@ func TestDeleteSessionReportsStoreFailure(t *testing.T) {
 }
 
 func TestDeleteSessionReportsCleanupFailure(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	dir := sessionsTestDir(t, configPath)
 	store, err := memory.NewSQLiteStore(dir)
@@ -1972,7 +1972,7 @@ func TestDeleteSessionReportsCleanupFailure(t *testing.T) {
 }
 
 func TestHandleGetSession_LegacyJSONFallback(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -1998,7 +1998,7 @@ func TestHandleGetSession_LegacyJSONFallback(t *testing.T) {
 }
 
 func TestHandleSessions_FiltersEmptyJSONLFiles(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -2037,7 +2037,7 @@ func TestHandleSessions_FiltersEmptyJSONLFiles(t *testing.T) {
 }
 
 func TestHandleSessions_ListsLegacyJSONLWithoutMeta(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -2084,7 +2084,7 @@ func TestHandleSessions_ListsLegacyJSONLWithoutMeta(t *testing.T) {
 }
 
 func TestHandleSessions_IgnoresMetaJSONInLegacyFallback(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
@@ -2116,7 +2116,7 @@ func TestHandleSessions_IgnoresMetaJSONInLegacyFallback(t *testing.T) {
 }
 
 func TestSQLiteSessionListPagination(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	dir := sessionsTestDir(t, configPath)
 	store, err := memory.NewSQLiteStore(dir)

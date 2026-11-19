@@ -338,6 +338,10 @@ func (v *SecureModelList) UnmarshalJSON(data []byte) error {
 		if !model.enabledExplicit {
 			model.Enabled = true
 		}
+		if model.UsesRemovedLogin() {
+			model.AuthMethod = ""
+			model.SetEnabled(false)
+		}
 		models = append(models, &model)
 	}
 	*v = models

@@ -14,7 +14,7 @@ import (
 )
 
 func TestHandleSetDefaultModel_RejectsUnknownModelName(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	// First save a valid config with a primary model
@@ -54,7 +54,7 @@ func TestHandleSetDefaultModel_RejectsUnknownModelName(t *testing.T) {
 }
 
 func TestHandleSetDefaultModel_RejectsElevenLabsASRProvider(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -93,7 +93,7 @@ func TestHandleSetDefaultModel_RejectsElevenLabsASRProvider(t *testing.T) {
 }
 
 func TestHandleSetDefaultModel_RejectsLegacyAliasUsingUnsupportedDefaultProvider(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -126,7 +126,7 @@ func TestHandleSetDefaultModel_RejectsLegacyAliasUsingUnsupportedDefaultProvider
 }
 
 func TestHandleSetDefaultModel_RejectsUnknownExplicitRawModel(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
@@ -153,7 +153,7 @@ func TestHandleSetDefaultModel_RejectsUnknownExplicitRawModel(t *testing.T) {
 }
 
 func TestHandleSetDefaultModel_RemovesDefaultFromFallbackChain(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -199,7 +199,7 @@ func TestHandleSetDefaultModel_RemovesDefaultFromFallbackChain(t *testing.T) {
 }
 
 func TestHandleSetDefaultModel_NormalizesExistingFallbackChain(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
@@ -214,7 +214,7 @@ func TestHandleSetDefaultModel_NormalizesExistingFallbackChain(t *testing.T) {
 }
 
 func TestHandleUpdateDefaultChain(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -274,7 +274,7 @@ func TestHandleUpdateDefaultChain(t *testing.T) {
 }
 
 func TestHandleUpdateDefaultChain_AllowsRawFallbackReference(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
@@ -338,7 +338,7 @@ func TestHandleUpdateDefaultChain_RejectsRuntimeIdentityMatchingDefault(t *testi
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			configPath, cleanup := setupOAuthTestEnv(t)
+			configPath, cleanup := setupModelTestEnv(t)
 			defer cleanup()
 			writeModelChainConfig(t, configPath, tt.models, tt.defaultModel, nil)
 
@@ -371,7 +371,7 @@ func TestHandleUpdateDefaultChain_RejectsRuntimeIdentityMatchingDefault(t *testi
 }
 
 func TestHandleUpdateDefaultChain_DedupesFallbackRuntimeIdentity(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
 		geminiModelConfig("unrelated"),
@@ -406,7 +406,7 @@ func TestHandleUpdateDefaultChain_DedupesFallbackRuntimeIdentity(t *testing.T) {
 }
 
 func TestHandleUpdateDefaultChain_RejectsUnsupportedFallbackModel(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -447,7 +447,7 @@ func TestHandleUpdateDefaultChain_RejectsUnsupportedFallbackModel(t *testing.T) 
 }
 
 func TestHandleUpdateDefaultChain_DoesNotTreatUnsupportedAliasAsRawFallback(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
@@ -481,7 +481,7 @@ func TestHandleUpdateDefaultChain_DoesNotTreatUnsupportedAliasAsRawFallback(t *t
 }
 
 func TestHandleUpdateDefaultChain_RejectsUnsupportedRawFallbackReference(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
@@ -509,7 +509,7 @@ func TestHandleUpdateDefaultChain_RejectsUnsupportedRawFallbackReference(t *test
 }
 
 func TestHandleUpdateDefaultChain_TrimsStoredLegacyAlias(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{{
@@ -545,7 +545,7 @@ func TestHandleUpdateDefaultChain_TrimsStoredLegacyAlias(t *testing.T) {
 }
 
 func TestHandleUpdateDefaultChain_ValidatesRawMatchUsingConfiguredProvider(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
@@ -641,7 +641,7 @@ func TestValidateDefaultChainReferenceRejectsUnconfiguredLegacyAliasUsingDefault
 }
 
 func TestHandleUpdateDefaultChain_RejectsDuplicateAliasWithUnsupportedEntry(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	writeDuplicateAliasDefaultChainConfig(t, configPath)
 
@@ -666,7 +666,7 @@ func TestHandleUpdateDefaultChain_RejectsDuplicateAliasWithUnsupportedEntry(t *t
 }
 
 func TestHandleSetDefaultModel_RejectsDuplicateAliasWithUnsupportedEntry(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	writeDuplicateAliasDefaultChainConfig(t, configPath)
 
@@ -690,7 +690,7 @@ func TestHandleSetDefaultModel_RejectsDuplicateAliasWithUnsupportedEntry(t *test
 }
 
 func TestHandleDeleteModel_RemovesDeletedModelFromDefaultChain(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -734,7 +734,7 @@ func TestHandleDeleteModel_RemovesDeletedModelFromDefaultChain(t *testing.T) {
 }
 
 func TestHandleDeleteModel_ClearsFallbackChainWhenDefaultDeleted(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
@@ -748,7 +748,7 @@ func TestHandleDeleteModel_ClearsFallbackChainWhenDefaultDeleted(t *testing.T) {
 }
 
 func TestHandleDeleteModel_PreservesDefaultChainReferenceWhenAliasStillExists(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)

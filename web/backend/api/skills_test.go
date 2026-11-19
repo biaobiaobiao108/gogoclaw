@@ -37,7 +37,7 @@ func setGithubBaseURL(cfg *config.Config, baseURL string) {
 }
 
 func TestHandleListSkills(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -147,7 +147,7 @@ func TestHandleListSkills(t *testing.T) {
 }
 
 func TestHandleGetSkill(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -204,7 +204,7 @@ func TestHandleGetSkill(t *testing.T) {
 }
 
 func TestHandleGetSkillUsesResolvedPath(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -256,7 +256,7 @@ func TestHandleGetSkillUsesResolvedPath(t *testing.T) {
 }
 
 func TestHandleImportSkill(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -341,7 +341,7 @@ func TestHandleImportSkill(t *testing.T) {
 }
 
 func TestHandleImportSkillZip(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, loadErr := config.LoadConfig(configPath)
@@ -407,7 +407,7 @@ func TestHandleImportSkillZip(t *testing.T) {
 }
 
 func TestHandleImportSkillZipRejectsArchiveWithoutSkill(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, loadErr := config.LoadConfig(configPath)
@@ -455,7 +455,7 @@ func TestHandleImportSkillZipRejectsArchiveWithoutSkill(t *testing.T) {
 }
 
 func TestHandleImportSkillRollsBackOnOriginMetadataWriteFailure(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, loadErr := config.LoadConfig(configPath)
@@ -509,7 +509,7 @@ func TestHandleImportSkillRollsBackOnOriginMetadataWriteFailure(t *testing.T) {
 }
 
 func TestHandleDeleteSkill(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -551,7 +551,7 @@ func TestHandleDeleteSkill(t *testing.T) {
 }
 
 func TestHandleDeleteSkillPrefersWorkspaceMatch(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -610,7 +610,7 @@ func TestHandleDeleteSkillPrefersWorkspaceMatch(t *testing.T) {
 }
 
 func TestHandleSearchSkills(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -706,7 +706,7 @@ func TestHandleSearchSkills(t *testing.T) {
 }
 
 func TestHandleSearchSkillsUsesGitHubResultVersionInURL(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -772,7 +772,7 @@ func TestHandleSearchSkillsUsesGitHubResultVersionInURL(t *testing.T) {
 }
 
 func TestHandleSearchSkillsGitHubRateLimitDegradesGracefully(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -822,7 +822,7 @@ func TestHandleSearchSkillsGitHubRateLimitDegradesGracefully(t *testing.T) {
 }
 
 func TestHandleSearchSkillsPagination(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -918,7 +918,7 @@ func TestHandleSearchSkillsPagination(t *testing.T) {
 }
 
 func TestHandleSearchSkillsClampsRegistryFanout(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -978,7 +978,7 @@ func TestHandleSearchSkillsClampsRegistryFanout(t *testing.T) {
 }
 
 func TestHandleInstallSkill(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, loadErr := config.LoadConfig(configPath)
@@ -1123,7 +1123,7 @@ func TestHandleInstallSkill(t *testing.T) {
 }
 
 func TestHandleInstallSkillForcePreservesExistingSkillOnFailure(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, loadErr := config.LoadConfig(configPath)
@@ -1205,7 +1205,7 @@ func TestHandleInstallSkillForcePreservesExistingSkillOnFailure(t *testing.T) {
 }
 
 func TestHandleInstallSkillDefaultsRegistryToGitHub(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, loadErr := config.LoadConfig(configPath)
@@ -1280,7 +1280,7 @@ func TestHandleInstallSkillDefaultsRegistryToGitHub(t *testing.T) {
 }
 
 func TestHandleInstallSkillTracksGitHubURLInstallsAsInstalled(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, loadErr := config.LoadConfig(configPath)
@@ -1372,7 +1372,7 @@ func TestHandleInstallSkillTracksGitHubURLInstallsAsInstalled(t *testing.T) {
 }
 
 func TestHandleSearchSkillsMarksDirectoryCollisionAsInstalled(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, loadErr := config.LoadConfig(configPath)
@@ -1455,7 +1455,7 @@ func TestHandleSearchSkillsMarksDirectoryCollisionAsInstalled(t *testing.T) {
 }
 
 func TestHandleInstallSkillRollsBackOnOriginMetadataWriteFailure(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, loadErr := config.LoadConfig(configPath)
@@ -1534,7 +1534,7 @@ func TestHandleInstallSkillRollsBackOnOriginMetadataWriteFailure(t *testing.T) {
 }
 
 func TestHandleInstallSkillSerializesConcurrentRequests(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, loadErr := config.LoadConfig(configPath)
@@ -1651,7 +1651,7 @@ func TestHandleInstallSkillSerializesConcurrentRequests(t *testing.T) {
 }
 
 func TestHandleImportSkillWaitsForConcurrentInstall(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, loadErr := config.LoadConfig(configPath)
@@ -1773,7 +1773,7 @@ func TestHandleImportSkillWaitsForConcurrentInstall(t *testing.T) {
 }
 
 func TestHandleInstallSkillRejectsInvalidArchive(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, loadErr := config.LoadConfig(configPath)

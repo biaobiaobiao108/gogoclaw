@@ -26,9 +26,6 @@ type Handler struct {
 	// Serializes config load-modify-save cycles across API handlers.
 	configMu            sync.Mutex
 	catalogMu           sync.Mutex
-	oauthMu             sync.Mutex
-	oauthFlows          map[string]*oauthFlow
-	oauthState          map[string]string
 	weixinMu            sync.Mutex
 	weixinFlows         map[string]*weixinFlow
 	sessionListMu       sync.Mutex
@@ -44,8 +41,6 @@ func NewHandler(configPath string) *Handler {
 		configPath:                 configPath,
 		serverPort:                 launcherconfig.DefaultPort,
 		serverAllowLocalhostBypass: launcherconfig.Default().AllowLocalhostBypass,
-		oauthFlows:                 make(map[string]*oauthFlow),
-		oauthState:                 make(map[string]string),
 		weixinFlows:                make(map[string]*weixinFlow),
 		sessionListCache:           make(map[string]cachedSessionListItem),
 		sessionRefCache:            make(map[string]cachedSessionRefs),
@@ -104,9 +99,6 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	h.registerChatProjectRoutes(mux)
 	h.registerManagedSessionRoutes(mux)
 	h.registerUsageRoutes(mux)
-
-	// OAuth login and credential management
-	h.registerOAuthRoutes(mux)
 
 	// Model list management
 	h.registerModelRoutes(mux)

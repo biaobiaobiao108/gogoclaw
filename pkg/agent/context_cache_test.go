@@ -33,8 +33,7 @@ func setupWorkspace(t *testing.T, files map[string]string) string {
 
 // TestSingleSystemMessage verifies that BuildMessages always produces exactly one
 // system message regardless of summary/history variations.
-// Fix: multiple system messages break Anthropic (top-level system param) and
-// Codex (only reads last system message as instructions).
+// Anthropic's adapter uses the first system message for its top-level system parameter.
 func TestSingleSystemMessage(t *testing.T) {
 	tmpDir := setupWorkspace(t, map[string]string{
 		"AGENT.md": "# Agent\nTest agent.",

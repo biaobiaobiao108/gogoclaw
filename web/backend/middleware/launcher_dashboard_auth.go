@@ -293,8 +293,6 @@ func isPublicLauncherDashboardPath(method, p string) bool {
 		return true
 	}
 	switch p {
-	case "/oauth/callback", "/oauth/callback.js":
-		return method == http.MethodGet
 	case "/api/auth/login":
 		return method == http.MethodPost
 	case "/api/auth/logout":

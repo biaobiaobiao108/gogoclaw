@@ -10,7 +10,6 @@ import { Textarea } from "@/components/ui/textarea"
 
 export interface ModelAdvancedFieldsValue {
   proxy: string
-  authMethod: string
   connectMode: string
   workspace: string
   requestTimeout: string
@@ -31,15 +30,11 @@ interface ModelAdvancedFieldsProps {
     key: K,
     value: ModelAdvancedFieldsValue[K],
   ) => void
-  authMethodLocked: boolean
-  defaultAuthMethod: string
 }
 
 export function ModelAdvancedFields({
   value,
   onChange,
-  authMethodLocked,
-  defaultAuthMethod,
 }: ModelAdvancedFieldsProps) {
   const { t } = useTranslation()
 
@@ -50,22 +45,6 @@ export function ModelAdvancedFields({
           value={value.proxy}
           onChange={(event) => onChange("proxy", event.target.value)}
           placeholder="http://127.0.0.1:7890"
-        />
-      </Field>
-
-      <Field
-        label={t("models.field.authMethod")}
-        hint={
-          authMethodLocked
-            ? t("models.field.authMethodManagedHint")
-            : t("models.field.authMethodHint")
-        }
-      >
-        <Input
-          value={authMethodLocked ? defaultAuthMethod : value.authMethod}
-          onChange={(event) => onChange("authMethod", event.target.value)}
-          placeholder="oauth"
-          disabled={authMethodLocked}
         />
       </Field>
 

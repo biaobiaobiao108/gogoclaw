@@ -41,7 +41,6 @@ pkg/
 | `TestConvertProvidersToModelList_Anthropic` | Anthropic 配置转换 | US-003 |
 | `TestConvertProvidersToModelList_MultipleProviders` | 多 Provider 转换 | US-003 |
 | `TestConvertProvidersToModelList_EmptyProviders` | 空 providers 的处理 | US-003 |
-| `TestConvertProvidersToModelList_Antigravity` | Antigravity 转换 | US-003 |
 | `TestGenerateModelName_*` | 模型名称生成 | US-003 |
 | `TestHasProvidersConfig_*` | 检测旧配置是否存在 | US-003 |
 | `TestValidateMigration_*` | 迁移校验 | US-003 |
@@ -70,7 +69,6 @@ pkg/
 | `TestCreateProviderFromConfig_OpenAI` | 创建 OpenAI Provider | US-004 |
 | `TestCreateProviderFromConfig_OpenAIDefault` | 默认 openai 协议 | US-004 |
 | `TestCreateProviderFromConfig_Anthropic` | 创建 Anthropic Provider | US-004 |
-| `TestCreateProviderFromConfig_Antigravity` | 创建 Antigravity Provider | US-004 |
 | `TestCreateProviderFromConfig_UnknownProtocol` | 未知协议错误处理 | US-004 |
 | `TestCreateProviderFromConfig_MissingAPIKey` | 缺少 API 密钥错误 | US-004 |
 | `TestExtractProtocol` | 协议前缀提取 | US-004 |
@@ -89,7 +87,6 @@ pkg/
 | `TestE2E_ErrorHandling_MissingAPIKey` | 缺少 API 密钥 | FR-31 |
 | `TestE2E_ErrorHandling_InvalidAPIBase` | 无效 API base | FR-30 |
 | `TestE2E_ToolCalls_OpenAICompatible` | 工具调用支持 | - |
-| `TestE2E_AntigravityProvider` | Antigravity Provider | US-004 |
 
 ### 6. 性能测试
 

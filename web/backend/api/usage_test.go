@@ -15,7 +15,7 @@ import (
 )
 
 func TestHandleUsageAggregatesSQLiteAccounting(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {

@@ -9,15 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/biaobiaobiao108/gogoclaw/pkg/auth"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
 func TestHandleListModels_AvailabilityUsesRuntimeProbesForLocalModels(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
-	resetOAuthHooks(t)
 	resetModelProbeHooks(t)
 
 	var mu sync.Mutex
@@ -43,9 +41,8 @@ func TestHandleListModels_AvailabilityUsesRuntimeProbesForLocalModels(t *testing
 	}
 	cfg.ModelList = []*config.ModelConfig{
 		{
-			ModelName:  "openai-oauth",
-			Model:      "openai/gpt-5.4",
-			AuthMethod: "oauth",
+			ModelName: "openai-without-key",
+			Model:     "openai/gpt-5.4",
 		},
 		{
 			ModelName: "vllm-local",
@@ -63,7 +60,7 @@ func TestHandleListModels_AvailabilityUsesRuntimeProbesForLocalModels(t *testing
 			APIKeys:   config.SimpleSecureStrings("remote-key"),
 		},
 	}
-	cfg.Agents.Defaults.ModelName = "openai-oauth"
+	cfg.Agents.Defaults.ModelName = "openai-without-key"
 	err = config.SaveConfig(configPath, cfg)
 	if err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
@@ -96,8 +93,8 @@ func TestHandleListModels_AvailabilityUsesRuntimeProbesForLocalModels(t *testing
 		gotStatus[model.ModelName] = model.Status
 	}
 
-	if gotAvailable["openai-oauth"] {
-		t.Fatalf("openai oauth model available = true, want false without stored credential")
+	if gotAvailable["openai-without-key"] {
+		t.Fatalf("model without an API key is unexpectedly available")
 	}
 	if !gotAvailable["vllm-local"] {
 		t.Fatalf("vllm local model available = false, want true when local probe succeeds")
@@ -108,8 +105,8 @@ func TestHandleListModels_AvailabilityUsesRuntimeProbesForLocalModels(t *testing
 	if !gotAvailable["vllm-remote"] {
 		t.Fatalf("remote vllm model available = false, want true with api_key")
 	}
-	if gotStatus["openai-oauth"] != modelStatusUnconfigured {
-		t.Fatalf("openai oauth model status = %q, want %q", gotStatus["openai-oauth"], modelStatusUnconfigured)
+	if gotStatus["openai-without-key"] != modelStatusUnconfigured {
+		t.Fatalf("model without an API key status = %q, want %q", gotStatus["openai-without-key"], modelStatusUnconfigured)
 	}
 	if gotStatus["vllm-local"] != modelStatusAvailable {
 		t.Fatalf("vllm local model status = %q, want %q", gotStatus["vllm-local"], modelStatusAvailable)
@@ -128,143 +125,9 @@ func TestHandleListModels_AvailabilityUsesRuntimeProbesForLocalModels(t *testing
 	}
 }
 
-func TestHandleListModels_AvailabilityForOAuthModelWithCredential(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
-	defer cleanup()
-	resetOAuthHooks(t)
-	resetModelProbeHooks(t)
-
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
-	cfg.ModelList = []*config.ModelConfig{{
-		ModelName:  "claude-oauth",
-		Model:      "anthropic/claude-sonnet-4.6",
-		AuthMethod: "oauth",
-	}}
-	cfg.Agents.Defaults.ModelName = "claude-oauth"
-	err = config.SaveConfig(configPath, cfg)
-	if err != nil {
-		t.Fatalf("SaveConfig() error = %v", err)
-	}
-
-	if setCredentialErr := auth.SetCredential(oauthProviderAnthropic, &auth.AuthCredential{
-		AccessToken: "anthropic-token",
-		Provider:    oauthProviderAnthropic,
-		AuthMethod:  "oauth",
-	}); setCredentialErr != nil {
-		t.Fatalf("SetCredential() error = %v", setCredentialErr)
-	}
-
-	h := NewHandler(configPath)
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/models", nil)
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-
-	var resp struct {
-		Models []modelResponse `json:"models"`
-	}
-	err = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if err != nil {
-		t.Fatalf("Unmarshal() error = %v", err)
-	}
-	if len(resp.Models) != 1 {
-		t.Fatalf("len(models) = %d, want 1", len(resp.Models))
-	}
-	if !resp.Models[0].Available {
-		t.Fatalf("oauth model available = false, want true with stored credential")
-	}
-}
-
-func TestHasModelConfiguration_OAuthWithoutMappedCredentialFallsBackToAPIKey(t *testing.T) {
-	noKey := &config.ModelConfig{
-		Provider:   "gemini",
-		Model:      "gemini-2.5-flash",
-		AuthMethod: "oauth",
-	}
-	if hasModelConfiguration(noKey) {
-		t.Fatal("oauth model without credential mapping and api key should be unconfigured")
-	}
-
-	withKey := &config.ModelConfig{
-		Provider:   "gemini",
-		Model:      "gemini-2.5-flash",
-		AuthMethod: "oauth",
-		APIKeys:    config.SimpleSecureStrings("gemini-key"),
-	}
-	if !hasModelConfiguration(withKey) {
-		t.Fatal("oauth model without credential mapping should fall back to api key configuration")
-	}
-}
-
-func TestHandleListModels_AntigravityImplicitOAuthAvailability(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
-	defer cleanup()
-	resetOAuthHooks(t)
-	resetModelProbeHooks(t)
-
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
-	cfg.ModelList = []*config.ModelConfig{{
-		ModelName: "gemini-flash",
-		Provider:  "antigravity",
-		Model:     "gemini-3-flash",
-	}}
-	err = config.SaveConfig(configPath, cfg)
-	if err != nil {
-		t.Fatalf("SaveConfig() error = %v", err)
-	}
-
-	err = auth.SetCredential(oauthProviderGoogleAntigravity, &auth.AuthCredential{
-		AccessToken: "antigravity-token",
-		Provider:    oauthProviderGoogleAntigravity,
-		AuthMethod:  "oauth",
-	})
-	if err != nil {
-		t.Fatalf("SetCredential() error = %v", err)
-	}
-
-	h := NewHandler(configPath)
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/models", nil)
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-
-	var resp struct {
-		Models []modelResponse `json:"models"`
-	}
-	err = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if err != nil {
-		t.Fatalf("Unmarshal() error = %v", err)
-	}
-	if len(resp.Models) != 1 {
-		t.Fatalf("len(models) = %d, want 1", len(resp.Models))
-	}
-	if !resp.Models[0].Available {
-		t.Fatal("antigravity model available = false, want true with stored credential even without auth_method")
-	}
-}
-
 func TestHandleListModels_BedrockUsesAmbientCredentialStatus(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
-	resetOAuthHooks(t)
 	resetModelProbeHooks(t)
 
 	cfg, err := config.LoadConfig(configPath)
@@ -331,9 +194,8 @@ func TestHandleListModels_ExposesOnlyGeneralProtocols(t *testing.T) {
 }
 
 func TestHandleListModels_ProbesLocalModelsConcurrently(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
-	resetOAuthHooks(t)
 	resetModelProbeHooks(t)
 
 	started := make(chan string, 2)
@@ -394,9 +256,8 @@ func TestHandleListModels_ProbesLocalModelsConcurrently(t *testing.T) {
 }
 
 func TestHandleListModels_NormalizesWildcardLocalAPIBaseForProbe(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
-	resetOAuthHooks(t)
 	resetModelProbeHooks(t)
 
 	var gotProbe string
@@ -451,9 +312,8 @@ func TestHandleListModels_NormalizesWildcardLocalAPIBaseForProbe(t *testing.T) {
 }
 
 func TestHandleListModels_StatusMarksUnreachableLocalModel(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
-	resetOAuthHooks(t)
 	resetModelProbeHooks(t)
 
 	probeOpenAICompatibleModelFunc = func(apiBase, modelID, apiKey string) bool {
@@ -508,9 +368,8 @@ func TestHandleListModels_StatusMarksUnreachableLocalModel(t *testing.T) {
 }
 
 func TestHandleListModels_RuntimeProbeUsesExplicitProviderField(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
-	resetOAuthHooks(t)
 	resetModelProbeHooks(t)
 
 	var gotProbe string
@@ -551,7 +410,7 @@ func TestHandleListModels_RuntimeProbeUsesExplicitProviderField(t *testing.T) {
 }
 
 func TestHandleListModels_ReturnsStreamingConfig(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -596,7 +455,7 @@ func TestHandleListModels_ReturnsStreamingConfig(t *testing.T) {
 }
 
 func TestHandleListModels_PreservesExplicitProviderPrefixedModel(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -644,7 +503,7 @@ func TestHandleListModels_PreservesExplicitProviderPrefixedModel(t *testing.T) {
 }
 
 func TestHandleListModels_ExposesElevenLabsASRProvider(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -693,7 +552,7 @@ func TestHandleListModels_ExposesElevenLabsASRProvider(t *testing.T) {
 }
 
 func TestHandleListModels_ReturnsProviderOptionsWithoutPersistingLegacyMigration(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -763,7 +622,7 @@ func TestHandleListModels_ReturnsProviderOptionsWithoutPersistingLegacyMigration
 }
 
 func TestHandleListModels_ReturnsProviderField(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -807,7 +666,7 @@ func TestHandleListModels_ReturnsProviderField(t *testing.T) {
 }
 
 func TestHandleListModels_PreservesKnownProviderInCatalog(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -865,7 +724,7 @@ func TestHandleListModels_PreservesKnownProviderInCatalog(t *testing.T) {
 }
 
 func TestHandleListModels_ReturnsEffectiveProviderField(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -944,7 +803,7 @@ func TestNormalizeIncomingModelConfigUsesConfiguredDefaultProvider(t *testing.T)
 }
 
 func TestModelGetHandlers_NormalizeDefaultChainSnapshot(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
 		openAIModelConfig("primary"),
@@ -979,7 +838,7 @@ func TestModelGetHandlers_NormalizeDefaultChainSnapshot(t *testing.T) {
 }
 
 func TestHandleListModels_PreservesRawDefaultWithMultiKeyModel(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{{
 		ModelName: "primary",

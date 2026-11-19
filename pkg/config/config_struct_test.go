@@ -402,3 +402,34 @@ func TestSkillsRegistriesConfigUnmarshalYAMLRetainsDefaultsForOmittedFields(t *t
 	assert.Equal(t, "registry-token", github.AuthToken.String())
 	assert.Empty(t, github.Param)
 }
+
+func TestSecureModelListDisablesRemovedLogins(t *testing.T) {
+	var models SecureModelList
+	err := json.Unmarshal([]byte(`[
+    {"model_name":"old-openai","provider":"openai","model":"gpt-5","auth_method":"oauth"},
+    {"model_name":"old-claude","provider":"anthropic","model":"claude","auth_method":"token","enabled":true},
+    {"model_name":"old-google","model":"antigravity/gemini"},
+    {"model_name":"api","provider":"anthropic-messages","model":"claude","api_keys":["test-key"]},
+    {"model_name":"local","provider":"openai","model":"custom","auth_method":"local"}
+  ]`), &models)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(models)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reloaded SecureModelList
+	if err := json.Unmarshal(encoded, &reloaded); err != nil {
+		t.Fatal(err)
+	}
+	for _, list := range []SecureModelList{models, reloaded} {
+		for _, model := range list[:3] {
+			assert.False(t, model.IsEnabled(), model.ModelName)
+			assert.Empty(t, model.AuthMethod, model.ModelName)
+		}
+		assert.True(t, list[3].IsEnabled())
+		assert.True(t, list[4].IsEnabled())
+		assert.Equal(t, "local", list[4].AuthMethod)
+	}
+}

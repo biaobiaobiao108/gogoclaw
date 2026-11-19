@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,7 +13,7 @@ import (
 )
 
 func TestHandleAddModel_PersistsAPIKey(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -53,7 +55,7 @@ func TestHandleAddModel_PersistsAPIKey(t *testing.T) {
 }
 
 func TestHandleAddModel_PersistsProvider(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -88,7 +90,7 @@ func TestHandleAddModel_PersistsProvider(t *testing.T) {
 }
 
 func TestHandleAddModel_TrimsModelName(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -118,7 +120,7 @@ func TestHandleAddModel_TrimsModelName(t *testing.T) {
 }
 
 func TestHandleAddModel_NormalizesDefaultChainWhenDuplicateAliasUnsupported(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	writeModelChainConfig(t, configPath, []*config.ModelConfig{
@@ -182,7 +184,7 @@ func TestModelWriteHandlers_PreserveRawDefaultChain(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			configPath, cleanup := setupOAuthTestEnv(t)
+			configPath, cleanup := setupModelTestEnv(t)
 			defer cleanup()
 
 			writeModelChainConfig(t, configPath, []*config.ModelConfig{
@@ -210,7 +212,7 @@ func TestModelWriteHandlers_PreserveRawDefaultChain(t *testing.T) {
 }
 
 func TestHandleAddModel_RejectsUnsupportedProvider(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -235,7 +237,7 @@ func TestHandleAddModel_RejectsUnsupportedProvider(t *testing.T) {
 }
 
 func TestHandleAddModel_AllowsBedrockProvider(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -269,7 +271,7 @@ func TestHandleAddModel_AllowsBedrockProvider(t *testing.T) {
 }
 
 func TestHandleAddModel_NormalizesLegacyElevenLabsASRConfig(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -319,7 +321,7 @@ func TestHandleAddModel_NormalizesLegacyElevenLabsASRConfig(t *testing.T) {
 }
 
 func TestHandleAddModel_NormalizesExplicitElevenLabsUnsupportedModelID(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	cfg, err := config.LoadConfig(configPath)
@@ -366,22 +368,8 @@ func TestHandleAddModel_NormalizesExplicitElevenLabsUnsupportedModelID(t *testin
 	}
 }
 
-func TestHandleAddModel_DefaultsAntigravityToOAuth(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
-	defer cleanup()
-
-	added := addModelAndLoadLatest(t, configPath, `{
-		"model_name":"gemini-flash",
-		"provider":"antigravity",
-		"model":"gemini-3-flash"
-	}`)
-	if got := added.AuthMethod; got != "oauth" {
-		t.Fatalf("auth_method = %q, want %q", got, "oauth")
-	}
-}
-
 func TestHandleAddModel_DefaultsEnabledWhenOmitted(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	added := addModelAndLoadLatest(t, configPath, `{
@@ -396,7 +384,7 @@ func TestHandleAddModel_DefaultsEnabledWhenOmitted(t *testing.T) {
 }
 
 func TestHandleAddModel_PreservesExplicitDisabled(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	added := addModelAndLoadLatest(t, configPath, `{
@@ -411,23 +399,8 @@ func TestHandleAddModel_PreservesExplicitDisabled(t *testing.T) {
 	}
 }
 
-func TestHandleAddModel_NormalizesMixedCaseAuthMethod(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
-	defer cleanup()
-
-	added := addModelAndLoadLatest(t, configPath, `{
-		"model_name":"openai-oauth",
-		"provider":"openai",
-		"model":"gpt-5.4",
-		"auth_method":"OAuth"
-	}`)
-	if got := added.AuthMethod; got != "oauth" {
-		t.Fatalf("auth_method = %q, want %q", got, "oauth")
-	}
-}
-
 func TestHandleAddModel_PreservesExplicitProviderPrefixedModel(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -462,7 +435,7 @@ func TestHandleAddModel_PreservesExplicitProviderPrefixedModel(t *testing.T) {
 }
 
 func TestHandleAddModel_PersistsCustomHeaders(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -503,7 +476,7 @@ func TestHandleAddModel_PersistsCustomHeaders(t *testing.T) {
 }
 
 func TestHandleAddModel_PersistsToolSchemaTransform(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -534,7 +507,7 @@ func TestHandleAddModel_PersistsToolSchemaTransform(t *testing.T) {
 }
 
 func TestHandleAddModel_RejectsUnsupportedElevenLabsModelID(t *testing.T) {
-	configPath, cleanup := setupOAuthTestEnv(t)
+	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
 	h := NewHandler(configPath)
@@ -556,4 +529,42 @@ func TestHandleAddModel_RejectsUnsupportedElevenLabsModelID(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `provider "elevenlabs" only supports model "scribe_v1"`) {
 		t.Fatalf("body = %q, want elevenlabs model validation error", rec.Body.String())
 	}
+}
+
+func setupModelTestEnv(t *testing.T) (string, func()) {
+	t.Helper()
+
+	tmp := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	oldPicoHome := os.Getenv("GOGOCLAW_HOME")
+
+	if err := os.Setenv("HOME", tmp); err != nil {
+		t.Fatalf("set HOME: %v", err)
+	}
+	if err := os.Setenv("GOGOCLAW_HOME", filepath.Join(tmp, ".gogoclaw")); err != nil {
+		t.Fatalf("set GOGOCLAW_HOME: %v", err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.ModelList = []*config.ModelConfig{{
+		ModelName: "custom-default",
+		Model:     "openai/gpt-4o",
+		APIKeys:   config.SimpleSecureStrings("sk-default"),
+	}}
+	cfg.Agents.Defaults.ModelName = "custom-default"
+
+	configPath := filepath.Join(tmp, "config.json")
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig error: %v", err)
+	}
+
+	cleanup := func() {
+		_ = os.Setenv("HOME", oldHome)
+		if oldPicoHome == "" {
+			_ = os.Unsetenv("GOGOCLAW_HOME")
+		} else {
+			_ = os.Setenv("GOGOCLAW_HOME", oldPicoHome)
+		}
+	}
+	return configPath, cleanup
 }

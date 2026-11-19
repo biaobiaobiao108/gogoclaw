@@ -24,7 +24,6 @@ type StatusReport struct {
 	WorkspaceOK   bool
 	Model         string
 	Providers     []ProviderRow
-	OAuthLines    []string // each full line "provider (method): state"
 }
 
 // PrintStatus renders gogoclaw status (plain or fancy).
@@ -51,12 +50,6 @@ func printStatusPlain(r StatusReport) {
 		fmt.Printf("Model: %s\n", r.Model)
 		for _, p := range r.Providers {
 			fmt.Printf("%s: %s\n", p.Name, p.Val)
-		}
-		if len(r.OAuthLines) > 0 {
-			fmt.Println("\nOAuth/Token Auth:")
-			for _, line := range r.OAuthLines {
-				fmt.Printf("  %s\n", line)
-			}
 		}
 	}
 }
@@ -98,15 +91,6 @@ func printStatusFancy(r StatusReport) {
 		}
 	}
 
-	if len(r.OAuthLines) > 0 && r.ConfigOK {
-		var ob strings.Builder
-		ob.WriteString(titleBarStyle().Render("OAuth / token auth") + "\n\n")
-		for _, line := range r.OAuthLines {
-			ob.WriteString("  • " + line + "\n")
-		}
-		fmt.Println()
-		fmt.Println(borderStyle().Width(inner).Render(ob.String()))
-	}
 }
 
 func pathStatusPanel(r StatusReport, inner int) string {

@@ -38,8 +38,6 @@ import {
   getProviderCatalogEntry,
   getProviderCatalogMap,
   getProviderDefaultAPIBase,
-  getProviderDefaultAuthMethod,
-  isProviderAuthMethodLocked,
   providerSupportsFetch,
 } from "./provider-registry"
 import { TestModelDialog } from "./test-model-dialog"
@@ -51,7 +49,7 @@ interface AddForm {
   apiBase: string
   apiKey: string
   proxy: string
-  authMethod: string
+
   connectMode: string
   workspace: string
   rpm: string
@@ -73,7 +71,7 @@ const EMPTY_ADD_FORM: AddForm = {
   apiBase: "",
   apiKey: "",
   proxy: "",
-  authMethod: "",
+
   connectMode: "",
   workspace: "",
   rpm: "",
@@ -240,11 +238,6 @@ export function AddModelSheet({
 
   const handleProviderChange = (provider: string) => {
     setForm((f) => {
-      const previousOption = getProviderCatalogEntry(
-        f.provider,
-        providerOptions,
-      )
-      const nextOption = getProviderCatalogEntry(provider, providerOptions)
       const previousDefaultBase = normalizeApiBase(
         getProviderDefaultAPIBase(f.provider, providerOptions),
       )
@@ -252,16 +245,7 @@ export function AddModelSheet({
         getProviderDefaultAPIBase(provider, providerOptions),
       )
       const currentApiBase = normalizeApiBase(f.apiBase)
-      let authMethod = f.authMethod
       let apiBase = f.apiBase
-      if (nextOption?.authMethodLocked) {
-        authMethod = nextOption.defaultAuthMethod ?? ""
-      } else if (
-        previousOption?.authMethodLocked &&
-        f.authMethod === (previousOption.defaultAuthMethod ?? "")
-      ) {
-        authMethod = ""
-      }
       if (
         currentApiBase &&
         previousDefaultBase &&
@@ -274,7 +258,6 @@ export function AddModelSheet({
         ...f,
         provider: getCanonicalProviderKey(provider, providerOptions),
         apiBase,
-        authMethod,
       }
     })
     // Re-validate model with new provider context
@@ -327,20 +310,6 @@ export function AddModelSheet({
     ? providerMap.get(canonicalProvider)
     : undefined
   const commonModels = providerDef?.commonModels || []
-  const authMethodLocked = isProviderAuthMethodLocked(
-    form.provider,
-    providerOptions,
-  )
-  const defaultAuthMethod = getProviderDefaultAuthMethod(
-    form.provider,
-    providerOptions,
-  )
-  const effectiveAuthMethod = (
-    authMethodLocked ? defaultAuthMethod : form.authMethod
-  )
-    .trim()
-    .toLowerCase()
-  const isOAuth = effectiveAuthMethod === "oauth"
   const defaultModelAllowed = providerDef?.defaultModelAllowed === true
   const apiBasePlaceholder =
     getProviderDefaultAPIBase(form.provider, providerOptions) ||
@@ -397,9 +366,7 @@ export function AddModelSheet({
         api_base: submittedApiBase,
         api_key: form.apiKey.trim() || undefined,
         proxy: form.proxy.trim() || undefined,
-        auth_method: authMethodLocked
-          ? defaultAuthMethod || undefined
-          : form.authMethod.trim() || undefined,
+
         connect_mode: form.connectMode.trim() || undefined,
         workspace: form.workspace.trim() || undefined,
         rpm: form.rpm ? Number(form.rpm) : undefined,
@@ -606,25 +573,19 @@ export function AddModelSheet({
                 </div>
               </Field>
 
-              {!isOAuth && (
-                <Field label={t("models.field.apiKey")}>
-                  <KeyInput
-                    value={form.apiKey}
-                    onChange={(v) => setForm((f) => ({ ...f, apiKey: v }))}
-                    placeholder={apiKeyPlaceholder}
-                  />
-                </Field>
-              )}
+              <Field label={t("models.field.apiKey")}>
+                <KeyInput
+                  value={form.apiKey}
+                  onChange={(v) => setForm((f) => ({ ...f, apiKey: v }))}
+                  placeholder={apiKeyPlaceholder}
+                />
+              </Field>
 
-              <Field
-                label={t("models.field.apiBase")}
-                hint={isOAuth ? t("models.edit.oauthNote") : undefined}
-              >
+              <Field label={t("models.field.apiBase")}>
                 <Input
                   value={form.apiBase}
                   onChange={setField("apiBase")}
                   placeholder={apiBasePlaceholder}
-                  disabled={isOAuth}
                 />
               </Field>
 
@@ -652,12 +613,7 @@ export function AddModelSheet({
                 disabled={!defaultModelAllowed}
               />
 
-              <ModelAdvancedFields
-                value={form}
-                onChange={setField}
-                authMethodLocked={authMethodLocked}
-                defaultAuthMethod={defaultAuthMethod}
-              />
+              <ModelAdvancedFields value={form} onChange={setField} />
 
               {serverError && (
                 <p className="text-destructive bg-destructive/10 rounded-md px-3 py-2 text-sm">
@@ -709,7 +665,6 @@ export function AddModelSheet({
             model: form.model,
             apiBase: effectiveApiBase,
             apiKey: form.apiKey,
-            authMethod: effectiveAuthMethod,
           }}
         />
       </Sheet>

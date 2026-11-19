@@ -128,8 +128,6 @@ export function modelInfoCanConfigureRawTemplate(
   providerOptions: ModelProviderOption[],
 ) {
   if (model.status !== "unconfigured") return true
-  const authMethod = model.auth_method?.trim().toLowerCase()
-  if (authMethod === "oauth" || authMethod === "token") return false
   if (!model.api_base?.trim()) return false
   const provider = getCanonicalProviderKey(model.provider, providerOptions)
   if (
@@ -153,14 +151,11 @@ export function rawModelTemplateScore(
 ) {
   let score = 0
   if (model.api_key?.trim()) score += 32
-  const authMethod = model.auth_method?.trim().toLowerCase()
   const provider = getCanonicalProviderKey(model.provider, providerOptions)
   const normalizeBase = (value: string) =>
     value.trim().replace(/\/+$/, "").toLowerCase()
   const defaultBase = getProviderDefaultAPIBase(provider, providerOptions)
   if (
-    authMethod !== "oauth" &&
-    authMethod !== "token" &&
     model.api_base?.trim() &&
     (!defaultBase ||
       normalizeBase(model.api_base) !== normalizeBase(defaultBase))
