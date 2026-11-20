@@ -5,9 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 )
 
 type photonStateData struct {
+	ProjectID string            `json:"project_id,omitempty"`
 	Cursors   map[string]uint64 `json:"cursors"`
 	ChatLines map[string]string `json:"chat_lines,omitempty"`
 }
@@ -18,10 +21,11 @@ type photonStateStore struct {
 	data photonStateData
 }
 
-func newPhotonStateStore(path string) *photonStateStore {
+func newPhotonStateStore(path, projectID string) *photonStateStore {
 	store := &photonStateStore{
 		path: path,
 		data: photonStateData{
+			ProjectID: projectID,
 			Cursors:   make(map[string]uint64),
 			ChatLines: make(map[string]string),
 		},
@@ -45,11 +49,20 @@ func (s *photonStateStore) Set(lineID string, sequence uint64) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if sequence <= s.data.Cursors[lineID] {
+	previous := s.data.Cursors[lineID]
+	if sequence <= previous {
 		return nil
 	}
 	s.data.Cursors[lineID] = sequence
-	return s.saveLocked()
+	if err := s.saveLocked(); err != nil {
+		if previous == 0 {
+			delete(s.data.Cursors, lineID)
+		} else {
+			s.data.Cursors[lineID] = previous
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *photonStateStore) ChatLine(chatID string) string {
@@ -59,19 +72,6 @@ func (s *photonStateStore) ChatLine(chatID string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.data.ChatLines[chatID]
-}
-
-func (s *photonStateStore) SetChatLine(chatID, lineID string) error {
-	if s == nil || s.path == "" || chatID == "" || lineID == "" {
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.data.ChatLines[chatID] == lineID {
-		return nil
-	}
-	s.data.ChatLines[chatID] = lineID
-	return s.saveLocked()
 }
 
 func (s *photonStateStore) load() {
@@ -84,6 +84,9 @@ func (s *photonStateStore) load() {
 	}
 	var state photonStateData
 	if err := json.Unmarshal(data, &state); err != nil {
+		return
+	}
+	if state.ProjectID != "" && state.ProjectID != s.data.ProjectID {
 		return
 	}
 	for lineID, sequence := range state.Cursors {
@@ -106,5 +109,5 @@ func (s *photonStateStore) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path, data, 0o600)
+	return fileutil.WriteFileAtomic(s.path, data, 0o600)
 }

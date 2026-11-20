@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -22,6 +24,8 @@ import (
 	photonv1 "github.com/biaobiaobiao108/gogoclaw/pkg/channels/photon/internal/photon/imessage/v1"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
 type sentTextCall struct {
@@ -62,8 +66,6 @@ func (f *fakePhotonAPI) ResolveLine(string) (photonLine, error) {
 	}
 	return f.lines[0], nil
 }
-
-func (f *fakePhotonAPI) RememberChatLine(string, string) {}
 
 func (f *fakePhotonAPI) CatchUp(context.Context, string, uint64, func(uint64, *photonv1.MessageChangeEvent) error) (uint64, error) {
 	return 0, nil
@@ -128,7 +130,7 @@ func (f *fakePhotonAPI) MarkRead(_ context.Context, chatID string) error {
 	return nil
 }
 
-func (f *fakePhotonAPI) DownloadAttachment(context.Context, string, string, string) (string, *photonv1.AttachmentInfo, error) {
+func (f *fakePhotonAPI) DownloadAttachment(context.Context, string, string, string, int64) (string, *photonv1.AttachmentInfo, error) {
 	return "", nil, errors.New("not configured")
 }
 
@@ -161,6 +163,12 @@ func newTestPhotonChannel(t *testing.T, api *fakePhotonAPI) (*PhotonChannel, *bu
 		t.Fatal(err)
 	}
 	ch.SetMediaStore(media.NewFileMediaStore())
+	store, err := memory.NewSQLiteStore(filepath.Dir(ch.state.path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	ch.inbox = store
 	ch.SetRunning(true)
 	return ch, messageBus
 }
@@ -244,7 +252,26 @@ func TestHandleMessageChangePublishesInboundAndMarksRead(t *testing.T) {
 		},
 	}
 
+	message.Guid = ""
+	if err := ch.handleMessageChange(t.Context(), api.lines[0], event); err != nil {
+		t.Fatalf("invalid event stopped event processing: %v", err)
+	}
+	message.Guid = "message-1"
 	if err := ch.handleMessageChange(context.Background(), api.lines[0], event); err != nil {
+		t.Fatal(err)
+	}
+	dest := photonChatID(ch.settings.ProjectID, api.lines[0].ID, event.ChatGuid)
+	if err := ch.advanceCursor(api.lines[0].ID, 42); err != nil {
+		t.Fatal(err)
+	}
+	// Reopen the database before dispatch to simulate exit after saving the cursor.
+	reopened, err := memory.OpenSQLiteStore(filepath.Dir(ch.state.path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	var queued sync.Map
+	if err := ch.PublishSQLiteInbox(t.Context(), reopened, ch.inboxSource(), &queued, nil); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -252,16 +279,32 @@ func TestHandleMessageChangePublishesInboundAndMarksRead(t *testing.T) {
 		if inbound.Content != "hello from iMessage" {
 			t.Fatalf("content = %q", inbound.Content)
 		}
-		if inbound.Context.ChatID != "any;-;+15557654321" {
+		if inbound.Context.ChatID != dest || inbound.Receipt == nil {
 			t.Fatalf("chat id = %q", inbound.Context.ChatID)
 		}
 		if inbound.Sender.CanonicalID != "photon:+15557654321" {
 			t.Fatalf("sender = %q", inbound.Sender.CanonicalID)
 		}
+		const sessionKey = "photon-recovery"
+		if claimed, err := reopened.ClaimPicoUser(t.Context(), inbound.Receipt.ID, sessionKey, providers.Message{
+			ID: inbound.MessageID, Role: "user", Content: inbound.Content,
+		}); err != nil || !claimed {
+			t.Fatalf("claim inbox: %v, %v", claimed, err)
+		}
+		if history, err := reopened.GetHistory(t.Context(), sessionKey); err != nil || len(history) != 1 || history[0].Content != inbound.Content {
+			t.Fatalf("recovered input missing from SQLite transcript: %v, %v", history, err)
+		}
+		inbound.Finish(t.Context())
 	case <-time.After(time.Second):
 		t.Fatal("inbound message was not published")
 	}
-	if len(api.markedRead) != 1 || api.markedRead[0] != "any;-;+15557654321" {
+	if err := ch.handleMessageChange(t.Context(), api.lines[0], event); err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := reopened.PendingPicoInbound(t.Context(), ch.inboxSource(), 0); err != nil || len(rows) != 0 {
+		t.Fatalf("duplicate input requeued: %d, %v", len(rows), err)
+	}
+	if len(api.markedRead) != 1 || api.markedRead[0] != dest {
 		t.Fatalf("marked read = %#v", api.markedRead)
 	}
 }
@@ -287,6 +330,9 @@ func TestHandleMessageChangeHonorsGroupMentionOnly(t *testing.T) {
 	}
 	if err := ch.handleMessageChange(context.Background(), api.lines[0], event); err != nil {
 		t.Fatal(err)
+	}
+	if rows, err := ch.inbox.PendingPicoInbound(t.Context(), ch.inboxSource(), 0); err != nil || len(rows) != 0 {
+		t.Fatalf("unmentioned group message queued: %d, %v", len(rows), err)
 	}
 	select {
 	case inbound := <-messageBus.InboundChan():
@@ -361,22 +407,175 @@ func TestClassifyPhotonSendError(t *testing.T) {
 
 func TestCursorStorePersistsHighestSequence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
-	store := newPhotonStateStore(path)
+	const legacyState = `{"chat_lines":{"chat-1":"line-2"}}`
+	if err := os.WriteFile(path, []byte(legacyState), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newPhotonStateStore(path, "project-a")
 	if err := store.Set("line-1", 10); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Set("line-1", 9); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetChatLine("chat-1", "line-2"); err != nil {
-		t.Fatal(err)
-	}
-	reloaded := newPhotonStateStore(path)
+	reloaded := newPhotonStateStore(path, "project-a")
 	if got := reloaded.Get("line-1"); got != 10 {
 		t.Fatalf("cursor = %d, want 10", got)
 	}
 	if got := reloaded.ChatLine("chat-1"); got != "line-2" {
 		t.Fatalf("chat line = %q, want line-2", got)
+	}
+	otherProject := newPhotonStateStore(path, "project-b")
+	if otherProject.Get("line-1") != 0 || otherProject.ChatLine("chat-1") != "" {
+		t.Fatal("another project inherited the cursor or legacy chat mapping")
+	}
+}
+
+func TestCursorStoreRetriesFailedWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := newPhotonStateStore(path, "project")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set("line", 42); err == nil || store.Get("line") != 0 {
+		t.Fatal("failed write advanced the cursor")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set("line", 42); err != nil {
+		t.Fatal(err)
+	}
+	if got := newPhotonStateStore(path, "project").Get("line"); got != 42 {
+		t.Fatalf("restarted cursor = %d, want 42", got)
+	}
+}
+
+func TestResolveLineUsesBoundDestination(t *testing.T) {
+	client := newPhotonClient(&config.PhotonSettings{ProjectID: "project"})
+	client.lines["a"] = &photonLineClient{line: photonLine{ID: "a"}}
+	client.lines["b"] = &photonLineClient{line: photonLine{ID: "b"}}
+	const chatID = "any;-;+15557654321"
+	for _, id := range []string{"a", "b", "a"} {
+		dest := photonChatID("project", id, chatID)
+		line, err := client.ResolveLine(dest)
+		if err != nil || line.ID != id || normalizeChatID(dest) != chatID {
+			t.Fatalf("destination %q resolved to %v, %v", dest, line, err)
+		}
+	}
+	for _, dest := range []string{chatID, photonChatID("other", "b", chatID)} {
+		if _, err := client.ResolveLine(dest); err == nil {
+			t.Fatalf("ambiguous or foreign destination %q was accepted", dest)
+		}
+	}
+	delete(client.lines, "a")
+	if _, err := client.ResolveLine(photonChatID("project", "a", chatID)); err == nil {
+		t.Fatal("unavailable bound line fell back to another line")
+	}
+}
+
+func TestResolveLineConcurrentWithTokenRefresh(t *testing.T) {
+	client := newPhotonClient(&config.PhotonSettings{ProjectID: "project"})
+	dest := photonChatID("project", photonSharedLineID, "any;-;+15557654321")
+	client.lines[photonSharedLineID] = &photonLineClient{line: photonLine{ID: photonSharedLineID}}
+	var workers sync.WaitGroup
+	workers.Go(func() {
+		for range 1024 {
+			if line, err := client.ResolveLine(dest); err != nil || line.ID != photonSharedLineID {
+				t.Errorf("line = %v, error = %v", line, err)
+				return
+			}
+		}
+	})
+	workers.Go(func() {
+		for range 1024 {
+			if err := client.reconcileLines(&cloudTokenData{Type: "shared"}); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	})
+	workers.Wait()
+}
+
+func TestClientRetriesTransientStartupFailure(t *testing.T) {
+	var once sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		failed := false
+		once.Do(func() { failed = true })
+		if failed {
+			http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"succeed": true,
+			"data":    map[string]any{"type": "shared", "token": "test", "expiresIn": 3600},
+		}); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer server.Close()
+	client := newPhotonClient(&config.PhotonSettings{ProjectID: "project", CloudURL: server.URL})
+	if err := client.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for len(client.Lines()) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("startup token retry did not discover the line")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+type attachmentFixture struct {
+	photonv1.AttachmentServiceClient
+	frames []*photonv1.DownloadAttachmentResponse
+}
+
+func (f attachmentFixture) DownloadAttachment(context.Context, *photonv1.DownloadAttachmentRequest, ...grpc.CallOption) (photonv1.AttachmentService_DownloadAttachmentClient, error) {
+	return &attachmentFixtureStream{frames: f.frames}, nil
+}
+
+type attachmentFixtureStream struct {
+	photonv1.AttachmentService_DownloadAttachmentClient
+	frames []*photonv1.DownloadAttachmentResponse
+}
+
+func (f *attachmentFixtureStream) Recv() (*photonv1.DownloadAttachmentResponse, error) {
+	if len(f.frames) == 0 {
+		return nil, io.EOF
+	}
+	frame := f.frames[0]
+	f.frames = f.frames[1:]
+	return frame, nil
+}
+
+func TestAttachmentLimitUsesStreamedBytes(t *testing.T) {
+	client := newPhotonClient(nil)
+	client.lines["line"] = &photonLineClient{attachments: attachmentFixture{
+		frames: []*photonv1.DownloadAttachmentResponse{
+			{Payload: &photonv1.DownloadAttachmentResponse_Header{
+				Header: &photonv1.DownloadHeader{Attachment: &photonv1.AttachmentInfo{FileName: "note.txt"}},
+			}},
+			{Payload: &photonv1.DownloadAttachmentResponse_PrimaryChunk{PrimaryChunk: []byte("1234")}},
+			{Payload: &photonv1.DownloadAttachmentResponse_PrimaryChunk{PrimaryChunk: []byte("5678")}},
+		},
+	}}
+	dir := t.TempDir()
+	if _, _, err := client.DownloadAttachment(t.Context(), "line", "attachment", dir, 7); !errors.Is(err, errPhotonAttachmentTooLarge) {
+		t.Fatalf("download error = %v, want size limit error", err)
+	}
+	if files, err := os.ReadDir(dir); err != nil || len(files) != 0 {
+		t.Fatalf("oversized download left files: %v, %v", files, err)
+	}
+	path, _, err := client.DownloadAttachment(t.Context(), "line", "attachment", dir, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "12345678" {
+		t.Fatalf("download data = %q, error = %v", data, err)
 	}
 }
 

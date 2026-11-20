@@ -19,6 +19,7 @@ import (
 	photonv1 "github.com/biaobiaobiao108/gogoclaw/pkg/channels/photon/internal/photon/imessage/v1"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 )
 
 const (
@@ -31,7 +32,6 @@ type photonAPI interface {
 	Close()
 	Lines() []photonLine
 	ResolveLine(string) (photonLine, error)
-	RememberChatLine(string, string)
 	CatchUp(context.Context, string, uint64, func(uint64, *photonv1.MessageChangeEvent) error) (uint64, error)
 	SubscribeMessages(context.Context, string, uint64, func(uint64, *photonv1.MessageChangeEvent) error) error
 	SendText(context.Context, string, string, string, string) (string, error)
@@ -42,7 +42,7 @@ type photonAPI interface {
 	SetReaction(context.Context, string, string, string, bool) error
 	SetTyping(context.Context, string, bool) error
 	MarkRead(context.Context, string) error
-	DownloadAttachment(context.Context, string, string, string) (string, *photonv1.AttachmentInfo, error)
+	DownloadAttachment(context.Context, string, string, string, int64) (string, *photonv1.AttachmentInfo, error)
 }
 
 // PhotonChannel connects GoGoClaw to iMessage through Photon Spectrum's public
@@ -56,6 +56,9 @@ type PhotonChannel struct {
 	state    *photonStateStore
 
 	maxMediaBytes int64
+	inbox         *memory.SQLiteStore
+	inboxWake     chan struct{}
+	workersDone   chan struct{}
 
 	mentionNames []string
 	ctx          context.Context
@@ -79,6 +82,9 @@ func init() {
 				return nil, fmt.Errorf("photon channel %q: invalid settings type %T", channelName, decoded)
 			}
 			statePath := filepath.Join(cfg.WorkspacePath(), "sessions", "photon-state.json")
+			if channelName != config.ChannelPhoton {
+				statePath = filepath.Join(filepath.Dir(statePath), "photon-"+channels.StableID(channelName)+"-state.json")
+			}
 			client := newPhotonClient(settings)
 			ch, err := NewPhotonChannel(channelName, bc, settings, cfg, messageBus, client, statePath)
 			if err != nil {
@@ -105,6 +111,9 @@ func NewPhotonChannel(
 	if strings.TrimSpace(settings.ProjectID) == "" || strings.TrimSpace(settings.ProjectSecret.String()) == "" {
 		return nil, fmt.Errorf("photon channel: project_id and project_secret are required")
 	}
+	if statePath == "" {
+		return nil, fmt.Errorf("photon channel: state path is required")
+	}
 	base := channels.NewBaseChannel(
 		channelName,
 		settings,
@@ -119,7 +128,7 @@ func NewPhotonChannel(
 		bc:           bc,
 		settings:     settings,
 		api:          api,
-		state:        newPhotonStateStore(statePath),
+		state:        newPhotonStateStore(statePath, settings.ProjectID),
 		mentionNames: photonMentionNames(cfg),
 	}
 	if cfg != nil {
@@ -156,14 +165,34 @@ func photonMentionNames(cfg *config.Config) []string {
 
 func (c *PhotonChannel) Start(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(ctx)
+	inbox, err := memory.NewSQLiteStore(filepath.Dir(c.state.path))
+	if err != nil {
+		cancel()
+		return fmt.Errorf("open Photon inbox: %w", err)
+	}
 	if err := c.api.Start(runCtx); err != nil {
 		cancel()
+		_ = inbox.Close()
 		return err
 	}
 	c.ctx = runCtx
 	c.cancel = cancel
+	c.inbox = inbox
+	c.inboxWake = make(chan struct{}, 1)
+	c.workersDone = make(chan struct{})
 	c.SetRunning(true)
-	go c.runInbound(runCtx)
+	go func() {
+		defer close(c.workersDone)
+		defer func() {
+			if err := inbox.Close(); err != nil {
+				logger.Warnf("close Photon inbox: %v", err)
+			}
+		}()
+		var workers sync.WaitGroup
+		workers.Go(func() { c.runInbox(runCtx) })
+		workers.Go(func() { c.runInbound(runCtx) })
+		workers.Wait()
+	}()
 	logger.InfoCF("photon", "Photon iMessage channel started", map[string]any{
 		"project_id": c.settings.ProjectID,
 		"lines":      len(c.api.Lines()),
@@ -172,17 +201,20 @@ func (c *PhotonChannel) Start(ctx context.Context) error {
 }
 
 func (c *PhotonChannel) Stop(ctx context.Context) error {
-	if !c.IsRunning() {
+	if c.workersDone == nil {
 		return nil
 	}
-	c.SetRunning(false)
-	if c.progress != nil {
+	if c.BaseChannel.IsRunning() {
+		c.SetRunning(false)
 		c.progress.StopAll()
-	}
-	if c.cancel != nil {
 		c.cancel()
+		c.api.Close()
 	}
-	c.api.Close()
+	select {
+	case <-c.workersDone:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	logger.InfoC("photon", "Photon iMessage channel stopped")
 	return nil
 }
@@ -238,6 +270,8 @@ func (c *PhotonChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 	if err != nil {
 		return nil, classifyPhotonSendError("resolve media line", err)
 	}
+	_, _, chatID, _ := splitPhotonChatID(msg.ChatID)
+	destination := photonChatID(c.settings.ProjectID, line.ID, chatID)
 
 	var messageIDs []string
 	sent := false
@@ -269,7 +303,7 @@ func (c *PhotonChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 		requestID := channels.StableID(msg.ID, "photon", "part", fmt.Sprintf("%d", index))
 		messageID, sendErr := c.api.SendAttachment(
 			ctx,
-			msg.ChatID,
+			destination,
 			attachmentGUID,
 			filename,
 			msg.Context.ReplyToMessageID,
@@ -286,7 +320,7 @@ func (c *PhotonChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 		if !captionAttempted && !captionSent && strings.TrimSpace(caption) != "" {
 			captionAttempted = true
 			captionID := channels.StableID(msg.ID, "photon", "caption")
-			if _, captionErr := c.sendText(ctx, msg.ChatID, caption, "", captionID); captionErr != nil {
+			if _, captionErr := c.sendText(ctx, destination, caption, "", captionID); captionErr != nil {
 				logger.WarnCF("photon", "Attachment sent but caption failed", map[string]any{
 					"chat_id": msg.ChatID,
 					"error":   captionErr.Error(),

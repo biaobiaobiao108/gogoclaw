@@ -91,6 +91,7 @@ type BaseChannel struct {
 	allowList           []string
 	maxMessageLength    int
 	groupTrigger        config.GroupTriggerConfig
+	mediaStoreMu        sync.RWMutex
 	mediaStore          mediastore.MediaStore
 	placeholderRecorder PlaceholderRecorder
 	owner               Channel // the concrete channel that embeds this BaseChannel
@@ -480,10 +481,18 @@ func (c *BaseChannel) SetRunning(running bool) {
 }
 
 // SetMediaStore injects a MediaStore into the channel.
-func (c *BaseChannel) SetMediaStore(s mediastore.MediaStore) { c.mediaStore = s }
+func (c *BaseChannel) SetMediaStore(s mediastore.MediaStore) {
+	c.mediaStoreMu.Lock()
+	defer c.mediaStoreMu.Unlock()
+	c.mediaStore = s
+}
 
 // GetMediaStore returns the injected MediaStore (may be nil).
-func (c *BaseChannel) GetMediaStore() mediastore.MediaStore { return c.mediaStore }
+func (c *BaseChannel) GetMediaStore() mediastore.MediaStore {
+	c.mediaStoreMu.RLock()
+	defer c.mediaStoreMu.RUnlock()
+	return c.mediaStore
+}
 
 // SetPlaceholderRecorder injects a PlaceholderRecorder into the channel.
 func (c *BaseChannel) SetPlaceholderRecorder(r PlaceholderRecorder) {

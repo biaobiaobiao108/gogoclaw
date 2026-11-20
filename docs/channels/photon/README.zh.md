@@ -50,7 +50,7 @@ Photon 频道通过 [Photon Spectrum](https://photon.codes/) 把 GoGoClaw 接入
 5. 在 `allow_from` 中添加允许访问的发送者，例如 `+15551234567`。只有确实公开服务时才填写 `*`。
 6. 启用频道并保存。
 
-网关会向 Photon 获取短期线路 token，保持 gRPC 连接，并自动刷新 token。事件的游标和 chat 到线路的映射会保存到 `sessions/photon-state.json`，因此多专用线路项目重启后仍能沿正确的线路发送。
+网关会获取并自动刷新短期线路 token，遇到临时线路发现故障时会重试。入站消息先保存到 `sessions/sessions.db`，随后才更新 `sessions/photon-state.json` 中的事件游标。新会话和待投递回复记录接收消息的项目与线路，重启后仍沿该线路发送。既有会话保留在原来的历史记录中。
 
 ## 功能
 

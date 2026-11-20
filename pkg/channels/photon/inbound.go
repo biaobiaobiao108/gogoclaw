@@ -2,10 +2,13 @@ package photon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"mime"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
@@ -13,15 +16,14 @@ import (
 	photonv1 "github.com/biaobiaobiao108/gogoclaw/pkg/channels/photon/internal/photon/imessage/v1"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/identity"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
 )
 
 const photonLineReconcileInterval = 30 * time.Second
 
 func (c *PhotonChannel) runInbound(ctx context.Context) {
+	var workers sync.WaitGroup
+	defer workers.Wait()
 	active := make(map[string]context.CancelFunc)
-	ticker := time.NewTicker(photonLineReconcileInterval)
-	defer ticker.Stop()
 	defer func() {
 		for _, cancel := range active {
 			cancel()
@@ -38,7 +40,7 @@ func (c *PhotonChannel) runInbound(ctx context.Context) {
 			}
 			lineCtx, cancel := context.WithCancel(ctx)
 			active[line.ID] = cancel
-			go c.runLine(lineCtx, line)
+			workers.Go(func() { c.runLine(lineCtx, line) })
 		}
 		for lineID, cancel := range active {
 			if _, exists := current[lineID]; exists {
@@ -48,10 +50,12 @@ func (c *PhotonChannel) runInbound(ctx context.Context) {
 			delete(active, lineID)
 		}
 
-		select {
-		case <-ctx.Done():
+		delay := photonLineReconcileInterval
+		if len(lines) == 0 {
+			delay = time.Second
+		}
+		if !waitContext(ctx, delay) {
 			return
-		case <-ticker.C:
 		}
 	}
 }
@@ -81,11 +85,12 @@ func (c *PhotonChannel) runLine(ctx context.Context, line photonLine) {
 				continue
 			}
 			cursor = max(cursor, head)
-			if err := c.state.Set(line.ID, cursor); err != nil {
-				logger.WarnCF("photon", "Failed to persist iMessage catch-up cursor", map[string]any{
-					"line_id": line.ID,
-					"error":   err.Error(),
-				})
+			if err := c.advanceCursor(line.ID, cursor); err != nil {
+				if !waitContext(ctx, backoff) {
+					return
+				}
+				backoff = min(backoff*2, 30*time.Second)
+				continue
 			}
 		}
 
@@ -121,6 +126,7 @@ func (c *PhotonChannel) advanceCursor(lineID string, sequence uint64) error {
 			"sequence": sequence,
 			"error":    err.Error(),
 		})
+		return err
 	}
 	return nil
 }
@@ -150,7 +156,6 @@ func (c *PhotonChannel) handleMessageChange(
 	if chatID == "" {
 		return nil
 	}
-	c.api.RememberChatLine(chatID, line.ID)
 	if event.GetIsFromMe() || message.GetIsFromMe() {
 		return nil
 	}
@@ -161,7 +166,8 @@ func (c *PhotonChannel) handleMessageChange(
 		return nil
 	}
 	if strings.TrimSpace(message.GetGuid()) == "" {
-		return fmt.Errorf("photon: inbound message has no GUID")
+		logger.WarnCF("photon", "Skipping iMessage event with no message GUID", map[string]any{"line_id": line.ID})
+		return nil
 	}
 
 	senderAddress := ""
@@ -213,26 +219,16 @@ func (c *PhotonChannel) handleMessageChange(
 		content = subject + "\n" + content
 	}
 
-	mediaRefs, attachments, marker := c.materializeInboundAttachments(ctx, line, chatID, message)
+	destination := photonChatID(c.settings.ProjectID, line.ID, chatID)
+	mediaPaths, attachments, marker := c.materializeInboundAttachments(ctx, line, message)
 	if marker != "" {
 		if content != "" {
 			content += "\n"
 		}
 		content += marker
 	}
-	if strings.TrimSpace(content) == "" && len(mediaRefs) == 0 {
+	if strings.TrimSpace(content) == "" && len(mediaPaths) == 0 {
 		content = "[empty message]"
-	}
-
-	if !c.settings.DisableReadReceipts {
-		readCtx, cancel := context.WithTimeout(ctx, photonRPCTimeout)
-		if err := c.api.MarkRead(readCtx, chatID); err != nil {
-			logger.DebugCF("photon", "Failed to mark iMessage chat as read", map[string]any{
-				"chat_id": chatID,
-				"error":   err.Error(),
-			})
-		}
-		cancel()
 	}
 
 	var timestamp time.Time
@@ -260,9 +256,9 @@ func (c *PhotonChannel) handleMessageChange(
 	inboundCtx := bus.InboundContext{
 		Channel:          c.Name(),
 		Account:          c.settings.ProjectID,
-		ChatID:           chatID,
+		ChatID:           destination,
 		ChatType:         chatType,
-		SpaceID:          chatID,
+		SpaceID:          destination,
 		SpaceType:        chatType,
 		SenderID:         sender.CanonicalID,
 		MessageID:        message.GetGuid(),
@@ -270,19 +266,42 @@ func (c *PhotonChannel) handleMessageChange(
 		ReplyToMessageID: message.GetReplyTargetGuid(),
 		Raw:              raw,
 	}
-	return c.HandleInboundContextWithAttachments(ctx, chatID, content, mediaRefs, attachments, inboundCtx, sender)
+	msg := bus.NormalizeInboundMessage(bus.InboundMessage{
+		Context: inboundCtx, Sender: sender, Content: content, Media: mediaPaths, Attachments: attachments,
+		MediaScope: channels.BuildMediaScope(c.Name(), destination, message.GetGuid()),
+	})
+	inserted, err := c.inbox.QueueChannelInbound(ctx, c.inboxSource(), destination, message.GetGuid(), msg)
+	if err != nil || !inserted {
+		for _, path := range mediaPaths {
+			if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				logger.Warnf("discard unqueued Photon attachment: %v", removeErr)
+			}
+		}
+		return err
+	}
+
+	select {
+	case c.inboxWake <- struct{}{}:
+	default:
+	}
+	if !c.settings.DisableReadReceipts {
+		readCtx, cancel := context.WithTimeout(ctx, photonRPCTimeout)
+		if err := c.api.MarkRead(readCtx, destination); err != nil {
+			logger.DebugCF("photon", "Failed to mark iMessage chat as read", map[string]any{"line_id": line.ID, "error": err.Error()})
+		}
+		cancel()
+	}
+	return nil
 }
 
 func (c *PhotonChannel) materializeInboundAttachments(
 	ctx context.Context,
 	line photonLine,
-	chatID string,
 	message *photonv1.Message,
 ) ([]string, []bus.InboundAttachment, string) {
 	var mediaRefs []string
 	var attachments []bus.InboundAttachment
 	var markers []string
-	scope := channels.BuildMediaScope(c.Name(), chatID, message.GetGuid())
 
 	for index, info := range message.GetContent().GetAttachments() {
 		if info == nil || info.GetIsHidden() || info.GetIsSticker() {
@@ -309,7 +328,7 @@ func (c *PhotonChannel) materializeInboundAttachments(
 			continue
 		}
 
-		path, downloaded, err := c.api.DownloadAttachment(ctx, line.ID, info.GetGuid(), media.TempDir())
+		path, downloaded, err := c.api.DownloadAttachment(ctx, line.ID, info.GetGuid(), c.inboxMediaDir(), c.maxMediaBytes)
 		if err != nil {
 			logger.WarnCF("photon", "Failed to download inbound attachment", map[string]any{
 				"message_id": message.GetGuid(),
@@ -319,33 +338,17 @@ func (c *PhotonChannel) materializeInboundAttachments(
 			continue
 		}
 		if downloaded != nil {
-			filename = firstNonEmpty(downloaded.GetFileName(), filename)
-			attachmentType = photonMediaType(downloaded.GetMimeType(), message.GetIsAudioMessage())
+			filename = firstNonEmpty(sanitizeFilename(downloaded.GetFileName()), filename)
+			contentType := firstNonEmpty(downloaded.GetMimeType(), info.GetMimeType())
+			attachmentType = photonMediaType(contentType, message.GetIsAudioMessage())
 			attachments[len(attachments)-1].Type = attachmentType
 			attachments[len(attachments)-1].Filename = filename
-			attachments[len(attachments)-1].ContentType = downloaded.GetMimeType()
+			attachments[len(attachments)-1].ContentType = contentType
 			markers[len(markers)-1] = photonAttachmentMarker(attachmentType, filename)
 		}
 		attachments[len(attachments)-1].Path = path
 
-		ref := path
-		if store := c.GetMediaStore(); store != nil {
-			stored, storeErr := store.Store(path, media.MediaMeta{
-				Filename:      filename,
-				ContentType:   info.GetMimeType(),
-				Source:        "photon:" + line.ID,
-				CleanupPolicy: media.CleanupPolicyDeleteOnCleanup,
-			}, scope)
-			if storeErr != nil {
-				logger.WarnCF("photon", "Failed to register inbound attachment", map[string]any{
-					"message_id": message.GetGuid(),
-					"error":      storeErr.Error(),
-				})
-			} else {
-				ref = stored
-			}
-		}
-		mediaRefs = append(mediaRefs, ref)
+		mediaRefs = append(mediaRefs, path)
 	}
 	return mediaRefs, attachments, strings.Join(markers, "\n")
 }

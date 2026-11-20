@@ -29,7 +29,6 @@ import (
 	photonv1 "github.com/biaobiaobiao108/gogoclaw/pkg/channels/photon/internal/photon/imessage/v1"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
 )
 
 const (
@@ -46,6 +45,11 @@ const (
 	photonKeepaliveTime        = 30 * time.Second
 	photonKeepaliveTimeout     = 20 * time.Second
 	photonTokenResponseMaxSize = 1 << 20
+)
+
+var (
+	errPhotonAttachmentTooLarge = errors.New("photon: attachment exceeds download limit")
+	errPhotonCredentials        = errors.New("photon: project credentials were rejected")
 )
 
 type photonLine struct {
@@ -94,11 +98,11 @@ type photonClient struct {
 	refreshWake chan struct{}
 	refreshCtx  context.Context
 	refreshStop context.CancelFunc
+	refreshDone chan struct{}
 
-	linesMu   sync.RWMutex
-	lines     map[string]*photonLineClient
-	chatLines map[string]string
-	state     *photonStateStore
+	linesMu sync.RWMutex
+	lines   map[string]*photonLineClient
+	state   *photonStateStore
 }
 
 func (c *photonClient) setStateStore(state *photonStateStore) {
@@ -113,7 +117,6 @@ func newPhotonClient(settings *config.PhotonSettings) *photonClient {
 		http:        &http.Client{Timeout: photonRPCTimeout},
 		refreshWake: make(chan struct{}, 1),
 		lines:       make(map[string]*photonLineClient),
-		chatLines:   make(map[string]string),
 	}
 }
 
@@ -122,10 +125,14 @@ func (c *photonClient) Start(ctx context.Context) error {
 	err := c.refreshTokensLocked(ctx)
 	c.tokenMu.Unlock()
 	if err != nil {
-		return err
+		if ctx.Err() != nil || errors.Is(err, errPhotonCredentials) {
+			return err
+		}
+		logger.WarnCF("photon", "Photon startup will retry token discovery", map[string]any{"error": err.Error()})
 	}
 
 	c.refreshCtx, c.refreshStop = context.WithCancel(ctx)
+	c.refreshDone = make(chan struct{})
 	go c.runTokenRefresh()
 	return nil
 }
@@ -133,6 +140,7 @@ func (c *photonClient) Start(ctx context.Context) error {
 func (c *photonClient) Close() {
 	if c.refreshStop != nil {
 		c.refreshStop()
+		<-c.refreshDone
 	}
 	c.linesMu.Lock()
 	for id, line := range c.lines {
@@ -163,62 +171,29 @@ func (c *photonClient) ResolveLine(chatID string) (photonLine, error) {
 
 func (c *photonClient) lineClientForChat(chatID string) (*photonLineClient, error) {
 	chatID = strings.TrimSpace(chatID)
-	c.linesMu.Lock()
-	if c.state != nil && chatID != "" {
-		if lineID := c.state.ChatLine(chatID); lineID != "" {
-			c.chatLines[chatID] = lineID
+	if projectID, lineID, _, bound := splitPhotonChatID(chatID); bound {
+		if projectID != c.settings.ProjectID {
+			return nil, status.Error(codes.InvalidArgument, "photon: destination belongs to another project")
 		}
+		return c.lineByID(lineID)
 	}
-	c.linesMu.Unlock()
-
 	c.linesMu.RLock()
 	defer c.linesMu.RUnlock()
 	if len(c.lines) == 0 {
 		return nil, errors.New("photon: no iMessage lines are available")
 	}
-	if lineID := c.chatLines[chatID]; lineID != "" {
+	if lineID := c.state.ChatLine(chatID); lineID != "" {
 		if line := c.lines[lineID]; line != nil {
 			return line, nil
 		}
-	}
-	address := directAddressFromChatID(chatID)
-	for _, line := range c.lines {
-		if address != "" && strings.EqualFold(address, line.line.Phone) {
-			return line, nil
-		}
+		return nil, fmt.Errorf("photon: iMessage line %q is not available", lineID)
 	}
 	if len(c.lines) == 1 {
 		for _, line := range c.lines {
 			return line, nil
 		}
 	}
-	ids := make([]string, 0, len(c.lines))
-	for id := range c.lines {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return c.lines[ids[0]], nil
-}
-
-func (c *photonClient) RememberChatLine(chatID, lineID string) {
-	chatID = strings.TrimSpace(chatID)
-	lineID = strings.TrimSpace(lineID)
-	if chatID == "" || lineID == "" {
-		return
-	}
-	c.linesMu.Lock()
-	c.chatLines[chatID] = lineID
-	state := c.state
-	c.linesMu.Unlock()
-	if state != nil {
-		if err := state.SetChatLine(chatID, lineID); err != nil {
-			logger.WarnCF("photon", "Failed to persist iMessage chat line", map[string]any{
-				"chat_id": chatID,
-				"line_id": lineID,
-				"error":   err.Error(),
-			})
-		}
-	}
+	return nil, status.Error(codes.FailedPrecondition, "photon: multiple iMessage lines are available; use a line-bound chat ID")
 }
 
 func (c *photonClient) lineByID(lineID string) (*photonLineClient, error) {
@@ -232,7 +207,9 @@ func (c *photonClient) lineByID(lineID string) (*photonLineClient, error) {
 }
 
 func (c *photonClient) runTokenRefresh() {
-	delay := photonTokenRetryDelay
+	defer close(c.refreshDone)
+	retry := time.Second
+	delay := retry
 	c.tokenMu.Lock()
 	if !c.expiresAt.IsZero() {
 		delay = max(time.Until(c.expiresAt.Add(-photonTokenRefreshLead)), 5*time.Second)
@@ -261,11 +238,16 @@ func (c *photonClient) runTokenRefresh() {
 		err := c.refreshTokensLocked(refreshCtx)
 		c.tokenMu.Unlock()
 		cancel()
+		if c.refreshCtx.Err() != nil {
+			return
+		}
 
 		if err != nil {
 			logger.WarnCF("photon", "Failed to refresh iMessage token", map[string]any{"error": err.Error()})
-			delay = photonTokenRetryDelay
+			delay = retry
+			retry = min(retry*2, photonTokenRetryDelay)
 		} else {
+			retry = time.Second
 			c.tokenMu.Lock()
 			delay = max(time.Until(c.expiresAt.Add(-photonTokenRefreshLead)), 5*time.Second)
 			c.tokenMu.Unlock()
@@ -309,6 +291,9 @@ func (c *photonClient) issueTokens(ctx context.Context) (*cloudTokenData, error)
 		return nil, fmt.Errorf("photon: issue iMessage token: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("%w (HTTP %d)", errPhotonCredentials, resp.StatusCode)
+	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, photonTokenResponseMaxSize))
 	if err != nil {
 		return nil, fmt.Errorf("photon: read token response: %w", err)
@@ -393,7 +378,11 @@ func (c *photonClient) reconcileLines(tokens *cloudTokenData) error {
 	for id, line := range desired {
 		existing := c.lines[id]
 		if existing != nil {
-			existing.line = line
+			if existing.line != line {
+				updated := *existing
+				updated.line = line
+				c.lines[id] = &updated
+			}
 			continue
 		}
 		created, err := c.newLineClient(line)
@@ -758,7 +747,11 @@ func (c *photonClient) MarkRead(ctx context.Context, chatID string) error {
 func (c *photonClient) DownloadAttachment(
 	ctx context.Context,
 	lineID, attachmentGUID, tempDir string,
+	maxBytes int64,
 ) (string, *photonv1.AttachmentInfo, error) {
+	if maxBytes <= 0 || maxBytes > photonMaxDownloadBytes {
+		maxBytes = photonMaxDownloadBytes
+	}
 	line, err := c.lineByID(lineID)
 	if err != nil {
 		return "", nil, err
@@ -780,8 +773,8 @@ func (c *photonClient) DownloadAttachment(
 		return "", nil, errors.New("photon: attachment stream did not start with a header")
 	}
 	attachment := header.GetAttachment()
-	if attachment.GetTotalBytes() > photonMaxDownloadBytes {
-		return "", nil, fmt.Errorf("photon: attachment is too large: %d bytes", attachment.GetTotalBytes())
+	if attachment.GetTotalBytes() > maxBytes {
+		return "", nil, errPhotonAttachmentTooLarge
 	}
 	if err := os.MkdirAll(tempDir, 0o700); err != nil {
 		return "", nil, err
@@ -816,16 +809,19 @@ func (c *photonClient) DownloadAttachment(
 			return "", nil, recvErr
 		}
 		chunk := frame.GetPrimaryChunk()
+		written += int64(len(chunk) + len(frame.GetCompanionChunk()))
+		if written > maxBytes {
+			return "", nil, errPhotonAttachmentTooLarge
+		}
 		if len(chunk) == 0 {
 			continue
-		}
-		written += int64(len(chunk))
-		if written > photonMaxDownloadBytes {
-			return "", nil, errors.New("photon: attachment download exceeded size limit")
 		}
 		if _, err := file.Write(chunk); err != nil {
 			return "", nil, err
 		}
+	}
+	if err := file.Sync(); err != nil {
+		return "", nil, err
 	}
 	if err := file.Close(); err != nil {
 		return "", nil, err
@@ -834,11 +830,22 @@ func (c *photonClient) DownloadAttachment(
 	return path, attachment, nil
 }
 
-func (c *photonClient) MediaTempDir() string {
-	return media.TempDir()
+func photonChatID(projectID, lineID, chatID string) string {
+	return "photon:" + projectID + ":" + lineID + ":" + chatID
+}
+
+func splitPhotonChatID(id string) (projectID, lineID, chatID string, bound bool) {
+	value, bound := strings.CutPrefix(id, "photon:")
+	if !bound {
+		return "", "", id, false
+	}
+	projectID, value, _ = strings.Cut(value, ":")
+	lineID, chatID, _ = strings.Cut(value, ":")
+	return projectID, lineID, chatID, true
 }
 
 func normalizeChatID(chatID string) string {
+	_, _, chatID, _ = splitPhotonChatID(chatID)
 	chatID = strings.TrimSpace(chatID)
 	if strings.HasPrefix(chatID, "any;-;") || strings.HasPrefix(chatID, "any;+;") {
 		return chatID
@@ -860,17 +867,6 @@ func normalizeChatID(chatID string) string {
 		}
 	}
 	return "any;-;" + chatID
-}
-
-func directAddressFromChatID(chatID string) string {
-	chatID = strings.TrimSpace(chatID)
-	if index := strings.Index(chatID, ";-;"); index >= 0 {
-		return chatID[index+3:]
-	}
-	if !strings.Contains(chatID, ";") {
-		return chatID
-	}
-	return ""
 }
 
 func isGroupChatID(chatID string) bool {

@@ -18,11 +18,6 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 )
 
-const (
-	maxProjectFiles      = 200
-	maxProjectTotalBytes = 256 << 20
-)
-
 type chatProjectDetail struct {
 	memory.ChatProject
 	Files []memory.ChatProjectFile `json:"files"`
@@ -230,23 +225,6 @@ func (h *Handler) handleUploadChatProjectFile(w http.ResponseWriter, r *http.Req
 		// Keep unsupported files so the settings UI can show a recoverable failure.
 		logger.DebugCF("projects", "Uploading unsupported project file", map[string]any{"filename": filename})
 	}
-	files, err := store.ListChatProjectFiles(r.Context(), project.ID)
-	if err != nil {
-		http.Error(w, "failed to inspect project files", http.StatusInternalServerError)
-		return
-	}
-	if len(files) >= maxProjectFiles {
-		http.Error(w, "project file count limit reached", http.StatusTooManyRequests)
-		return
-	}
-	var total int64
-	for _, file := range files {
-		total += file.SizeBytes
-	}
-	if total+header.Size > maxProjectTotalBytes {
-		http.Error(w, "project storage limit reached", http.StatusInsufficientStorage)
-		return
-	}
 	projectDir := projectFilesDir(dir, project.ID)
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		http.Error(w, "failed to create project file directory", http.StatusInternalServerError)
@@ -299,8 +277,17 @@ func (h *Handler) handleUploadChatProjectFile(w http.ResponseWriter, r *http.Req
 		ContentType: contentType, SizeBytes: written, Status: "processing", CreatedAt: time.Now(),
 	})
 	if err != nil {
-		_ = os.Remove(target)
-		http.Error(w, "failed to record project file", http.StatusInternalServerError)
+		if removeErr := os.Remove(target); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			logger.Warnf("remove unregistered project file: %v", removeErr)
+		}
+		switch {
+		case errors.Is(err, memory.ErrChatProjectFileCount):
+			http.Error(w, err.Error(), http.StatusTooManyRequests)
+		case errors.Is(err, memory.ErrChatProjectStorage):
+			http.Error(w, err.Error(), http.StatusInsufficientStorage)
+		default:
+			http.Error(w, "failed to record project file", http.StatusInternalServerError)
+		}
 		return
 	}
 	file, err = indexChatProjectFile(r.Context(), dir, store, file)

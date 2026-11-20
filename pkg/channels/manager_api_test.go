@@ -454,6 +454,47 @@ func TestReloadReplacesWorkerAndReportsDeliveryFailure(t *testing.T) {
 	}
 }
 
+func TestReloadRetriesUnchangedChannelAfterStartupFailure(t *testing.T) {
+	const name = "pico"
+	attempts := 0
+	RegisterFactory(name, func(string, string, *config.Config, *bus.MessageBus) (Channel, error) {
+		attempts++
+		channel := &mockChannel{}
+		if attempts == 1 {
+			channel.startFn = func(context.Context) error { return errors.New("startup failed") }
+		}
+		return channel, nil
+	})
+	t.Cleanup(func() {
+		factoriesMu.Lock()
+		delete(factories, name)
+		factoriesMu.Unlock()
+	})
+	cfg := &config.Config{Channels: config.ChannelsConfig{
+		name: {Type: name, Enabled: true, Settings: config.RawNode(`{"token":"test"}`)},
+	}}
+	b := bus.NewMessageBus()
+	defer b.Close()
+	manager, err := NewManager(cfg, b, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.RegisterChannel("other", &mockChannel{})
+	if err := manager.StartAll(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.StopAll(t.Context())
+	if manager.workers[name] != nil {
+		t.Fatal("unexpected worker after failed start")
+	}
+	if err := manager.Reload(t.Context(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 || manager.workers[name] == nil {
+		t.Fatalf("startup attempts = %d, worker exists = %v", attempts, manager.workers[name] != nil)
+	}
+}
+
 func TestTrackedDeliveryStopsOnPartialPlatformFailure(t *testing.T) {
 	var finishErr error
 	claimed := false

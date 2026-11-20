@@ -15,12 +15,16 @@ import (
 const (
 	ChatProjectNameMaxRunes         = 64
 	ChatProjectInstructionsMaxRunes = 16000
+	ChatProjectMaxFiles             = 200
+	ChatProjectMaxBytes             = 256 << 20
 )
 
 var (
 	ErrChatProjectNotFound     = errors.New("chat project not found")
 	ErrChatProjectNameExists   = errors.New("chat project name already exists")
 	ErrChatProjectFileNotFound = errors.New("chat project file not found")
+	ErrChatProjectFileCount    = errors.New("chat project file count limit reached")
+	ErrChatProjectStorage      = errors.New("chat project storage limit reached")
 )
 
 type ChatProject struct {
@@ -306,7 +310,25 @@ func (s *SQLiteStore) CreateChatProjectFile(ctx context.Context, file ChatProjec
 	if file.CreatedAt.IsZero() {
 		file.CreatedAt = now
 	}
-	_, err := s.db.ExecContext(sqliteContext(ctx), `
+	ctx = sqliteContext(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ChatProjectFile{}, err
+	}
+	defer tx.Rollback()
+	var count int
+	var total int64
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(size_bytes), 0)
+		FROM chat_project_files WHERE project_id = ?`, file.ProjectID).Scan(&count, &total); err != nil {
+		return ChatProjectFile{}, fmt.Errorf("memory: inspect project file quota: %w", err)
+	}
+	if count >= ChatProjectMaxFiles {
+		return ChatProjectFile{}, ErrChatProjectFileCount
+	}
+	if file.SizeBytes > ChatProjectMaxBytes-total {
+		return ChatProjectFile{}, ErrChatProjectStorage
+	}
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO chat_project_files(
 			id, project_id, original_name, stored_name, content_type, size_bytes, status, error, created_at, indexed_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, file.ID, file.ProjectID, file.OriginalName, file.StoredName,
@@ -314,7 +336,7 @@ func (s *SQLiteStore) CreateChatProjectFile(ctx context.Context, file ChatProjec
 	if err != nil {
 		return ChatProjectFile{}, fmt.Errorf("memory: create project file: %w", err)
 	}
-	return file, nil
+	return file, tx.Commit()
 }
 
 func (s *SQLiteStore) UpdateChatProjectFileStatus(ctx context.Context, id, status, message string, indexedAt time.Time) error {

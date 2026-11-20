@@ -3,11 +3,70 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
+
+func TestConcurrentProjectFileQuota(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		count int
+		size  int64
+		want  error
+	}{
+		{name: "count", count: ChatProjectMaxFiles - 1, want: ErrChatProjectFileCount},
+		{name: "bytes", count: 1, size: ChatProjectMaxBytes - 1, want: ErrChatProjectStorage},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			store, err := NewSQLiteStore(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			other, err := OpenSQLiteStore(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer other.Close()
+			ctx := t.Context()
+			project, err := store.CreateChatProject(ctx, "Files", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i := range test.count {
+				_, err := store.CreateChatProjectFile(ctx, ChatProjectFile{
+					ID: fmt.Sprintf("existing-%d", i), ProjectID: project.ID, OriginalName: "existing.txt", SizeBytes: test.size,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			start := make(chan struct{})
+			results := make(chan error, 2)
+			for i, conn := range []*SQLiteStore{store, other} {
+				go func() {
+					<-start
+					_, err := conn.CreateChatProjectFile(ctx, ChatProjectFile{
+						ID: fmt.Sprintf("new-%d", i), ProjectID: project.ID, OriginalName: "new.txt", SizeBytes: 1,
+					})
+					results <- err
+				}()
+			}
+			close(start)
+			first, second := <-results, <-results
+			if first == nil {
+				first, second = second, first
+			}
+			if !errors.Is(first, test.want) || second != nil {
+				t.Fatalf("concurrent results = %v, %v, want one success and %v", first, second, test.want)
+			}
+		})
+	}
+}
 
 func TestChatProjectsAssignmentChunksAndSourceProvenance(t *testing.T) {
 	store, err := NewSQLiteStore(t.TempDir())

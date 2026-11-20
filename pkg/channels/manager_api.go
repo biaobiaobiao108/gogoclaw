@@ -50,6 +50,15 @@ func (m *Manager) Reload(ctx context.Context, cfg *config.Config) error {
 
 	list := toChannelHashes(cfg)
 	added, removed := compareChannels(m.channelHashes, list)
+	for name, hash := range m.channelHashes {
+		if m.workers[name] == nil && list[name] == hash {
+			// A configured channel may have failed initialization or Start.
+			added = append(added, name)
+			if m.channels[name] != nil {
+				removed = append(removed, name)
+			}
+		}
+	}
 	cc, err := toChannelConfig(cfg, added)
 	if err != nil {
 		return err

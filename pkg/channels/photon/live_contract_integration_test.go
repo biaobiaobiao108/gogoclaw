@@ -5,16 +5,12 @@ package photon
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
@@ -35,12 +31,25 @@ func TestLiveContract_PhotonReadOnly(t *testing.T) {
 		ProjectSecret: *config.NewSecureString(strings.TrimSpace(projectSecret)),
 	}
 	client := newPhotonClient(settings)
+	cfg := config.DefaultConfig()
+	bc := cfg.Channels.Get(config.ChannelPhoton)
+	bc.AllowFrom = nil
+	messageBus := bus.NewMessageBus()
+	defer messageBus.Close()
+	channel, err := NewPhotonChannel(config.ChannelPhoton, bc, settings, cfg, messageBus, client, filepath.Join(t.TempDir(), "photon-state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	if err := client.Start(ctx); err != nil {
+	if err := channel.Start(ctx); err != nil {
 		t.Fatalf("Photon token or line discovery failed: %v", err)
 	}
-	defer client.Close()
+	defer func() {
+		if err := channel.Stop(context.Background()); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	lines := client.Lines()
 	if len(lines) == 0 {
@@ -50,22 +59,35 @@ func TestLiveContract_PhotonReadOnly(t *testing.T) {
 
 	line := lines[0]
 	var events int
-	if _, err := client.CatchUp(ctx, line.ID, 0, func(uint64, *photonv1.MessageChangeEvent) error {
+	head, err := client.CatchUp(ctx, line.ID, 0, func(uint64, *photonv1.MessageChangeEvent) error {
 		events++
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("Photon catch-up RPC failed: %v", err)
 	}
 	t.Logf("Photon catch-up read completed with %d message event(s)", events)
+	if head > 0 {
+		if resumed, err := client.CatchUp(ctx, line.ID, head, func(uint64, *photonv1.MessageChangeEvent) error { return nil }); err != nil || resumed < head {
+			t.Fatalf("Photon catch-up with an existing cursor failed: %v", err)
+		}
+		t.Log("Photon catch-up resumed from the saved sequence")
+	}
 
-	streamCtx, streamCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	streamCtx, streamCancel := context.WithTimeout(ctx, 35*time.Second)
 	defer streamCancel()
-	err := client.SubscribeMessages(streamCtx, line.ID, 0, func(uint64, *photonv1.MessageChangeEvent) error {
-		return nil
-	})
-	if err != nil && !errors.Is(err, context.DeadlineExceeded) && status.Code(err) != codes.DeadlineExceeded {
+	lineClient, err := client.lineByID(line.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := lineClient.messages.SubscribeMessageEvents(streamCtx, &photonv1.SubscribeMessageEventsRequest{})
+	if err != nil {
 		t.Fatalf("Photon live subscription failed: %v", err)
 	}
+	if _, err := stream.Recv(); err != nil {
+		t.Fatalf("Photon live subscription did not return a heartbeat or event: %v", err)
+	}
+	t.Log("Photon live subscription returned a frame")
 }
 
 func TestLiveContract_PhotonSendEditUnsend(t *testing.T) {

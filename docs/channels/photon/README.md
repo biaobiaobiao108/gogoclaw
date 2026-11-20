@@ -50,7 +50,7 @@ Get the `Project ID` and `Project Secret` from the Photon Dashboard, then config
 5. Add authorized senders to `allow_from` in E.164 format, for example `+15551234567`, or use `*` only for an intentionally public channel.
 6. Enable the channel and save.
 
-The gateway fetches a short-lived line token from Photon, keeps the gRPC connection open, and refreshes the token automatically. It persists the event cursor and the chat-to-line mapping in `sessions/photon-state.json` so a dedicated-line project resumes without losing its route.
+The gateway fetches and refreshes short-lived line tokens and retries transient discovery failures. It stores inbound messages in `sessions/sessions.db` before updating the event cursor in `sessions/photon-state.json`. New conversations and queued replies carry the receiving project and line, so a reply stays on that line across a restart. Older conversations remain in history under their original session keys.
 
 ## Features
 
