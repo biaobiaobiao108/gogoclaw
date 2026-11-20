@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -123,6 +124,42 @@ func TestSetGetLevel(t *testing.T) {
 			t.Errorf("SetLevel(%v) -> GetLevel() = %v, want %v", level, GetLevel(), level)
 		}
 	}
+}
+
+func TestConcurrentSetLevelAndLogging(t *testing.T) {
+	initialLevel := GetLevel()
+	t.Cleanup(func() { SetLevel(initialLevel) })
+
+	const iterations = 1000
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for range iterations {
+				Debug("suppressed during level change")
+			}
+		}()
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := range iterations {
+			if i%2 == 0 {
+				SetLevel(INFO)
+			} else {
+				SetLevel(WARN)
+			}
+		}
+	}()
+
+	close(start)
+	wg.Wait()
 }
 
 func TestLoggerHelperFunctions(t *testing.T) {

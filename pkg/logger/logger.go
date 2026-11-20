@@ -310,13 +310,18 @@ func getEvent(logger zerolog.Logger, level LogLevel) *zerolog.Event {
 }
 
 func logMessage(level LogLevel, component string, message string, fields map[string]any) {
-	if level < currentLevel {
+	mu.RLock()
+	activeLevel := currentLevel
+	log := logger
+	mu.RUnlock()
+
+	if level < activeLevel {
 		return
 	}
 
 	skip, pkg := getCallerSkip()
 
-	event := getEvent(logger, level)
+	event := getEvent(log, level)
 
 	if component == "" {
 		component = pkg
