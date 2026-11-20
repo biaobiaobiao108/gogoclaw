@@ -1737,7 +1737,7 @@ func TestRun_PicoPublishesAssistantContentDuringToolCallsWithoutFinalDuplicate(t
 }
 
 func TestProcessMessage_PublishesInterimAssistantTextToExternalChannels(t *testing.T) {
-	for _, channel := range []string{"telegram", "weixin", "discord", "feishu", "qq", "pico_client"} {
+	for _, channel := range []string{"telegram", "photon", "weixin", "discord", "feishu", "qq", "pico_client"} {
 		t.Run(channel, func(t *testing.T) {
 			cfg := &config.Config{Agents: config.AgentsConfig{Defaults: config.AgentDefaults{
 				Workspace:         t.TempDir(),

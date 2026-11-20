@@ -75,6 +75,10 @@ func hiddenValues(key string, value map[string]any, ch *config.Channel) {
 		if settings, ok := v.(*config.WeixinSettings); ok {
 			value["token"] = settings.Token.String()
 		}
+	case "photon":
+		if settings, ok := v.(*config.PhotonSettings); ok {
+			value["project_secret"] = settings.ProjectSecret.String()
+		}
 	}
 }
 

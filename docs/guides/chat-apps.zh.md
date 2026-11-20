@@ -1,6 +1,6 @@
 # 聊天应用
 
-返回 [README](../project/README.zh.md)。GoGoClaw 当前支持 Telegram、Discord、飞书 / Lark、微信、QQ，以及内置的 Pico WebSocket 频道。
+返回 [README](../project/README.zh.md)。GoGoClaw 当前支持 Telegram、Photon iMessage、Discord、飞书 / Lark、微信、QQ，以及内置的 Pico WebSocket 频道。
 
 所有频道使用同一种配置结构：
 
@@ -42,6 +42,28 @@
 使用 `allow_from` 填入 Telegram 用户 ID 可限制访问。可选设置包括 `proxy`、`base_url`、`streaming` 和 `media_group_delay_ms`。详见 [Telegram 频道](../channels/telegram/README.zh.md)。
 
 代理必须写入 `proxy`，不要写入 `base_url`。把 `http://user:password@host:port` 当作 Bot API 地址会导致 `getUpdates` 返回空响应，日志通常出现 `decode json: unexpected end of JSON input`。
+
+## Photon iMessage
+
+登录 [Photon Dashboard](https://app.photon.codes/)，创建 Spectrum 项目、绑定 iMessage 手机号并生成 Project Secret：
+
+```json
+{
+  "channel_list": {
+    "photon": {
+      "enabled": true,
+      "type": "photon",
+      "allow_from": ["+15551234567"],
+      "settings": {
+        "project_id": "sp-...",
+        "project_secret": "YOUR_PROJECT_SECRET"
+      }
+    }
+  }
+}
+```
+
+频道直接连接 Photon 公开的 gRPC API，不需要 Mac 中继、Bun sidecar、`ffmpeg`、公网回调地址或内网穿透。`allow_from` 使用 E.164 手机号。详见 [Photon iMessage](../channels/photon/README.zh.md)。
 
 ## Discord
 

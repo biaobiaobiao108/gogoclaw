@@ -114,6 +114,8 @@ func (m *Manager) getChannelConfigAndEnabled(channelName string) (*config.Channe
 		return bc, settings.AppSecret.String() != ""
 	case *config.DiscordSettings:
 		return bc, settings.Token.String() != ""
+	case *config.PhotonSettings:
+		return bc, strings.TrimSpace(settings.ProjectID) != "" && strings.TrimSpace(settings.ProjectSecret.String()) != ""
 	}
 
 	return bc, bc.Enabled

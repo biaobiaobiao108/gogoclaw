@@ -24,6 +24,7 @@ import { getChannelDisplayName } from "@/components/channels/channel-display-nam
 import { DiscordForm } from "@/components/channels/channel-forms/discord-form"
 import { FeishuForm } from "@/components/channels/channel-forms/feishu-form"
 import { GenericForm } from "@/components/channels/channel-forms/generic-form"
+import { PhotonForm } from "@/components/channels/channel-forms/photon-form"
 import { TelegramForm } from "@/components/channels/channel-forms/telegram-form"
 import { WeixinForm } from "@/components/channels/channel-forms/weixin-form"
 import { ConfigChangeNotice } from "@/components/config-change-notice"
@@ -175,6 +176,8 @@ function isConfigured(
       return hasValue("account_id")
     case "pico":
       return hasValue("token")
+    case "photon":
+      return hasValue("project_id") && hasValue("project_secret")
     default:
       return false
   }
@@ -192,6 +195,8 @@ function getRequiredFieldKeys(channelName: string): string[] {
       return ["app_id", "app_secret"]
     case "pico":
       return ["token"]
+    case "photon":
+      return ["project_id", "project_secret"]
     default:
       return []
   }
@@ -507,6 +512,17 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
             onChange={handleChange}
             isEdit={isEdit}
             onBindSuccess={() => void handleWeixinBindSuccess()}
+            registerArrayFieldFlusher={registerArrayFieldFlusher}
+            arrayFieldResetVersion={arrayFieldResetVersion}
+          />
+        )
+      case "photon":
+        return (
+          <PhotonForm
+            config={editConfig}
+            onChange={handleChange}
+            configuredSecrets={configuredSecrets}
+            fieldErrors={fieldErrors}
             registerArrayFieldFlusher={registerArrayFieldFlusher}
             arrayFieldResetVersion={arrayFieldResetVersion}
           />

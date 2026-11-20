@@ -18,7 +18,7 @@
 
 ---
 
-GoGoClaw is a single-host, private-deployment agent harness for long-running personal and small-team use. Its core is written in Go, and its web console is a React 19 and Tailwind CSS v4 application built with Bun. It can connect to OpenAI, Anthropic, and Gemini model protocols and expose the same agent through Web, Telegram, WeChat, Discord, Feishu, and QQ channels.
+GoGoClaw is a single-host, private-deployment agent harness for long-running personal and small-team use. Its core is written in Go, and its web console is a React 19 and Tailwind CSS v4 application built with Bun. It can connect to OpenAI, Anthropic, and Gemini model protocols and expose the same agent through Web, Telegram, iMessage (Photon), WeChat, Discord, Feishu, and QQ channels.
 
 GoGoClaw treats one trusted instance as its runtime boundary. It does not provide multi-tenancy, RBAC, or horizontal scaling, and only one GoGoClaw instance should manage a data directory.
 
@@ -28,7 +28,7 @@ Production deployment is supported through the container image only. The contain
 
 - **Complete agent loop**: sessions, durable memory, workspace files, skills, MCP, tools, plans, streaming responses, and subagents.
 - **Four model protocols**: OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, and Google Gemini generateContent.
-- **Multi-channel access**: Web, Telegram, personal WeChat, Discord, Feishu / Lark, and QQ.
+- **Multi-channel access**: Web, Telegram, iMessage (Photon), personal WeChat, Discord, Feishu / Lark, and QQ.
 - **Modern web console**: manage models, channels, tools, sessions, approvals, logs, and runtime status in one place.
 - **Container-first**: published images support Linux `amd64` and `arm64` and run as a non-root user.
 - **Persistent state**: configuration, credentials, the SQLite session store, workspace files, channel cursors, and logs live under `/data`.
@@ -141,6 +141,7 @@ See [Providers and Models](docs/guides/providers.md) for fallback chains and rou
 |---|---|---|
 | Web / Pico | Built-in WebSocket | Configured automatically with the console |
 | Telegram | Bot API long polling | Put network proxies in `settings.proxy`, never in `base_url` |
+| iMessage | Photon Spectrum | Use the Project ID and Project Secret from the Photon Dashboard; no Mac or public callback is required |
 | Personal WeChat | Tencent iLink QR login | `allow_from` must use the iLink `from_user_id` |
 | Discord | Bot WebSocket | Correct bot intents are required |
 | Feishu / Lark | WebSocket / SDK | No public callback URL is required |
@@ -198,7 +199,7 @@ Use a Compose named volume if you do not want to manage ownership.
 - The launcher must receive `-public` to listen on container interfaces.
 - Docker must publish `18800:18800`.
 - The NAS firewall, reverse proxy, and upstream security groups must allow the port.
-- `18790` is the gateway port. Telegram, WeChat, Discord, Feishu, and QQ make outbound connections, so this port usually does not need public exposure.
+- `18790` is the gateway port. Telegram, iMessage (Photon), WeChat, Discord, Feishu, and QQ make outbound connections, so this port usually does not need public exposure.
 
 ### 3. Multiple Services On One Data Directory
 

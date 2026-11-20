@@ -1,12 +1,13 @@
 # 频道运行时
 
-GoGoClaw 当前提供六个频道实现：
+GoGoClaw 当前提供七个频道实现：
 
 | 包 | 类型 | 传输方式 |
 | --- | --- | --- |
 | `discord` | `discord` | Discord Gateway |
 | `feishu` | `feishu` | 飞书 / Lark WebSocket SDK |
 | `pico` | `pico` | Web 控制台使用的原生 WebSocket 协议 |
+| `photon` | `photon` | Photon Spectrum iMessage gRPC |
 | `qq` | `qq` | QQ Bot Gateway |
 | `telegram` | `telegram` | 长轮询 |
 | `weixin` | `weixin` | 腾讯 iLink API |

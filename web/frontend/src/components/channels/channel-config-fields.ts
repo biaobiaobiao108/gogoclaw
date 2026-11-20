@@ -5,6 +5,7 @@ export const SECRET_FIELD_MAP = {
   app_secret: "_app_secret",
   encrypt_key: "_encrypt_key",
   verification_token: "_verification_token",
+  project_secret: "_project_secret",
 } as const
 
 const CHANNEL_SECRET_FIELDS: Record<string, string[]> = {
@@ -13,6 +14,7 @@ const CHANNEL_SECRET_FIELDS: Record<string, string[]> = {
   discord: ["token"],
   telegram: ["token"],
   qq: ["app_secret"],
+  photon: ["project_secret"],
   pico: ["token"],
 }
 

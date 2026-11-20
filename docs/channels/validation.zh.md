@@ -5,7 +5,7 @@ CI 通过表示本地渠道行为及列出的测试服务通过；它不能证�
 | 验证层 | 覆盖内容 | 不覆盖内容 |
 | --- | --- | --- |
 | Go 渠道测试 | 使用进程内替身或本地 HTTP 服务验证适配器逻辑、请求映射、解析和错误处理 | 真实凭据、平台账号权限、网络策略或生产环境限流 |
-| Docker 集成套件 | 验证 `integration/suites/` 下列出的真实服务连接；当前参考套件是 MCP Streamable | 聊天平台账号；该套件不会连接 Telegram、Discord、飞书、微信、QQ 或 Pico 服务 |
+| Docker 集成套件 | 验证 `integration/suites/` 下列出的真实服务连接；当前参考套件是 MCP Streamable | 聊天平台账号；该套件不会连接 Telegram、Photon iMessage、Discord、飞书、微信、QQ 或 Pico 服务 |
 | Telegram 线上合约 | 使用配置的 Bot 凭据调用一次 Bot API `sendMessage`，并确认返回消息 ID | 长轮询和入站更新、群组权限、媒体上传、长期可用性或限流压力 |
 
 常规 Go CI 会运行各渠道包的适配器测试。Telegram 还新增了本地 Bot API HTTP 合约测试：通过正式配置的 telego 客户端发送请求，并检查请求路径、目标会话、HTML 格式文本和返回消息 ID。消息拆分与格式转换由确定性单测覆盖；管理器重试由假渠道测试。

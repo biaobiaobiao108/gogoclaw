@@ -20,7 +20,7 @@ The central application logger masks common credential formats and sensitive str
 
 ## Text delivery and logs
 
-Telegram, Weixin, Discord, Feishu, QQ, and Pico Client record recent delivery outcomes for interim and final text replies, scheduled output, and text from the `message` tool. View or refresh those outcomes in Session Management. Platform messages are marked accepted on a platform receipt. Pico Client waits for the peer's `message.ack`. A timeout, interruption, or partial send is marked unknown. After restart, the gateway offers queued deliveries that never started again. The worker limits retries to errors the channel classifies as safe to retry.
+Telegram, Photon iMessage, Weixin, Discord, Feishu, QQ, and Pico Client record recent delivery outcomes for interim and final text replies, scheduled output, and text from the `message` tool. View or refresh those outcomes in Session Management. Platform messages are marked accepted on a platform receipt. Pico Client waits for the peer's `message.ack`. A timeout, interruption, or partial send is marked unknown. After restart, the gateway offers queued deliveries that never started again. The worker limits retries to errors the channel classifies as safe to retry.
 
 Web chat streams drafts into the same message bubble and acknowledges completed text, including interim replies before tool calls. Pico Client forwards completed stream content when the peer provides Pico stream and delivery markers.
 

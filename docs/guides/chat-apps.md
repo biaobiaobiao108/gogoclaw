@@ -1,6 +1,6 @@
 # Chat Apps
 
-Back to [README](../README.md). GoGoClaw currently supports Telegram, Discord, Feishu / Lark, Weixin, QQ, and its built-in Pico WebSocket channel.
+Back to [README](../README.md). GoGoClaw currently supports Telegram, Photon iMessage, Discord, Feishu / Lark, Weixin, QQ, and its built-in Pico WebSocket channel.
 
 All channels use the same top-level shape:
 
@@ -42,6 +42,28 @@ Create a bot with `@BotFather`, then configure:
 Use `allow_from` with your Telegram user ID to restrict access. Optional settings include `proxy`, `base_url`, `streaming`, and `media_group_delay_ms`. See [Telegram channel](../channels/telegram/README.md).
 
 Put proxies in `proxy`, not `base_url`. Using `http://user:password@host:port` as the Bot API endpoint makes `getUpdates` return an empty response and usually appears as `decode json: unexpected end of JSON input` in logs.
+
+## Photon iMessage
+
+Sign in to [Photon Dashboard](https://app.photon.codes/), create a Spectrum project, bind the iMessage phone number, and generate a Project Secret:
+
+```json
+{
+  "channel_list": {
+    "photon": {
+      "enabled": true,
+      "type": "photon",
+      "allow_from": ["+15551234567"],
+      "settings": {
+        "project_id": "sp-...",
+        "project_secret": "YOUR_PROJECT_SECRET"
+      }
+    }
+  }
+}
+```
+
+The channel connects directly to Photon's public gRPC API. No Mac relay, Bun sidecar, `ffmpeg`, public callback URL, or tunnel is required. Use E.164 phone numbers in `allow_from`. See [Photon iMessage](../channels/photon/README.md).
 
 ## Discord
 

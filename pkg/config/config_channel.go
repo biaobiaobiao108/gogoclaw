@@ -24,6 +24,7 @@ const (
 	ChannelFeishu     = "feishu"
 	ChannelWeixin     = "weixin"
 	ChannelQQ         = "qq"
+	ChannelPhoton     = "photon"
 )
 
 func initChannel() {
@@ -509,7 +510,7 @@ func (c ChannelsConfig) TracksPlatformTextDelivery(name string) bool {
 		name = channel.Type
 	}
 	switch name {
-	case ChannelTelegram, ChannelWeixin, ChannelDiscord, ChannelFeishu, ChannelQQ, ChannelPicoClient:
+	case ChannelTelegram, ChannelWeixin, ChannelDiscord, ChannelFeishu, ChannelQQ, ChannelPhoton, ChannelPicoClient:
 		return true
 	default:
 		return false
@@ -709,6 +710,7 @@ var channelSettingsFactory = map[string]any{
 	ChannelFeishu:     (FeishuSettings{}),
 	ChannelWeixin:     (WeixinSettings{}),
 	ChannelQQ:         (QQSettings{}),
+	ChannelPhoton:     (PhotonSettings{}),
 }
 
 // RegisterChannelSettings registers a settings struct prototype for a custom
@@ -821,6 +823,8 @@ func validateChannelStreamingConfig(channelName string, target any) error {
 	case *PicoSettings:
 		streaming = settings.Streaming
 	case *TelegramSettings:
+		streaming = settings.Streaming
+	case *PhotonSettings:
 		streaming = settings.Streaming
 	default:
 		return nil

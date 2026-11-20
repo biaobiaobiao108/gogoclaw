@@ -7,7 +7,7 @@ API is working.
 | Validation layer | What it covers | What it does not cover |
 | --- | --- | --- |
 | Go channel tests | Adapter logic, payload mapping, parsing, and errors using in-process fakes or local HTTP servers | Live credentials, platform account permissions, network policy, or production rate limits |
-| Docker integration suite | Real service wiring for the suites under `integration/suites/`; the current reference suite is MCP Streamable | Chat platform accounts. The suite does not connect to Telegram, Discord, Feishu, Weixin, QQ, or Pico services |
+| Docker integration suite | Real service wiring for the suites under `integration/suites/`; the current reference suite is MCP Streamable | Chat platform accounts. The suite does not connect to Telegram, Photon iMessage, Discord, Feishu, Weixin, QQ, or Pico services |
 | Live Telegram contract | One explicit Bot API `sendMessage` request and successful message ID using configured bot credentials | Polling/inbound updates, group permissions, media uploads, long-term availability, or rate-limit stress |
 
 The regular Go CI job runs adapter tests across the supported channel packages.

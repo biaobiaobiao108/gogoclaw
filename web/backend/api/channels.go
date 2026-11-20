@@ -19,6 +19,7 @@ var channelCatalog = []channelCatalogItem{
 	{Name: "weixin", ConfigKey: "weixin"},
 	{Name: "discord", ConfigKey: "discord"},
 	{Name: "telegram", ConfigKey: "telegram"},
+	{Name: "photon", ConfigKey: "photon"},
 	{Name: "qq", ConfigKey: "qq"},
 	{Name: "pico", ConfigKey: "pico"},
 }
@@ -86,6 +87,7 @@ var channelSecretFieldMap = map[string][]string{
 	"discord":  {"token"},
 	"feishu":   {"app_secret", "encrypt_key", "verification_token"},
 	"qq":       {"app_secret"},
+	"photon":   {"project_secret"},
 	"pico":     {"token"},
 }
 
