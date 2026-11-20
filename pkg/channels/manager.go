@@ -62,7 +62,6 @@ var channelRateConfig = map[string]float64{
 	"telegram": 20,
 	"discord":  1,
 	"qq":       5,
-	"photon":   5,
 }
 
 type channelWorker struct {

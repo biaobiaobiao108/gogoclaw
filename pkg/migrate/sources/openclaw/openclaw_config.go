@@ -124,7 +124,7 @@ type OpenClawChannels struct {
 	IRC         *OpenClawIrcConfig         `json:"irc"`
 	Mattermost  *OpenClawMattermostConfig  `json:"mattermost"`
 	Feishu      *OpenClawFeishuConfig      `json:"feishu"`
-	IMessage    *OpenClawIMessageConfig    `json:"imessage"`
+	IMessage    *json.RawMessage           `json:"imessage"`
 	BlueBubbles *OpenClawBlueBubblesConfig `json:"bluebubbles"`
 	QQ          *OpenClawQQConfig          `json:"qq"`
 	DingTalk    *OpenClawDingTalkConfig    `json:"dingtalk"`
@@ -233,14 +233,6 @@ type OpenClawFeishuConfig struct {
 	VerificationToken *string  `json:"verificationToken"`
 	EncryptKey        *string  `json:"encryptKey"`
 	AllowFrom         []string `json:"allowFrom"`
-}
-
-type OpenClawIMessageConfig struct {
-	CliPath   *string  `json:"cliPath"`
-	DbPath    *string  `json:"dbPath"`
-	DmPolicy  *string  `json:"dmPolicy"`
-	AllowFrom []string `json:"allowFrom"`
-	Enabled   *bool    `json:"enabled"`
 }
 
 type OpenClawBlueBubblesConfig struct {
@@ -912,12 +904,12 @@ func (c *OpenClawConfig) convertChannels(warnings *[]string) ChannelsConfig {
 		*warnings = append(*warnings, "Channel 'mattermost': No GoGoClaw adapter available")
 	}
 	if c.Channels.IMessage != nil {
-		*warnings = append(*warnings, "Channel 'imessage': macOS-only channel - requires manual setup")
+		*warnings = append(*warnings, "Channel 'imessage': No GoGoClaw adapter available")
 	}
 	if c.Channels.BlueBubbles != nil {
 		*warnings = append(
 			*warnings,
-			"Channel 'bluebubbles': No GoGoClaw adapter available - consider iMessage instead",
+			"Channel 'bluebubbles': No GoGoClaw adapter available",
 		)
 	}
 

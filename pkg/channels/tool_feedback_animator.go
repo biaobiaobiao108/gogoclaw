@@ -35,31 +35,14 @@ type toolFeedbackAnimationState struct {
 type ToolFeedbackAnimator struct {
 	mu      sync.Mutex
 	editFn  func(ctx context.Context, chatID, messageID, content string) error
-	animate bool
 	entries map[string]*toolFeedbackAnimationState
 }
 
 func NewToolFeedbackAnimator(
 	editFn func(ctx context.Context, chatID, messageID, content string) error,
 ) *ToolFeedbackAnimator {
-	return newToolFeedbackAnimator(editFn, true)
-}
-
-// NewStaticToolFeedbackAnimator tracks editable progress messages without
-// repeatedly consuming platform edit quotas.
-func NewStaticToolFeedbackAnimator(
-	editFn func(ctx context.Context, chatID, messageID, content string) error,
-) *ToolFeedbackAnimator {
-	return newToolFeedbackAnimator(editFn, false)
-}
-
-func newToolFeedbackAnimator(
-	editFn func(ctx context.Context, chatID, messageID, content string) error,
-	animate bool,
-) *ToolFeedbackAnimator {
 	return &ToolFeedbackAnimator{
 		editFn:  editFn,
-		animate: animate,
 		entries: make(map[string]*toolFeedbackAnimationState),
 	}
 }
@@ -104,11 +87,7 @@ func (a *ToolFeedbackAnimator) Record(chatID, messageID, content string) {
 	a.mu.Unlock()
 
 	stopToolFeedbackAnimation(previous)
-	if a.animate {
-		go a.run(chatID, entry)
-	} else {
-		close(entry.done)
-	}
+	go a.run(chatID, entry)
 }
 
 func (a *ToolFeedbackAnimator) Clear(chatID string) {

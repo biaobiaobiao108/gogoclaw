@@ -407,23 +407,6 @@ func validateConfig(cfg *config.Config) []string {
 		}
 	}
 
-	// Photon: project_id and project_secret required when enabled
-	{
-		bc := cfg.Channels.GetByType(config.ChannelPhoton)
-		if bc != nil && bc.Enabled {
-			if decoded, err := bc.GetDecoded(); err == nil && decoded != nil {
-				if c, ok := decoded.(*config.PhotonSettings); ok {
-					if strings.TrimSpace(c.ProjectID) == "" {
-						errs = append(errs, "channels.photon.project_id is required when photon channel is enabled")
-					}
-					if strings.TrimSpace(c.ProjectSecret.String()) == "" {
-						errs = append(errs, "channels.photon.project_secret is required when photon channel is enabled")
-					}
-				}
-			}
-		}
-	}
-
 	if cfg.Tools.Exec.Enabled {
 		if cfg.Tools.Exec.EnableDenyPatterns {
 			errs = append(

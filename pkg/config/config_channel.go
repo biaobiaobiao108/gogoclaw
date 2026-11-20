@@ -24,7 +24,6 @@ const (
 	ChannelFeishu     = "feishu"
 	ChannelWeixin     = "weixin"
 	ChannelQQ         = "qq"
-	ChannelPhoton     = "photon"
 )
 
 func initChannel() {
@@ -510,7 +509,7 @@ func (c ChannelsConfig) TracksPlatformTextDelivery(name string) bool {
 		name = channel.Type
 	}
 	switch name {
-	case ChannelTelegram, ChannelWeixin, ChannelDiscord, ChannelFeishu, ChannelQQ, ChannelPhoton, ChannelPicoClient:
+	case ChannelTelegram, ChannelWeixin, ChannelDiscord, ChannelFeishu, ChannelQQ, ChannelPicoClient:
 		return true
 	default:
 		return false
@@ -710,7 +709,6 @@ var channelSettingsFactory = map[string]any{
 	ChannelFeishu:     (FeishuSettings{}),
 	ChannelWeixin:     (WeixinSettings{}),
 	ChannelQQ:         (QQSettings{}),
-	ChannelPhoton:     (PhotonSettings{}),
 }
 
 // RegisterChannelSettings registers a settings struct prototype for a custom
@@ -794,6 +792,27 @@ func InitChannelList(channels ChannelsConfig) error {
 	return nil
 }
 
+func removeRetiredChannels(channels ChannelsConfig) {
+	for name, channel := range channels {
+		if channel == nil {
+			continue
+		}
+		if channel.Type == "photon" || (channel.Type == "" && name == "photon") {
+			delete(channels, name)
+			continue
+		}
+		// Security files store the old credential by instance name without its channel type.
+		if channel.Type == "" && !isValidChannelType(name) {
+			var settings map[string]json.RawMessage
+			if json.Unmarshal(channel.Settings, &settings) == nil {
+				if _, ok := settings["project_secret"]; ok && len(settings) == 1 {
+					delete(channels, name)
+				}
+			}
+		}
+	}
+}
+
 func applyTelegramStreamingEnvCompat(target any) {
 	settings, ok := target.(*TelegramSettings)
 	if !ok || settings == nil {
@@ -823,8 +842,6 @@ func validateChannelStreamingConfig(channelName string, target any) error {
 	case *PicoSettings:
 		streaming = settings.Streaming
 	case *TelegramSettings:
-		streaming = settings.Streaming
-	case *PhotonSettings:
 		streaming = settings.Streaming
 	default:
 		return nil

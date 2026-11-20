@@ -18,7 +18,7 @@
 
 ---
 
-GoGoClaw 是一个面向单机长期运行与私有化部署的通用 Agent Harness。核心后端使用 Go，Web 控制台使用 React 19 与 Tailwind CSS v4，通过 Bun 构建。它可以连接 OpenAI、Anthropic、Gemini 等模型协议，并把同一个 Agent 暴露到 Web、Telegram、iMessage（Photon）、微信、Discord、飞书和 QQ 等频道。
+GoGoClaw 是一个面向单机长期运行与私有化部署的通用 Agent Harness。核心后端使用 Go，Web 控制台使用 React 19 与 Tailwind CSS v4，通过 Bun 构建。它可以连接 OpenAI、Anthropic、Gemini 等模型协议，并把同一个 Agent 暴露到 Web、Telegram、微信、Discord、飞书和 QQ 等频道。
 
 GoGoClaw 以单个可信实例为运行边界，不提供多租户、RBAC 或横向扩容能力；同一个数据目录只应由一个 GoGoClaw 实例管理。
 
@@ -28,7 +28,7 @@ GoGoClaw 以单个可信实例为运行边界，不提供多租户、RBAC 或横
 
 - **完整 Agent 循环**：会话、长期记忆、工作区文件、Skills、MCP、工具调用、计划、流式回复和子 Agent。
 - **统一模型协议**：OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Google Gemini generateContent。
-- **多频道接入**：Web、Telegram、iMessage（Photon）、微信个人号、Discord、飞书 / Lark、QQ。
+- **多频道接入**：Web、Telegram、微信个人号、Discord、飞书 / Lark、QQ。
 - **现代 Web 控制台**：模型、频道、工具、会话、审批、日志和运行状态都在同一处管理。
 - **容器优先**：发布镜像同时支持 Linux `amd64` 与 `arm64`，以非 root 用户运行。
 - **可持久化**：配置、凭据、SQLite 会话库、工作区、频道同步状态和日志统一存放在 `/data`。
@@ -142,7 +142,6 @@ Web 控制台把模型入口收敛为四个通用协议：
 |---|---|---|
 | Web / Pico | 内置 WebSocket | 控制台首次使用时自动配置 |
 | Telegram | Bot API 长轮询 | 网络受限时只填 `settings.proxy`，不要填入 `base_url` |
-| iMessage | Photon Spectrum | 从 Photon Dashboard 获取 Project ID 和 Project Secret，不需要 Mac 或公网回调 |
 | 微信个人号 | 腾讯 iLink 扫码 | `allow_from` 必须使用 iLink 返回的 `from_user_id` |
 | Discord | Bot WebSocket | 需要正确的 bot intents |
 | 飞书 / Lark | WebSocket / SDK | 不需要公网回调地址 |
@@ -200,7 +199,7 @@ sudo chown -R 10001:10001 /path/to/gogoclaw-data
 - 容器内 launcher 必须使用 `-public` 才监听所有容器网卡。
 - Docker 需要发布 `18800:18800`。
 - NAS 防火墙、反向代理和上游安全组也要允许对应端口。
-- `18790` 是 gateway 端口，Telegram、iMessage（Photon）、微信、Discord、飞书和 QQ 使用主动连接，通常不需要向公网暴露。
+- `18790` 是 gateway 端口，Telegram、微信、Discord、飞书和 QQ 使用主动连接，通常不需要向公网暴露。
 
 ### 3. 同一个数据目录启动了多个服务
 

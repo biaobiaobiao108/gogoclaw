@@ -32,7 +32,7 @@ GOGOCLAW_IMAGE=ghcr.io/biaobiaobiao108/gogoclaw:vX.Y.Z
 | `18800` | Web 控制台 |
 | `18790` | gateway 健康检查和频道服务 |
 
-Telegram、Photon iMessage、微信、Discord、飞书和 QQ 都是主动连接外部平台，常规部署只需发布 `18800`。
+Telegram、微信、Discord、飞书和 QQ 都是主动连接外部平台，常规部署只需发布 `18800`。
 
 ## 环境要求
 

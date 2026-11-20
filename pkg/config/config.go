@@ -645,16 +645,6 @@ type WeixinSettings struct {
 	Proxy      string       `json:"proxy"                yaml:"-"               env:"GOGOCLAW_CHANNELS_WEIXIN_PROXY"`
 }
 
-// PhotonSettings configures Photon Spectrum iMessage access through its
-// public gRPC API.
-type PhotonSettings struct {
-	ProjectID           string          `json:"project_id"                      yaml:"-" env:"GOGOCLAW_CHANNELS_PHOTON_PROJECT_ID"`
-	ProjectSecret       SecureString    `json:"project_secret,omitzero"        yaml:"project_secret,omitempty" env:"GOGOCLAW_CHANNELS_PHOTON_PROJECT_SECRET"`
-	CloudURL            string          `json:"cloud_url,omitempty"            yaml:"-" env:"GOGOCLAW_CHANNELS_PHOTON_CLOUD_URL"`
-	DisableReadReceipts bool            `json:"disable_read_receipts,omitempty" yaml:"-" env:"GOGOCLAW_CHANNELS_PHOTON_DISABLE_READ_RECEIPTS"`
-	Streaming           StreamingConfig `json:"streaming,omitzero"            yaml:"-"`
-}
-
 // SetToken sets the Weixin token and marks it as dirty for security saving
 func (c *WeixinSettings) SetToken(token string) {
 	c.Token = *NewSecureString(token)
@@ -1537,6 +1527,7 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
+	removeRetiredChannels(cfg.Channels)
 	if err = InitChannelList(cfg.Channels); err != nil {
 		return nil, err
 	}
@@ -1723,6 +1714,7 @@ func SaveConfig(path string, cfg *Config) error {
 	if cfg.Version < CurrentVersion {
 		cfg.Version = CurrentVersion
 	}
+	removeRetiredChannels(cfg.Channels)
 	// Filter out virtual models before serializing to config file
 	nonVirtualModels := make([]*ModelConfig, 0, len(cfg.ModelList))
 	for _, m := range cfg.ModelList {
@@ -1813,7 +1805,11 @@ func (c *Config) SecurityCopyFrom(path string) error {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	return decodeSecurityConfig(c, secureData, securityPath(path))
+	if err := decodeSecurityConfig(c, secureData, securityPath(path)); err != nil {
+		return err
+	}
+	removeRetiredChannels(c.Channels)
+	return nil
 }
 
 // ResetToDefaults backs up the current config, creates a default config,

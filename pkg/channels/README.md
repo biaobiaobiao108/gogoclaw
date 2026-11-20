@@ -1,13 +1,12 @@
 # Channel Runtime
 
-GoGoClaw ships seven channel implementations:
+GoGoClaw ships six channel implementations:
 
 | Package | Type | Transport |
 | --- | --- | --- |
 | `discord` | `discord` | Discord Gateway |
 | `feishu` | `feishu` | Feishu / Lark WebSocket SDK |
 | `pico` | `pico` | Native WebSocket protocol used by the Web console |
-| `photon` | `photon` | Photon Spectrum iMessage gRPC |
 | `qq` | `qq` | QQ Bot Gateway |
 | `telegram` | `telegram` | Long polling |
 | `weixin` | `weixin` | Tencent iLink API |

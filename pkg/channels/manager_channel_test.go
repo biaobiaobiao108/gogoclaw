@@ -152,28 +152,6 @@ func TestToChannelHashes_RealWorldChannel(t *testing.T) {
 	assert.Contains(t, h, "telegram")
 }
 
-func TestToChannelHashes_PhotonSecretChangesInvalidateHash(t *testing.T) {
-	cfg := config.DefaultConfig()
-	photonChannel := cfg.Channels[config.ChannelPhoton]
-	photonChannel.Enabled = true
-	decoded, err := photonChannel.GetDecoded()
-	if err != nil {
-		t.Fatal(err)
-	}
-	settings := decoded.(*config.PhotonSettings)
-	settings.ProjectID = "sp-test"
-	settings.ProjectSecret = *config.NewSecureString("secret-one")
-	first := toChannelHashes(cfg)[config.ChannelPhoton]
-
-	settings.ProjectSecret = *config.NewSecureString("secret-two")
-	second := toChannelHashes(cfg)[config.ChannelPhoton]
-
-	if first == "" || second == "" {
-		t.Fatal("photon channel hash is missing")
-	}
-	assert.NotEqual(t, first, second)
-}
-
 func TestToChannelHashes_MissingEnabledKey(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Channels["test"] = &config.Channel{

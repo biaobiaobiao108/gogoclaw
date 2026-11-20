@@ -287,11 +287,6 @@ func defaultChannels() ChannelsConfig {
 				"media_group_delay_ms": 500,
 			},
 		},
-		"photon": map[string]any{
-			"typing":      map[string]any{"enabled": true},
-			"placeholder": map[string]any{"enabled": true, "text": []string{"Thinking..."}},
-			"settings":    map[string]any{},
-		},
 		"qq": map[string]any{
 			"settings": map[string]any{"max_message_length": 2000},
 		},

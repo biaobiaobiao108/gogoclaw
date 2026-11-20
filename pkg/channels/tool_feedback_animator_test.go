@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 )
 
 func TestFormatAnimatedToolFeedbackContent(t *testing.T) {
@@ -119,18 +118,4 @@ func TestToolFeedbackAnimator_UpdateFailureRestoresTracking(t *testing.T) {
 	if currentID, ok := animator.Current("chat-1"); !ok || currentID != "msg-1" {
 		t.Fatalf("Current() after failed Update = (%q, %v), want (msg-1, true)", currentID, ok)
 	}
-}
-
-func TestStaticToolFeedbackAnimatorDoesNotAnimate(t *testing.T) {
-	var edits int
-	animator := NewStaticToolFeedbackAnimator(func(context.Context, string, string, string) error {
-		edits++
-		return nil
-	})
-	animator.Record("chat-1", "msg-1", "🔧 `read_file`")
-	time.Sleep(10 * time.Millisecond)
-	if edits != 0 {
-		t.Fatalf("static animator edits = %d, want 0", edits)
-	}
-	animator.Clear("chat-1")
 }

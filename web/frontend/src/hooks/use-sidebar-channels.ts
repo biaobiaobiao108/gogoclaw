@@ -1,5 +1,4 @@
 import {
-  IconBrandApple,
   IconBrandChrome,
   IconBrandDiscord,
   IconBrandQq,
@@ -21,12 +20,12 @@ import { getChannelDisplayName } from "@/components/channels/channel-display-nam
 import { gatewayAtom } from "@/store/gateway"
 
 const DEFAULT_VISIBLE_CHANNELS = 4
-const CHANNEL_IMPORTANCE_TAIL = ["qq", "photon", "pico"]
+const CHANNEL_IMPORTANCE_TAIL = ["qq", "pico"]
 
 function getChannelImportanceOrder(language: string): string[] {
   const priority = language.startsWith("zh")
     ? ["feishu", "weixin", "discord", "telegram"]
-    : ["discord", "telegram", "photon", "feishu", "weixin"]
+    : ["discord", "telegram", "feishu", "weixin"]
   return [...priority, ...CHANNEL_IMPORTANCE_TAIL]
 }
 
@@ -52,7 +51,6 @@ const CHANNEL_ICON_MAP: Record<
   discord: IconBrandDiscord,
   telegram: IconBrandTelegram,
   qq: IconBrandQq,
-  photon: IconBrandApple,
   pico: IconBrandChrome,
 }
 

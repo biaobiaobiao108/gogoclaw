@@ -40,15 +40,7 @@ func (r *RouteResolver) ResolveRoute(inbound bus.InboundContext) ResolvedRoute {
 	channel := strings.ToLower(strings.TrimSpace(inbound.Channel))
 	accountID := NormalizeAccountID(inbound.Account)
 	identityLinks := cloneIdentityLinks(r.cfg.Session.IdentityLinks)
-	matchContext := inbound
-	if channelConfig := r.cfg.Channels.Get(channel); channelConfig != nil &&
-		(channelConfig.Type == config.ChannelPhoton || channel == config.ChannelPhoton && channelConfig.Type == "") {
-		if chatGUID := inbound.Raw["chat_guid"]; chatGUID != "" {
-			matchContext.ChatID = chatGUID
-			matchContext.SpaceID = chatGUID
-		}
-	}
-	view := buildDispatchView(matchContext, identityLinks)
+	view := buildDispatchView(inbound, identityLinks)
 
 	if rule := r.matchDispatchRule(view); rule != nil {
 		return ResolvedRoute{

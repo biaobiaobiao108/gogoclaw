@@ -2,6 +2,8 @@ package config
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -12,6 +14,57 @@ import (
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/credential"
 )
+
+func TestLoadAndSaveConfigWithRetiredChannel(t *testing.T) {
+	mustSetupSSHKey(t)
+	path := filepath.Join(t.TempDir(), "config.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{
+		"version": 3,
+		"channel_list": {
+			"photon": {"enabled": false},
+			"private-imessage": {"type": "photon", "enabled": true, "settings": {"project_id": "old-project"}},
+			"telegram": {"type": "telegram", "enabled": true}
+		}
+	}`), 0o600))
+	require.NoError(t, os.WriteFile(securityPath(path), []byte(`channel_list:
+  photon:
+    settings:
+      project_secret: old-default-secret
+  private-imessage:
+    settings:
+      project_secret: old-private-secret
+  telegram:
+    settings:
+      token: retained-token
+`), 0o600))
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	require.NotContains(t, cfg.Channels, "photon")
+	require.NotContains(t, cfg.Channels, "private-imessage")
+
+	// The control panel copies stored secrets after a public config round trip.
+	publicConfig, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	var edited Config
+	require.NoError(t, json.Unmarshal(publicConfig, &edited))
+	require.NoError(t, edited.SecurityCopyFrom(path))
+	require.NotContains(t, edited.Channels, "photon")
+	require.NotContains(t, edited.Channels, "private-imessage")
+	require.NoError(t, SaveConfig(path, &edited))
+
+	publicFile, privateFile, err := readConfigFiles(path)
+	require.NoError(t, err)
+	assert.NotContains(t, string(publicFile), "old-project")
+	assert.NotContains(t, string(privateFile), "project_secret")
+	reloaded, err := LoadConfig(path)
+	require.NoError(t, err)
+	var telegram TelegramSettings
+	require.NotNil(t, reloaded.Channels["telegram"])
+	require.NoError(t, reloaded.Channels["telegram"].Decode(&telegram))
+	assert.True(t, reloaded.Channels["telegram"].Enabled)
+	assert.Equal(t, "retained-token", telegram.Token.String())
+}
 
 // ─── Test extend structs (simplified, settings + secure in one struct) ───
 

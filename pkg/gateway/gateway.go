@@ -23,7 +23,6 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/channels"
 	_ "github.com/biaobiaobiao108/gogoclaw/pkg/channels/discord"
 	_ "github.com/biaobiaobiao108/gogoclaw/pkg/channels/feishu"
-	_ "github.com/biaobiaobiao108/gogoclaw/pkg/channels/photon"
 	_ "github.com/biaobiaobiao108/gogoclaw/pkg/channels/pico"
 	_ "github.com/biaobiaobiao108/gogoclaw/pkg/channels/qq"
 	_ "github.com/biaobiaobiao108/gogoclaw/pkg/channels/telegram"

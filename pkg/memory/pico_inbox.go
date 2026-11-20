@@ -21,22 +21,6 @@ var ErrPicoInboundInFlight = errors.New("Pico request already claimed")
 
 const PicoProjectMetadataKey = "chat_project_id"
 
-// QueueChannelInbound persists an inbound delivery before its remote cursor is advanced.
-func (s *SQLiteStore) QueueChannelInbound(ctx context.Context, source, destination, requestID string, msg bus.InboundMessage) (bool, error) {
-	payload, err := json.Marshal(msg)
-	if err != nil {
-		return false, err
-	}
-	result, err := s.db.ExecContext(ctx, `INSERT INTO pico_inbox(channel, session_id, request_id, received_at, state, payload)
-		VALUES(?, ?, ?, ?, 'pending', ?) ON CONFLICT(channel, session_id, request_id) DO NOTHING`,
-		source, destination, requestID, time.Now().UnixMilli(), payload)
-	if err != nil {
-		return false, err
-	}
-	count, err := result.RowsAffected()
-	return count == 1, err
-}
-
 // QueuePicoInbound persists the payload and deduplication key in the same row.
 func (s *SQLiteStore) QueuePicoInbound(ctx context.Context, sessionID, requestID string, msg bus.InboundMessage) (string, error) {
 	payload, err := json.Marshal(msg)

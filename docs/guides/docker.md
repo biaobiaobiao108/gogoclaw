@@ -28,7 +28,7 @@ Back up `/data` before upgrading, then deliberately update this reference and re
 | `18800` | Web console |
 | `18790` | Gateway health checks and channel services |
 
-Telegram, Photon iMessage, WeChat, Discord, Feishu, and QQ make outbound connections. A normal deployment only needs to publish `18800`.
+Telegram, WeChat, Discord, Feishu, and QQ make outbound connections. A normal deployment only needs to publish `18800`.
 
 ## Requirements
 
