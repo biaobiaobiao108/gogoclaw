@@ -283,7 +283,7 @@ func sessionAttachments(sessionID string, msg providers.Message) []sessionChatAt
 		}
 		attachmentType := normalizedSessionAttachmentType(attachment)
 		attachments = append(attachments, sessionChatAttachment{
-			ID:          durableAttachmentID(attachment),
+			ID:          utils.DurableAttachmentID(attachment),
 			Type:        attachmentType,
 			URL:         urlValue,
 			Filename:    strings.TrimSpace(attachment.Filename),
@@ -297,33 +297,12 @@ func sessionAttachments(sessionID string, msg providers.Message) []sessionChatAt
 	return attachments
 }
 
-func durableAttachmentID(attachment providers.Attachment) string {
-	path := strings.TrimSpace(attachment.Ref)
-	if path == "" || (!strings.HasPrefix(path, "/") && !strings.Contains(path, ":\\")) {
-		return ""
-	}
-	return filepath.Base(path)
-}
-
 func sessionAttachmentURL(sessionID string, attachment providers.Attachment) (string, bool) {
-	if id := durableAttachmentID(attachment); id != "" && validAttachmentSessionID(sessionID) {
+	if id := utils.DurableAttachmentID(attachment); id != "" && validAttachmentSessionID(sessionID) {
 		return "/api/attachments/" + url.PathEscape(sessionID) + "/" + url.PathEscape(id), true
 	}
-	if rawURL := strings.TrimSpace(attachment.URL); rawURL != "" {
-		parsed, err := url.Parse(rawURL)
-		if strings.HasPrefix(rawURL, "data:image/") ||
-			(err == nil && (parsed.Scheme == "https" || parsed.Scheme == "http")) ||
-			(err == nil && parsed.Scheme == "" && strings.HasPrefix(rawURL, "/") && !strings.HasPrefix(rawURL, "//")) {
-			return rawURL, true
-		}
-		return "", false
-	}
-
-	ref := strings.TrimSpace(attachment.Ref)
-	if ref == "" || strings.HasPrefix(ref, "media://") {
-		return "", false
-	}
-	return "", false
+	rawURL := utils.DisplayableAttachmentURL(attachment)
+	return rawURL, rawURL != ""
 }
 
 func sessionAttachmentType(attachment providers.Attachment) string {
@@ -449,7 +428,7 @@ func visibleAssistantToolMessages(
 		if name != "message" {
 			continue
 		}
-		content, ok := parseMessageToolContent(argsJSON)
+		content, ok := utils.ParseMessageToolContent(argsJSON)
 		if !ok {
 			continue
 		}
@@ -462,19 +441,6 @@ func visibleAssistantToolMessages(
 	}
 
 	return messages
-}
-
-func parseMessageToolContent(argsJSON string) (string, bool) {
-	var args struct {
-		Content string `json:"content"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return "", false
-	}
-	if strings.TrimSpace(args.Content) == "" {
-		return "", false
-	}
-	return args.Content, true
 }
 
 // sessionsDir resolves the path to the gateway's session storage directory.

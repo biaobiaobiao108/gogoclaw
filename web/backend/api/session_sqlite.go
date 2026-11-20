@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 
+	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
@@ -30,7 +30,19 @@ func (h *Handler) InitializeSessionStore() error {
 	defer store.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return store.InterruptChatProjectIndexes(ctx)
+	if err := store.InterruptChatProjectIndexes(ctx); err != nil {
+		return err
+	}
+	pending, err := store.PendingChatProjectCleanup(ctx)
+	if err != nil {
+		return err
+	}
+	for key, target := range pending {
+		if err := cleanChatProjectData(ctx, dir, store, key, string(target)); err != nil {
+			logger.Warnf("retry deleted project data cleanup %s: %v", key, err)
+		}
+	}
+	return nil
 }
 
 func (h *Handler) scanSQLiteSessionRefs(dir string) ([]picoJSONLSessionRef, error) {
@@ -149,20 +161,8 @@ func sessionFileFromMeta(meta memory.SessionMeta) sessionFile {
 	}
 }
 
-func hasLegacySessionFiles(entries []os.DirEntry) bool {
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			ext := filepath.Ext(entry.Name())
-			if ext == ".jsonl" || ext == ".json" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func (h *Handler) readSQLiteSessionListPage(
-	ctx context.Context, dir string, maxArgs int, archived bool, projectFilter string, cursor *sessionListCursor, limit int,
+	ctx context.Context, dir string, archived bool, projectFilter string, cursor *sessionListCursor, limit int,
 ) (sessionListResponse, error) {
 	response := sessionListResponse{Items: []sessionListItem{}}
 	store, err := memory.OpenSQLiteStoreReadOnly(dir)
@@ -182,85 +182,39 @@ func (h *Handler) readSQLiteSessionListPage(
 		}
 		after = &memory.PicoSessionListEntry{ID: cursor.ID, Pinned: cursor.Pinned, UpdatedAt: updated}
 	}
-	for len(response.Items) <= limit {
-		batchSize := limit + 1 - len(response.Items)
-		entries, err := store.ListPicoSessionPage(ctx, legacyPicoSessionPrefix, archived, projectFilter, after, batchSize)
-		if err != nil {
-			return response, err
-		}
-		if len(entries) == 0 {
-			break
-		}
-		byKey := make(map[string]memory.PicoSessionListEntry, len(entries))
-		for _, entry := range entries {
-			byKey[entry.Key] = entry
-		}
-		summaries := make(map[string]sessionListItem, len(entries))
-		err = store.VisitPicoSessionTranscripts(ctx, entries, func(key string, messages []providers.Message) {
-			entry := byKey[key]
-			sess := sessionFile{Created: entry.CreatedAt, Updated: entry.UpdatedAt, Messages: messages}
-			summaries[key] = buildSessionListItem(entry.ID, sess, maxArgs)
-		})
-		if err != nil {
-			return response, err
-		}
-		for _, entry := range entries {
-			item, found := summaries[entry.Key]
-			if item.MessageCount == 0 && !entry.HasSummary {
-				continue
-			}
-			if !found {
-				item = buildSessionListItem(entry.ID, sessionFile{Created: entry.CreatedAt, Updated: entry.UpdatedAt}, maxArgs)
-			}
-			var ui chatUISessionMeta
-			_ = json.Unmarshal(entry.UIMeta, &ui)
-			applySessionMeta(&item, ui)
-			item.ProjectID = entry.ProjectID
-			item.ProjectName = entry.ProjectName
-			h.ensureSessionTitle(dir, entry.ID, &item, chatUIMetaFile{Sessions: map[string]chatUISessionMeta{entry.ID: ui}})
-			response.Items = append(response.Items, item)
-		}
-		if len(entries) < batchSize {
-			break
-		}
-		after = &entries[len(entries)-1]
+	fetchLimit := limit
+	if limit > 0 {
+		fetchLimit++
 	}
-	if len(response.Items) > limit {
+	entries, err := store.ListPicoSessionPage(ctx, legacyPicoSessionPrefix, archived, projectFilter, after, fetchLimit)
+	if err != nil {
+		return response, err
+	}
+	if limit > 0 && len(entries) > limit {
 		response.HasMore = true
-		response.Items = response.Items[:limit]
+		entries = entries[:limit]
+	}
+	for _, entry := range entries {
+		sess := sessionFile{Created: entry.CreatedAt, Updated: entry.UpdatedAt}
+		if len(entry.PreviewMessage) != 0 {
+			var preview providers.Message
+			if err := json.Unmarshal(entry.PreviewMessage, &preview); err != nil {
+				return response, err
+			}
+			sess.Messages = []providers.Message{preview}
+		}
+		item := buildSessionListItem(entry.ID, sess, 0)
+		item.MessageCount = entry.VisibleCount
+		var ui chatUISessionMeta
+		_ = json.Unmarshal(entry.UIMeta, &ui)
+		applySessionMeta(&item, ui)
+		item.ProjectID = entry.ProjectID
+		item.ProjectName = entry.ProjectName
+		h.ensureSessionTitle(dir, entry.ID, &item, chatUIMetaFile{Sessions: map[string]chatUISessionMeta{entry.ID: ui}})
+		response.Items = append(response.Items, item)
+	}
+	if response.HasMore {
 		response.NextCursor = encodeSessionListCursor(response.Items[limit-1])
 	}
 	return response, nil
-}
-
-func (h *Handler) applySessionProjectMappings(ctx context.Context, dir string, items []sessionListItem) error {
-	if len(items) == 0 {
-		return nil
-	}
-	ids := make([]string, 0, len(items))
-	for _, item := range items {
-		ids = append(ids, item.ID)
-	}
-	store, err := memory.OpenSQLiteStoreReadOnly(dir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	projects, err := store.SessionChatProjectIDs(ctx, ids)
-	if err != nil {
-		return err
-	}
-	for i := range items {
-		if project, ok := projects[items[i].ID]; ok {
-			items[i].ProjectID = project.ID
-			items[i].ProjectName = project.Name
-		} else {
-			items[i].ProjectID = ""
-			items[i].ProjectName = ""
-		}
-	}
-	return nil
 }

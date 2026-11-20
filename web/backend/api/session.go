@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -130,7 +129,7 @@ const (
 	maxSessionJSONLLineSize = 64 * 1024 * 1024
 	maxSessionPreviewRunes  = 60
 
-	handledToolResponseSummaryText = "Requested output delivered via tool attachment."
+	handledToolResponseSummaryText = messageutil.HandledToolResponseSummary
 )
 
 func defaultToolFeedbackMaxArgsLength() int {
@@ -756,22 +755,9 @@ func resolveWorkspacePath(workspace string) string {
 //
 //	GET /api/sessions
 func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
-	dir, toolFeedbackMaxArgsLength, err := h.sessionRuntimeSettings()
+	dir, err := h.sessionsDir()
 	if err != nil {
 		http.Error(w, "failed to resolve sessions directory", http.StatusInternalServerError)
-		return
-	}
-
-	entries, readErr := os.ReadDir(dir)
-	if readErr != nil {
-		// Directory doesn't exist yet = no sessions
-		h.pruneSessionListCache(nil, dir)
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Query().Get("limit") == "" && r.URL.Query().Get("cursor") == "" {
-			json.NewEncoder(w).Encode([]sessionListItem{})
-		} else {
-			json.NewEncoder(w).Encode(sessionListResponse{Items: []sessionListItem{}})
-		}
 		return
 	}
 	archivedOnly := r.URL.Query().Get("archived") == "1" || r.URL.Query().Get("archived") == "true"
@@ -780,7 +766,7 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid project filter", http.StatusBadRequest)
 		return
 	}
-	legacyList := r.URL.Query().Get("limit") == "" && r.URL.Query().Get("cursor") == ""
+	unpaginated := r.URL.Query().Get("limit") == "" && r.URL.Query().Get("cursor") == ""
 	limit := 30
 	if val, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && val > 0 {
 		limit = min(val, 100)
@@ -790,140 +776,18 @@ func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid session cursor", http.StatusBadRequest)
 		return
 	}
-	if !legacyList && !hasLegacySessionFiles(entries) {
-		response, err := h.readSQLiteSessionListPage(r.Context(), dir, toolFeedbackMaxArgsLength, archivedOnly, projectFilter, cursor, limit)
-		if err != nil {
-			logger.Warnf("failed to page sessions: %v", err)
-			http.Error(w, "failed to read sessions", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+	if unpaginated {
+		limit = -1
+	}
+	response, err := h.readSQLiteSessionListPage(r.Context(), dir, archivedOnly, projectFilter, cursor, limit)
+	if err != nil {
+		logger.Warnf("failed to page sessions: %v", err)
+		http.Error(w, "failed to read sessions", http.StatusInternalServerError)
 		return
 	}
-	uiMeta := h.readChatUIMeta(dir)
-
-	items := []sessionListItem{}
-	seen := make(map[string]struct{})
-	validCacheKeys := make(map[string]struct{})
-
-	if refs, findErr := h.findPicoJSONLSessions(dir); findErr == nil {
-		for _, ref := range refs {
-			cacheKey := "jsonl:" + filepath.Clean(dir) + ":" + ref.ID
-			cachePaths := sessionCachePaths(dir, ref)
-			validCacheKeys[cacheKey] = struct{}{}
-			if item, ok := h.cachedSessionListItem(cacheKey, cachePaths...); ok {
-				applySessionMeta(&item, uiMeta.Sessions[ref.ID])
-				h.ensureSessionTitle(dir, ref.ID, &item, uiMeta)
-				seen[ref.ID] = struct{}{}
-				if item.Archived == archivedOnly {
-					items = append(items, item)
-				}
-				continue
-			}
-			item, loadErr := h.readJSONLSessionListItem(dir, ref.Key, ref.ID, toolFeedbackMaxArgsLength)
-			if loadErr != nil {
-				continue
-			}
-			seen[ref.ID] = struct{}{}
-			h.storeCachedSessionListItem(cacheKey, item, cachePaths...)
-			applySessionMeta(&item, uiMeta.Sessions[ref.ID])
-			h.ensureSessionTitle(dir, ref.ID, &item, uiMeta)
-			if item.Archived == archivedOnly {
-				items = append(items, item)
-			}
-		}
-	}
-
-	if legacyRefs, findErr := h.findLegacyPicoSessions(dir); findErr == nil {
-		for _, ref := range legacyRefs {
-			if _, exists := seen[ref.ID]; exists {
-				continue
-			}
-			cacheKey := "legacy:" + filepath.Clean(dir) + ":" + ref.ID
-			validCacheKeys[cacheKey] = struct{}{}
-			if item, ok := h.cachedSessionListItem(cacheKey, ref.Path); ok {
-				applySessionMeta(&item, uiMeta.Sessions[ref.ID])
-				seen[ref.ID] = struct{}{}
-				if item.Archived == archivedOnly {
-					items = append(items, item)
-				}
-				continue
-			}
-			sess, loadErr := h.readLegacySession(ref.Path)
-			if loadErr != nil || isEmptySession(sess) {
-				continue
-			}
-			seen[ref.ID] = struct{}{}
-			item := buildSessionListItem(ref.ID, sess, toolFeedbackMaxArgsLength)
-			h.storeCachedSessionListItem(cacheKey, item, ref.Path)
-			applySessionMeta(&item, uiMeta.Sessions[ref.ID])
-			if item.Archived == archivedOnly {
-				items = append(items, item)
-			}
-		}
-	}
-	h.pruneSessionListCache(validCacheKeys, dir)
-	if err := h.applySessionProjectMappings(r.Context(), dir, items); err != nil {
-		logger.Warnf("failed to apply project ownership to sessions: %v", err)
-		http.Error(w, "failed to read session projects", http.StatusInternalServerError)
-		return
-	}
-	if projectFilter != "" {
-		filteredByProject := items[:0]
-		for _, item := range items {
-			if item.ProjectID == projectFilter || (projectFilter == "none" && item.ProjectID == "") {
-				filteredByProject = append(filteredByProject, item)
-			}
-		}
-		items = filteredByProject
-	}
-
-	// Pinned sessions come first; remaining sessions use update time descending.
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].Pinned != items[j].Pinned {
-			return items[i].Pinned
-		}
-		if !items[i].updatedAt.Equal(items[j].updatedAt) {
-			return items[i].updatedAt.After(items[j].updatedAt)
-		}
-		return items[i].ID > items[j].ID
-	})
-
-	if legacyList {
-		limit = len(items)
-	}
-
-	filtered := items[:0]
-	for _, item := range items {
-		if cursor != nil {
-			cursorUpdated, err := time.Parse(time.RFC3339Nano, cursor.Updated)
-			if err != nil {
-				cursorUpdated, _ = time.Parse(time.RFC3339, cursor.Updated)
-			}
-			if (item.Pinned && !cursor.Pinned) || (item.Pinned == cursor.Pinned &&
-				(item.updatedAt.After(cursorUpdated) ||
-					(item.updatedAt.Equal(cursorUpdated) && item.ID >= cursor.ID))) {
-				continue
-			}
-		}
-		filtered = append(filtered, item)
-	}
-	items = filtered
-
-	hasMore := len(items) > limit
-	if hasMore {
-		items = items[:limit]
-	}
-	response := sessionListResponse{Items: items, HasMore: hasMore}
-	if hasMore && len(items) > 0 {
-		last := items[len(items)-1]
-		response.NextCursor = encodeSessionListCursor(last)
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	if legacyList {
-		json.NewEncoder(w).Encode(items)
+	if unpaginated {
+		json.NewEncoder(w).Encode(response.Items)
 		return
 	}
 	json.NewEncoder(w).Encode(response)

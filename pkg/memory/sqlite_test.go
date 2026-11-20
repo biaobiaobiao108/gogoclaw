@@ -62,6 +62,64 @@ func TestPicoSteeringCommitTransfersPendingRequestExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestSQLiteSessionListStatsBackfillAndHistoryReplacement(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	store, err := NewSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const first = legacyListPrefix + "first"
+	const second = legacyListPrefix + "second"
+	for _, key := range []string{first, second} {
+		if err := store.AddMessage(ctx, key, "user", "original"); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.AddMessage(ctx, key, "assistant", "reply"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.db.Exec("DROP TABLE session_list_stats; PRAGMA user_version = 4"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = OpenSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	assertPage := func(wantCounts map[string]int, wantPreview map[string]string) {
+		t.Helper()
+		entries, err := store.ListPicoSessionPage(ctx, legacyListPrefix, false, "", nil, 10)
+		if err != nil || len(entries) != len(wantCounts) {
+			t.Fatalf("session list = %+v, error = %v", entries, err)
+		}
+		for _, entry := range entries {
+			var preview providers.Message
+			if err := json.Unmarshal(entry.PreviewMessage, &preview); err != nil {
+				t.Fatal(err)
+			}
+			if entry.VisibleCount != wantCounts[entry.ID] || preview.Content != wantPreview[entry.ID] {
+				t.Fatalf("%s: visible messages = %d, preview = %q", entry.ID, entry.VisibleCount, preview.Content)
+			}
+		}
+	}
+	assertPage(map[string]int{"first": 2, "second": 2}, map[string]string{"first": "original", "second": "original"})
+	if err := store.SetHistory(ctx, first, []providers.Message{{Role: "user", Content: "replacement"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddMessage(ctx, first, "tool", "hidden"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DeleteSession(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	assertPage(map[string]int{"first": 1}, map[string]string{"first": "replacement"})
+}
+
 func TestSQLiteDeliveryScheduleBackfillsAndTracksCheckpoints(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

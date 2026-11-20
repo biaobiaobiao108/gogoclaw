@@ -25,6 +25,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/media"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/messageutil"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/routing"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/state"
@@ -157,7 +158,7 @@ type agentLoopResult struct {
 const (
 	defaultResponse            = "The model returned an empty response. This may indicate a provider error or token limit."
 	toolLimitResponse          = "I've reached `max_tool_iterations` without a final response. Increase `max_tool_iterations` in config.json if this task needs more tool steps."
-	handledToolResponseSummary = "Requested output delivered via tool attachment."
+	handledToolResponseSummary = messageutil.HandledToolResponseSummary
 	sessionKeyAgentPrefix      = "agent:"
 	pendingTurnPrefix          = "pending-"
 	providerReloadGracePeriod  = 30 * time.Second

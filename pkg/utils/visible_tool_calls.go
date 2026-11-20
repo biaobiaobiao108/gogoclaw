@@ -108,3 +108,16 @@ func VisibleToolCallArgumentsPreview(tc providers.ToolCall, maxLen int) string {
 	}
 	return argsJSON
 }
+
+func ParseMessageToolContent(argsJSON string) (string, bool) {
+	var args struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", false
+	}
+	if strings.TrimSpace(args.Content) == "" {
+		return "", false
+	}
+	return args.Content, true
+}

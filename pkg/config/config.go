@@ -1527,7 +1527,6 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
-	removeRetiredChannels(cfg.Channels)
 	if err = InitChannelList(cfg.Channels); err != nil {
 		return nil, err
 	}
@@ -1714,7 +1713,6 @@ func SaveConfig(path string, cfg *Config) error {
 	if cfg.Version < CurrentVersion {
 		cfg.Version = CurrentVersion
 	}
-	removeRetiredChannels(cfg.Channels)
 	// Filter out virtual models before serializing to config file
 	nonVirtualModels := make([]*ModelConfig, 0, len(cfg.ModelList))
 	for _, m := range cfg.ModelList {
@@ -1805,11 +1803,7 @@ func (c *Config) SecurityCopyFrom(path string) error {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if err := decodeSecurityConfig(c, secureData, securityPath(path)); err != nil {
-		return err
-	}
-	removeRetiredChannels(c.Channels)
-	return nil
+	return decodeSecurityConfig(c, secureData, securityPath(path))
 }
 
 // ResetToDefaults backs up the current config, creates a default config,

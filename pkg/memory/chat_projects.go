@@ -208,19 +208,48 @@ func (s *SQLiteStore) UpdateChatProject(ctx context.Context, id, name, instructi
 	return current, nil
 }
 
+const chatProjectCleanupNamespace = "chat_project_cleanup"
+
 func (s *SQLiteStore) DeleteChatProject(ctx context.Context, id string) error {
-	result, err := s.db.ExecContext(sqliteContext(ctx), `DELETE FROM chat_projects WHERE id = ?`, strings.TrimSpace(id))
+	id = strings.TrimSpace(id)
+	return s.deleteChatProjectData(ctx, id, ErrChatProjectNotFound,
+		`DELETE FROM chat_projects WHERE id = ? RETURNING id`, id)
+}
+
+func (s *SQLiteStore) PendingChatProjectCleanup(ctx context.Context) (map[string][]byte, error) {
+	return s.ListAppState(ctx, chatProjectCleanupNamespace)
+}
+
+func (s *SQLiteStore) ChatProjectCleanup(ctx context.Context, key string) (string, error) {
+	value, err := s.GetAppState(ctx, chatProjectCleanupNamespace, key)
+	return string(value), err
+}
+
+func (s *SQLiteStore) CompleteChatProjectCleanup(ctx context.Context, key string) error {
+	return s.DeleteAppState(ctx, chatProjectCleanupNamespace, key)
+}
+
+func (s *SQLiteStore) deleteChatProjectData(ctx context.Context, key string, missing error, query string, args ...any) error {
+	ctx = sqliteContext(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("memory: delete chat project: %w", err)
+		return err
 	}
-	n, err := result.RowsAffected()
+	defer tx.Rollback()
+
+	var target string
+	err = tx.QueryRowContext(ctx, query, args...).Scan(&target)
+	if errors.Is(err, sql.ErrNoRows) {
+		return missing
+	}
 	if err != nil {
-		return fmt.Errorf("memory: inspect chat project delete: %w", err)
+		return fmt.Errorf("memory: delete project data: %w", err)
 	}
-	if n == 0 {
-		return ErrChatProjectNotFound
+	if _, err := tx.ExecContext(ctx, `INSERT INTO app_state(namespace, state_key, value) VALUES (?, ?, ?)`,
+		chatProjectCleanupNamespace, key, []byte(target)); err != nil {
+		return fmt.Errorf("memory: record project cleanup: %w", err)
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *SQLiteStore) SetSessionChatProject(ctx context.Context, sessionID, projectID string) error {
@@ -404,19 +433,9 @@ func (s *SQLiteStore) GetChatProjectFile(ctx context.Context, projectID, fileID 
 }
 
 func (s *SQLiteStore) DeleteChatProjectFile(ctx context.Context, projectID, fileID string) error {
-	result, err := s.db.ExecContext(sqliteContext(ctx),
-		`DELETE FROM chat_project_files WHERE project_id = ? AND id = ?`, strings.TrimSpace(projectID), strings.TrimSpace(fileID))
-	if err != nil {
-		return fmt.Errorf("memory: delete project file: %w", err)
-	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrChatProjectFileNotFound
-	}
-	return nil
+	projectID, fileID = strings.TrimSpace(projectID), strings.TrimSpace(fileID)
+	return s.deleteChatProjectData(ctx, projectID+"/"+fileID, ErrChatProjectFileNotFound,
+		`DELETE FROM chat_project_files WHERE project_id = ? AND id = ? RETURNING stored_name`, projectID, fileID)
 }
 
 func (s *SQLiteStore) ReplaceChatProjectFileChunks(ctx context.Context, projectID, fileID string, chunks []ChatProjectChunk, indexedAt time.Time) error {

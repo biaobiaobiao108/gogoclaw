@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"modernc.org/sqlite"
-
-	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
 
 func init() {
@@ -78,19 +76,20 @@ func (s *SQLiteStore) ManagedSessionDetailMeta(ctx context.Context, key string) 
 }
 
 type PicoSessionListEntry struct {
-	Key         string
-	ID          string
-	Pinned      bool
-	UpdatedAt   time.Time
-	CreatedAt   time.Time
-	HasSummary  bool
-	UIMeta      json.RawMessage
-	ProjectID   string
-	ProjectName string
+	Key            string
+	ID             string
+	Pinned         bool
+	UpdatedAt      time.Time
+	CreatedAt      time.Time
+	VisibleCount   int
+	PreviewMessage json.RawMessage
+	UIMeta         json.RawMessage
+	ProjectID      string
+	ProjectName    string
 }
 
-// ListPicoSessionPage ranks only lightweight session and UI metadata. Transcripts
-// can then be loaded for the selected rows to preserve their visible counts.
+// ListPicoSessionPage reads counts from stored statistics and fetches at most
+// the first preview message for each selected session.
 func (s *SQLiteStore) ListPicoSessionPage(ctx context.Context, legacyPrefix string, archived bool, projectFilter string, after *PicoSessionListEntry, limit int) ([]PicoSessionListEntry, error) {
 	var pinned, updated, id any
 	if after != nil {
@@ -117,29 +116,32 @@ func (s *SQLiteStore) ListPicoSessionPage(ctx context.Context, legacyPrefix stri
 				 ORDER BY a.alias LIMIT 1)
 			) AS id FROM scoped_ids
 		), dedup AS (
-			SELECT i.session_key, i.updated_at, i.created_at, i.summary != '' AS has_summary, i.id, row_number() OVER (
+			SELECT i.session_key, i.updated_at, i.created_at, i.summary != '' AS has_summary, i.id,
+				coalesce(stats.visible_count, 0) AS visible_count, stats.first_preview_id, row_number() OVER (
 				PARTITION BY i.id ORDER BY i.updated_at DESC, i.session_key
 			) AS rank
-			FROM identified i
-			WHERE length(i.id) > 0 AND (i.summary != '' OR i.skip_count < (
-				SELECT count(*) FROM session_messages msg WHERE msg.session_key = i.session_key
-			))
+			FROM identified i LEFT JOIN session_list_stats stats ON stats.session_key = i.session_key
+			WHERE length(i.id) > 0 AND (i.summary != '' OR i.skip_count < coalesce(stats.row_count, 0))
 		), decorated AS (
-			SELECT d.session_key, d.updated_at, d.created_at, d.has_summary, d.id,
+			SELECT d.session_key, d.updated_at, d.created_at, d.id, d.visible_count, d.first_preview_id,
 				CASE WHEN json_valid(CAST(u.metadata_json AS TEXT)) THEN CAST(u.metadata_json AS TEXT) ELSE '{}' END AS ui,
 				coalesce(sp.project_id, '') AS project_id, coalesce(p.name, '') AS project_name
 			FROM dedup d LEFT JOIN chat_ui_meta u ON u.session_id = d.id
 			LEFT JOIN chat_session_projects sp ON sp.session_id = d.id
 			LEFT JOIN chat_projects p ON p.id = sp.project_id
-			WHERE d.rank = 1
+			WHERE d.rank = 1 AND (d.visible_count > 0 OR d.has_summary)
 		), ordered AS (
 			SELECT *, coalesce(json_extract(ui, '$.pinned'), 0) = 1 AS pinned
 			FROM decorated WHERE (coalesce(json_extract(ui, '$.archived'), 0) = 1) = ?2
 				AND (?7 = '' OR (?7 = 'none' AND project_id = '') OR project_id = ?7)
+		), page AS MATERIALIZED (
+			SELECT * FROM ordered
+			WHERE ?3 IS NULL OR (pinned, updated_at, id) < (?3, ?4, ?5)
+			ORDER BY pinned DESC, updated_at DESC, id DESC LIMIT ?6
 		)
-		SELECT session_key, updated_at, created_at, has_summary, id, pinned, ui, project_id, project_name FROM ordered
-		WHERE ?3 IS NULL OR (pinned, updated_at, id) < (?3, ?4, ?5)
-		ORDER BY pinned DESC, updated_at DESC, id DESC LIMIT ?6
+		SELECT session_key, updated_at, created_at, visible_count, id, pinned, ui, project_id, project_name,
+			(SELECT payload_json FROM session_messages WHERE id = page.first_preview_id)
+		FROM page ORDER BY pinned DESC, updated_at DESC, id DESC
 	`, legacyPrefix, archived, pinned, updated, id, limit, projectFilter)
 	if err != nil {
 		return nil, err
@@ -151,61 +153,16 @@ func (s *SQLiteStore) ListPicoSessionPage(ctx context.Context, legacyPrefix stri
 		var entry PicoSessionListEntry
 		var updated, created int64
 		var ui string
-		if err := rows.Scan(&entry.Key, &updated, &created, &entry.HasSummary, &entry.ID, &entry.Pinned, &ui,
-			&entry.ProjectID, &entry.ProjectName); err != nil {
+		var preview []byte
+		if err := rows.Scan(&entry.Key, &updated, &created, &entry.VisibleCount, &entry.ID, &entry.Pinned, &ui,
+			&entry.ProjectID, &entry.ProjectName, &preview); err != nil {
 			return nil, err
 		}
 		entry.UpdatedAt = time.Unix(0, updated)
 		entry.CreatedAt = time.Unix(0, created)
 		entry.UIMeta = json.RawMessage(ui)
+		entry.PreviewMessage = preview
 		result = append(result, entry)
 	}
 	return result, rows.Err()
-}
-
-// VisitPicoSessionTranscripts reads the selected transcripts on a single connection.
-// The visitor must not write to the store while the query is open.
-func (s *SQLiteStore) VisitPicoSessionTranscripts(ctx context.Context, entries []PicoSessionListEntry, visit func(string, []providers.Message)) error {
-	keys := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		keys = append(keys, entry.Key)
-	}
-	encodedKeys, err := json.Marshal(keys)
-	if err != nil {
-		return err
-	}
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT session_key, payload_json FROM session_messages
-		WHERE session_key IN (SELECT value FROM json_each(?))
-		  AND role IN ('user', 'assistant')
-		ORDER BY session_key, id
-	`, string(encodedKeys))
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	var previous string
-	var messages []providers.Message
-	for rows.Next() {
-		var key string
-		var payload []byte
-		if err := rows.Scan(&key, &payload); err != nil {
-			return err
-		}
-		if previous != "" && key != previous {
-			visit(previous, messages)
-			messages = nil
-		}
-		previous = key
-		var message providers.Message
-		if err := json.Unmarshal(payload, &message); err != nil {
-			return err
-		}
-		messages = append(messages, message)
-	}
-	if previous != "" {
-		visit(previous, messages)
-	}
-	return rows.Err()
 }

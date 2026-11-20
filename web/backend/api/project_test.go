@@ -197,6 +197,80 @@ func TestProjectFilesAndSessionOwnership(t *testing.T) {
 	assertProjectSource()
 }
 
+func TestProjectFilesCanBeListedDuringWriteTransaction(t *testing.T) {
+	_, mux, dir := setupChatFeatureTest(t)
+	store, err := memory.NewSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	project, err := store.CreateChatProject(t.Context(), "Read test", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := store.BeginAppStateUpdate(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		rec := performJSONRequest(t, mux, method, "/api/projects/"+project.ID+"/files", nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s while writer holds SQLite transaction = %d, body=%s", method, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestDeleteProjectFileRetriesFilesystemCleanup(t *testing.T) {
+	h, mux, dir := setupChatFeatureTest(t)
+	store, err := memory.NewSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := t.Context()
+	project, err := store.CreateChatProject(ctx, "Delete test", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := store.CreateChatProjectFile(ctx, memory.ChatProjectFile{
+		ID: "test-file", ProjectID: project.ID, OriginalName: "test.txt", StoredName: "test.txt", Status: "ready",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(projectFilesDir(dir, project.ID), file.StoredName)
+	// Make the cleanup fail even when the test runs with administrator privileges.
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	obstruction := filepath.Join(path, "leftover.txt")
+	if err := os.WriteFile(obstruction, []byte("test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	url := "/api/projects/" + project.ID + "/files/" + file.ID
+	for range 2 {
+		rec := performJSONRequest(t, mux, http.MethodDelete, url, nil)
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("delete with blocked cleanup = %d, body=%s", rec.Code, rec.Body.String())
+		}
+	}
+	if err := os.Remove(obstruction); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewHandler(h.configPath).InitializeSessionStore(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("path after startup cleanup: %v", err)
+	}
+	rec := performJSONRequest(t, mux, http.MethodDelete, url, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("delete after cleanup = %d, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 type memoryChatProjectResponse struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`

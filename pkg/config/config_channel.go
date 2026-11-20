@@ -792,27 +792,6 @@ func InitChannelList(channels ChannelsConfig) error {
 	return nil
 }
 
-func removeRetiredChannels(channels ChannelsConfig) {
-	for name, channel := range channels {
-		if channel == nil {
-			continue
-		}
-		if channel.Type == "photon" || (channel.Type == "" && name == "photon") {
-			delete(channels, name)
-			continue
-		}
-		// Security files store the old credential by instance name without its channel type.
-		if channel.Type == "" && !isValidChannelType(name) {
-			var settings map[string]json.RawMessage
-			if json.Unmarshal(channel.Settings, &settings) == nil {
-				if _, ok := settings["project_secret"]; ok && len(settings) == 1 {
-					delete(channels, name)
-				}
-			}
-		}
-	}
-}
-
 func applyTelegramStreamingEnvCompat(target any) {
 	settings, ok := target.(*TelegramSettings)
 	if !ok || settings == nil {

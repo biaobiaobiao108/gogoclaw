@@ -28,11 +28,11 @@ func (h *Handler) registerChatProjectRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/projects", h.handleCreateChatProject)
 	mux.HandleFunc("GET /api/projects/{id}", h.handleGetChatProject)
 	mux.HandleFunc("PATCH /api/projects/{id}", h.handleUpdateChatProject)
-	mux.HandleFunc("DELETE /api/projects/{id}", h.handleDeleteChatProject)
+	mux.HandleFunc("DELETE /api/projects/{id}", h.handleDeleteChatProjectData)
 	mux.HandleFunc("GET /api/projects/{id}/files", h.handleListChatProjectFiles)
 	mux.HandleFunc("POST /api/projects/{id}/files", h.handleUploadChatProjectFile)
 	mux.HandleFunc("GET /api/projects/{id}/files/{file_id}", h.handleGetChatProjectFile)
-	mux.HandleFunc("DELETE /api/projects/{id}/files/{file_id}", h.handleDeleteChatProjectFile)
+	mux.HandleFunc("DELETE /api/projects/{id}/files/{file_id}", h.handleDeleteChatProjectData)
 	mux.HandleFunc("POST /api/projects/{id}/files/{file_id}/reindex", h.handleReindexChatProjectFile)
 	mux.HandleFunc("GET /api/projects/{id}/files/{file_id}/content", h.handleChatProjectFileContent)
 }
@@ -151,32 +151,79 @@ func (h *Handler) handleUpdateChatProject(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, project)
 }
 
-func (h *Handler) handleDeleteChatProject(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleDeleteChatProjectData(w http.ResponseWriter, r *http.Request) {
 	dir, err := h.sessionsDir()
 	if err != nil {
 		http.Error(w, "failed to resolve sessions directory", http.StatusInternalServerError)
 		return
 	}
 	projectID := strings.TrimSpace(r.PathValue("id"))
-	store, err := memory.NewSQLiteStore(dir)
+	rawFileID := r.PathValue("file_id")
+	fileID := strings.TrimSpace(rawFileID)
+	if !validAttachmentSessionID(projectID) || (rawFileID != "" && !validAttachmentSessionID(fileID)) {
+		http.Error(w, "invalid project or file ID", http.StatusBadRequest)
+		return
+	}
+	h.projectFilesMu.Lock()
+	defer h.projectFilesMu.Unlock()
+	store, err := memory.OpenSQLiteStore(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		http.Error(w, "project or file not found", http.StatusNotFound)
+		return
+	}
 	if err != nil {
 		http.Error(w, "failed to open project store", http.StatusInternalServerError)
 		return
 	}
-	err = store.DeleteChatProject(r.Context(), projectID)
-	closeErr := store.Close()
-	if errors.Is(err, memory.ErrChatProjectNotFound) {
-		http.Error(w, "project not found", http.StatusNotFound)
+	defer store.Close()
+
+	ctx := r.Context()
+	key := projectID
+	if fileID == "" {
+		err = store.DeleteChatProject(ctx, projectID)
+	} else {
+		key += "/" + fileID
+		err = store.DeleteChatProjectFile(ctx, projectID, fileID)
+	}
+	if err != nil && !errors.Is(err, memory.ErrChatProjectNotFound) && !errors.Is(err, memory.ErrChatProjectFileNotFound) {
+		logger.Warnf("failed to delete project data %s: %v", key, err)
+		http.Error(w, "failed to delete project data", http.StatusInternalServerError)
 		return
 	}
-	if err != nil || closeErr != nil {
-		http.Error(w, "failed to delete project", http.StatusInternalServerError)
+	target, err := store.ChatProjectCleanup(ctx, key)
+	if err == nil && target == "" {
+		http.Error(w, "project or file not found", http.StatusNotFound)
 		return
 	}
-	if err := os.RemoveAll(projectFilesRoot(dir, projectID)); err != nil {
-		logger.Warnf("failed to remove deleted project files for %s: %v", projectID, err)
+	if err == nil {
+		err = cleanChatProjectData(ctx, dir, store, key, target)
+	}
+	if err != nil {
+		logger.Warnf("failed to clean deleted project data %s: %v", key, err)
+		http.Error(w, "failed to clean deleted project data", http.StatusInternalServerError)
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func cleanChatProjectData(ctx context.Context, dir string, store *memory.SQLiteStore, key, target string) error {
+	projectID, _, isFile := strings.Cut(key, "/")
+	if !validAttachmentSessionID(projectID) {
+		return errors.New("invalid project cleanup ID")
+	}
+	var err error
+	if isFile {
+		if !filepath.IsLocal(target) || target == "." || filepath.Base(target) != target {
+			return errors.New("invalid project cleanup filename")
+		}
+		err = os.Remove(filepath.Join(projectFilesDir(dir, projectID), target))
+	} else {
+		err = os.RemoveAll(projectFilesRoot(dir, projectID))
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return store.CompleteChatProjectCleanup(ctx, key)
 }
 
 func (h *Handler) handleListChatProjectFiles(w http.ResponseWriter, r *http.Request) {
@@ -224,6 +271,23 @@ func (h *Handler) handleUploadChatProjectFile(w http.ResponseWriter, r *http.Req
 	if !chatproject.Supported(filename) {
 		// Keep unsupported files so the settings UI can show a recoverable failure.
 		logger.DebugCF("projects", "Uploading unsupported project file", map[string]any{"filename": filename})
+	}
+	// Keep project deletion from passing an upload that has published its file
+	// but has yet to register it. Parsing and indexing can run independently.
+	h.projectFilesMu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			h.projectFilesMu.Unlock()
+		}
+	}()
+	if _, err := store.GetChatProject(r.Context(), project.ID); err != nil {
+		if errors.Is(err, memory.ErrChatProjectNotFound) {
+			http.Error(w, "project not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "failed to read project", http.StatusInternalServerError)
+		}
+		return
 	}
 	projectDir := projectFilesDir(dir, project.ID)
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
@@ -290,6 +354,8 @@ func (h *Handler) handleUploadChatProjectFile(w http.ResponseWriter, r *http.Req
 		}
 		return
 	}
+	locked = false
+	h.projectFilesMu.Unlock()
 	file, err = indexChatProjectFile(r.Context(), dir, store, file)
 	if err != nil {
 		logger.Warnf("failed to index project file %s: %v", filename, err)
@@ -315,31 +381,6 @@ func (h *Handler) handleGetChatProjectFile(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusOK, file)
-}
-
-func (h *Handler) handleDeleteChatProjectFile(w http.ResponseWriter, r *http.Request) {
-	dir, store, project, ok := h.loadChatProjectForRequest(w, r)
-	if !ok {
-		return
-	}
-	defer store.Close()
-	file, err := store.GetChatProjectFile(r.Context(), project.ID, r.PathValue("file_id"))
-	if errors.Is(err, memory.ErrChatProjectFileNotFound) {
-		http.Error(w, "project file not found", http.StatusNotFound)
-		return
-	}
-	if err != nil {
-		http.Error(w, "failed to read project file", http.StatusInternalServerError)
-		return
-	}
-	if err := store.DeleteChatProjectFile(r.Context(), project.ID, file.ID); err != nil {
-		http.Error(w, "failed to delete project file", http.StatusInternalServerError)
-		return
-	}
-	if err := os.Remove(filepath.Join(projectFilesDir(dir, project.ID), file.StoredName)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		logger.Warnf("failed to remove project file %s: %v", file.StoredName, err)
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) handleReindexChatProjectFile(w http.ResponseWriter, r *http.Request) {
@@ -413,7 +454,15 @@ func (h *Handler) loadChatProjectForRequest(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "failed to resolve sessions directory", http.StatusInternalServerError)
 		return "", nil, memory.ChatProject{}, false
 	}
-	store, err := memory.NewSQLiteStore(dir)
+	openStore := memory.OpenSQLiteStore
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		openStore = memory.OpenSQLiteStoreReadOnly
+	}
+	store, err := openStore(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		http.Error(w, "project not found", http.StatusNotFound)
+		return "", nil, memory.ChatProject{}, false
+	}
 	if err != nil {
 		http.Error(w, "failed to open project store", http.StatusInternalServerError)
 		return "", nil, memory.ChatProject{}, false

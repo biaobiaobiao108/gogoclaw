@@ -244,30 +244,20 @@ func TestHandleListSessions_TransientThoughtDoesNotInflateMessageCount(t *testin
 	defer cleanup()
 
 	dir := sessionsTestDir(t, configPath)
-	sessionKey := legacyPicoSessionPrefix + "history-jsonl-transient"
-	base := filepath.Join(dir, sanitizeSessionKey(sessionKey))
-	now := time.Now().UTC()
-
-	rawJSONL := strings.Join([]string{
-		`{"role":"user","content":"keep me"}`,
-		`{"role":"assistant","content":"","reasoning_content":"dangling thought"}`,
-		`{"role":"assistant","content":"and me"}`,
-	}, "\n") + "\n"
-	if err := os.WriteFile(base+".jsonl", []byte(rawJSONL), 0o644); err != nil {
-		t.Fatalf("WriteFile(jsonl) error = %v", err)
-	}
-	metaData, err := json.Marshal(memory.SessionMeta{
-		Key:       sessionKey,
-		Count:     3,
-		Skip:      0,
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	sessionKey := legacyPicoSessionPrefix + "history-transient"
+	store, err := memory.NewSQLiteStore(dir)
 	if err != nil {
-		t.Fatalf("Marshal(meta) error = %v", err)
+		t.Fatal(err)
 	}
-	if err := os.WriteFile(base+".meta.json", metaData, 0o644); err != nil {
-		t.Fatalf("WriteFile(meta) error = %v", err)
+	defer store.Close()
+	for _, msg := range []providers.Message{
+		{Role: "user", Content: "keep me"},
+		{Role: "assistant", ReasoningContent: "dangling thought"},
+		{Role: "assistant", Content: "and me"},
+	} {
+		if err := store.AddFullMessage(t.Context(), sessionKey, msg); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	h := NewHandler(configPath)
@@ -289,8 +279,8 @@ func TestHandleListSessions_TransientThoughtDoesNotInflateMessageCount(t *testin
 	if len(items) != 1 {
 		t.Fatalf("len(items) = %d, want 1", len(items))
 	}
-	if items[0].ID != "history-jsonl-transient" {
-		t.Fatalf("items[0].ID = %q, want %q", items[0].ID, "history-jsonl-transient")
+	if items[0].ID != "history-transient" {
+		t.Fatalf("items[0].ID = %q, want %q", items[0].ID, "history-transient")
 	}
 	if items[0].MessageCount != 2 {
 		t.Fatalf("items[0].MessageCount = %d, want 2 after dropping transient thought", items[0].MessageCount)
@@ -2036,7 +2026,7 @@ func TestHandleSessions_FiltersEmptyJSONLFiles(t *testing.T) {
 	}
 }
 
-func TestHandleSessions_ListsLegacyJSONLWithoutMeta(t *testing.T) {
+func TestHandleGetSession_ReadsLegacyJSONLByID(t *testing.T) {
 	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
@@ -2067,11 +2057,8 @@ func TestHandleSessions_ListsLegacyJSONLWithoutMeta(t *testing.T) {
 	if err := json.Unmarshal(listRec.Body.Bytes(), &items); err != nil {
 		t.Fatalf("Unmarshal(list) error = %v", err)
 	}
-	if len(items) != 1 {
-		t.Fatalf("len(items) = %d, want 1", len(items))
-	}
-	if items[0].ID != "missing-meta" {
-		t.Fatalf("items[0].ID = %q, want %q", items[0].ID, "missing-meta")
+	if len(items) != 0 {
+		t.Fatalf("legacy JSONL must be excluded from the session list: %#v", items)
 	}
 
 	detailRec := httptest.NewRecorder()
@@ -2083,7 +2070,7 @@ func TestHandleSessions_ListsLegacyJSONLWithoutMeta(t *testing.T) {
 	}
 }
 
-func TestHandleSessions_IgnoresMetaJSONInLegacyFallback(t *testing.T) {
+func TestHandleSessions_IgnoresMetaJSONWithoutDatabase(t *testing.T) {
 	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
@@ -2146,6 +2133,13 @@ func TestSQLiteSessionListPagination(t *testing.T) {
 		if err := store.UpdateChatUIMeta(context.Background(), fixture.id, func([]byte) ([]byte, error) {
 			return []byte(fixture.ui), nil
 		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for suffix, payload := range map[string]string{".json": "{}", ".jsonl": `{"role":"user","content":"legacy"}` + "\n"} {
+		extra := sanitizeSessionKey(legacyPicoSessionPrefix+"ignored") + suffix
+		if err := os.WriteFile(filepath.Join(dir, extra), []byte(payload), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -2216,14 +2210,14 @@ func BenchmarkSQLiteSessionListPage(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	for _, legacy := range []bool{false, true} {
+	for _, extraFile := range []bool{false, true} {
 		name := "SQLite"
-		if legacy {
-			marker := filepath.Join(dir, "benchmark-legacy.jsonl")
-			if err := os.WriteFile(marker, nil, 0o600); err != nil {
+		if extraFile {
+			marker := filepath.Join(dir, "unrelated.json")
+			if err := os.WriteFile(marker, []byte("{}"), 0o600); err != nil {
 				b.Fatal(err)
 			}
-			name = "Compatibility"
+			name = "WithUnrelatedFile"
 		}
 		for _, cold := range []bool{true, false} {
 			mode := "Hot"

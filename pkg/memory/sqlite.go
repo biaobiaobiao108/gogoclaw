@@ -168,6 +168,13 @@ CREATE TABLE IF NOT EXISTS session_messages (
 CREATE INDEX IF NOT EXISTS session_messages_session_id
 	ON session_messages(session_key, id);
 
+CREATE TABLE IF NOT EXISTS session_list_stats (
+	session_key TEXT PRIMARY KEY REFERENCES session_meta(session_key) ON DELETE CASCADE,
+	row_count INTEGER NOT NULL,
+	visible_count INTEGER NOT NULL,
+	first_preview_id INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS session_aliases (
 	alias TEXT PRIMARY KEY,
 	session_key TEXT NOT NULL REFERENCES session_meta(session_key) ON DELETE CASCADE
@@ -204,7 +211,7 @@ CREATE TABLE IF NOT EXISTS usage_session (
 	cost_nanos INTEGER NOT NULL DEFAULT 0
 );
 
-PRAGMA user_version = 4;
+PRAGMA user_version = 5;
 `
 
 // SQLiteStore persists session state in a single SQLite database. Logical
@@ -397,6 +404,11 @@ func (s *SQLiteStore) initialize() error {
 	if err := initializeDeliverySchedule(tx, schemaVersion); err != nil {
 		return fmt.Errorf("memory: initialize delivery schedule: %w", err)
 	}
+	if schemaVersion < 5 {
+		if err := backfillSessionListStats(tx); err != nil {
+			return fmt.Errorf("memory: initialize session list statistics: %w", err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("memory: commit sessions schema: %w", err)
 	}
@@ -441,11 +453,8 @@ func appendSQLiteMessage(ctx context.Context, tx *sql.Tx, sessionKey string, msg
 	if err := ensureSQLiteSession(ctx, tx, sessionKey, now); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO session_messages(session_key, role, content, payload_json) VALUES (?, ?, ?, ?)`,
-		sessionKey, msg.Role, msg.Content, payload,
-	); err != nil {
-		return fmt.Errorf("memory: append message: %w", err)
+	if err := insertSQLiteMessage(ctx, tx, sessionKey, msg, payload); err != nil {
+		return err
 	}
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE session_meta SET updated_at = ? WHERE session_key = ?`,
@@ -784,22 +793,16 @@ func (s *SQLiteStore) SetHistory(ctx context.Context, sessionKey string, history
 	if err := ensureSQLiteSession(ctx, tx, sessionKey, now); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM session_messages WHERE session_key = ?`, sessionKey); err != nil {
-		return fmt.Errorf("memory: clear session history: %w", err)
+	if err := clearSQLiteMessages(ctx, tx, sessionKey); err != nil {
+		return err
 	}
 	for _, msg := range history {
-		if messageutil.IsTransientAssistantThoughtMessage(msg) {
-			continue
-		}
 		payload, err := json.Marshal(msg)
 		if err != nil {
 			return fmt.Errorf("memory: marshal history message: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO session_messages(session_key, role, content, payload_json) VALUES (?, ?, ?, ?)`,
-			sessionKey, msg.Role, msg.Content, payload,
-		); err != nil {
-			return fmt.Errorf("memory: insert history message: %w", err)
+		if err := insertSQLiteMessage(ctx, tx, sessionKey, msg, payload); err != nil {
+			return err
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -1083,41 +1086,35 @@ func (s *SQLiteStore) PromoteAliasHistory(ctx context.Context, sessionKey string
 			continue
 		}
 		rows, err := tx.QueryContext(ctx,
-			`SELECT role, content, payload_json FROM session_messages WHERE session_key = ? ORDER BY id`, alias)
+			`SELECT payload_json FROM session_messages WHERE session_key = ? ORDER BY id`, alias)
 		if err != nil {
 			return false, fmt.Errorf("memory: read alias history: %w", err)
 		}
-		type aliasMessage struct {
-			role    string
-			content string
-			payload []byte
-		}
-		aliasMessages := make([]aliasMessage, 0)
+		var aliasMessages [][]byte
 		for rows.Next() {
-			var role, content string
 			var payload []byte
-			if err := rows.Scan(&role, &content, &payload); err != nil {
+			if err := rows.Scan(&payload); err != nil {
 				rows.Close()
 				return false, fmt.Errorf("memory: scan alias history: %w", err)
 			}
-			aliasMessages = append(aliasMessages, aliasMessage{role: role, content: content, payload: payload})
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return false, fmt.Errorf("memory: iterate alias history: %w", err)
+			aliasMessages = append(aliasMessages, payload)
 		}
 		if err := rows.Close(); err != nil {
 			return false, err
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM session_messages WHERE session_key = ?`, sessionKey); err != nil {
-			return false, fmt.Errorf("memory: clear canonical history: %w", err)
+		if err := rows.Err(); err != nil {
+			return false, fmt.Errorf("memory: iterate alias history: %w", err)
 		}
-		for _, message := range aliasMessages {
-			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO session_messages(session_key, role, content, payload_json) VALUES (?, ?, ?, ?)`,
-				sessionKey, message.role, message.content, message.payload,
-			); err != nil {
-				return false, fmt.Errorf("memory: promote alias message: %w", err)
+		if err := clearSQLiteMessages(ctx, tx, sessionKey); err != nil {
+			return false, err
+		}
+		for _, payload := range aliasMessages {
+			var msg providers.Message
+			if err := json.Unmarshal(payload, &msg); err != nil {
+				return false, fmt.Errorf("memory: decode alias message: %w", err)
+			}
+			if err := insertSQLiteMessage(ctx, tx, sessionKey, msg, payload); err != nil {
+				return false, err
 			}
 		}
 		if _, err := tx.ExecContext(ctx, `

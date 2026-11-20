@@ -7,6 +7,8 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers/protocoltypes"
 )
 
+const HandledToolResponseSummary = "Requested output delivered via tool attachment."
+
 var assistantTurnIDPattern = regexp.MustCompile(`(?i)^(.+-turn-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})-llm-[0-9]+(?:-thought|-tools)?$`)
 
 // AssistantTurnID returns the turn embedded in a canonical assistant message ID.

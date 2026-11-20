@@ -27,6 +27,7 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
 
 const chatUIMetaVersion = 1
@@ -975,7 +976,7 @@ func (h *Handler) sessionAttachmentReferences(sessionsDir, sessionID string) (ma
 	addMessages := func(messages []providers.Message) {
 		for _, message := range messages {
 			for _, attachment := range message.Attachments {
-				if id := durableAttachmentID(attachment); id != "" {
+				if id := utils.DurableAttachmentID(attachment); id != "" {
 					references[id] = struct{}{}
 				}
 			}
@@ -1033,7 +1034,7 @@ func readSessionAttachmentReferences(path string) (map[string]struct{}, error) {
 			continue
 		}
 		for _, attachment := range message.Attachments {
-			if id := durableAttachmentID(attachment); id != "" {
+			if id := utils.DurableAttachmentID(attachment); id != "" {
 				references[id] = struct{}{}
 			}
 		}
