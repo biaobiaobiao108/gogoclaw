@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -262,10 +263,18 @@ func openSQLiteStore(path string) (*SQLiteStore, error) {
 	if err := os.Chmod(path, 0o600); err != nil {
 		return nil, fmt.Errorf("memory: secure sessions database: %w", err)
 	}
+	synchronous := "NORMAL"
+	maxIdleConns := 0 // On Windows, idle file handles can prevent workspace maintenance.
+	if runtime.GOOS == "linux" {
+		// Reuse a connection between gateway polls. Since it keeps the WAL
+		// open, sync commits without relying on a checkpoint at last close.
+		synchronous = "FULL"
+		maxIdleConns = 1
+	}
 	params := url.Values{
 		"_pragma": {
 			"busy_timeout(5000)",
-			"synchronous(NORMAL)",
+			"synchronous(" + synchronous + ")",
 			"foreign_keys(1)",
 		},
 		// Session mutations are read-modify-write operations. Taking the write
@@ -276,7 +285,7 @@ func openSQLiteStore(path string) (*SQLiteStore, error) {
 	if strings.Contains(path, "?") {
 		separator = "&"
 	}
-	store, err := connectSQLiteStore(path, path+separator+params.Encode())
+	store, err := connectSQLiteStore(path, path+separator+params.Encode(), maxIdleConns)
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +310,7 @@ func OpenSQLiteStoreReadOnly(dir string) (*SQLiteStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	return connectSQLiteStore(path, dsn)
+	return connectSQLiteStore(path, dsn, 0)
 }
 
 func sqliteFileDSN(path string, params url.Values) (string, error) {
@@ -317,16 +326,13 @@ func sqliteFileDSN(path string, params url.Values) (string, error) {
 	return uri.String(), nil
 }
 
-func connectSQLiteStore(path, dsn string) (*SQLiteStore, error) {
+func connectSQLiteStore(path, dsn string, maxIdleConns int) (*SQLiteStore, error) {
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("memory: open sessions database: %w", err)
 	}
 	db.SetMaxOpenConns(4)
-	// Do not hold an idle handle on Windows. This keeps backups and workspace
-	// maintenance possible while the agent is idle and lets SQLite close its
-	// WAL handles between turns.
-	db.SetMaxIdleConns(0)
+	db.SetMaxIdleConns(maxIdleConns)
 
 	return &SQLiteStore{db: db, path: path}, nil
 }

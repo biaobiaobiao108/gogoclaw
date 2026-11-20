@@ -20,16 +20,33 @@ func TestSQLiteBackupAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = store.Close() })
 	source := store.DBPath()
 	if err := store.AddMessage(ctx, "session-a", "user", "before backup"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
+	wantIdle := 0
+	wantSynchronous := 1
+	if runtime.GOOS == "linux" {
+		wantIdle = 1
+		wantSynchronous = 2
+		if fileSize(source+"-wal") == 0 {
+			t.Fatal("expected live WAL before backup")
+		}
+	}
+	if got := store.db.Stats().Idle; got != wantIdle {
+		t.Fatalf("idle connections = %d, want %d", got, wantIdle)
+	}
+	var synchronous int
+	if err := store.db.QueryRowContext(ctx, "PRAGMA synchronous").Scan(&synchronous); err != nil || synchronous != wantSynchronous {
+		t.Fatalf("synchronous = %d, want %d, error = %v", synchronous, wantSynchronous, err)
 	}
 
 	backup := filepath.Join(dir, "backups", "sessions.db")
 	if _, err := BackupSQLite(ctx, source, backup); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if mode := fileMode(t, backup); runtime.GOOS != "windows" && mode.Perm() != 0o600 {
@@ -39,14 +56,17 @@ func TestSQLiteBackupAndRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err = OpenSQLiteStore(dir)
+	reopened, err := OpenSQLiteStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddMessage(ctx, "session-a", "assistant", "after backup"); err != nil {
+	t.Cleanup(func() { _ = reopened.Close() })
+	if err := reopened.AddMessage(ctx, "session-a", "assistant", "after backup"); err != nil {
 		t.Fatal(err)
 	}
-	_ = store.Close()
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := RestoreSQLite(ctx, backup, source, true)
 	if err != nil {
