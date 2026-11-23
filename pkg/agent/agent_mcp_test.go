@@ -46,7 +46,7 @@ func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 	sdkmcp.AddTool(server, &sdkmcp.Tool{Name: "search_notes", Description: "按关键词搜索笔记"},
 		func(_ context.Context, _ *sdkmcp.CallToolRequest, args map[string]any) (*sdkmcp.CallToolResult, any, error) {
 			message, _ := args["query"].(string)
-			if message == "invalid" {
+			if strings.HasPrefix(message, "invalid") {
 				return &sdkmcp.CallToolResult{
 					IsError: true,
 					Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "invalid search filter"}},
@@ -156,7 +156,10 @@ func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 			turnID += "-yolo"
 		}
 		provider.responses = append(provider.responses,
-			&providers.LLMResponse{ToolCalls: []providers.ToolCall{{ID: turnID, Name: toolName, Arguments: map[string]any{"query": "invalid"}}}},
+			&providers.LLMResponse{ToolCalls: []providers.ToolCall{
+				{ID: turnID, Name: toolName, Arguments: map[string]any{"query": "invalid"}},
+				{ID: turnID + "-2", Name: toolName, Arguments: map[string]any{"query": "invalid retry"}},
+			}},
 			&providers.LLMResponse{Content: "Search filter rejected."},
 		)
 		failedSearch := runNextTurn("real-mcp", turnID, true)
@@ -166,13 +169,12 @@ func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 			t.Fatal(err)
 		}
 		if checkpoint.Status != "completed" || len(checkpoint.Events) == 0 ||
-			checkpoint.Events[len(checkpoint.Events)-1].Status != "completed" || len(checkpoint.ToolItems) != 1 ||
+			checkpoint.Events[len(checkpoint.Events)-1].Status != "completed" || len(checkpoint.ToolItems) != 2 ||
 			checkpoint.ToolItems[0].Status != "failed" || !strings.Contains(checkpoint.ToolItems[0].ResultSummary, "invalid search filter") {
 			t.Fatalf("YOLO %t: expected completed reply with MCP error recorded, got %+v", yolo, checkpoint)
 		}
 		finalContent := failedSearch.finalContentSnapshot()
-		if yolo && finalContent != "Search filter rejected." ||
-			!yolo && !strings.Contains(finalContent, "Action verification notice") {
+		if !strings.Contains(finalContent, "Action verification notice") || strings.Count(finalContent, toolName) != 1 {
 			t.Fatalf("YOLO %t: unexpected final response %q", yolo, finalContent)
 		}
 	}

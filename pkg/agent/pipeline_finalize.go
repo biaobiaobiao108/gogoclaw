@@ -26,8 +26,7 @@ func (p *Pipeline) Finalize(
 	finalContent string,
 ) (turnResult, error) {
 	al := p.al
-	if !p.Cfg.Tools.Approval.YOLO &&
-		turnStatus == TurnEndStatusCompleted && ts.endReasonSnapshot() == TurnEndReasonCompleted {
+	if turnStatus == TurnEndStatusCompleted && ts.endReasonSnapshot() == TurnEndReasonCompleted {
 		if notice := ts.sideEffectFailureNotice(finalContent); notice != "" {
 			if strings.TrimSpace(finalContent) == "" {
 				finalContent = notice

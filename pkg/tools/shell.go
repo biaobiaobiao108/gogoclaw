@@ -229,7 +229,7 @@ func (t *ExecTool) Parameters() map[string]any {
 			"action": map[string]any{
 				"type":        "string",
 				"enum":        []string{"run", "list", "poll", "read", "write", "kill", "send-keys"},
-				"description": "Action: run (execute command), list (show sessions), poll (check status), read (get output), write (send input), kill (terminate), send-keys (send keys to PTY)",
+				"description": "Defaults to run when command is supplied. Specify list, poll, read, write, kill, or send-keys to manage sessions.",
 			},
 			"command": map[string]any{
 				"type":        "string",
@@ -264,14 +264,21 @@ func (t *ExecTool) Parameters() map[string]any {
 				"description": "Timeout in seconds (0 = no timeout)",
 			},
 		},
-		"required": []string{"action"},
 	}
 }
 
 func (t *ExecTool) Execute(ctx context.Context, args map[string]any) *ToolResult {
-	action, _ := args["action"].(string)
+	rawAction, actionProvided := args["action"]
+	action, _ := rawAction.(string)
+	if !actionProvided {
+		if command, ok := args["command"].(string); ok && strings.TrimSpace(command) != "" {
+			action = "run"
+		}
+	}
 	if action == "" {
-		return ErrorResult("action is required")
+		result := ErrorResult("provide a command to run or specify an action")
+		result.NotExecuted = true
+		return result
 	}
 
 	if !t.allowRemote && !constants.IsInternalChannel(strings.TrimSpace(ToolChannel(ctx))) {

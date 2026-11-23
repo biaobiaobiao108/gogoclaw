@@ -42,6 +42,27 @@ func TestShellToolYOLOAllowsWebExecOutsideWorkspace(t *testing.T) {
 	require.Contains(t, result.ContentForLLM(), "yolo-marker")
 }
 
+func TestShellToolDefaultsToRunThroughRegistry(t *testing.T) {
+	tool, err := NewExecTool(t.TempDir(), true)
+	require.NoError(t, err)
+	registry := NewToolRegistry()
+	registry.Register(tool)
+
+	result := registry.Execute(context.Background(), "exec", map[string]any{"command": "echo default-run"})
+	require.False(t, result.IsError, result.ContentForLLM())
+	require.Contains(t, result.ContentForLLM(), "default-run")
+
+	for _, args := range []map[string]any{
+		{"sessionId": "unknown"},
+		{"command": "   "},
+		{"action": "typo", "command": "echo default-run"},
+	} {
+		result := registry.Execute(context.Background(), "exec", args)
+		require.True(t, result.IsError, args)
+		require.True(t, result.NotExecuted, args)
+	}
+}
+
 // TestShellTool_Success verifies successful command execution
 func TestShellTool_Success(t *testing.T) {
 	tool, err := NewExecTool("", false)

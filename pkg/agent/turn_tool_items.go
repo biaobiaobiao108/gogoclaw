@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -147,20 +148,20 @@ func (ts *turnState) sideEffectFailureNotice(finalContent string) string {
 	}
 	if len(uncertain) > 0 {
 		return fmt.Sprintf(
-			"Action verification notice: %s did not return a verifiable result. Its effects may be unknown; inspect the external state before relying on this answer.",
-			strings.Join(sortedStrings(uncertain), ", "),
+			"Action verification notice: Calls to %s returned no verifiable result. Check the effects of those calls.",
+			toolNamesForNotice(uncertain),
 		)
 	}
 	if len(failed) > 0 {
 		return fmt.Sprintf(
-			"Action verification notice: %s did not complete successfully. Do not treat this answer as confirmation that the requested change was applied.",
-			strings.Join(sortedStrings(failed), ", "),
+			"Action verification notice: Calls to %s did not complete successfully. Check the effects of the failed calls.",
+			toolNamesForNotice(failed),
 		)
 	}
 	if len(denied) > 0 {
 		return fmt.Sprintf(
-			"Action verification notice: %s was denied before execution. Do not treat this answer as confirmation that the requested change was applied.",
-			strings.Join(sortedStrings(denied), ", "),
+			"Action verification notice: Calls to %s were denied before execution.",
+			toolNamesForNotice(denied),
 		)
 	}
 	return ""
@@ -172,14 +173,7 @@ func finalContentMentions(finalContent, detail string) bool {
 	return finalContent != "" && detail != "" && strings.Contains(finalContent, detail)
 }
 
-func sortedStrings(values []string) []string {
-	if len(values) < 2 {
-		return values
-	}
-	for i := 1; i < len(values); i++ {
-		for j := i; j > 0 && values[j] < values[j-1]; j-- {
-			values[j], values[j-1] = values[j-1], values[j]
-		}
-	}
-	return values
+func toolNamesForNotice(names []string) string {
+	slices.Sort(names)
+	return strings.Join(slices.Compact(names), ", ")
 }
