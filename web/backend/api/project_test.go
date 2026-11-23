@@ -9,7 +9,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/memory"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
@@ -51,6 +53,52 @@ func TestIndexProjectFileFinishesAfterRequestCancellation(t *testing.T) {
 	chunks, err := store.ChatProjectFileChunks(t.Context(), project.ID, file.ID)
 	if err != nil || len(chunks) != 1 {
 		t.Fatalf("saved chunks = %#v, error = %v", chunks, err)
+	}
+}
+
+func TestFailedProjectReindexPreservesSearchAndFileContent(t *testing.T) {
+	_, mux, dir := setupChatFeatureTest(t)
+	ctx := t.Context()
+	store, err := memory.NewSQLiteStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	project, err := store.CreateChatProject(ctx, "Reference", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := store.CreateChatProjectFile(ctx, memory.ChatProjectFile{
+		ID: "reference", ProjectID: project.ID, OriginalName: "reference.txt", StoredName: "reference.txt", Status: "processing",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const content = "The launch codename is seabird."
+	indexedAt := time.Now().UTC()
+	if err := store.ReplaceChatProjectFileChunks(ctx, project.ID, file.ID,
+		[]memory.ChatProjectChunk{{Content: content}}, indexedAt); err != nil {
+		t.Fatal(err)
+	}
+	path := projectFileContentURL(project.ID, file.ID)
+	filePath := strings.TrimSuffix(path, "/content")
+	rec := performJSONRequest(t, mux, http.MethodPost, filePath+"/reindex", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reindex response = %d %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &file); err != nil {
+		t.Fatal(err)
+	}
+	if file.Status != "failed" || file.Error == "" || !file.IndexedAt.Equal(indexedAt) {
+		t.Fatalf("failed index = %+v, expected previous successful time %v", file, indexedAt)
+	}
+	matches, err := store.SearchChatProjectChunks(ctx, project.ID, "seabird", 10)
+	if err != nil || len(matches) != 1 || matches[0].Content != content {
+		t.Fatalf("search results = %+v, error = %v", matches, err)
+	}
+	rec = performJSONRequest(t, mux, http.MethodGet, path, nil)
+	if rec.Code != http.StatusOK || rec.Body.String() != content {
+		t.Fatalf("content response = %d %s", rec.Code, rec.Body.String())
 	}
 }
 

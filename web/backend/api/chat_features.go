@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -215,33 +216,6 @@ func applySessionMeta(item *sessionListItem, meta chatUISessionMeta) {
 	item.Archived = meta.Archived
 }
 
-func (h *Handler) ensureSessionTitle(
-	dir, sessionID string,
-	item *sessionListItem,
-	uiMeta chatUIMetaFile,
-) {
-	if item == nil || item.Title == "" || item.Title == "(empty)" {
-		return
-	}
-	meta := uiMeta.Sessions[sessionID]
-	if meta.TitleSource != "auto" && strings.TrimSpace(meta.Title) != "" {
-		return
-	}
-	if meta.Title == item.Title && meta.TitleSource == "auto" {
-		return
-	}
-	if err := h.updateChatUISessionMeta(dir, sessionID, func(current *chatUISessionMeta) error {
-		if current.TitleSource != "auto" && strings.TrimSpace(current.Title) != "" {
-			return nil
-		}
-		current.Title = item.Title
-		current.TitleSource = "auto"
-		return nil
-	}); err != nil {
-		logger.Warnf("failed to save session title %s: %v", sessionID, err)
-	}
-}
-
 func (h *Handler) sessionExists(dir, sessionID string) bool {
 	if _, err := h.findPicoJSONLSession(dir, sessionID); err == nil {
 		return true
@@ -421,10 +395,36 @@ func (h *Handler) handleSearchSessions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to resolve sessions directory", http.StatusInternalServerError)
 		return
 	}
-	uiMeta := h.readChatUIMeta(dir)
+	ctx := r.Context()
 	normalizedQuery := strings.ToLower(query)
 	archivedOnly := r.URL.Query().Get("archived") == "1" || r.URL.Query().Get("archived") == "true"
 	results := make([]sessionSearchResult, 0)
+	store, err := memory.OpenSQLiteStoreReadOnly(dir)
+	if err == nil {
+		defer store.Close()
+		results, err = searchSQLiteSessions(ctx, store, normalizedQuery, query, archivedOnly, limit)
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		logger.Warnf("failed to search SQLite sessions: %v", err)
+		http.Error(w, "failed to search sessions", http.StatusInternalServerError)
+		return
+	}
+	files, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		http.Error(w, "failed to scan legacy sessions", http.StatusInternalServerError)
+		return
+	}
+	if !slices.ContainsFunc(files, func(file os.DirEntry) bool {
+		name := file.Name()
+		return !file.IsDir() && (strings.HasSuffix(name, ".jsonl") || strings.HasSuffix(name, ".json"))
+	}) {
+		writeJSON(w, http.StatusOK, results)
+		return
+	}
+	uiMeta := h.readChatUIMeta(dir)
 
 	refs, refsErr := h.findPicoJSONLSessions(dir)
 	if refsErr != nil && !errors.Is(refsErr, os.ErrNotExist) {
@@ -432,6 +432,9 @@ func (h *Handler) handleSearchSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, ref := range refs {
+		if ref.Storage == "sqlite" {
+			continue
+		}
 		if r.Context().Err() != nil {
 			return
 		}
@@ -505,7 +508,7 @@ func (h *Handler) handleSearchSessions(w http.ResponseWriter, r *http.Request) {
 	if len(results) > limit {
 		results = results[:limit]
 	}
-	if store, openErr := memory.OpenSQLiteStoreReadOnly(dir); openErr == nil {
+	if store != nil {
 		ids := make([]string, 0, len(results))
 		for _, result := range results {
 			ids = append(ids, result.ID)
@@ -517,18 +520,57 @@ func (h *Handler) handleSearchSessions(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		_ = store.Close()
 	}
 	writeJSON(w, http.StatusOK, results)
 }
 
-func searchSessionResultForItem(item sessionListItem, normalizedQuery string) (sessionSearchResult, bool) {
-	base := sessionSearchResult{
+func searchSQLiteSessions(
+	ctx context.Context, store *memory.SQLiteStore, normalizedQuery, query string, archived bool, limit int,
+) ([]sessionSearchResult, error) {
+	results := make([]sessionSearchResult, 0, limit)
+	for entry, err := range store.SearchPicoSessions(ctx, legacyPicoSessionPrefix, archived, normalizedQuery) {
+		if err != nil {
+			return nil, err
+		}
+		item, err := sqliteSessionListItem(entry.PicoSessionListEntry)
+		if err != nil {
+			return nil, err
+		}
+		if result, ok := searchSessionResultForItem(item, normalizedQuery); ok {
+			results = append(results, result)
+		} else if len(entry.Message) != 0 {
+			var message providers.Message
+			if err := json.Unmarshal(entry.Message, &message); err != nil {
+				return nil, err
+			}
+			results = append(results, searchSessionMessageResult(item, message, query))
+		}
+		if len(results) == limit {
+			break
+		}
+	}
+	return results, nil
+}
+
+func sessionSearchResultFromItem(item sessionListItem) sessionSearchResult {
+	return sessionSearchResult{
 		ID: item.ID, Title: item.Title, Preview: item.Preview, MessageCount: item.MessageCount,
 		Created: item.Created, Updated: item.Updated, Pinned: item.Pinned, Archived: item.Archived,
 		ProjectID: item.ProjectID, ProjectName: item.ProjectName,
 	}
+}
+
+func searchSessionMessageResult(item sessionListItem, message providers.Message, query string) sessionSearchResult {
+	result := sessionSearchResultFromItem(item)
+	result.MessageID = message.ID
+	result.MessageRole = message.Role
+	result.Snippet = searchSnippet(message.Content, query, 120)
+	return result
+}
+
+func searchSessionResultForItem(item sessionListItem, normalizedQuery string) (sessionSearchResult, bool) {
 	if strings.Contains(strings.ToLower(item.Title), normalizedQuery) || strings.Contains(strings.ToLower(item.Preview), normalizedQuery) {
+		base := sessionSearchResultFromItem(item)
 		base.Snippet = item.Preview
 		return base, true
 	}
@@ -540,11 +582,6 @@ func searchSessionMessages(
 	messages []providers.Message,
 	normalizedQuery, rawQuery string,
 ) (sessionSearchResult, bool) {
-	base := sessionSearchResult{
-		ID: item.ID, Title: item.Title, Preview: item.Preview, MessageCount: item.MessageCount,
-		Created: item.Created, Updated: item.Updated, Pinned: item.Pinned, Archived: item.Archived,
-		ProjectID: item.ProjectID, ProjectName: item.ProjectName,
-	}
 	for _, message := range messages {
 		if message.Role != "user" && message.Role != "assistant" {
 			continue
@@ -552,10 +589,7 @@ func searchSessionMessages(
 		if !strings.Contains(strings.ToLower(message.Content), normalizedQuery) {
 			continue
 		}
-		base.MessageID = message.ID
-		base.MessageRole = message.Role
-		base.Snippet = searchSnippet(message.Content, rawQuery, 120)
-		return base, true
+		return searchSessionMessageResult(item, message, rawQuery), true
 	}
 	return sessionSearchResult{}, false
 }
@@ -566,12 +600,6 @@ func (h *Handler) searchJSONLSession(
 	normalizedQuery, rawQuery string,
 	ctx context.Context,
 ) (sessionSearchResult, bool, error) {
-	if sess, found, err := h.readSQLiteSession(dir, sessionKey); err != nil {
-		return sessionSearchResult{}, false, err
-	} else if found {
-		result, ok := searchSessionMessages(item, sess.Messages, normalizedQuery, rawQuery)
-		return result, ok, nil
-	}
 	base := filepath.Join(dir, sanitizeSessionKey(sessionKey))
 	file, err := os.Open(base + ".jsonl")
 	if err != nil {
@@ -601,14 +629,7 @@ func (h *Handler) searchJSONLSession(
 		if !strings.Contains(strings.ToLower(message.Content), normalizedQuery) {
 			continue
 		}
-		result := sessionSearchResult{
-			ID: item.ID, Title: item.Title, Preview: item.Preview, MessageCount: item.MessageCount,
-			Created: item.Created, Updated: item.Updated, Pinned: item.Pinned, Archived: item.Archived,
-			ProjectID: item.ProjectID, ProjectName: item.ProjectName,
-			MessageID: message.ID, MessageRole: message.Role,
-			Snippet: searchSnippet(message.Content, rawQuery, 120),
-		}
-		return result, true, nil
+		return searchSessionMessageResult(item, message, rawQuery), true, nil
 	}
 	if err := scanner.Err(); err != nil {
 		return sessionSearchResult{}, false, err

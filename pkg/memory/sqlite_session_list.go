@@ -2,8 +2,10 @@ package memory
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
+	"iter"
 	"strings"
 	"time"
 
@@ -88,14 +90,7 @@ type PicoSessionListEntry struct {
 	ProjectName    string
 }
 
-// ListPicoSessionPage reads counts from stored statistics and fetches at most
-// the first preview message for each selected session.
-func (s *SQLiteStore) ListPicoSessionPage(ctx context.Context, legacyPrefix string, archived bool, projectFilter string, after *PicoSessionListEntry, limit int) ([]PicoSessionListEntry, error) {
-	var pinned, updated, id any
-	if after != nil {
-		pinned, updated, id = after.Pinned, after.UpdatedAt.UnixNano(), after.ID
-	}
-	rows, err := s.db.QueryContext(ctx, `
+const picoSessionListQuery = `
 		WITH scoped AS (
 			SELECT m.session_key, m.updated_at, m.created_at, m.summary, m.skip_count,
 				CASE WHEN json_valid(CAST(m.scope_json AS TEXT)) THEN CAST(m.scope_json AS TEXT) END AS scope
@@ -133,10 +128,19 @@ func (s *SQLiteStore) ListPicoSessionPage(ctx context.Context, legacyPrefix stri
 		), ordered AS (
 			SELECT *, coalesce(json_extract(ui, '$.pinned'), 0) = 1 AS pinned
 			FROM decorated WHERE (coalesce(json_extract(ui, '$.archived'), 0) = 1) = ?2
-				AND (?7 = '' OR (?7 = 'none' AND project_id = '') OR project_id = ?7)
-		), page AS MATERIALIZED (
+		)`
+
+// ListPicoSessionPage reads counts from stored statistics and fetches at most
+// the first preview message for each selected session.
+func (s *SQLiteStore) ListPicoSessionPage(ctx context.Context, legacyPrefix string, archived bool, projectFilter string, after *PicoSessionListEntry, limit int) ([]PicoSessionListEntry, error) {
+	var pinned, updated, id any
+	if after != nil {
+		pinned, updated, id = after.Pinned, after.UpdatedAt.UnixNano(), after.ID
+	}
+	rows, err := s.db.QueryContext(ctx, picoSessionListQuery+`, page AS MATERIALIZED (
 			SELECT * FROM ordered
-			WHERE ?3 IS NULL OR (pinned, updated_at, id) < (?3, ?4, ?5)
+			WHERE (?7 = '' OR (?7 = 'none' AND project_id = '') OR project_id = ?7)
+				AND (?3 IS NULL OR (pinned, updated_at, id) < (?3, ?4, ?5))
 			ORDER BY pinned DESC, updated_at DESC, id DESC LIMIT ?6
 		)
 		SELECT session_key, updated_at, created_at, visible_count, id, pinned, ui, project_id, project_name,
@@ -150,19 +154,65 @@ func (s *SQLiteStore) ListPicoSessionPage(ctx context.Context, legacyPrefix stri
 
 	var result []PicoSessionListEntry
 	for rows.Next() {
-		var entry PicoSessionListEntry
-		var updated, created int64
-		var ui string
-		var preview []byte
-		if err := rows.Scan(&entry.Key, &updated, &created, &entry.VisibleCount, &entry.ID, &entry.Pinned, &ui,
-			&entry.ProjectID, &entry.ProjectName, &preview); err != nil {
+		entry, err := scanPicoSessionListEntry(rows)
+		if err != nil {
 			return nil, err
 		}
-		entry.UpdatedAt = time.Unix(0, updated)
-		entry.CreatedAt = time.Unix(0, created)
-		entry.UIMeta = json.RawMessage(ui)
-		entry.PreviewMessage = preview
 		result = append(result, entry)
 	}
 	return result, rows.Err()
+}
+
+type PicoSessionSearchEntry struct {
+	PicoSessionListEntry
+	Message json.RawMessage
+}
+
+// SearchPicoSessions streams ordered summaries and at most the first matching
+// message per session. The caller checks rendered titles and previews and can
+// stop as soon as it has enough results.
+func (s *SQLiteStore) SearchPicoSessions(ctx context.Context, legacyPrefix string, archived bool, query string) iter.Seq2[PicoSessionSearchEntry, error] {
+	return func(yield func(PicoSessionSearchEntry, error) bool) {
+		rows, err := s.db.QueryContext(ctx, picoSessionListQuery+`
+			SELECT session_key, updated_at, created_at, visible_count, id, pinned, ui, project_id, project_name,
+				(SELECT payload_json FROM session_messages WHERE id = ordered.first_preview_id),
+				(SELECT json_object('message_id', json_extract(CAST(payload_json AS TEXT), '$.message_id'), 'role', role, 'content', content)
+				 FROM session_messages WHERE session_key = ordered.session_key
+				 AND role IN ('user', 'assistant') AND instr(gogoclaw_lower(content), ?3) > 0
+				 ORDER BY session_messages.id LIMIT 1)
+			FROM ordered ORDER BY pinned DESC, updated_at DESC, id DESC
+		`, legacyPrefix, archived, query)
+		if err != nil {
+			yield(PicoSessionSearchEntry{}, err)
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var message []byte
+			entry, err := scanPicoSessionListEntry(rows, &message)
+			if !yield(PicoSessionSearchEntry{PicoSessionListEntry: entry, Message: message}, err) || err != nil {
+				return
+			}
+		}
+		if err := rows.Err(); err != nil {
+			yield(PicoSessionSearchEntry{}, err)
+		}
+	}
+}
+
+func scanPicoSessionListEntry(rows *sql.Rows, extra ...any) (PicoSessionListEntry, error) {
+	var entry PicoSessionListEntry
+	var updated, created int64
+	var ui string
+	var preview []byte
+	fields := []any{&entry.Key, &updated, &created, &entry.VisibleCount, &entry.ID, &entry.Pinned, &ui,
+		&entry.ProjectID, &entry.ProjectName, &preview}
+	if err := rows.Scan(append(fields, extra...)...); err != nil {
+		return PicoSessionListEntry{}, err
+	}
+	entry.UpdatedAt = time.Unix(0, updated)
+	entry.CreatedAt = time.Unix(0, created)
+	entry.UIMeta = json.RawMessage(ui)
+	entry.PreviewMessage = preview
+	return entry, nil
 }

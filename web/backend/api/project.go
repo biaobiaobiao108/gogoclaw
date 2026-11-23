@@ -503,11 +503,11 @@ func indexChatProjectFile(requestContext context.Context, dir string, store *mem
 		err = store.ReplaceChatProjectFileChunks(ctx, file.ProjectID, file.ID, stored, now)
 	}
 	if err != nil {
-		if statusErr := store.UpdateChatProjectFileStatus(ctx, file.ID, "failed", err.Error(), time.Time{}); statusErr != nil {
+		failed, statusErr := store.FailChatProjectFileIndex(ctx, file.ID, err.Error())
+		if statusErr != nil {
 			return file, errors.Join(err, statusErr)
 		}
-		file.Status, file.Error, file.IndexedAt = "failed", err.Error(), time.Time{}
-		return file, nil
+		return failed, nil
 	}
 	file.Status, file.Error, file.IndexedAt = "ready", "", now
 	return file, nil

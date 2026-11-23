@@ -53,7 +53,7 @@ func (p *Pipeline) loadProjectTurnContext(ctx context.Context, ts *turnState, pe
 	}
 	readyFiles := make([]memory.ChatProjectFile, 0, len(files))
 	for _, file := range files {
-		if file.Status == "ready" {
+		if file.Status == "ready" || !file.IndexedAt.IsZero() {
 			readyFiles = append(readyFiles, file)
 		}
 	}

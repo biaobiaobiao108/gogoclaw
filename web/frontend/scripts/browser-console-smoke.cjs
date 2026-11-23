@@ -330,6 +330,29 @@ async function main() {
         }
       } else if (path === "/api/sessions/search" && api.sessionFixture) {
         body = [projectHistoryItem]
+      } else if (path === "/api/projects/project-a" && api.sessionFixture) {
+        body = {
+          id: "project-a",
+          name: "项目 A",
+          instructions: "",
+          files: [
+            {
+              id: "indexed",
+              project_id: "project-a",
+              filename: "indexed.txt",
+              status: "failed",
+              error: "索引重建失败",
+              indexed_at: "2025-01-01T00:00:00Z",
+            },
+            {
+              id: "unindexed",
+              project_id: "project-a",
+              filename: "unindexed.txt",
+              status: "failed",
+              error: "首次索引失败",
+            },
+          ],
+        }
       } else if (path.startsWith("/api/sessions/")) {
         body = { messages: [], has_more: false }
         const id = path.split("/").at(-1)
@@ -598,6 +621,29 @@ async function main() {
     await page.setViewportSize({ width: 1280, height: 800 })
     await navigate(`${base}/chat`)
     await checkSessionSwitching(page, api)
+
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await navigate(`${base}/chat`)
+    const history = page.getByRole("navigation", { name: "历史记录" })
+    const uncategorized = history.getByRole("button", { name: "未分类" })
+    await uncategorized.waitFor()
+    if ((await uncategorized.getAttribute("aria-expanded")) === "true")
+      await uncategorized.click()
+    await history.getByRole("button", { name: "项目操作", exact: true }).click()
+    await page.getByRole("menuitem", { name: "项目设置" }).click()
+    const settings = page.getByRole("dialog", { name: "项目设置" })
+    await settings.getByText("索引重建失败", { exact: true }).waitFor()
+    await settings.getByText("首次索引失败", { exact: true }).waitFor()
+    const content = settings.getByRole("link", { name: "查看全文" })
+    if (
+      (await content.getAttribute("href")) !==
+      "/api/projects/project-a/files/indexed/content"
+    )
+      throw new Error("Project settings did not link to the retained index")
+    if (process.env.GOGOCLAW_PROJECT_INDEX_SCREENSHOT)
+      await page.screenshot({
+        path: process.env.GOGOCLAW_PROJECT_INDEX_SCREENSHOT,
+      })
 
     if (errors.length) throw new Error(`Browser errors: ${errors.join(", ")}`)
     console.log(

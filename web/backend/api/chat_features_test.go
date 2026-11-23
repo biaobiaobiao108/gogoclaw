@@ -748,7 +748,7 @@ func TestBranchAttachmentsSurviveCleanupAndCannotBeDeleted(t *testing.T) {
 	}
 }
 
-func TestCachedSessionSearchMatchesEscapedContent(t *testing.T) {
+func TestSQLiteSessionSearchMatchesLiteralContent(t *testing.T) {
 	_, mux, dir := setupChatFeatureTest(t)
 	const sessionID = "escaped-search"
 	seedChatFeatureSession(t, dir, sessionID)
@@ -756,23 +756,24 @@ func TestCachedSessionSearchMatchesEscapedContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer store.Close()
 	if err := store.AddFullMessage(nil, legacyPicoSessionPrefix+sessionID, providers.Message{
-		Role: "assistant", Content: "Example: <div> & \"quoted\" C:\\path\nnext line",
+		ID: "first-match", Role: "assistant", Content: "Example: <div> & \"quoted\" C:\\path\nnext line Буква",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Populate the session list cache so search uses its streaming reader.
-	rec := performJSONRequest(t, mux, http.MethodGet, "/api/sessions", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("list status = %d", rec.Code)
+	if err := store.AddFullMessage(nil, legacyPicoSessionPrefix+sessionID, providers.Message{
+		ID: "later-match", Role: "assistant", Content: "Example: <div>",
+	}); err != nil {
+		t.Fatal(err)
 	}
-	for _, query := range []string{"<div>", "&", `"quoted"`, `C:\path`, "path\nnext"} {
+	for _, query := range []string{"<div>", "&", `"quoted"`, `C:\path`, "path\nnext", "буква"} {
 		rec := performJSONRequest(t, mux, http.MethodGet, "/api/sessions/search?q="+url.QueryEscape(query), nil)
 		var results []sessionSearchResult
 		if err := json.Unmarshal(rec.Body.Bytes(), &results); err != nil {
 			t.Fatal(err)
 		}
-		if len(results) != 1 || results[0].ID != sessionID {
+		if len(results) != 1 || results[0].ID != sessionID || results[0].MessageID != "first-match" {
 			t.Fatalf("search %q = %s", query, rec.Body.String())
 		}
 	}

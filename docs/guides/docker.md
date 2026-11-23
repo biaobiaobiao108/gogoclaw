@@ -230,6 +230,8 @@ docker compose -f docker/docker-compose.yml --profile launcher pull
 docker compose -f docker/docker-compose.yml --profile launcher up -d
 ```
 
+The Web chat history list shows sessions in `sessions.db`. Sessions stored only in older JSON or JSONL files remain available through chat history search or an existing session link. Upgrading preserves those files in `/data`.
+
 ## Backup And Restore
 
 Stop every container writing to the same volume before backing up, including the launcher-managed gateway, standalone gateways, and one-shot agents:

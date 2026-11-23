@@ -47,7 +47,7 @@ type ChatProjectFile struct {
 	Status       string    `json:"status"`
 	Error        string    `json:"error,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
-	IndexedAt    time.Time `json:"indexed_at,omitempty"`
+	IndexedAt    time.Time `json:"indexed_at,omitzero"`
 }
 
 type ChatProjectChunk struct {
@@ -368,21 +368,16 @@ func (s *SQLiteStore) CreateChatProjectFile(ctx context.Context, file ChatProjec
 	return file, tx.Commit()
 }
 
-func (s *SQLiteStore) UpdateChatProjectFileStatus(ctx context.Context, id, status, message string, indexedAt time.Time) error {
-	result, err := s.db.ExecContext(sqliteContext(ctx), `
-		UPDATE chat_project_files SET status = ?, error = ?, indexed_at = ? WHERE id = ?`,
-		status, strings.TrimSpace(message), timeToNanos(indexedAt), strings.TrimSpace(id))
-	if err != nil {
-		return fmt.Errorf("memory: update project file status: %w", err)
+func (s *SQLiteStore) FailChatProjectFileIndex(ctx context.Context, id, message string) (ChatProjectFile, error) {
+	row := s.db.QueryRowContext(sqliteContext(ctx), `
+		UPDATE chat_project_files SET status = 'failed', error = ? WHERE id = ?
+		RETURNING id, project_id, original_name, stored_name, content_type, size_bytes, status, error, created_at, indexed_at`,
+		strings.TrimSpace(message), strings.TrimSpace(id))
+	file, err := scanChatProjectFile(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ChatProjectFile{}, ErrChatProjectFileNotFound
 	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrChatProjectFileNotFound
-	}
-	return nil
+	return file, err
 }
 
 // InterruptChatProjectIndexes runs before Launcher accepts uploads.

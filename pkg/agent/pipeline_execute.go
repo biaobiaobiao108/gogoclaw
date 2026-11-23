@@ -450,8 +450,7 @@ toolLoop:
 										"chat_id":  ts.chatID,
 										"error":    err.Error(),
 									})
-								hookResult.IsError = true
-								hookResult.ForLLM = fmt.Sprintf("failed to deliver attachment: %v", err)
+								hookResult = tools.ErrorResult(fmt.Sprintf("failed to deliver attachment: %v", err)).WithError(err)
 							} else {
 								handledAttachments = append(
 									handledAttachments,
@@ -459,8 +458,10 @@ toolLoop:
 								)
 							}
 						} else if al.bus != nil {
-							al.bus.PublishOutboundMedia(ctx, outboundMedia)
 							hookResult.ResponseHandled = false
+							if err := al.bus.PublishOutboundMedia(ctx, outboundMedia); err != nil {
+								hookResult = tools.ErrorResult(fmt.Sprintf("failed to deliver attachment: %v", err)).WithError(err)
+							}
 						}
 					}
 
@@ -878,37 +879,6 @@ toolLoop:
 		if toolResult == nil {
 			toolResult = tools.ErrorResult("hook returned nil tool result")
 		}
-		ts.finishToolItemFromResult(al, toolBatchID, i, ts.toolPolicy(toolName), toolResult, duplicateReadOnly)
-		if !duplicateReadOnly && !toolResult.IsError && toolPolicy.ReadOnly && toolPolicy.Idempotent {
-			ts.recordReadOnlyCall(readOnlyKey)
-		}
-		if !toolPolicy.ReadOnly {
-			ts.invalidateReadOnlyCalls()
-		}
-		if duplicateReadOnly && duplicateRepeat >= ts.budget.Progress.ReadOnlyReplayStopAfter {
-			ts.setEndReason(TurnEndReasonReadOnlyReplay)
-			ts.requestGracefulInterrupt("The model repeated the same read-only tool call. Use the evidence already collected or explain the blocker instead of retrying it.")
-		}
-		progress := ts.recordToolProgress(readOnlyKey, toolPolicy, toolResult, duplicateReadOnly)
-		progressDecision := ts.evaluateToolProgress(progress, !duplicateReadOnly && toolPolicy.Retrieval)
-		if progressDecision.Hint != "" {
-			toolResult.ForLLM = toolResult.ContentForLLM() + progressDecision.Hint
-		}
-		if progressDecision.EndReason != "" {
-			ts.setEndReason(progressDecision.EndReason)
-			_ = ts.requestGracefulInterrupt(progressDecision.InterruptHint)
-		}
-		failureKey := toolName + "\x00" + string(argsJSON)
-		failures := ts.recordRepeatedFailure(failureKey, toolResult.IsError)
-		failureDecision := ts.evaluateRepeatedFailure(failures)
-		if failureDecision.Hint != "" {
-			toolResult.ForLLM = toolResult.ContentForLLM() + failureDecision.Hint
-		}
-		if failureDecision.EndReason != "" {
-			ts.setEndReason(failureDecision.EndReason)
-			_ = ts.requestGracefulInterrupt(failureDecision.InterruptHint)
-		}
-
 		al.pinTurnMedia(ts, toolResult.Media)
 		if len(toolResult.Media) > 0 && toolResult.ResponseHandled {
 			parts := make([]bus.MediaPart, 0, len(toolResult.Media))
@@ -955,9 +925,42 @@ toolLoop:
 					)
 				}
 			} else if al.bus != nil {
-				al.bus.PublishOutboundMedia(ctx, outboundMedia)
 				toolResult.ResponseHandled = false
+				if err := al.bus.PublishOutboundMedia(ctx, outboundMedia); err != nil {
+					toolResult = tools.ErrorResult(fmt.Sprintf("failed to deliver attachment: %v", err)).WithError(err)
+				}
 			}
+		}
+
+		ts.finishToolItemFromResult(al, toolBatchID, i, ts.toolPolicy(toolName), toolResult, duplicateReadOnly)
+		if !duplicateReadOnly && !toolResult.IsError && toolPolicy.ReadOnly && toolPolicy.Idempotent {
+			ts.recordReadOnlyCall(readOnlyKey)
+		}
+		if !toolPolicy.ReadOnly {
+			ts.invalidateReadOnlyCalls()
+		}
+		if duplicateReadOnly && duplicateRepeat >= ts.budget.Progress.ReadOnlyReplayStopAfter {
+			ts.setEndReason(TurnEndReasonReadOnlyReplay)
+			ts.requestGracefulInterrupt("The model repeated the same read-only tool call. Use the evidence already collected or explain the blocker instead of retrying it.")
+		}
+		progress := ts.recordToolProgress(readOnlyKey, toolPolicy, toolResult, duplicateReadOnly)
+		progressDecision := ts.evaluateToolProgress(progress, !duplicateReadOnly && toolPolicy.Retrieval)
+		if progressDecision.Hint != "" {
+			toolResult.ForLLM = toolResult.ContentForLLM() + progressDecision.Hint
+		}
+		if progressDecision.EndReason != "" {
+			ts.setEndReason(progressDecision.EndReason)
+			_ = ts.requestGracefulInterrupt(progressDecision.InterruptHint)
+		}
+		failureKey := toolName + "\x00" + string(argsJSON)
+		failures := ts.recordRepeatedFailure(failureKey, toolResult.IsError)
+		failureDecision := ts.evaluateRepeatedFailure(failures)
+		if failureDecision.Hint != "" {
+			toolResult.ForLLM = toolResult.ContentForLLM() + failureDecision.Hint
+		}
+		if failureDecision.EndReason != "" {
+			ts.setEndReason(failureDecision.EndReason)
+			_ = ts.requestGracefulInterrupt(failureDecision.InterruptHint)
 		}
 
 		if len(toolResult.Media) > 0 && !toolResult.ResponseHandled {

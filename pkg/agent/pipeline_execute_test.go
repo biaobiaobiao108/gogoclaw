@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,9 @@ import (
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/approval"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
+	"github.com/biaobiaobiao108/gogoclaw/pkg/session"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 )
 
@@ -62,6 +65,51 @@ func (t *countingHarnessTool) Execute(_ context.Context, args map[string]any) *t
 		return t.result(args)
 	}
 	return tools.SilentResult("ok")
+}
+
+type rejectingMediaChannelManager struct {
+	recordingChannelManager
+}
+
+func (*rejectingMediaChannelManager) SendMedia(context.Context, bus.OutboundMediaMessage) error {
+	return errors.New("channel rejected audio")
+}
+
+func TestExecuteToolsRecordsFailedMediaDelivery(t *testing.T) {
+	provider := &sequenceProvider{responses: []*providers.LLMResponse{
+		{ToolCalls: []providers.ToolCall{{ID: "tts-1", Name: "send_tts"}}},
+		{Content: "Unable to send the audio."},
+	}}
+	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
+	defer cleanup()
+	agent.Tools.Register(&countingHarnessTool{name: "send_tts", result: func(map[string]any) *tools.ToolResult {
+		return &tools.ToolResult{
+			ForLLM: "TTS audio sent", Media: []string{"media:audio"}, ResponseHandled: true,
+		}
+	}})
+	opts := makeTestProcessOpts("failed-media-delivery")
+	opts.Channel = "telegram"
+	ts := newTurnState(agent, normalizeProcessOptions(opts), turnEventScope{
+		turnID: "failed-media-delivery", context: newTurnContext(nil, nil, nil),
+	})
+	pipeline := NewPipeline(al)
+	pipeline.ChannelManager = &rejectingMediaChannelManager{}
+	result, err := al.runTurn(t.Context(), ts, pipeline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, err := agent.Sessions.(session.TurnCheckpointStore).GetTurnCheckpoint(ts.sessionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := checkpoint.ToolItems
+	if len(items) != 1 || items[0].Status != toolItemStatusFailed ||
+		!strings.Contains(items[0].ResultSummary, "channel rejected audio") {
+		t.Fatalf("expected attachment failure in checkpoint, got %+v", items)
+	}
+	if !strings.Contains(result.finalContent, "Action verification notice") {
+		t.Fatalf("expected failure notice, got %q", result.finalContent)
+	}
 }
 
 func TestExecuteToolsSkipsDuplicateSuccessfulReadOnlyCall(t *testing.T) {

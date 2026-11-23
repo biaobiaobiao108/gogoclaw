@@ -195,26 +195,33 @@ func (h *Handler) readSQLiteSessionListPage(
 		entries = entries[:limit]
 	}
 	for _, entry := range entries {
-		sess := sessionFile{Created: entry.CreatedAt, Updated: entry.UpdatedAt}
-		if len(entry.PreviewMessage) != 0 {
-			var preview providers.Message
-			if err := json.Unmarshal(entry.PreviewMessage, &preview); err != nil {
-				return response, err
-			}
-			sess.Messages = []providers.Message{preview}
+		item, err := sqliteSessionListItem(entry)
+		if err != nil {
+			return response, err
 		}
-		item := buildSessionListItem(entry.ID, sess, 0)
-		item.MessageCount = entry.VisibleCount
-		var ui chatUISessionMeta
-		_ = json.Unmarshal(entry.UIMeta, &ui)
-		applySessionMeta(&item, ui)
-		item.ProjectID = entry.ProjectID
-		item.ProjectName = entry.ProjectName
-		h.ensureSessionTitle(dir, entry.ID, &item, chatUIMetaFile{Sessions: map[string]chatUISessionMeta{entry.ID: ui}})
 		response.Items = append(response.Items, item)
 	}
 	if response.HasMore {
 		response.NextCursor = encodeSessionListCursor(response.Items[limit-1])
 	}
 	return response, nil
+}
+
+func sqliteSessionListItem(entry memory.PicoSessionListEntry) (sessionListItem, error) {
+	sess := sessionFile{Created: entry.CreatedAt, Updated: entry.UpdatedAt}
+	if len(entry.PreviewMessage) != 0 {
+		var preview providers.Message
+		if err := json.Unmarshal(entry.PreviewMessage, &preview); err != nil {
+			return sessionListItem{}, err
+		}
+		sess.Messages = []providers.Message{preview}
+	}
+	item := buildSessionListItem(entry.ID, sess, 0)
+	item.MessageCount = entry.VisibleCount
+	var ui chatUISessionMeta
+	_ = json.Unmarshal(entry.UIMeta, &ui)
+	applySessionMeta(&item, ui)
+	item.ProjectID = entry.ProjectID
+	item.ProjectName = entry.ProjectName
+	return item, nil
 }

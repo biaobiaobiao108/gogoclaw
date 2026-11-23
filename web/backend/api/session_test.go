@@ -356,7 +356,7 @@ func TestBuildSessionListItemUsesCompactFallbackTitle(t *testing.T) {
 	}
 }
 
-func TestHandleListSessions_SQLiteCacheRefreshesTitle(t *testing.T) {
+func TestHandleListSessions_SQLiteDoesNotWriteFallbackTitle(t *testing.T) {
 	configPath, cleanup := setupModelTestEnv(t)
 	defer cleanup()
 
@@ -399,7 +399,7 @@ func TestHandleListSessions_SQLiteCacheRefreshesTitle(t *testing.T) {
 		t.Fatalf("initial items = %+v", first)
 	}
 	uiMeta := h.readChatUIMeta(dir).Sessions["sqlite-title-cache"]
-	if uiMeta.Title != "first question" || uiMeta.TitleSource != "auto" {
+	if uiMeta.Title != "" || uiMeta.TitleSource != "" {
 		t.Fatalf("session title metadata = %+v", uiMeta)
 	}
 
@@ -412,47 +412,6 @@ func TestHandleListSessions_SQLiteCacheRefreshesTitle(t *testing.T) {
 	second := list()
 	if len(second) != 1 || second[0].MessageCount != 2 {
 		t.Fatalf("updated items = %+v", second)
-	}
-}
-
-func TestEnsureSessionTitlePersistsWithoutOverwritingManualTitle(t *testing.T) {
-	configPath, cleanup := setupModelTestEnv(t)
-	defer cleanup()
-
-	dir := sessionsTestDir(t, configPath)
-	h := NewHandler(configPath)
-	item := sessionListItem{Title: "auto title", Preview: "auto title"}
-	h.ensureSessionTitle(dir, "auto-session", &item, h.readChatUIMeta(dir))
-	meta := h.readChatUIMeta(dir).Sessions["auto-session"]
-	if meta.Title != "auto title" || meta.TitleSource != "auto" {
-		t.Fatalf("auto title metadata = %+v", meta)
-	}
-
-	if err := h.updateChatUISessionMeta(dir, "auto-session", func(meta *chatUISessionMeta) error {
-		meta.Title = "manual title"
-		meta.TitleSource = "manual"
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	item.Title = "changed title"
-	h.ensureSessionTitle(dir, "auto-session", &item, h.readChatUIMeta(dir))
-	meta = h.readChatUIMeta(dir).Sessions["auto-session"]
-	if meta.Title != "manual title" || meta.TitleSource != "manual" {
-		t.Fatalf("manual title metadata = %+v", meta)
-	}
-
-	if err := h.updateChatUISessionMeta(dir, "auto-session", func(meta *chatUISessionMeta) error {
-		meta.Title = "generated title"
-		meta.TitleSource = "generated"
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	h.ensureSessionTitle(dir, "auto-session", &item, h.readChatUIMeta(dir))
-	meta = h.readChatUIMeta(dir).Sessions["auto-session"]
-	if meta.Title != "generated title" || meta.TitleSource != "generated" {
-		t.Fatalf("generated title metadata = %+v", meta)
 	}
 }
 
@@ -2059,6 +2018,14 @@ func TestHandleGetSession_ReadsLegacyJSONLByID(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Fatalf("legacy JSONL must be excluded from the session list: %#v", items)
+	}
+
+	searchRec := httptest.NewRecorder()
+	mux.ServeHTTP(searchRec, httptest.NewRequest(http.MethodGet, "/api/sessions/search?q=recover%20me", nil))
+	var results []sessionSearchResult
+	if searchRec.Code != http.StatusOK || json.Unmarshal(searchRec.Body.Bytes(), &results) != nil ||
+		len(results) != 1 || results[0].ID != "missing-meta" {
+		t.Fatalf("legacy search response = %d %s", searchRec.Code, searchRec.Body.String())
 	}
 
 	detailRec := httptest.NewRecorder()

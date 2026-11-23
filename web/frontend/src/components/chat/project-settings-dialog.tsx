@@ -556,7 +556,7 @@ export function ProjectSettingsDialog({
                               : t(`recovery.index.${file.status}`)}
                           </p>
                         </div>
-                        {file.status === "ready" && (
+                        {(file.status === "ready" || file.indexed_at) && (
                           <a
                             href={projectFileContentUrl(
                               file.project_id,

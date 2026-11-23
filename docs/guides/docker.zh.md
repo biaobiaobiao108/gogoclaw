@@ -236,6 +236,8 @@ docker compose -f docker/docker-compose.yml --profile launcher pull
 docker compose -f docker/docker-compose.yml --profile launcher up -d
 ```
 
+Web 聊天历史列表显示 `sessions.db` 中的会话。仅以旧 JSON 或 JSONL 文件保存的会话仍可通过聊天历史搜索或已有会话链接打开。升级会保留 `/data` 中的这些文件。
+
 ## 备份与恢复
 
 备份前先停止所有写入同一数据卷的容器，包括 Launcher 启动的网关、独立网关和一次性 Agent。Compose 部署可执行：
