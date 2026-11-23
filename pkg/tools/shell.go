@@ -154,7 +154,9 @@ func NewExecToolWithConfig(
 		allowedPathPatterns = allowPaths[0]
 	}
 
-	if cfg != nil {
+	if cfg != nil && cfg.Tools.Approval.YOLO {
+		restrict = false
+	} else if cfg != nil {
 		execConfig := cfg.Tools.Exec
 		enableDenyPatterns := execConfig.EnableDenyPatterns
 		allowRemote = execConfig.AllowRemote

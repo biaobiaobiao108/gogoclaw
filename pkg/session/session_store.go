@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/approval"
@@ -28,6 +29,18 @@ type TurnCheckpoint struct {
 	Events      []TurnCheckpointEvent `json:"events,omitempty"`
 
 	UsedDiscoveredTools []string `json:"used_discovered_tools,omitempty"`
+}
+
+func (checkpoint *TurnCheckpoint) UnmarshalJSON(data []byte) error {
+	type storedCheckpoint TurnCheckpoint
+	if err := json.Unmarshal(data, (*storedCheckpoint)(checkpoint)); err != nil {
+		return err
+	}
+	// Older versions marked finished replies with a tool verification notice as interrupted.
+	if checkpoint.Status == "interrupted" && checkpoint.EndReason == "tool_failure" {
+		checkpoint.Status = "completed"
+	}
+	return nil
 }
 
 // TurnActivity is the durable user-facing execution timeline for a turn.

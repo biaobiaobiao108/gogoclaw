@@ -16,6 +16,21 @@ import (
 
 type failingWriteStore struct{ memory.Store }
 
+func TestDecodeLegacyToolFailureCheckpoint(t *testing.T) {
+	for reason, wantStatus := range map[string]string{"tool_failure": "completed", "user_interrupted": "interrupted"} {
+		t.Run(reason, func(t *testing.T) {
+			var checkpoint session.TurnCheckpoint
+			data := fmt.Sprintf(`{"turn_id":"turn","status":"interrupted","end_reason":%q}`, reason)
+			if err := json.Unmarshal([]byte(data), &checkpoint); err != nil {
+				t.Fatal(err)
+			}
+			if checkpoint.Status != wantStatus || checkpoint.EndReason != reason {
+				t.Fatalf("unexpected checkpoint: %+v", checkpoint)
+			}
+		})
+	}
+}
+
 func (s failingWriteStore) AddFullMessage(context.Context, string, providers.Message) error {
 	return errors.New("write failed")
 }

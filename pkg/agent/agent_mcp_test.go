@@ -46,6 +46,12 @@ func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 	sdkmcp.AddTool(server, &sdkmcp.Tool{Name: "search_notes", Description: "按关键词搜索笔记"},
 		func(_ context.Context, _ *sdkmcp.CallToolRequest, args map[string]any) (*sdkmcp.CallToolResult, any, error) {
 			message, _ := args["query"].(string)
+			if message == "invalid" {
+				return &sdkmcp.CallToolResult{
+					IsError: true,
+					Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "invalid search filter"}},
+				}, nil, nil
+			}
 			return &sdkmcp.CallToolResult{
 				Content:           []sdkmcp.Content{&sdkmcp.TextContent{Text: message}},
 				StructuredContent: map[string]any{"id": "note-123", "version": 7},
@@ -68,6 +74,7 @@ func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 		{Content: "unrelated reply"},
 		{ToolCalls: []providers.ToolCall{{ID: "follow-up", Name: toolName, Arguments: map[string]any{"query": "follow-up"}}}},
 		{Content: "done"},
+		{Content: "separate reply"},
 	}}}
 	al, agent, cleanup := newTurnCoordTestLoop(t, provider)
 	defer cleanup()
@@ -141,6 +148,34 @@ func TestMCPDiscoveryCallsRealStreamableServer(t *testing.T) {
 		t.Fatalf("follow-up should call the discovered tool directly: %+v", records)
 	}
 	runNextTurn("separate-session", "mcp-separate-session", false)
+
+	for _, yolo := range []bool{false, true} {
+		al.cfg.Tools.Approval.YOLO = yolo
+		turnID := "mcp-failed-search"
+		if yolo {
+			turnID += "-yolo"
+		}
+		provider.responses = append(provider.responses,
+			&providers.LLMResponse{ToolCalls: []providers.ToolCall{{ID: turnID, Name: toolName, Arguments: map[string]any{"query": "invalid"}}}},
+			&providers.LLMResponse{Content: "Search filter rejected."},
+		)
+		failedSearch := runNextTurn("real-mcp", turnID, true)
+		store := agent.Sessions.(session.TurnCheckpointStore)
+		checkpoint, err := store.GetTurnCheckpoint(failedSearch.sessionKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if checkpoint.Status != "completed" || len(checkpoint.Events) == 0 ||
+			checkpoint.Events[len(checkpoint.Events)-1].Status != "completed" || len(checkpoint.ToolItems) != 1 ||
+			checkpoint.ToolItems[0].Status != "failed" || !strings.Contains(checkpoint.ToolItems[0].ResultSummary, "invalid search filter") {
+			t.Fatalf("YOLO %t: expected completed reply with MCP error recorded, got %+v", yolo, checkpoint)
+		}
+		finalContent := failedSearch.finalContentSnapshot()
+		if yolo && finalContent != "Search filter rejected." ||
+			!yolo && !strings.Contains(finalContent, "Action verification notice") {
+			t.Fatalf("YOLO %t: unexpected final response %q", yolo, finalContent)
+		}
+	}
 
 	al.syncMCPToolsForServer(context.Background(), al.mcp.getManager(), "象映笔记", nil)
 	runNextTurn("real-mcp", "mcp-removed-tool", false)

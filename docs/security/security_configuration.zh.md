@@ -393,7 +393,7 @@ export GOGOCLAW_TOOLS_WEB_BAIDU_API_KEY="baidu-key-from-env"
 
 Launcher 会向受管 gateway 传递 `GOGOCLAW_PUBLIC_EXPOSURE=true`。独立运行的 gateway 也可以显式设置该环境变量。
 
-公开模式下，高风险、会改变状态的工具即使未在 `tools.approval` 中启用也必须经过人工审批，包括 `exec`、文件修改、子代理、文件发送、技能安装、Cron、消息发送以及未知或破坏性工具。正常的最终回复不会触发审批。`tools.approval.yolo` 是明确的个人自用逃生开关：它优先于审批工具列表、公开模式审批以及所有频道上的 hook `requires_human` 请求。工具禁用规则和 hook 的明确拒绝仍然生效。
+公开模式下，高风险、会改变状态的工具即使未在 `tools.approval` 中启用也必须经过人工审批，包括 `exec`、文件修改、子代理、文件发送、技能安装、Cron、消息发送以及未知或破坏性工具。正常的最终回复不会触发审批。`tools.approval.yolo` 让所有频道跳过人工审批，包括公开模式和钩子要求的审批，同时跳过 `exec` 的频道、工作区路径和命令匹配检查。工具禁用规则、钩子的明确拒绝及已配置的子进程隔离仍生效。
 
 Launcher 会把检测到的暴露状态写入日志，并向受管 gateway 传递公开模式标志。公开模式是护栏，不能替代容器隔离边界。
 

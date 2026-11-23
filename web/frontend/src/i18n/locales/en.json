@@ -1004,7 +1004,7 @@
       "tool_feedback_max_args_length_hint": "Maximum number of characters shown in each tool argument preview. Set to 0 to use the default.",
       "exec_enabled": "Allow Commands",
       "approval_yolo": "YOLO mode",
-      "approval_yolo_hint": "Personal-use escape hatch: skip human approval for tool calls on all channels, overriding the approval list, public-mode guardrails, and hook approval requests. Tool restrictions and explicit hook denials still apply. Changes take effect after gateway reload.",
+      "approval_yolo_hint": "Skip human approval across all channels and bypass channel, workspace path, and command pattern checks for exec. Disabled tools, explicit hook denials, and configured subprocess isolation still apply. Changes take effect after gateway reload.",
       "approval_enabled": "Tool approval",
       "approval_enabled_hint": "Require approval for configured tools. By default this includes commands, file changes, agents, skill installation and messages. YOLO mode bypasses this setting. Changes take effect after gateway reload.",
       "exec_enabled_hint": "Enable or disable command execution for the app. When disabled, no command requests will run.",

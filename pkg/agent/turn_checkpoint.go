@@ -8,16 +8,17 @@ import (
 )
 
 func (ts *turnState) finishTurnCheckpoint(turnStatus TurnEndStatus, result turnResult, turnErr error) error {
+	reason := ts.endReasonSnapshot()
 	var status string
 	switch {
 	case turnStatus == TurnEndStatusAborted:
 		status = "interrupted"
-	case turnStatus == TurnEndStatusError || turnErr != nil || result.status == "":
+	case turnStatus == TurnEndStatusError || turnErr != nil || result.status == "" || result.status == TurnEndStatusError:
 		status = "failed"
-	case ts.endReasonSnapshot() != TurnEndReasonCompleted:
-		status = "interrupted"
-	default:
+	case reason == TurnEndReasonCompleted || reason == TurnEndReasonToolFailure:
 		status = "completed"
+	default:
+		status = "interrupted"
 	}
 	if err := ts.saveTurnCheckpoint(status, ""); err != nil && turnErr == nil {
 		return fmt.Errorf("save turn checkpoint: %w", err)

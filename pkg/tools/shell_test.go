@@ -23,6 +23,25 @@ func skipUnlessPOSIXShell(t *testing.T) {
 	}
 }
 
+func TestShellToolYOLOAllowsWebExecOutsideWorkspace(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Tools.Exec.CustomDenyPatterns = []string{"yolo-marker"}
+	workspace, otherDir := t.TempDir(), t.TempDir()
+	ctx := WithToolInboundContext(context.Background(), "pico", "test", "", "")
+	args := map[string]any{"action": "run", "command": "echo yolo-marker", "cwd": otherDir}
+
+	restricted, err := NewExecToolWithConfig(workspace, true, cfg)
+	require.NoError(t, err)
+	require.Contains(t, restricted.Execute(ctx, args).ContentForLLM(), "restricted to internal channels")
+
+	cfg.Tools.Approval.YOLO = true
+	unrestricted, err := NewExecToolWithConfig(workspace, true, cfg)
+	require.NoError(t, err)
+	result := unrestricted.Execute(ctx, args)
+	require.False(t, result.IsError, result.ContentForLLM())
+	require.Contains(t, result.ContentForLLM(), "yolo-marker")
+}
+
 // TestShellTool_Success verifies successful command execution
 func TestShellTool_Success(t *testing.T) {
 	tool, err := NewExecTool("", false)
