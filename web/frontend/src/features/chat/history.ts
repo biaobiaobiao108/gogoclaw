@@ -314,6 +314,12 @@ function comparableTimestamp(timestamp: number | string): number {
   return Number.isFinite(numeric) ? numeric : 0
 }
 
+export function hasUnconfirmedEdit(message: ChatMessage): boolean {
+  return Boolean(
+    message.deliveryRequest && message.deliveryRequest.id !== message.id,
+  )
+}
+
 export function mergeHistoryMessages(
   historyMessages: ChatMessage[],
   currentMessages: ChatMessage[],
@@ -334,13 +340,16 @@ export function mergeHistoryMessages(
     ),
     ...currentMessages.map((message) => {
       const saved = savedById.get(message.id)
-      return saved
+      return saved && !hasUnconfirmedEdit(message)
         ? {
             ...message,
             ...saved,
             timestamp: saved.timestamp,
             ...(message.deliveryStatus
-              ? { deliveryStatus: "accepted" as const }
+              ? {
+                  deliveryStatus: "accepted" as const,
+                  deliveryRequest: undefined,
+                }
               : {}),
           }
         : message

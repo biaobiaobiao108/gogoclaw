@@ -45,15 +45,9 @@ func (s *SQLiteStore) QueuePicoInbound(ctx context.Context, sessionID, requestID
 	}
 	status := "accepted"
 	if count == 0 {
-		var state string
-		if err := tx.QueryRowContext(ctx, "SELECT state FROM pico_inbox WHERE channel = ? AND session_id = ? AND request_id = ?", msg.Channel, sessionID, requestID).Scan(&state); err != nil {
+		status, err = picoInboundStatus(ctx, tx, msg.Channel, sessionID, requestID)
+		if err != nil {
 			return "", err
-		}
-		switch state {
-		case "processing", "interrupted":
-			status = "unknown"
-		case "done":
-			status = "duplicate"
 		}
 	} else if projectID := msg.Context.Raw[PicoProjectMetadataKey]; projectID != "" {
 		id, err := res.LastInsertId()
@@ -90,6 +84,30 @@ func (s *SQLiteStore) QueuePicoInbound(ctx context.Context, sessionID, requestID
 		}
 	}
 	return status, tx.Commit()
+}
+
+// PicoInboundStatus reports the acknowledgement for an existing request.
+func (s *SQLiteStore) PicoInboundStatus(ctx context.Context, channel, sessionID, requestID string) (string, error) {
+	status, err := picoInboundStatus(ctx, s.db, channel, sessionID, requestID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return status, err
+}
+
+func picoInboundStatus(ctx context.Context, q sqliteQueryer, channel, sessionID, requestID string) (string, error) {
+	var state string
+	if err := q.QueryRowContext(ctx, "SELECT state FROM pico_inbox WHERE channel = ? AND session_id = ? AND request_id = ?", channel, sessionID, requestID).Scan(&state); err != nil {
+		return "", err
+	}
+	switch state {
+	case "processing", "interrupted":
+		return "unknown", nil
+	case "done":
+		return "duplicate", nil
+	default:
+		return "accepted", nil
+	}
 }
 
 func (s *SQLiteStore) PendingPicoInbound(ctx context.Context, channel string, after int64) ([]PicoInboxMessage, error) {

@@ -157,6 +157,58 @@ func TestPicoInboxReplaysPendingButFencesStartedRequests(t *testing.T) {
 	if err != nil || status != "unknown" {
 		t.Fatalf("retry of started request = %q, %v", status, err)
 	}
+	// Replacing the channel leaves the Agent worker responsible for finishing.
+	replayed.Finish(ctx)
+	status, err = store.QueuePicoInbound(ctx, "chat", "request", replayed)
+	if err != nil || status != "duplicate" {
+		t.Fatalf("retry of finished request after channel replacement = %q, %v", status, err)
+	}
+}
+
+func TestPicoInboxAcknowledgesEditRetryDuringActiveTurn(t *testing.T) {
+	ctx := t.Context()
+	msgBus := bus.NewMessageBus()
+	defer msgBus.Close()
+	settings := &config.PicoSettings{}
+	settings.SetToken("test-token")
+	channel, err := NewPicoChannel(&config.Channel{Type: config.ChannelPico, Enabled: true}, settings, msgBus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	channel.inboxDir = t.TempDir()
+	if err := channel.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer channel.Stop(ctx)
+	conn, received, closeConn := newTestPicoWebSocket(t)
+	defer closeConn()
+	client := &picoConn{conn: conn, sessionID: "chat"}
+	request := PicoMessage{
+		ID:      "edit-request",
+		Payload: map[string]any{PayloadKeyContent: "edited", "edit_message_id": "original"},
+	}
+	channel.handleMessageSend(client, request)
+	if ack := mustReceivePicoMessage(t, received); ack.Type != TypeMessageAck || ack.Payload["status"] != "accepted" {
+		t.Fatalf("initial acknowledgement = %#v", ack)
+	}
+	select {
+	case inbound := <-msgBus.InboundChan():
+		if claimed, err := inbound.Claim(ctx); err != nil || !claimed {
+			t.Fatalf("claim = %v, %v", claimed, err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("edit was not dispatched")
+	}
+	channel.SetSessionBusyHandler(func(string) bool { return true })
+	channel.handleMessageSend(client, request)
+	if ack := mustReceivePicoMessage(t, received); ack.Type != TypeMessageAck || ack.Payload["status"] != "unknown" {
+		t.Fatalf("retry acknowledgement = %#v", ack)
+	}
+	request.ID = "new-edit"
+	channel.handleMessageSend(client, request)
+	if result := mustReceivePicoMessage(t, received); result.Type != TypeError || result.Payload["code"] != "session_busy" {
+		t.Fatalf("unseen request response = %#v", result)
+	}
 }
 
 func TestCreateAndAddConnection_RespectsMaxConnectionsConcurrently(t *testing.T) {

@@ -48,6 +48,27 @@ func startLongRunningProcess(t *testing.T) *exec.Cmd {
 	return cmd
 }
 
+func TestGatewayProcessExitPollWhileWaitRuns(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(executable, "-test.run=^$")
+	cmd.Env = append(os.Environ(), "GORACE=atexit_sleep_ms=0")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer cmd.Process.Kill()
+	waited := make(chan error, 1)
+	go func() { waited <- cmd.Wait() }()
+	if !waitForGatewayProcessExit(cmd, 5*time.Second) {
+		t.Fatal("child still appears to be running")
+	}
+	if err := <-waited; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func startGatewayLikeProcess(t *testing.T) *exec.Cmd {
 	t.Helper()
 

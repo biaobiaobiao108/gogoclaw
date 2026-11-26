@@ -24,13 +24,7 @@ func isCmdProcessAliveLocked(cmd *exec.Cmd) bool {
 		return false
 	}
 
-	// Wait() sets ProcessState when the process exits; use it when available.
-	if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
-		return false
-	}
-
-	// Attached processes have no waiter that updates ProcessState. Probe the
-	// actual PID so Windows can detect termination after Process.Kill().
+	// The PID probe also works for attached processes, which have no waiter.
 	if !ppid.IsProcessRunning(cmd.Process.Pid) {
 		return false
 	}

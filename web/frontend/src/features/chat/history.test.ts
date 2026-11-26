@@ -7,6 +7,22 @@ import {
 } from "./history"
 
 describe("mergeHistoryMessages", () => {
+  test("keeps an unconfirmed edit when reconnect history has the original ID", () => {
+    const original = {
+      id: "user",
+      role: "user" as const,
+      content: "old",
+      timestamp: 1,
+    }
+    const edited = {
+      ...original,
+      content: "edited",
+      deliveryStatus: "unknown" as const,
+      deliveryRequest: { id: "edit-request", encoded: "request" },
+    }
+    expect(mergeHistoryMessages([original], [edited])).toEqual([edited])
+  })
+
   test("reconciles messages received during a disconnect without duplicates", () => {
     const first = {
       id: "one",

@@ -100,6 +100,7 @@ export interface ChatMessage {
   toolCalls?: ChatToolCall[]
   deliveryId?: string
   deliveryStatus?: MessageDeliveryStatus
+  deliveryRequest?: { id: string; encoded: string }
   feedback?: ChatFeedbackValue
   sources?: ChatSource[]
   projectSources?: ChatProjectSource[]

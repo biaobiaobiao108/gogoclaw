@@ -2024,8 +2024,8 @@ func TestHandleGetSession_ReadsLegacyJSONLByID(t *testing.T) {
 	mux.ServeHTTP(searchRec, httptest.NewRequest(http.MethodGet, "/api/sessions/search?q=recover%20me", nil))
 	var results []sessionSearchResult
 	if searchRec.Code != http.StatusOK || json.Unmarshal(searchRec.Body.Bytes(), &results) != nil ||
-		len(results) != 1 || results[0].ID != "missing-meta" {
-		t.Fatalf("legacy search response = %d %s", searchRec.Code, searchRec.Body.String())
+		len(results) != 0 {
+		t.Fatalf("SQLite search should exclude standalone JSONL: %d %s", searchRec.Code, searchRec.Body.String())
 	}
 
 	detailRec := httptest.NewRecorder()

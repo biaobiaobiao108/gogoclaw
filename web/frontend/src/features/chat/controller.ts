@@ -13,6 +13,7 @@ import {
 } from "@/features/chat/chat-connection"
 import { groupChatMessages } from "@/features/chat/group-messages"
 import {
+  hasUnconfirmedEdit,
   historyMetadataPatch,
   loadOlderSessionHistory,
   loadSessionHistory,
@@ -79,6 +80,7 @@ function needsActiveSessionHydration(): boolean {
 }
 
 function setActiveSession(sessionId: string, patch: Partial<ChatStoreState>) {
+  pendingOptimisticActions.clear()
   activeSessionIdRef = sessionId
   updateChatStore({ ...patch, activeSessionId: sessionId })
 }
@@ -101,7 +103,6 @@ function disconnectChatInternal({
     turnStatusTimer = null
   }
   clearBranchSwitchTimer()
-  pendingOptimisticActions.clear()
   pendingStatusWatchUntil = 0
 
   if (clearDesiredConnection) {
@@ -285,6 +286,15 @@ export async function connectChat() {
               completion &&
               (loaded?.turnId !== completion.turnId ||
                 loaded.status !== completion.status)
+            if (
+              !previousState.activeTurn &&
+              previousState.messages.some(
+                (entry) =>
+                  hasUnconfirmedEdit(entry) &&
+                  (!completionChanged || entry.deliveryStatus !== "accepted"),
+              )
+            )
+              return
             const settledWork =
               wasActive ||
               hadPendingOptimisticAction ||
@@ -311,6 +321,18 @@ export async function connectChat() {
               window.dispatchEvent(new Event("chat-session-list-updated"))
           },
         })
+        if (
+          message.type === "message.ack" &&
+          message.payload?.status === "duplicate" &&
+          previousState.messages.some(
+            (entry) =>
+              hasUnconfirmedEdit(entry) &&
+              entry.deliveryRequest?.id === message.payload?.request_id,
+          )
+        ) {
+          pendingOptimisticActions.delete(String(message.payload.request_id))
+          void refreshActiveSessionHistory(sessionId, true)
+        }
         if (deliveryId && socket.readyState === WebSocket.OPEN) {
           socket.send(
             JSON.stringify({
@@ -556,10 +578,40 @@ export function sendChatMessage({
     return false
   }
   historyRefreshGeneration += 1
+  const payload: Record<string, unknown> = {
+    content: normalizedContent,
+    media: normalizedAttachments
+      .filter((attachment) => attachment.url.startsWith("data:image/"))
+      .map((attachment) => attachment.url),
+    attachments: normalizedAttachments.map((attachment) => ({
+      ...(attachment.id ? { id: attachment.id } : {}),
+      type: attachment.type,
+      url: attachment.url,
+      ...(attachment.filename ? { filename: attachment.filename } : {}),
+      ...(attachment.contentType
+        ? { content_type: attachment.contentType }
+        : {}),
+    })),
+  }
+  if (thinkingLevel) payload.thinking_level = thinkingLevel
+  const activeProjectId = previousState.activeProjectId
+  if (activeProjectId) payload.project_id = activeProjectId
+  if (action === "regenerate" && targetMessageId)
+    payload.regenerate_from_message_id = targetMessageId
+  if (action === "edit" && targetMessageId)
+    payload.edit_message_id = targetMessageId
+
+  const deliveryRequest = {
+    id,
+    encoded: JSON.stringify({ type: "message.send", id, payload }),
+  }
   const restoreOptimisticState = () =>
     updateChatStore((prev) => ({
       ...prev,
-      messages: mergeHistoryMessages(previousState.messages, prev.messages),
+      messages: mergeHistoryMessages(
+        previousState.messages,
+        prev.messages.filter((message) => message.deliveryRequest?.id !== id),
+      ),
       isTyping: previousState.isTyping,
       interrupted: previousState.interrupted,
       activeTurn: previousState.activeTurn,
@@ -602,6 +654,7 @@ export function sendChatMessage({
                       ? normalizedAttachments
                       : undefined,
                   deliveryStatus: "sending" as const,
+                  deliveryRequest,
                 },
               ]
             : prev.messages,
@@ -624,6 +677,7 @@ export function sendChatMessage({
               : undefined,
           timestamp: Date.now(),
           deliveryStatus: "sending",
+          deliveryRequest,
         },
       ],
       isTyping: true,
@@ -632,36 +686,7 @@ export function sendChatMessage({
   })
 
   try {
-    const payload: Record<string, unknown> = {
-      content: normalizedContent,
-      media: normalizedAttachments
-        .filter((attachment) => attachment.url.startsWith("data:image/"))
-        .map((attachment) => attachment.url),
-      attachments: normalizedAttachments.map((attachment) => ({
-        ...(attachment.id ? { id: attachment.id } : {}),
-        type: attachment.type,
-        url: attachment.url,
-        ...(attachment.filename ? { filename: attachment.filename } : {}),
-        ...(attachment.contentType
-          ? { content_type: attachment.contentType }
-          : {}),
-      })),
-    }
-    if (thinkingLevel) payload.thinking_level = thinkingLevel
-    const activeProjectId = getChatState().activeProjectId
-    if (activeProjectId) payload.project_id = activeProjectId
-    if (action === "regenerate" && targetMessageId)
-      payload.regenerate_from_message_id = targetMessageId
-    if (action === "edit" && targetMessageId)
-      payload.edit_message_id = targetMessageId
-
-    socket.send(
-      JSON.stringify({
-        type: "message.send",
-        id,
-        payload,
-      }),
-    )
+    socket.send(deliveryRequest.encoded)
   } catch (error) {
     console.error("Failed to send pico message:", error)
     pendingOptimisticActions.delete(id)
@@ -692,31 +717,19 @@ export function sendChatMessage({
 
 export function retryChatMessage(id: string) {
   const message = getChatState().messages.find((item) => item.id === id)
-  if (!message || !wsRef || wsRef.readyState !== WebSocket.OPEN) return false
+  const request = message?.deliveryRequest
+  if (
+    !request ||
+    (message.deliveryStatus !== "unknown" &&
+      message.deliveryStatus !== "failed") ||
+    !wsRef ||
+    wsRef.readyState !== WebSocket.OPEN
+  )
+    return false
   historyRefreshGeneration += 1
   try {
-    wsRef.send(
-      JSON.stringify({
-        type: "message.send",
-        id,
-        payload: {
-          content: message.content,
-          ...(getChatState().activeProjectId
-            ? { project_id: getChatState().activeProjectId }
-            : {}),
-          media: (message.attachments ?? [])
-            .filter((item) => item.url.startsWith("data:image/"))
-            .map((item) => item.url),
-          attachments: (message.attachments ?? []).map((item) => ({
-            ...(item.id ? { id: item.id } : {}),
-            type: item.type,
-            url: item.url,
-            ...(item.filename ? { filename: item.filename } : {}),
-            ...(item.contentType ? { content_type: item.contentType } : {}),
-          })),
-        },
-      }),
-    )
+    wsRef.send(request.encoded)
+    pendingStatusWatchUntil = Date.now() + 10_000
     updateChatStore((prev) => ({
       messages: prev.messages.map((item) =>
         item.id === id ? { ...item, deliveryStatus: "sending" } : item,

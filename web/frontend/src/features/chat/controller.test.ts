@@ -11,17 +11,22 @@ import {
   loadOlderChatHistory,
   newChatSession,
   refreshActiveSessionHistory,
+  retryChatMessage,
   sendChatMessage,
   switchChatSession,
 } from "./controller"
 import type { PicoMessage } from "./protocol"
 
 async function withConnectedChat(
-  run: (receive: (message: PicoMessage) => void) => Promise<void>,
+  run: (
+    receive: (message: PicoMessage) => void,
+    sent: PicoMessage[],
+  ) => Promise<void>,
 ) {
   const originalSocket = globalThis.WebSocket
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window")
   const originalGateway = getDefaultStore().get(gatewayAtom)
+  const sent: PicoMessage[] = []
   let socket: Socket
   class Socket {
     static OPEN = 1
@@ -31,7 +36,9 @@ async function withConnectedChat(
     onmessage: ((event: { data: string }) => void) | null = null
     onclose = null
     onerror = null
-    send() {}
+    send(data: string) {
+      sent.push(JSON.parse(data) as PicoMessage)
+    }
     close() {}
     constructor() {
       socket = this
@@ -53,8 +60,9 @@ async function withConnectedChat(
   })
   try {
     await connectChat()
-    await run((message) =>
-      socket.onmessage?.({ data: JSON.stringify(message) }),
+    await run(
+      (message) => socket.onmessage?.({ data: JSON.stringify(message) }),
+      sent,
     )
   } finally {
     disconnectChat()
@@ -87,6 +95,68 @@ test("editing replaces the target message without retaining its old copy", async
       content: "edited",
       deliveryStatus: "sending",
     })
+  })
+})
+
+test("retry after a disconnect resends the original edit request", async () => {
+  await withConnectedChat(async (receive, sent) => {
+    updateChatStore({
+      messages: [{ id: "user", role: "user", content: "old", timestamp: 1 }],
+      activeProjectId: "original-project",
+      historyTurn: undefined,
+    })
+    expect(
+      sendChatMessage({
+        content: "edited",
+        thinkingLevel: "high",
+        action: "edit",
+        targetMessageId: "user",
+      }),
+    ).toBe(true)
+    const original = sent.at(-1)
+    expect(original?.payload).toMatchObject({
+      edit_message_id: "user",
+      project_id: "original-project",
+      thinking_level: "high",
+    })
+    disconnectChat()
+    updateChatStore({ activeProjectId: "other-project" })
+    await connectChat()
+    const originalFetch = globalThis.fetch
+    let historyRequests = 0
+    globalThis.fetch = (async () => {
+      historyRequests += 1
+      return Response.json({
+        messages: [{ message_id: "user", role: "user", content: "old" }],
+      })
+    }) as unknown as typeof fetch
+    try {
+      receive({
+        type: "turn.status",
+        payload: {
+          active: false,
+          last_turn: { turn_id: "earlier-turn", status: "completed" },
+        },
+      })
+      await Bun.sleep(0)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+    expect(historyRequests).toBe(0)
+    expect(getChatState().messages[0]?.deliveryStatus).toBe("unknown")
+    expect(retryChatMessage("user")).toBe(true)
+    expect(sent.at(-1)).toEqual(original)
+    receive({
+      type: "message.ack",
+      payload: {
+        request_id: original?.id,
+        target_message_id: "user",
+        status: "accepted",
+      },
+    })
+    expect(getChatState().messages[0]?.deliveryStatus).toBe("accepted")
+    expect(retryChatMessage("user")).toBe(false)
+    updateChatStore({ activeProjectId: undefined })
   })
 })
 

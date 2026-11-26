@@ -2,6 +2,8 @@ package pico
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -56,6 +58,23 @@ func (c *PicoChannel) wakeInbox() {
 	}
 }
 
+func (c *PicoChannel) finishInbound(ctx context.Context, store *memory.SQLiteStore, id int64) (err error) {
+	c.inboxMu.RLock()
+	if c.inbox == store {
+		defer c.inboxMu.RUnlock()
+		return store.FinishPicoInbound(ctx, id)
+	}
+	c.inboxMu.RUnlock()
+
+	// A turn can outlive the Pico channel that dispatched it during a reload.
+	store, err = memory.OpenSQLiteStore(filepath.Dir(store.DBPath()))
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, store.Close()) }()
+	return store.FinishPicoInbound(ctx, id)
+}
+
 func (c *PicoChannel) runInbox(ctx context.Context, store *memory.SQLiteStore, wake, done chan struct{}) {
 	defer close(done)
 	ticker := time.NewTicker(time.Second)
@@ -107,7 +126,7 @@ func (c *PicoChannel) publishInbox(ctx context.Context, store *memory.SQLiteStor
 				if runCtx.Err() != nil {
 					return
 				}
-				if err := store.FinishPicoInbound(runCtx, item.ID); err != nil {
+				if err := c.finishInbound(runCtx, store, item.ID); err != nil {
 					logger.Warnf("record Pico inbound completion: %v", err)
 				}
 			}

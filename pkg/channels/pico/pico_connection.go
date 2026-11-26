@@ -627,13 +627,6 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 
 	regenerateID, _ := msg.Payload["regenerate_from_message_id"].(string)
 	editID, _ := msg.Payload["edit_message_id"].(string)
-	if (strings.TrimSpace(regenerateID) != "" || strings.TrimSpace(editID) != "" || taskAction == "resume_answer") &&
-		c.sessionBusy != nil && c.sessionBusy(pc.sessionID) {
-		pc.writeJSON(newErrorWithPayload("session_busy", "stop the active task before editing or regenerating an answer", map[string]any{
-			"request_id": msg.ID,
-		}))
-		return
-	}
 	if taskAction == "resume_answer" && (len(media) > 0 || len(attachments) > 0 ||
 		strings.TrimSpace(regenerateID) != "" || strings.TrimSpace(editID) != "") {
 		pc.writeJSON(newErrorWithPayload("invalid_task_action", "resume takes no attachments or branch target", map[string]any{"request_id": msg.ID}))
@@ -704,6 +697,22 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		Context: inboundCtx, Sender: sender, Content: content, Media: media, Attachments: attachments,
 		MediaScope: channels.BuildMediaScope(c.Name(), chatID, requestID),
 	})
+	if (strings.TrimSpace(regenerateID) != "" || strings.TrimSpace(editID) != "" || taskAction == "resume_answer") &&
+		c.sessionBusy != nil && c.sessionBusy(sessionID) {
+		status, err := inbox.PicoInboundStatus(c.ctx, c.Name(), sessionID, requestID)
+		if err != nil {
+			_ = pc.writeJSON(newErrorWithPayload("send_failed", err.Error(), map[string]any{"request_id": msg.ID}))
+			return
+		}
+		if status != "" {
+			c.writeMessageAck(pc, msg.ID, strings.TrimSpace(editID), status)
+			return
+		}
+		pc.writeJSON(newErrorWithPayload("session_busy", "stop the active task before editing or regenerating an answer", map[string]any{
+			"request_id": msg.ID,
+		}))
+		return
+	}
 	status, err := inbox.QueuePicoInbound(c.ctx, sessionID, requestID, inbound)
 	if errors.Is(err, memory.ErrChatProjectNotFound) {
 		_ = pc.writeJSON(newErrorWithPayload("project_not_found", "project no longer exists", map[string]any{"request_id": msg.ID}))

@@ -517,8 +517,21 @@ export function handlePicoMessage(
       if (requestId || targetMessageId) {
         updateChatStore((prev) => ({
           messages: prev.messages.map((entry) =>
-            entry.id === requestId || entry.id === targetMessageId
-              ? { ...entry, deliveryStatus: status }
+            (
+              entry.deliveryRequest
+                ? entry.deliveryRequest.id === requestId
+                : entry.id === requestId || entry.id === targetMessageId
+            )
+              ? {
+                  ...entry,
+                  deliveryStatus: status,
+                  deliveryRequest:
+                    status === "unknown" ||
+                    (status === "accepted" &&
+                      entry.deliveryRequest?.id !== entry.id)
+                      ? entry.deliveryRequest
+                      : undefined,
+                }
               : entry,
           ),
         }))
@@ -564,7 +577,7 @@ export function handlePicoMessage(
       updateChatStore((prev) => ({
         messages: requestId
           ? prev.messages.map((msg) =>
-              msg.id === requestId
+              (msg.deliveryRequest?.id ?? msg.id) === requestId
                 ? { ...msg, deliveryStatus: "failed" as const }
                 : msg,
             )
