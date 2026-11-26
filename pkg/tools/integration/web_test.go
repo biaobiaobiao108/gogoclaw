@@ -866,6 +866,9 @@ func TestWebFetch_BlocksISATAPWithPrivateEmbed(t *testing.T) {
 
 // TestWebFetch_Allows6to4WithPublicEmbed verifies 6to4 with public embedded IPv4 is NOT blocked
 func TestWebFetch_Allows6to4WithPublicEmbed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping 6to4 network dial timeout test in short mode")
+	}
 	tool, err := NewWebFetchTool(50000, format, testFetchLimit)
 	if err != nil {
 		t.Fatalf("Failed to create web fetch tool: %v", err)

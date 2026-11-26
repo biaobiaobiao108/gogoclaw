@@ -140,6 +140,9 @@ func TestSQLiteStoreRejectsCorruptDatabaseAtStartup(t *testing.T) {
 }
 
 func TestSQLiteLargeDatabaseStartupDrill(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping large database startup drill in short mode")
+	}
 	ctx := context.Background()
 	dir := t.TempDir()
 	store, err := NewSQLiteStore(dir)
