@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -66,7 +65,12 @@ func (h *Handler) handleCreateChatProject(w http.ResponseWriter, r *http.Request
 		Name         string `json:"name"`
 		Instructions string `json:"instructions"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&body); err != nil {
+	if err := decodeJSONRequestWithLimit(w, r, 64<<10, &body); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid project", http.StatusBadRequest)
 		return
 	}
@@ -116,7 +120,12 @@ func (h *Handler) handleUpdateChatProject(w http.ResponseWriter, r *http.Request
 		Name         string `json:"name"`
 		Instructions string `json:"instructions"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&body); err != nil {
+	if err := decodeJSONRequestWithLimit(w, r, 64<<10, &body); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid project", http.StatusBadRequest)
 		return
 	}

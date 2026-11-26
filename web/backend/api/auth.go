@@ -294,7 +294,7 @@ func (h *launcherAuthHandlers) handleSetup(w http.ResponseWriter, r *http.Reques
 			_, _ = w.Write([]byte(`{"error":"dashboard password is not initialized"}`))
 			return
 		}
-		currentOK, err := h.store.VerifyPassword(r.Context(), body.CurrentPassword)
+		currentOK, err := h.store.VerifyPassword(r.Context(), strings.TrimSpace(body.CurrentPassword))
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			writeErrorf(w, "password verification failed: %v", err)

@@ -4,8 +4,12 @@ type Theme = "light" | "dark"
 
 function getStoredTheme(): Theme {
   if (typeof window === "undefined") return "light"
-  const stored = localStorage.getItem("theme")
-  return stored === "dark" ? "dark" : "light"
+  try {
+    const stored = localStorage.getItem("theme")
+    return stored === "dark" ? "dark" : "light"
+  } catch {
+    return "light"
+  }
 }
 
 export function useTheme() {
@@ -18,7 +22,11 @@ export function useTheme() {
     } else {
       root.classList.remove("dark")
     }
-    localStorage.setItem("theme", theme)
+    try {
+      localStorage.setItem("theme", theme)
+    } catch {
+      // Theme still applies in-memory when browser storage is unavailable.
+    }
     document
       .querySelector('meta[name="theme-color"]')
       ?.setAttribute("content", theme === "dark" ? "#1f2023" : "#e7e6e4")

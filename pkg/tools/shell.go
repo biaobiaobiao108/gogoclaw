@@ -122,6 +122,9 @@ var (
 	// absolutePathPattern matches absolute file paths in commands (Unix and Windows).
 	absolutePathPattern = regexp.MustCompile(`[A-Za-z]:\\[^\\\"']+|/[^\s\"']+`)
 
+	// pathTraversalPattern matches literal ".." traversal segments (e.g. "../", "..\").
+	pathTraversalPattern = regexp.MustCompile(`\.\.(?:[\\/]\.\.)*[\\/]`)
+
 	// safePaths are kernel pseudo-devices that are always safe to reference in
 	// commands, regardless of workspace restriction. They contain no user data
 	// and cannot cause destructive writes.
@@ -1210,7 +1213,7 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 	// workspace check as complete isolation.
 	if t.restrictToWorkspace {
 		// Block path traversal patterns including .../.../ variants
-		if regexp.MustCompile(`\.\.(?:[\\/]\.\.)*[\\/]`).MatchString(cmd) {
+		if pathTraversalPattern.MatchString(cmd) {
 			return "Command blocked by safety guard (path traversal detected)"
 		}
 

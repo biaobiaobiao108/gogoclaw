@@ -28,3 +28,20 @@ func TestDecodeJSONRequestRejectsOversizedBody(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
 	}
 }
+
+func TestReadJSONRequestBodyRejectsOversizedBody(t *testing.T) {
+	body := fmt.Sprintf(`{"value":%q}`, strings.Repeat("x", int(maxJSONRequestBodyBytes)))
+	req := httptest.NewRequest(http.MethodPost, "/api/test", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	_, err := readJSONRequestBody(rec, req, maxJSONRequestBodyBytes)
+	var maxBytesErr *http.MaxBytesError
+	if !errors.As(err, &maxBytesErr) {
+		t.Fatalf("readJSONRequestBody() error = %v, want MaxBytesError", err)
+	}
+
+	writeJSONReadError(rec, err)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+}

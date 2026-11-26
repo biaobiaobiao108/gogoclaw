@@ -275,7 +275,12 @@ func (h *Handler) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 		Archived  *bool           `json:"archived"`
 		ProjectID json.RawMessage `json:"project_id"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 32*1024)).Decode(&body); err != nil {
+	if err := decodeJSONRequestWithLimit(w, r, 32*1024, &body); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid session metadata", http.StatusBadRequest)
 		return
 	}
@@ -345,7 +350,12 @@ func (h *Handler) handleSetSessionFeedback(w http.ResponseWriter, r *http.Reques
 	var body struct {
 		Value string `json:"value"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 8*1024)).Decode(&body); err != nil {
+	if err := decodeJSONRequestWithLimit(w, r, 8*1024, &body); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid feedback", http.StatusBadRequest)
 		return
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -172,12 +171,11 @@ func (h *Handler) handleGetDefaultChain(w http.ResponseWriter, r *http.Request) 
 //
 //	POST /api/models
 func (h *Handler) handleAddModel(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := readJSONRequestBody(w, r, maxJSONRequestBodyBytes)
 	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		writeJSONReadError(w, err)
 		return
 	}
-	defer r.Body.Close()
 
 	type custom struct {
 		config.ModelConfig
@@ -260,12 +258,11 @@ func (h *Handler) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := readJSONRequestBody(w, r, maxJSONRequestBodyBytes)
 	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		writeJSONReadError(w, err)
 		return
 	}
-	defer r.Body.Close()
 
 	var rawFields map[string]json.RawMessage
 	if err = json.Unmarshal(body, &rawFields); err != nil {
@@ -532,12 +529,11 @@ func replaceModelName(names []string, oldName string, newName string) []string {
 //
 //	POST /api/models/default
 func (h *Handler) handleSetDefaultModel(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := readJSONRequestBody(w, r, maxJSONRequestBodyBytes)
 	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		writeJSONReadError(w, err)
 		return
 	}
-	defer r.Body.Close()
 
 	var req struct {
 		ModelName string `json:"model_name"`
@@ -599,12 +595,11 @@ func (h *Handler) handleSetDefaultModel(w http.ResponseWriter, r *http.Request) 
 //
 //	PUT /api/models/default-chain
 func (h *Handler) handleUpdateDefaultChain(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := readJSONRequestBody(w, r, maxJSONRequestBodyBytes)
 	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		writeJSONReadError(w, err)
 		return
 	}
-	defer r.Body.Close()
 
 	var req defaultChainRequest
 	if err = json.Unmarshal(body, &req); err != nil {
@@ -672,12 +667,11 @@ func maskAPIKey(key string) string {
 //
 //	POST /api/models/fetch
 func (h *Handler) handleFetchModels(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := readJSONRequestBody(w, r, maxJSONRequestBodyBytes)
 	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		writeJSONReadError(w, err)
 		return
 	}
-	defer r.Body.Close()
 
 	var req struct {
 		Provider   string `json:"provider"`
@@ -818,9 +812,9 @@ func (h *Handler) handleTestModel(w http.ResponseWriter, r *http.Request) {
 //
 //	POST /api/models/test-inline
 func (h *Handler) handleTestInlineModel(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := readJSONRequestBody(w, r, maxJSONRequestBodyBytes)
 	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		writeJSONReadError(w, err)
 		return
 	}
 

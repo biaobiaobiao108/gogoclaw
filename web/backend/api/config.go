@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -50,12 +49,11 @@ func (h *Handler) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 //
 //	PUT /api/config
 func (h *Handler) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := readJSONRequestBody(w, r, maxJSONRequestBodyBytes)
 	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		writeJSONReadError(w, err)
 		return
 	}
-	defer r.Body.Close()
 
 	var raw map[string]any
 	if err = json.Unmarshal(body, &raw); err != nil {
@@ -135,12 +133,11 @@ func execAllowRemoteOmitted(body []byte) bool {
 //
 //	PATCH /api/config
 func (h *Handler) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
-	patchBody, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	patchBody, err := readJSONRequestBody(w, r, maxJSONRequestBodyBytes)
 	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		writeJSONReadError(w, err)
 		return
 	}
-	defer r.Body.Close()
 
 	// Validate the patch is valid JSON
 	var patch map[string]any
@@ -274,12 +271,11 @@ func (h *Handler) handleResetConfig(w http.ResponseWriter, r *http.Request) {
 //
 //	POST /api/config/test-command-patterns
 func (h *Handler) handleTestCommandPatterns(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := readJSONRequestBody(w, r, maxJSONRequestBodyBytes)
 	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		writeJSONReadError(w, err)
 		return
 	}
-	defer r.Body.Close()
 
 	var req struct {
 		AllowPatterns []string `json:"allow_patterns"`
