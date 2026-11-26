@@ -1,4 +1,4 @@
-.PHONY: all build build-launcher build-launcher-frontend clean help deps update-deps test harness-test soak-test integration-test benchmark check fmt
+.PHONY: all build build-launcher build-launcher-frontend clean help deps update-deps test test-short harness-test soak-test integration-test benchmark check fmt
 
 # Build variables
 BINARY_NAME=gogoclaw
@@ -180,6 +180,11 @@ endif
 ## test: Test Go code
 test:
 	@$(GO) test $(GOFLAGS) $$($(GO) list $(GOFLAGS) ./... | grep -v github.com/biaobiaobiao108/gogoclaw/web/)
+	@cd web && make test
+
+## test-short: Run fast Go unit tests (-short) and frontend tests
+test-short:
+	@$(GO) test -short $(GOFLAGS) $$($(GO) list $(GOFLAGS) ./... | grep -v github.com/biaobiaobiao108/gogoclaw/web/)
 	@cd web && make test
 
 ## harness-test: Run trajectory-level evaluation and fault-injection scenarios
