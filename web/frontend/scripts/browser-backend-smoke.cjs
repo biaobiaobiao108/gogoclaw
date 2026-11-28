@@ -23,6 +23,7 @@ async function unusedPort() {
 const chatSentinel = "private-browser-input-91372"
 const replySentinel = "private-browser-answer-63725"
 const interimSentinel = "browser-interim-accepted-88923"
+const sessionTitleSentinel = "browser-generated-session-title-46281"
 
 const stopPrompt = "fixture-stop-test"
 const stoppedText = "fixture-partial-kept"
@@ -65,6 +66,13 @@ async function startModelFixture() {
       return
     }
     const input = JSON.parse(body)
+    const isSessionTitle = input.messages.some(
+      (message) =>
+        message.role === "system" &&
+        String(message.content).includes(
+          "title generator for another conversation",
+        ),
+    )
     const hasToolResult = input.messages.some(
       (message) => message.role === "tool",
     )
@@ -77,26 +85,29 @@ async function startModelFixture() {
     const isApproval = body.includes(approvalPrompt)
     const isSteering = body.includes(steeringPrompt)
     const receivedSteering = body.includes(steeringInput)
-    const needsTool = !isResume && !isStop && !isReconnect && !hasToolResult
-    const text = isResume
-      ? resumedText
-      : isStop
-        ? stoppedText
-        : isReconnect
-          ? reconnectStart
-          : isApproval
-            ? hasToolResult
-              ? approvalFinal
-              : approvalText
-            : isSteering
-              ? receivedSteering
-                ? steeringFinal
+    const needsTool =
+      !isSessionTitle && !isResume && !isStop && !isReconnect && !hasToolResult
+    const text = isSessionTitle
+      ? sessionTitleSentinel
+      : isResume
+        ? resumedText
+        : isStop
+          ? stoppedText
+          : isReconnect
+            ? reconnectStart
+            : isApproval
+              ? hasToolResult
+                ? approvalFinal
+                : approvalText
+              : isSteering
+                ? receivedSteering
+                  ? steeringFinal
+                  : hasToolResult
+                    ? "superseded content"
+                    : steeringStart
                 : hasToolResult
-                  ? "superseded content"
-                  : steeringStart
-              : hasToolResult
-                ? replySentinel
-                : interimSentinel
+                  ? replySentinel
+                  : interimSentinel
     if (isSteering && receivedSteering)
       server.steeringCount = input.messages.filter(
         (message) =>
@@ -277,13 +288,18 @@ async function checkLocalChat(page, base, model) {
     { timeout: 15000, polling: 500 },
   )
 
+  const conversation = page.getByRole("list", {
+    name: /Conversation messages|对话消息/,
+  })
   const input = page.locator('textarea:not([aria-hidden="true"])')
   await input.fill(chatSentinel, { timeout: 10000 })
   await input.press("Enter")
-  await page
+  await conversation
     .getByText(interimSentinel, { exact: true })
     .waitFor({ timeout: 15000 })
-  const answer = page.locator("article").filter({ hasText: interimSentinel })
+  const answer = conversation
+    .locator("article")
+    .filter({ hasText: interimSentinel })
   await answer
     .locator("button[aria-expanded]")
     .first()
@@ -297,9 +313,13 @@ async function checkLocalChat(page, base, model) {
           frames.map((frame) => ({ type: frame.type, ...frame.payload })),
         ),
     )
-  await page
+  await conversation
     .getByText(replySentinel, { exact: true })
     .waitFor({ timeout: 15000 })
+  await page
+    .getByRole("banner")
+    .getByText(sessionTitleSentinel, { exact: true })
+    .waitFor({ timeout: 10000 })
   await page
     .getByText(/Your first Web reply arrived|已收到第一条 Web 回复/)
     .waitFor()
@@ -307,7 +327,7 @@ async function checkLocalChat(page, base, model) {
     .getByRole("link", { name: /Connect an external channel|连接外部频道/ })
     .waitFor()
 
-  const interim = page.getByText(interimSentinel, { exact: true })
+  const interim = conversation.getByText(interimSentinel, { exact: true })
   if ((await interim.count()) !== 1)
     throw new Error("Interim text missing or duplicated after final")
   const deadline = Date.now() + 3500
@@ -344,7 +364,7 @@ async function checkLocalChat(page, base, model) {
   if ((await answer.count()) !== 1) throw new Error("Live reply is split")
   const chatURL = page.url()
   await page.reload()
-  await page
+  await conversation
     .getByText(replySentinel, { exact: true })
     .waitFor({ timeout: 10000 })
     .catch(async (error) => {
@@ -426,10 +446,10 @@ async function checkLocalChat(page, base, model) {
   )
   await answer.getByRole("button", { name: /Regenerate|重新生成/ }).focus()
   await answer.getByRole("button", { name: /Regenerate|重新生成/ }).click()
-  await page
+  await conversation
     .getByText(replySentinel, { exact: true })
     .waitFor({ state: "hidden", timeout: 4000 })
-  await page
+  await conversation
     .getByText(replySentinel, { exact: true })
     .waitFor({ timeout: 15000 })
   if ((await interim.count()) !== 1)
