@@ -70,6 +70,17 @@ func (cb *ContextBuilder) WithToolDiscovery(enabled bool) *ContextBuilder {
 
 func (cb *ContextBuilder) WithSplitOnMarker(enabled bool) *ContextBuilder {
 	cb.splitOnMarker = enabled
+	if enabled {
+		if err := cb.RegisterPromptContributor(splitOnMarkerPromptContributor{cb: cb}); err != nil {
+			logger.WarnCF(
+				"agent",
+				"Failed to register split-on-marker prompt contributor",
+				map[string]any{
+					"error": err.Error(),
+				},
+			)
+		}
+	}
 	return cb
 }
 
@@ -323,23 +334,6 @@ func (cb *ContextBuilder) buildSystemPromptParts(opts systemPromptBuildOptions) 
 			Content: "# Memory\n\n" + memoryContext,
 			Stable:  true,
 			Cache:   PromptCacheEphemeral,
-		})
-	}
-
-	// Multi-Message Sending (if enabled)
-	if cb.splitOnMarker {
-		add(PromptPart{
-			ID:     "context.output_policy.split_on_marker",
-			Layer:  PromptLayerContext,
-			Slot:   PromptSlotOutput,
-			Source: PromptSource{ID: PromptSourceOutputPolicy, Name: "split_on_marker"},
-			Title:  "multi-message output policy",
-			Content: `# MULTI-MESSAGE OUTPUT
-You MUST frequently use <|[SPLIT]|> to break your responses into multiple short messages. NEVER output a single long wall of text. Actively split distinct concepts or parts. Example: Message part 1<|[SPLIT]|>Message part 2<|[SPLIT]|>Message part 3
-
-Each part separated by the marker will be sent as an independent message.`,
-			Stable: true,
-			Cache:  PromptCacheEphemeral,
 		})
 	}
 

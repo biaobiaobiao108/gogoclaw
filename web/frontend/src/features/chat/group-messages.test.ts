@@ -83,6 +83,26 @@ test("renders model split markers as paragraph breaks in Web replies", () => {
   })
 })
 
+test("normalizes variant split markers, strips streaming prefix, and preserves code blocks", () => {
+  const reply = groupChatMessages([
+    message(
+      "answer",
+      "part1 <split> part2 <|SPLIT|> ```md\n<|[SPLIT]|>\n``` `<split>` part3<|[SP",
+    ),
+  ])[0]
+  expect(reply).toMatchObject({
+    kind: "reply",
+    parts: [
+      {
+        kind: "text",
+        message: {
+          content: "part1\n\npart2\n\n```md\n<|[SPLIT]|>\n``` `<split>` part3",
+        },
+      },
+    ],
+  })
+})
+
 test("keeps live and saved steering in the same reply through explicit turn IDs", () => {
   const turnId = "explicit-turn"
   const opening = { ...message("opaque-opening", "opening"), turnId }

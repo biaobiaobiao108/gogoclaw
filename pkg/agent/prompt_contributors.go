@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 )
 
@@ -45,6 +46,49 @@ func (c toolDiscoveryPromptContributor) ContributePrompt(
 			Content: content,
 			Stable:  true,
 			Cache:   PromptCacheEphemeral,
+		},
+	}, nil
+}
+
+type splitOnMarkerPromptContributor struct {
+	cb *ContextBuilder
+}
+
+func (c splitOnMarkerPromptContributor) PromptSource() PromptSourceDescriptor {
+	return PromptSourceDescriptor{
+		ID:              PromptSourceOutputPolicy,
+		Owner:           "output_policy",
+		Description:     "Multi-message split marker instructions",
+		Allowed:         []PromptPlacement{{Layer: PromptLayerContext, Slot: PromptSlotOutput}},
+		StableByDefault: true,
+	}
+}
+
+func (c splitOnMarkerPromptContributor) ContributePrompt(
+	_ context.Context,
+	req PromptBuildRequest,
+) ([]PromptPart, error) {
+	if c.cb == nil || !c.cb.splitOnMarker {
+		return nil, nil
+	}
+	// Web console (pico) and local CLI do not split outbound messages by marker;
+	// skip injecting the instruction so the model doesn't emit raw markers there.
+	if req.Channel == config.ChannelPico || req.Channel == "cli" {
+		return nil, nil
+	}
+	return []PromptPart{
+		{
+			ID:     "context.output_policy.split_on_marker",
+			Layer:  PromptLayerContext,
+			Slot:   PromptSlotOutput,
+			Source: PromptSource{ID: PromptSourceOutputPolicy, Name: "split_on_marker"},
+			Title:  "multi-message output policy",
+			Content: `# MULTI-MESSAGE OUTPUT
+You MUST frequently use <|[SPLIT]|> to break your responses into multiple short messages. NEVER output a single long wall of text. Actively split distinct concepts or parts. Example: Message part 1<|[SPLIT]|>Message part 2<|[SPLIT]|>Message part 3
+
+Each part separated by the marker will be sent as an independent message.`,
+			Stable: true,
+			Cache:  PromptCacheEphemeral,
 		},
 	}, nil
 }

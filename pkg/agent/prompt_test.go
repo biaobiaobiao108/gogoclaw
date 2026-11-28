@@ -539,3 +539,26 @@ func TestContextBuilder_CollectsRegisteredPromptContributors(t *testing.T) {
 		t.Fatalf("system prompt missing contributor content: %q", messages[0].Content)
 	}
 }
+
+func TestSplitOnMarkerPromptSkippedForPicoAndCLI(t *testing.T) {
+	t.Setenv("GOGOCLAW_BUILTIN_SKILLS", t.TempDir())
+	cb := NewContextBuilder(t.TempDir()).WithSplitOnMarker(true)
+
+	imMessages := cb.BuildMessagesFromPrompt(PromptBuildRequest{
+		Channel:        "telegram",
+		CurrentMessage: "hello",
+	})
+	if !strings.Contains(imMessages[0].Content, "# MULTI-MESSAGE OUTPUT") {
+		t.Fatalf("expected IM channel prompt to include MULTI-MESSAGE OUTPUT, got: %q", imMessages[0].Content)
+	}
+
+	for _, ch := range []string{"pico", "cli"} {
+		msgs := cb.BuildMessagesFromPrompt(PromptBuildRequest{
+			Channel:        ch,
+			CurrentMessage: "hello",
+		})
+		if strings.Contains(msgs[0].Content, "# MULTI-MESSAGE OUTPUT") {
+			t.Fatalf("expected channel %q prompt to omit MULTI-MESSAGE OUTPUT", ch)
+		}
+	}
+}

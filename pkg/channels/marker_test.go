@@ -139,3 +139,55 @@ func TestMarkerSplitPreservesCodeBlockIntegrity(t *testing.T) {
 		t.Errorf("Code block not preserved correctly: %q", chunks[1])
 	}
 }
+
+func TestSplitByMarker_IgnoresMarkersInsideCode(t *testing.T) {
+	content := "Before\n```md\nexample <|[SPLIT]|> inside\n```\nInline `<split>` too<|[SPLIT]|>After"
+	chunks := SplitByMarker(content)
+
+	if len(chunks) != 2 {
+		t.Fatalf("Expected 2 chunks, got %d: %q", len(chunks), chunks)
+	}
+	wantFirst := "Before\n```md\nexample <|[SPLIT]|> inside\n```\nInline `<split>` too"
+	if chunks[0] != wantFirst {
+		t.Errorf("First chunk = %q, want %q", chunks[0], wantFirst)
+	}
+	if chunks[1] != "After" {
+		t.Errorf("Second chunk = %q, want %q", chunks[1], "After")
+	}
+}
+
+func TestSplitByMarker_TolerantVariants(t *testing.T) {
+	content := "One<|SPLIT|>Two<[split]>Three<split>Four</split>Five"
+	chunks := SplitByMarker(content)
+
+	want := []string{"One", "Two", "Three", "Four", "Five"}
+	if len(chunks) != len(want) {
+		t.Fatalf("Expected %d chunks, got %d: %q", len(want), len(chunks), chunks)
+	}
+	for i := range want {
+		if chunks[i] != want[i] {
+			t.Errorf("chunks[%d] = %q, want %q", i, chunks[i], want[i])
+		}
+	}
+}
+
+func TestTrimTrailingMarkerPrefix(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"hello<", "hello"},
+		{"hello<|", "hello"},
+		{"hello<|[SP", "hello"},
+		{"hello<spl", "hello"},
+		{"hello</sp", "hello"},
+		{"a < b", "a < b"},
+		{"hello<span", "hello<span"},
+		{"`hello<|[SP`", "`hello<|[SP`"},
+	}
+	for _, tc := range cases {
+		if got := trimTrailingMarkerPrefix(tc.in); got != tc.want {
+			t.Errorf("trimTrailingMarkerPrefix(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

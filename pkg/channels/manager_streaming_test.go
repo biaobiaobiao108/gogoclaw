@@ -1253,6 +1253,58 @@ func TestGetStreamer_SplitOnMarkerPreservesModelNameSetter(t *testing.T) {
 	}
 }
 
+func TestGetStreamer_SplitOnMarkerBuffersPartialPrefixAndIgnoresCodeBlocks(t *testing.T) {
+	m := newTestManager()
+	m.config = &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				SplitOnMarker: true,
+			},
+		},
+	}
+
+	first := &recordingStreamSegment{}
+	second := &recordingStreamSegment{}
+	callCount := 0
+	ch := &mockStreamingChannel{
+		beginStreamFn: func(context.Context, string) (Streamer, error) {
+			callCount++
+			if callCount == 1 {
+				return first, nil
+			}
+			return second, nil
+		},
+	}
+	m.channels["test"] = ch
+
+	streamer, ok := m.GetStreamer(context.Background(), "test", "123", "")
+	if !ok {
+		t.Fatal("expected streamer to be available")
+	}
+
+	// Partial marker prefix at tail should be buffered, not pushed to Update.
+	if err := streamer.Update(context.Background(), "hello<|[SP"); err != nil {
+		t.Fatalf("Update(partial) error = %v", err)
+	}
+	if len(first.updates) != 1 || first.updates[0] != "hello" {
+		t.Fatalf("first updates = %v, want [hello]", first.updates)
+	}
+
+	// Completing the marker inside a code block should NOT split.
+	if err := streamer.Update(context.Background(), "hello\n```\n<|[SPLIT]|>\n```\nworld<split>next"); err != nil {
+		t.Fatalf("Update(code+variant) error = %v", err)
+	}
+	if len(first.finals) != 1 || first.finals[0] != "hello\n```\n<|[SPLIT]|>\n```\nworld" {
+		t.Fatalf("first finals = %v", first.finals)
+	}
+	if err := streamer.Finalize(context.Background(), "hello\n```\n<|[SPLIT]|>\n```\nworld<split>next"); err != nil {
+		t.Fatalf("Finalize() error = %v", err)
+	}
+	if len(second.finals) != 1 || second.finals[0] != "next" {
+		t.Fatalf("second finals = %v, want [next]", second.finals)
+	}
+}
+
 func TestGetStreamer_FinalizeSeparateMessagesClearsTrackedToolFeedback(t *testing.T) {
 	m := newTestManager()
 	m.config = &config.Config{

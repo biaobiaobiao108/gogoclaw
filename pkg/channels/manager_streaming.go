@@ -226,12 +226,13 @@ func (s *splitMarkerStreamer) ClearFinalizedStreamMarker() {
 }
 
 func (s *splitMarkerStreamer) updateLocked(ctx context.Context, content string) error {
-	parts := strings.Split(content, MessageSplitMarker)
+	ranges := findSplitMarkerRanges(content)
+	parts := splitContentByRanges(content, ranges)
 	completedLimit := len(parts) - 1
 	if err := s.finalizeCompletedPartsLocked(ctx, parts, completedLimit, -1, nil); err != nil {
 		return err
 	}
-	active := strings.TrimSpace(parts[len(parts)-1])
+	active := strings.TrimSpace(trimTrailingMarkerPrefix(parts[len(parts)-1]))
 	if active == "" {
 		return nil
 	}
@@ -242,7 +243,8 @@ func (s *splitMarkerStreamer) updateLocked(ctx context.Context, content string) 
 }
 
 func (s *splitMarkerStreamer) finalizeLocked(ctx context.Context, content string, usage *bus.ContextUsage) error {
-	parts := strings.Split(content, MessageSplitMarker)
+	ranges := findSplitMarkerRanges(content)
+	parts := splitContentByRanges(content, ranges)
 	last := len(parts) - 1
 	for last >= 0 && strings.TrimSpace(parts[last]) == "" {
 		last--
