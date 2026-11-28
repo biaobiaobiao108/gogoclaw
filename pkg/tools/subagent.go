@@ -255,9 +255,9 @@ func (sm *SubagentManager) runTask(
 	task *SubagentTask,
 	callback AsyncCallback,
 ) {
-	// TODO(eventbus): once subagents are modeled as child turns inside
-	// pkg/agent, emit SubTurnEnd and SubTurnResultDelivered from the parent
-	// AgentLoop instead of this legacy manager.
+	// Note: when spawner != nil (standard AgentLoop wiring), child turn lifecycle
+	// events (SubTurnEnd / SubTurnResultDelivered) are emitted by the parent AgentLoop.
+	// The direct RunToolLoop path below is only a legacy fallback for standalone tests.
 
 	// Check if context is already canceled before starting
 	select {

@@ -6,14 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
-	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/biaobiaobiao108/gogoclaw/pkg/bus"
-	"github.com/biaobiaobiao108/gogoclaw/pkg/config"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/constants"
 	runtimeevents "github.com/biaobiaobiao108/gogoclaw/pkg/events"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
@@ -22,188 +18,6 @@ import (
 	"github.com/biaobiaobiao108/gogoclaw/pkg/tools"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/utils"
 )
-
-func toolCallFingerprint(name string, args map[string]any) string {
-	argsJSON, _ := json.Marshal(args)
-	return strings.ToLower(strings.TrimSpace(name)) + "\x00" + string(argsJSON)
-}
-
-func canExecuteInParallel(al *AgentLoop, cfg *config.Config, ts *turnState, toolCalls []providers.ToolCall) bool {
-	if al == nil || cfg == nil || ts == nil {
-		return false
-	}
-	if al.hooks != nil && al.hooks.HasActiveHooks() {
-		return false
-	}
-	seenFingerprints := make(map[string]struct{}, len(toolCalls))
-	for _, tc := range toolCalls {
-		policy := ts.toolPolicy(tc.Name)
-		if !policy.ReadOnly || !policy.Idempotent {
-			return false
-		}
-		fingerprint := toolCallFingerprint(tc.Name, tc.Arguments)
-		if _, duplicate := seenFingerprints[fingerprint]; duplicate || ts.readOnlyCallSeen(fingerprint) {
-			return false
-		}
-		seenFingerprints[fingerprint] = struct{}{}
-		if required, _, _ := tools.StaticApprovalPolicy(cfg.Tools.Approval, al.publicExposure, tc.Name, tc.Arguments); required {
-			return false
-		}
-		if !turnProfileToolAllowed(ts.profile, tc.Name) {
-			return false
-		}
-	}
-	return true
-}
-
-func toolResultHasUsableContent(result *tools.ToolResult) bool {
-	if result == nil || result.IsError {
-		return false
-	}
-	content := strings.TrimSpace(result.ContentForLLM())
-	if content == "" {
-		return false
-	}
-	lower := strings.ToLower(content)
-	if strings.HasPrefix(lower, "no results for:") || strings.HasPrefix(lower, "no results found") {
-		return false
-	}
-
-	var fetched struct {
-		Status int    `json:"status"`
-		Text   string `json:"text"`
-	}
-	if strings.HasPrefix(content, "{") && json.Unmarshal([]byte(content), &fetched) == nil && fetched.Status != 0 {
-		return fetched.Status >= 200 && fetched.Status < 400 && strings.TrimSpace(fetched.Text) != ""
-	}
-	return true
-}
-
-func toolErrorSummary(cfg *config.Config, result *tools.ToolResult) string {
-	if result == nil || !result.IsError {
-		return ""
-	}
-	content := strings.TrimSpace(result.ContentForLLM())
-	if content == "" && result.Err != nil {
-		content = strings.TrimSpace(result.Err.Error())
-	}
-	return utils.Truncate(cfg.RedactDiagnostic(content), 200)
-}
-
-func toolItemResultFields(
-	al *AgentLoop,
-	policy tools.ToolPolicy,
-	result *tools.ToolResult,
-	duplicate bool,
-) (status, sideEffect, summary, errorSummary string) {
-	runtime := al.runtimeSnapshot()
-	status = toolItemStatusCompleted
-	sideEffect = toolItemSideEffectPossible
-	if policy.ReadOnly {
-		sideEffect = toolItemSideEffectNone
-	}
-	if duplicate {
-		status = toolItemStatusSkipped
-		sideEffect = toolItemSideEffectNone
-	} else if result != nil && result.IsError {
-		status = toolItemStatusFailed
-		if result.NotExecuted {
-			sideEffect = toolItemSideEffectNone
-		} else if !policy.ReadOnly {
-			sideEffect = toolItemSideEffectUnknown
-		}
-	}
-	if result != nil {
-		content := runtime.cfg.RedactDiagnostic(result.ContentForLLM())
-		summary = utils.Truncate(content, 300)
-		errorSummary = toolErrorSummary(runtime.cfg, result)
-	}
-	return status, sideEffect, summary, errorSummary
-}
-
-func (ts *turnState) finishToolItemFromResult(
-	al *AgentLoop,
-	batchID string,
-	index int,
-	policy tools.ToolPolicy,
-	result *tools.ToolResult,
-	duplicate bool,
-) {
-	status, sideEffect, summary, errorSummary := toolItemResultFields(al, policy, result, duplicate)
-	ts.finishToolItem(batchID, index, status, sideEffect, summary, errorSummary)
-}
-
-func inferSkillNamesFromToolCall(ts *turnState, toolName string, toolArgs map[string]any) []string {
-	if ts == nil || toolName != "read_file" {
-		return nil
-	}
-
-	rawPath, ok := toolArgs["path"].(string)
-	if !ok {
-		return nil
-	}
-	path := strings.TrimSpace(rawPath)
-	if path == "" {
-		return nil
-	}
-
-	cleanPath := filepath.Clean(path)
-	if !filepath.IsAbs(cleanPath) {
-		cleanPath = filepath.Join(ts.workspace, cleanPath)
-	}
-	if filepath.Base(cleanPath) != "SKILL.md" {
-		return nil
-	}
-
-	var roots []string
-	if ts.agent != nil && ts.agent.ContextBuilder != nil {
-		roots = ts.agent.ContextBuilder.skillRoots()
-	}
-	if len(roots) == 0 && strings.TrimSpace(ts.workspace) != "" {
-		roots = []string{filepath.Join(ts.workspace, "skills")}
-	}
-
-	found := make(map[string]struct{})
-	for _, root := range roots {
-		root = strings.TrimSpace(root)
-		if root == "" {
-			continue
-		}
-		rel, err := filepath.Rel(filepath.Clean(root), cleanPath)
-		if err != nil {
-			continue
-		}
-		if rel == "." || rel == "" || strings.HasPrefix(rel, "..") {
-			continue
-		}
-		parts := strings.Split(rel, string(filepath.Separator))
-		if len(parts) != 2 || parts[1] != "SKILL.md" {
-			continue
-		}
-
-		skillName := strings.TrimSpace(parts[0])
-		if skillName == "" {
-			continue
-		}
-		if ts.agent != nil && ts.agent.ContextBuilder != nil {
-			if canonical, ok := ts.agent.ContextBuilder.ResolveSkillName(skillName); ok {
-				skillName = canonical
-			}
-		}
-		found[skillName] = struct{}{}
-	}
-
-	if len(found) == 0 {
-		return nil
-	}
-
-	names := make([]string, 0, len(found))
-	for skillName := range found {
-		names = append(names, skillName)
-	}
-	sort.Strings(names)
-	return names
-}
 
 // ExecuteTools executes the tool loop, handling BeforeTool/ApproveTool/AfterTool hooks,
 // tool execution with async callbacks, media delivery, and steering injection.
@@ -231,65 +45,11 @@ func (p *Pipeline) ExecuteTools(
 	var parallelActivities []string
 	var parallelDurations []time.Duration
 	if len(normalizedToolCalls) > 1 && canExecuteInParallel(al, cfg, ts, normalizedToolCalls) {
-		preExecutedResults = make([]*tools.ToolResult, len(normalizedToolCalls))
-		parallelActivities = make([]string, len(normalizedToolCalls))
-		parallelDurations = make([]time.Duration, len(normalizedToolCalls))
-		for i, call := range normalizedToolCalls {
-			args, _ := json.Marshal(call.Arguments)
-			parallelActivities[i] = ts.startTurnActivity("tool", call.Name, call.ID, call.Name, utils.Truncate(cfg.RedactDiagnostic(string(args)), 200))
-			ts.markToolItemRunning(toolBatchID, i, call.Name, call.Arguments)
+		var ok bool
+		preExecutedResults, parallelActivities, parallelDurations, ok = p.executeParallelToolCalls(turnCtx, ts, exec, toolBatchID, normalizedToolCalls)
+		if !ok {
+			return ToolControlBreak
 		}
-		if !ts.opts.NoHistory {
-			if err := ts.saveTurnCheckpoint("running", "parallel_tools"); err != nil {
-				exec.executionErr = err
-				return ToolControlBreak
-			}
-		}
-		// Bound workers independently of the number of tool calls produced by a model.
-		jobs := make(chan int)
-		var wg sync.WaitGroup
-		for worker := 0; worker < min(4, len(normalizedToolCalls)); worker++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for i := range jobs {
-					call := normalizedToolCalls[i]
-					if turnCtx.Err() != nil || ts.hardAbortRequested() {
-						ts.markToolItemTerminal(toolBatchID, i, toolItemStatusCancelled, toolItemSideEffectNone, "Tool cancelled before execution.")
-						preExecutedResults[i] = tools.ErrorResult("Tool cancelled before execution.")
-						ts.finishTurnActivity(parallelActivities[i], func(a *session.TurnActivity) { a.Status = "cancelled"; a.Detail = "Tool cancelled before execution." })
-						continue
-					}
-					start := time.Now()
-					ts.progress.markActivityStarted(parallelActivities[i], start)
-					execCtx := tools.WithToolInboundContext(turnCtx, ts.channel, ts.chatID, ts.opts.Dispatch.MessageID(), ts.opts.Dispatch.ReplyToMessageID())
-					execCtx = tools.WithToolSessionContext(execCtx, ts.agent.ID, ts.sessionKey, ts.opts.Dispatch.SessionScope)
-					callID := toolCallIDFromCall(call)
-					execCtx = tools.WithToolCallID(execCtx, callID)
-					al.emitEvent(runtimeevents.KindAgentToolExecStart, ts.eventMeta("runTurn", "turn.tool.start"), ToolExecStartPayload{CallID: callID, Tool: call.Name, Arguments: cloneEventArguments(call.Arguments)})
-					result := ts.toolRegistry().ExecuteWithContext(execCtx, call.Name, cloneStringAnyMap(call.Arguments), ts.channel, ts.chatID, nil)
-					if result == nil {
-						result = tools.ErrorResult("tool returned nil result")
-					}
-					ts.finishToolItemFromResult(al, toolBatchID, i, ts.toolPolicy(call.Name), result, false)
-					preExecutedResults[i] = result
-					parallelDurations[i] = time.Since(start)
-					al.emitEvent(runtimeevents.KindAgentToolExecEnd, ts.eventMeta("runTurn", "turn.tool.end"), ToolExecEndPayload{CallID: callID, Tool: call.Name, Duration: parallelDurations[i], ForLLMLen: len(result.ContentForLLM()), ForUserLen: len(result.ForUser), IsError: result.IsError, Async: result.Async, Error: toolErrorSummary(cfg, result)})
-					ts.finishTurnActivity(parallelActivities[i], func(a *session.TurnActivity) {
-						a.Status = "completed"
-						if result.IsError {
-							a.Status = "failed"
-						}
-						a.Output = boundedActivityOutput(cfg.RedactDiagnostic(result.ContentForLLM()), cfg.RedactDiagnostic(result.ForUser))
-					})
-				}
-			}()
-		}
-		for i := range normalizedToolCalls {
-			jobs <- i
-		}
-		close(jobs)
-		wg.Wait()
 	}
 
 toolLoop:
