@@ -28,7 +28,7 @@ func TestNormalizeTitle(t *testing.T) {
 }
 
 func TestNormalizeTitleTruncatesToSidebarLimit(t *testing.T) {
-	got := NormalizeTitle("这是一个非常长而且不适合显示在会话侧边栏中的自动生成标题，它应该被截断")
+	got := NormalizeTitle(strings.Repeat("很长的会话标题", 8))
 	if utf8.RuneCountInString(got) > MaxTitleRunes {
 		t.Fatalf("title has %d runes, want at most %d: %q", utf8.RuneCountInString(got), MaxTitleRunes, got)
 	}
@@ -39,8 +39,15 @@ func TestNormalizeTitleTruncatesToSidebarLimit(t *testing.T) {
 
 func TestNormalizeTitleDoesNotSplitEnglishWord(t *testing.T) {
 	got := NormalizeTitle("Investigate inconsistent frontend production build behavior")
-	if got != "Investigate…" {
+	if got != "Investigate inconsistent frontend…" {
 		t.Fatalf("truncated title = %q, want a word-boundary truncation", got)
+	}
+}
+
+func TestNormalizeTitleKeepsMixedCJKTopic(t *testing.T) {
+	got := NormalizeTitle("AnySearch 搜索今天的 AI 新闻")
+	if got != "AnySearch 搜索今天的 AI 新闻" {
+		t.Fatalf("truncated title = %q", got)
 	}
 }
 
@@ -50,7 +57,8 @@ func TestFallbackTitleRemovesRequestFraming(t *testing.T) {
 		want string
 	}{
 		{raw: "请帮我看看 Bun 构建后的样式问题", want: "Bun 构建后的样式问题"},
-		{raw: "Please help me investigate the Bun build issue", want: "investigate the Bun…"},
+		{raw: "Please help me investigate the Bun build issue", want: "investigate the Bun build issue"},
+		{raw: "请帮我使用 AnySearch 搜索今天的 AI 新闻", want: "AnySearch 搜索今天的 AI 新闻"},
 	}
 	for _, tt := range tests {
 		if got := FallbackTitle(tt.raw); got != tt.want {

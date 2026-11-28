@@ -8,9 +8,9 @@ import (
 const (
 	// TitleVersion is bumped when the generated title contract changes so a
 	// stale generated title can be refreshed on the next Web turn.
-	TitleVersion = 2
+	TitleVersion = 3
 	// MaxTitleRunes keeps titles aligned with the single-line history menu.
-	MaxTitleRunes = 24
+	MaxTitleRunes = 40
 )
 
 var titleLabels = []string{
@@ -23,6 +23,10 @@ var titleLabels = []string{
 }
 
 var fallbackRequestPrefixes = []string{
+	"请你使用",
+	"请你用",
+	"请使用",
+	"请用",
 	"请帮我看看",
 	"请帮我检查",
 	"请帮我处理",
@@ -43,6 +47,7 @@ var fallbackRequestPrefixes = []string{
 	"帮我",
 	"帮忙",
 	"请帮我",
+	"使用",
 	"我想",
 	"我需要",
 	"i would like to",
@@ -50,6 +55,7 @@ var fallbackRequestPrefixes = []string{
 	"i need to",
 	"i want",
 	"i need",
+	"use ",
 }
 
 // NormalizeTitle cleans model output and applies the shared sidebar length limit.
@@ -61,17 +67,24 @@ func NormalizeTitle(raw string) string {
 // title generation is unavailable.
 func FallbackTitle(raw string) string {
 	title := normalizeTitleText(raw)
-	lower := strings.ToLower(title)
-	for _, prefix := range fallbackRequestPrefixes {
-		if !strings.HasPrefix(lower, prefix) {
-			continue
+	for {
+		matched := false
+		lower := strings.ToLower(title)
+		for _, prefix := range fallbackRequestPrefixes {
+			if !strings.HasPrefix(lower, prefix) {
+				continue
+			}
+			candidate := strings.TrimSpace(title[len(prefix):])
+			candidate = strings.TrimLeft(candidate, " ：:，,、-–—")
+			if candidate != "" {
+				title = candidate
+				matched = true
+			}
+			break
 		}
-		candidate := strings.TrimSpace(title[len(prefix):])
-		candidate = strings.TrimLeft(candidate, " ：:，,、-–—")
-		if candidate != "" {
-			title = candidate
+		if !matched {
+			break
 		}
-		break
 	}
 	return truncateTitle(normalizeTitleText(title))
 }
@@ -117,13 +130,19 @@ func truncateTitle(title string) string {
 	}
 
 	limit := MaxTitleRunes - 1
-	for i := limit; i >= MaxTitleRunes/2; i-- {
-		if unicode.IsSpace(runes[i-1]) {
-			limit = i - 1
-			break
+	if isASCIIWordRune(runes[limit-1]) && isASCIIWordRune(runes[limit]) {
+		for i := limit; i >= MaxTitleRunes/2; i-- {
+			if unicode.IsSpace(runes[i-1]) {
+				limit = i - 1
+				break
+			}
 		}
 	}
 	return strings.TrimSpace(string(runes[:limit])) + "…"
+}
+
+func isASCIIWordRune(r rune) bool {
+	return r <= unicode.MaxASCII && (unicode.IsLetter(r) || unicode.IsDigit(r))
 }
 
 func isTitlePunctuation(r rune) bool {
