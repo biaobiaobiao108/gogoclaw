@@ -388,10 +388,11 @@ The pattern is: `GOGOCLAW_<SECTION>_<KEY>_<FIELD>` with underscores separating p
 GoGoClaw treats the following deployments as publicly exposed:
 
 - the launcher listens on a non-loopback address;
-- an external access public URL is configured; or
+- an external access public URL is configured;
+- a standalone gateway listens on a non-loopback host or `GOGOCLAW_GATEWAY_BIND`; or
 - an enabled channel other than the authenticated Pico/CLI transport uses `allow_from: ["*"]`.
 
-The launcher passes `GOGOCLAW_PUBLIC_EXPOSURE=true` to the managed gateway. A standalone gateway can set the same variable explicitly.
+The launcher passes `GOGOCLAW_PUBLIC_EXPOSURE=true` to the managed gateway. Compose passes the host-side `GOGOCLAW_GATEWAY_BIND` value into the standalone gateway, so changing the published bind away from loopback automatically enables public mode. A standalone gateway outside Compose can set `GOGOCLAW_PUBLIC_EXPOSURE` explicitly. Setting it to `false` suppresses listener-based inference, but does not override wildcard channel detection.
 
 In public mode, high-risk state-changing tools require human approval even when `tools.approval` is disabled or does not list them. This includes `exec`, file mutations, subagents, file delivery, skill installation, cron, messaging, and unknown or destructive tools. The normal final response is not an approval request. `tools.approval.yolo` skips human approval on every channel, including requirements from public mode and hooks. It also bypasses the channel, workspace path, and command pattern checks for `exec`. Tool disable rules, explicit hook denials, and configured subprocess isolation still apply.
 

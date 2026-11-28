@@ -167,6 +167,80 @@ func TestLauncherAuthLoginStatusAndLogout(t *testing.T) {
 	}
 }
 
+func TestLauncherAuthPreservesPasswordWhitespace(t *testing.T) {
+	const password = "  dashboard-test-password  "
+	store := &fakePasswordStore{}
+	mux, _ := newLauncherAuthTestHandler(t, store)
+
+	body, err := json.Marshal(map[string]string{
+		"password": password,
+		"confirm":  password,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/setup", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Launcher-Setup-Token", testLauncherSetupToken)
+	req.RemoteAddr = "127.0.0.1:12345"
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup code = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if store.password != password {
+		t.Fatalf("stored password = %q, want %q", store.password, password)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(
+		fmt.Sprintf(`{"password":%q}`, password),
+	))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "127.0.0.1:12346"
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login code = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(
+		fmt.Sprintf(`{"password":%q}`, strings.TrimSpace(password)),
+	))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "127.0.0.1:12347"
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("trimmed login code = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLauncherAuthPasswordChangePreservesWhitespace(t *testing.T) {
+	const oldPassword = "  old-password  "
+	const newPassword = "  new-password  "
+	store := &fakePasswordStore{initialized: true, password: oldPassword}
+	mux, sessions := newLauncherAuthTestHandler(t, store)
+	rec := httptest.NewRecorder()
+	body, err := json.Marshal(map[string]string{
+		"password":         newPassword,
+		"confirm":          newPassword,
+		"current_password": oldPassword,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/setup", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(issueLauncherTestSession(t, sessions))
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("password change code = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if store.password != newPassword {
+		t.Fatalf("stored password = %q, want %q", store.password, newPassword)
+	}
+}
+
 func TestLauncherAuthSecureCookieUsesTrustedProxyOnly(t *testing.T) {
 	store := &fakePasswordStore{initialized: true, password: "dashboard-test-password"}
 	sessions := middleware.NewLauncherDashboardSessions()

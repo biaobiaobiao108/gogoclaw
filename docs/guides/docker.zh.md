@@ -272,6 +272,8 @@ Compose 默认容器内存上限为 `2g`，每个 Go 进程的 `GOMEMLIMIT` 为 
 
 默认 `sessions.db` 保留完整聊天记录，摘要只移动模型上下文的起点，网页历史和搜索仍可访问原消息。删除会话会把页归还给 SQLite freelist 供后续写入复用，但数据库文件不会立即缩小；GoGoClaw 刻意避免反复执行 `VACUUM`。备份时必须包含 SQLite 的 WAL 文件集合；不再需要的历史可通过删除会话清理。
 
+超长工具结果和历史工具输出可能会写入 `workspace/state/tool_outputs`，供模型通过 `read_file` 分页读取。GoGoClaw 会把该目录限制为最近 100 个文件，并删除超过 7 天的文件；MCP 大文本产物使用相同的保留限制。
+
 长期记忆注入默认限制为约 `2048` 个估算 token，且最多使用当前模型可用上下文的八分之一。可用 `agents.defaults.memory_context_tokens` 或 `GOGOCLAW_AGENTS_DEFAULTS_MEMORY_CONTEXT_TOKENS` 配置；`MEMORY.md` 和最近三天日记的原文件不受截取影响，Agent 可用文件工具读取完整内容。Seahorse 在首次使用会话时核对历史，不再启动时全量加载。
 
 ## 安全边界

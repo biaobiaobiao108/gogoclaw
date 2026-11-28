@@ -388,10 +388,11 @@ export GOGOCLAW_TOOLS_WEB_BAIDU_API_KEY="baidu-key-from-env"
 以下部署会被 GoGoClaw 视为公开暴露：
 
 - Launcher 监听非 loopback 地址；
-- 配置了外部访问公开 URL；或
+- 配置了外部访问公开 URL；
+- 独立 gateway 监听非 loopback 主机地址，或 `GOGOCLAW_GATEWAY_BIND` 指向非 loopback 地址；或
 - 除已认证 Pico/CLI 传输之外，启用中的频道使用 `allow_from: ["*"]`。
 
-Launcher 会向受管 gateway 传递 `GOGOCLAW_PUBLIC_EXPOSURE=true`。独立运行的 gateway 也可以显式设置该环境变量。
+Launcher 会向受管 gateway 传递 `GOGOCLAW_PUBLIC_EXPOSURE=true`。Compose 会把宿主机侧的 `GOGOCLAW_GATEWAY_BIND` 传入独立 gateway；只要发布的绑定地址不是 loopback，就会自动启用公开模式。Compose 之外运行独立 gateway 时可以显式设置 `GOGOCLAW_PUBLIC_EXPOSURE`。将其设为 `false` 会关闭监听地址推断，但不会覆盖公开频道判定。
 
 公开模式下，高风险、会改变状态的工具即使未在 `tools.approval` 中启用也必须经过人工审批，包括 `exec`、文件修改、子代理、文件发送、技能安装、Cron、消息发送以及未知或破坏性工具。正常的最终回复不会触发审批。`tools.approval.yolo` 让所有频道跳过人工审批，包括公开模式和钩子要求的审批，同时跳过 `exec` 的频道、工作区路径和命令匹配检查。工具禁用规则、钩子的明确拒绝及已配置的子进程隔离仍生效。
 

@@ -293,6 +293,30 @@ func TestShellTool_OutputTruncation(t *testing.T) {
 	}
 }
 
+func TestCappedBufferDropsExcessOutput(t *testing.T) {
+	buffer := newCappedBuffer(10)
+	n, err := buffer.Write([]byte("0123456789abcdef"))
+	if err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if n != 16 {
+		t.Fatalf("Write() = %d, want 16", n)
+	}
+	if got := buffer.String(); got != "0123456789" {
+		t.Fatalf("buffer = %q, want first 10 bytes", got)
+	}
+	if !buffer.Truncated() {
+		t.Fatal("buffer should report truncation")
+	}
+
+	if _, err := buffer.Write([]byte("more")); err != nil {
+		t.Fatalf("second Write() error = %v", err)
+	}
+	if buffer.Len() != 10 {
+		t.Fatalf("buffer length = %d, want 10", buffer.Len())
+	}
+}
+
 // TestShellTool_WorkingDir_OutsideWorkspace verifies that working_dir cannot escape the workspace directly
 func TestShellTool_WorkingDir_OutsideWorkspace(t *testing.T) {
 	root := t.TempDir()

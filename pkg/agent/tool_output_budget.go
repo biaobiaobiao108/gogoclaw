@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/tokenizer"
 )
@@ -84,7 +83,7 @@ func persistToolResultArtifact(ts *turnState, tool, toolCallID, content string) 
 	}
 	name = sanitizeToolOutputName(tool + "-" + name)
 	path := filepath.Join(ts.agent.Workspace, "state", "tool_outputs", name+".txt")
-	if err := fileutil.WriteFileAtomic(path, []byte(content), 0o600); err != nil {
+	if err := writeToolOutputArtifact(path, []byte(content)); err != nil {
 		return "", err
 	}
 	return path, nil

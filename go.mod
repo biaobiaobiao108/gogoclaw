@@ -118,4 +118,6 @@ require (
 	modernc.org/memory v1.12.1 // indirect
 )
 
+// The Discord voice path needs this fork's DAVE/MLS support, which is not in
+// upstream discordgo v0.29.0. Reassess the pin when upstream includes it.
 replace github.com/bwmarrin/discordgo => github.com/yeongaori/discordgo-fork v0.0.0-20260929102729-a10ba9c7ec13

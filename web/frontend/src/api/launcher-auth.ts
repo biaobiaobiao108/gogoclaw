@@ -12,7 +12,7 @@ export async function postLauncherDashboardLogin(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "same-origin",
-    body: JSON.stringify({ password: password.trim() }),
+    body: JSON.stringify({ password }),
   })
   if (res.ok) return { ok: true }
 
@@ -69,11 +69,11 @@ export async function postLauncherDashboardSetup(
     headers,
     credentials: "same-origin",
     body: JSON.stringify({
-      password: password.trim(),
-      confirm: confirm.trim(),
+      password,
+      confirm,
       ...(currentPassword === undefined
         ? {}
-        : { current_password: currentPassword.trim() }),
+        : { current_password: currentPassword }),
     }),
   })
   if (res.ok) return { ok: true }

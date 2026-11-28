@@ -21,21 +21,21 @@ describe("buildStringMapMergePatch", () => {
 describe("buildTurnProfilePatch", () => {
   const baseProfile: TurnProfileForm = {
     enabled: true,
-    historyMode: "full",
+    historyMode: "off",
     systemPromptMode: "default",
-    skillsMode: "all",
+    skillsMode: "default",
     skillsAllowText: "alpha\nbeta",
-    toolsMode: "all",
+    toolsMode: "default",
     toolsAllowText: "read_file\nexec",
   }
 
   test("omits allow lists when skillsMode and toolsMode are not custom", () => {
     expect(buildTurnProfilePatch(baseProfile)).toEqual({
       enabled: true,
-      history: { mode: "full" },
+      history: { mode: "off" },
       system_prompt: { mode: "default" },
-      skills: { mode: "all" },
-      tools: { mode: "all" },
+      skills: { mode: "default" },
+      tools: { mode: "default" },
     })
   })
 
@@ -48,7 +48,7 @@ describe("buildTurnProfilePatch", () => {
       }),
     ).toEqual({
       enabled: true,
-      history: { mode: "full" },
+      history: { mode: "off" },
       system_prompt: { mode: "default" },
       skills: { mode: "custom", allow: ["alpha", "beta"] },
       tools: { mode: "custom", allow: ["read_file", "exec"] },

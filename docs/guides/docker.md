@@ -266,6 +266,8 @@ Compose defaults to a `2g` container memory limit and a `512MiB` `GOMEMLIMIT` pe
 
 The `sessions.db` SQLite store keeps the complete transcript. Summarization moves only the model context offset, so history and search still include earlier messages. Deleting a session releases pages to SQLite's freelist for reuse, but the database file does not shrink immediately; GoGoClaw intentionally avoids repeated `VACUUM` operations. Back up the complete SQLite WAL set and delete unused sessions when their data is no longer needed.
 
+Oversized tool results and historical tool outputs can create files under `workspace/state/tool_outputs` for paginated `read_file` access. GoGoClaw prunes this directory to the 100 most recent files and removes entries older than seven days. Large MCP text artifacts use the same retention limits.
+
 Memory prompt excerpts default to approximately `2048` estimated tokens, capped at one eighth of the model's available input context. Configure `agents.defaults.memory_context_tokens` or `GOGOCLAW_AGENTS_DEFAULTS_MEMORY_CONTEXT_TOKENS`. The original `MEMORY.md` and last three days of notes remain intact and readable with file tools. Seahorse reconciles sessions on first use rather than loading every transcript during startup.
 
 ## Security Boundary

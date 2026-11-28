@@ -42,6 +42,11 @@ const (
 	// Default: "localhost"
 	EnvGatewayHost = "GOGOCLAW_GATEWAY_HOST"
 
+	// EnvGatewayBind describes the host-side bind address used by Compose for
+	// the standalone gateway. Public exposure is inferred from this value when
+	// EnvPublicExposure is not explicitly set.
+	EnvGatewayBind = "GOGOCLAW_GATEWAY_BIND"
+
 	// EnvPublicExposure marks a gateway managed by a launcher that is reachable
 	// beyond the local machine. It makes risky state-changing tools require
 	// human approval even when the persisted approval list is otherwise empty.

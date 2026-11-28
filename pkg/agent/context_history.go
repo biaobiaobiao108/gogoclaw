@@ -3,12 +3,10 @@ package agent
 import (
 	"crypto/sha256"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/biaobiaobiao108/gogoclaw/pkg/fileutil"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/logger"
 	"github.com/biaobiaobiao108/gogoclaw/pkg/providers"
 )
@@ -207,12 +205,10 @@ func (cb *ContextBuilder) pruneHistoricalToolOutputs(history []providers.Message
 		}
 		hash := sha256.Sum256([]byte(msg.Content))
 		path := filepath.Join(cb.workspace, "state", "tool_outputs", fmt.Sprintf("history-%x.txt", hash[:16]))
-		if _, err := os.Stat(path); err != nil {
-			if err := fileutil.WriteFileAtomic(path, []byte(msg.Content), 0o600); err != nil {
-				logger.WarnCF("agent", "Historical tool output could not be archived", map[string]any{"error": err.Error()})
-				// Retain the source when a recoverable prompt view cannot be built.
-				return history
-			}
+		if err := ensureToolOutputArtifact(path, []byte(msg.Content)); err != nil {
+			logger.WarnCF("agent", "Historical tool output could not be archived", map[string]any{"error": err.Error()})
+			// Retain the source when a recoverable prompt view cannot be built.
+			return history
 		}
 		withArtifacts[i].Content = msg.Content + "\n[file:" + path + "]"
 	}

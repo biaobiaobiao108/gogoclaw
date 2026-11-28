@@ -26,6 +26,7 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
       GOMEMLIMIT: ${GOGOCLAW_GO_MEMORY_LIMIT:-512MiB}
       GOGOCLAW_GATEWAY_HOST: 0.0.0.0
+      GOGOCLAW_GATEWAY_BIND: ${GOGOCLAW_GATEWAY_BIND:-127.0.0.1}
     ports:
       - "${GOGOCLAW_GATEWAY_BIND:-127.0.0.1}:18790:18790"
     volumes:

@@ -122,7 +122,7 @@ func (h *launcherAuthHandlers) handleLogin(w http.ResponseWriter, r *http.Reques
 		_, _ = w.Write([]byte(`{"error":"too many login attempts"}`))
 		return
 	}
-	in := strings.TrimSpace(body.Password)
+	in := body.Password
 
 	initialized, initErr := h.isStoreInitialized(r.Context())
 	if initErr != nil {
@@ -255,13 +255,13 @@ func (h *launcherAuthHandlers) handleSetup(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	pw := strings.TrimSpace(body.Password)
-	if pw == "" {
+	pw := body.Password
+	if strings.TrimSpace(pw) == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":"password must not be empty"}`))
 		return
 	}
-	if pw != strings.TrimSpace(body.Confirm) {
+	if pw != body.Confirm {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":"passwords do not match"}`))
 		return
@@ -294,7 +294,7 @@ func (h *launcherAuthHandlers) handleSetup(w http.ResponseWriter, r *http.Reques
 			_, _ = w.Write([]byte(`{"error":"dashboard password is not initialized"}`))
 			return
 		}
-		currentOK, err := h.store.VerifyPassword(r.Context(), strings.TrimSpace(body.CurrentPassword))
+		currentOK, err := h.store.VerifyPassword(r.Context(), body.CurrentPassword)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			writeErrorf(w, "password verification failed: %v", err)

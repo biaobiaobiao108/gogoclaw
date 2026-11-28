@@ -130,7 +130,7 @@ func (t *ExecTool) Name() string {
 }
 
 func (t *ExecTool) Description() string {
-	return `Execute shell commands. Use background=true for long-running commands (returns sessionId). Use pty=true for interactive commands (can combine with background=true). Use poll/read/write/send-keys/kill with sessionId to manage background sessions. Sessions auto-cleanup 30 minutes after process exits; use kill to terminate early. Output buffer limit: 1MB.`
+	return `Execute shell commands. Use background=true for long-running commands (returns sessionId). Use pty=true for interactive commands (can combine with background=true). Use poll/read/write/send-keys/kill with sessionId to manage background sessions. Sessions auto-cleanup 30 minutes after process exits; use kill to terminate early. Output capture limit: 1MB per stream.`
 }
 
 // Tool parameter schemas intentionally use similar JSON-schema map literals.
@@ -325,6 +325,52 @@ func numericArg(raw any) (float64, bool) {
 	}
 }
 
+type cappedBuffer struct {
+	buf       bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+func newCappedBuffer(limit int) *cappedBuffer {
+	return &cappedBuffer{limit: limit}
+}
+
+func (b *cappedBuffer) Write(p []byte) (int, error) {
+	if b == nil {
+		return len(p), nil
+	}
+	remaining := b.limit - b.buf.Len()
+	if remaining <= 0 {
+		b.truncated = true
+		return len(p), nil
+	}
+	if len(p) > remaining {
+		_, _ = b.buf.Write(p[:remaining])
+		b.truncated = true
+		return len(p), nil
+	}
+	_, _ = b.buf.Write(p)
+	return len(p), nil
+}
+
+func (b *cappedBuffer) Len() int {
+	if b == nil {
+		return 0
+	}
+	return b.buf.Len()
+}
+
+func (b *cappedBuffer) String() string {
+	if b == nil {
+		return ""
+	}
+	return b.buf.String()
+}
+
+func (b *cappedBuffer) Truncated() bool {
+	return b != nil && b.truncated
+}
+
 func (t *ExecTool) runSync(ctx context.Context, command, cwd string, timeout time.Duration) *ToolResult {
 	// timeout == 0 means no timeout
 	var cmdCtx context.Context
@@ -348,9 +394,10 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string, timeout tim
 
 	prepareCommandForTermination(cmd)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := newCappedBuffer(maxOutputBufferSize)
+	stderr := newCappedBuffer(maxOutputBufferSize)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	// Route shell execution through the shared isolation entry point so exec tool
 	// subprocesses receive the same isolation policy as other integrations.
@@ -392,12 +439,19 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string, timeout tim
 	if stderr.Len() > 0 {
 		output += "\nSTDERR:\n" + stderr.String()
 	}
+	captureNotice := ""
+	if stdout.Truncated() || stderr.Truncated() {
+		captureNotice = fmt.Sprintf("\n... [output capture truncated at %d bytes per stream]", maxOutputBufferSize)
+	}
 
 	if err != nil {
 		if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
 			msg := fmt.Sprintf("Command timed out after %v", timeout)
 			if output != "" {
 				msg += "\n\nPartial output before timeout:\n" + output
+			}
+			if captureNotice != "" {
+				msg += captureNotice
 			}
 			return &ToolResult{
 				ForLLM:  msg,
@@ -429,6 +483,9 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string, timeout tim
 	maxLen := 10000
 	if len(output) > maxLen {
 		output = output[:maxLen] + fmt.Sprintf("\n... (truncated, %d more chars)", len(output)-maxLen)
+	}
+	if captureNotice != "" {
+		output += captureNotice
 	}
 
 	if err != nil {
