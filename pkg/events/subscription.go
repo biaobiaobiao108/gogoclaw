@@ -44,7 +44,7 @@ const (
 	Concurrent ConcurrencyKind = "concurrent"
 	// Locked processes events sequentially in subscription order.
 	Locked ConcurrencyKind = "locked"
-	// Keyed is reserved for keyed sequential processing and currently behaves as Locked.
+	// Keyed processes events sequentially per scope key while allowing different keys to run concurrently.
 	Keyed ConcurrencyKind = "keyed"
 )
 
@@ -108,7 +108,19 @@ type eventSubscription struct {
 	wg        sync.WaitGroup
 	blockWG   sync.WaitGroup
 
+	keyedMu    sync.Mutex
+	keyedLanes map[string]*keyedLane
+
 	counters subscriberCounters
+}
+
+type keyedTask struct {
+	ctx context.Context
+	evt Event
+}
+
+type keyedLane struct {
+	queue []keyedTask
 }
 
 type handlerResult struct {
@@ -236,11 +248,70 @@ func (s *eventSubscription) dispatch(ctx context.Context, evt Event) {
 			s.handle(ctx, evt)
 		}()
 	case Keyed:
-		// TODO: replace this with keyed executors when runtime events need
-		// per-scope ordering with cross-scope concurrency.
-		s.handle(ctx, evt)
+		s.dispatchKeyed(ctx, evt)
 	default:
 		s.handle(ctx, evt)
+	}
+}
+
+func eventScopeKey(evt Event) string {
+	switch {
+	case evt.Scope.SessionKey != "":
+		return "session:" + evt.Scope.SessionKey
+	case evt.Scope.TurnID != "":
+		return "turn:" + evt.Scope.TurnID
+	case evt.Scope.Channel != "" || evt.Scope.ChatID != "":
+		return "chat:" + evt.Scope.Channel + ":" + evt.Scope.ChatID
+	case evt.Scope.AgentID != "":
+		return "agent:" + evt.Scope.AgentID
+	case evt.Scope.RuntimeID != "":
+		return "runtime:" + evt.Scope.RuntimeID
+	default:
+		return ""
+	}
+}
+
+func (s *eventSubscription) dispatchKeyed(ctx context.Context, evt Event) {
+	key := eventScopeKey(evt)
+	s.keyedMu.Lock()
+	if s.keyedLanes == nil {
+		s.keyedLanes = make(map[string]*keyedLane)
+	}
+	lane, exists := s.keyedLanes[key]
+	if !exists {
+		lane = &keyedLane{queue: []keyedTask{{ctx: ctx, evt: evt}}}
+		s.keyedLanes[key] = lane
+		s.wg.Add(1)
+		s.keyedMu.Unlock()
+		go s.runKeyedLane(key, lane)
+		return
+	}
+	lane.queue = append(lane.queue, keyedTask{ctx: ctx, evt: evt})
+	s.keyedMu.Unlock()
+}
+
+func (s *eventSubscription) runKeyedLane(key string, lane *keyedLane) {
+	defer s.wg.Done()
+	for {
+		s.keyedMu.Lock()
+		if len(lane.queue) == 0 {
+			delete(s.keyedLanes, key)
+			s.keyedMu.Unlock()
+			return
+		}
+		task := lane.queue[0]
+		lane.queue[0] = keyedTask{}
+		lane.queue = lane.queue[1:]
+		s.keyedMu.Unlock()
+
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("events: subscriber %q keyed goroutine panic recovered: %v\n%s", s.name, r, debug.Stack())
+				}
+			}()
+			s.handle(task.ctx, task.evt)
+		}()
 	}
 }
 
