@@ -797,6 +797,7 @@ func TestPipeline_NativeSearchRespectsAgentAllowlist(t *testing.T) {
 }
 
 func TestPipeline_CallLLM_TimeoutRetry(t *testing.T) {
+	t.Parallel()
 	errorPrv := &errorProvider{errType: "timeout"}
 	al, agent, cleanup := newTurnCoordTestLoop(t, errorPrv)
 	defer cleanup()
@@ -820,6 +821,7 @@ func TestPipeline_CallLLM_TimeoutRetry(t *testing.T) {
 }
 
 func TestPipeline_CallLLM_HTTP5xxRetry(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	provider := &failOnceLLMProvider{
 		err:      errors.New("API request failed:\n  Status: 500\n  Body:   internal server error"),
@@ -895,6 +897,7 @@ func TestPipeline_CallLLM_ContextLengthError(t *testing.T) {
 }
 
 func TestPipeline_CallLLM_NetworkErrorRetry(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name    string
 		errType string
@@ -908,6 +911,7 @@ func TestPipeline_CallLLM_NetworkErrorRetry(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			errorPrv := &errorProvider{errType: tc.errType}
 			al, agent, cleanup := newTurnCoordTestLoop(t, errorPrv)
 			defer cleanup()
@@ -932,6 +936,7 @@ func TestPipeline_CallLLM_NetworkErrorRetry(t *testing.T) {
 }
 
 func TestPipeline_CallLLM_RetryConfigRespected(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	cfg := &config.Config{
@@ -982,6 +987,7 @@ func TestPipeline_CallLLM_RetryConfigRespected(t *testing.T) {
 }
 
 func TestPipeline_CallLLM_RetryCountLimit(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	counterPrv := &countingErrorProvider{errType: "connection_reset", targetCalls: 5}
