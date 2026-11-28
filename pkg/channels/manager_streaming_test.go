@@ -1305,6 +1305,45 @@ func TestGetStreamer_SplitOnMarkerBuffersPartialPrefixAndIgnoresCodeBlocks(t *te
 	}
 }
 
+func TestGetStreamer_SplitOnMarkerEnabledForTrackedPlatformDeliveryChannels(t *testing.T) {
+	m := newTestManager()
+	m.config = &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				SplitOnMarker: true,
+			},
+		},
+	}
+
+	var segments []*recordingStreamSegment
+	ch := &mockStreamingChannel{
+		beginStreamFn: func(context.Context, string) (Streamer, error) {
+			seg := &recordingStreamSegment{}
+			segments = append(segments, seg)
+			return seg, nil
+		},
+	}
+	m.channels[config.ChannelTelegram] = ch
+
+	streamer, ok := m.GetStreamer(context.Background(), config.ChannelTelegram, "chat-1", "")
+	if !ok {
+		t.Fatal("expected streamer to be available for telegram")
+	}
+	setStreamerDeliveryID(streamer, "tg-delivery-1")
+	if err := streamer.Update(context.Background(), "part1<|[SPLIT]|>part2"); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if err := streamer.Finalize(context.Background(), "part1<|[SPLIT]|>part2"); err != nil {
+		t.Fatalf("Finalize() error = %v", err)
+	}
+	if len(segments) != 2 {
+		t.Fatalf("segments = %d, want 2", len(segments))
+	}
+	if segments[0].deliveryID != "" || segments[1].deliveryID != "tg-delivery-1" {
+		t.Fatalf("delivery IDs = (%q, %q), want (\"\", \"tg-delivery-1\")", segments[0].deliveryID, segments[1].deliveryID)
+	}
+}
+
 func TestGetStreamer_FinalizeSeparateMessagesClearsTrackedToolFeedback(t *testing.T) {
 	m := newTestManager()
 	m.config = &config.Config{

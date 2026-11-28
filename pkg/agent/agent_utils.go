@@ -240,7 +240,7 @@ func toolFeedbackArgsPreview(args map[string]any, maxLen int) string {
 }
 
 func shouldPublishToolFeedback(cfg *config.Config, ts *turnState) bool {
-	if ts == nil || ts.channel == "" || ts.opts.SuppressToolFeedback {
+	if ts == nil || ts.channel == "" || ts.channel == config.ChannelPico || ts.opts.SuppressToolFeedback {
 		return false
 	}
 	return cfg != nil && cfg.Agents.Defaults.IsToolFeedbackEnabled()

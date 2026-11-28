@@ -378,7 +378,7 @@ toolLoop:
 						},
 					)
 
-					if shouldPublishToolFeedback(cfg, ts) && ts.channel != "pico" {
+					if shouldPublishToolFeedback(cfg, ts) {
 						toolFeedbackMaxLen := cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength()
 						toolFeedbackExplanation := exec.toolFeedbackExplanation(tc, messages)
 						feedbackMsg := utils.FormatToolFeedbackMessage(
@@ -751,7 +751,7 @@ toolLoop:
 			activityID = ts.startTurnActivity("tool", toolName, toolCallIDFromCall(tc), toolName, argsPreview)
 		}
 
-		if !duplicateReadOnly && shouldPublishToolFeedback(cfg, ts) && ts.channel != "pico" {
+		if !duplicateReadOnly && shouldPublishToolFeedback(cfg, ts) {
 			toolFeedbackMaxLen := cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength()
 			toolFeedbackExplanation := exec.toolFeedbackExplanation(tc, messages)
 			feedbackMsg := utils.FormatToolFeedbackMessage(
